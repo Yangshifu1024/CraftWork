@@ -64,6 +64,9 @@ func NewRegistry(opts Options) *Registry {
 		&applyPatchTool{registry: registry},
 		&shellExecTool{registry: registry},
 		&gitStatusTool{registry: registry},
+		&gitDiffTool{registry: registry},
+		&gitLogTool{registry: registry},
+		&gitCommitTool{registry: registry},
 		&todoWriteTool{},
 	} {
 		registry.tools[tool.Name()] = tool
