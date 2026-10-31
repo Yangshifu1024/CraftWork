@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新提交会取消上一次未完成的检查，避免重复消耗运行时间。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go 测试与静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # internal/app 会编译 Wails 的 Linux 后端，缺少 GTK4 / WebKitGTK 头文件会直接编译失败。
+      - name: 安装 Wails 所需的系统库
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev
+
+      - name: 单元测试
+        run: go test ./...
+
+      - name: 静态检查
+        run: go vet ./...
+
+      - name: 安装 govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: 检查 Go 依赖漏洞
+        run: govulncheck ./...
+
+  frontend:
+    name: 前端类型检查与构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 生产构建
+        run: npm run build
+
+      - name: 检查前端依赖漏洞
+        run: npm audit --audit-level=high
+
+  bindings:
+    name: 绑定漂移检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 生成绑定需要加载 Go 包；安装系统库可以避免 cgo 包解析失败。
+      - name: 安装 Wails 所需的系统库
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev
+
+      - name: 安装 Wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+
+      - name: 重新生成绑定
+        run: wails3 generate bindings -clean=true -ts -i
+
+      - name: 校验绑定无漂移
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all -- frontend/bindings)" ]; then
+            echo "frontend/bindings 与 Go 服务不一致。"
+            echo "请在本地运行 wails3 generate bindings -clean=true -ts -i 并提交生成结果。"
+            git status --porcelain --untracked-files=all -- frontend/bindings
+            git diff -- frontend/bindings
+            exit 1
+          fi
+          echo "frontend/bindings 与 Go 服务一致。"
