@@ -125,11 +125,16 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 	system := systemPrompt(mode, r.tools.Workspace())
 	specs := toModelSpecs(r.tools.Specs())
+	compressionChecked := false
 
 	for iteration := 0; iteration < r.maxIterations; iteration++ {
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID)
 			return
+		}
+		if !compressionChecked {
+			history = r.maybeCompress(ctx, thread, runID, messageID, history)
+			compressionChecked = true
 		}
 
 		textPartID := ""

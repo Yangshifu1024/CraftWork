@@ -413,7 +413,15 @@ export function NoticeCard({ data }: { data: NoticePartData }) {
   return (
     <div className="blk sys-note">
       <Icon name="info" />
-      {data.text}
+      <div className="sys-note-main">
+        <span>{data.text}</span>
+        {data.summary ? (
+          <details className="sys-note-detail">
+            <summary>查看摘要</summary>
+            <div>{data.summary}</div>
+          </details>
+        ) : null}
+      </div>
     </div>
   );
 }

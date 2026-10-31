@@ -180,8 +180,9 @@ export interface CalloutPartData {
 }
 
 export interface NoticePartData {
-  partId?: string;
+  partId: string;
   text: string;
+  summary?: string;
 }
 
 export interface Envelope {
@@ -254,6 +255,7 @@ export const EVENT = {
   approvalResolved: "approval.resolved",
   todoUpdated: "todo.updated",
   notice: "notice",
+  contextCompressed: "context.compressed",
   error: "error",
   threadUpdated: "thread.updated",
   usageUpdated: "usage.updated",

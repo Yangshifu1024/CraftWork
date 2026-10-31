@@ -28,6 +28,7 @@ const (
 	TypeApprovalResolved   = "approval.resolved"
 	TypeTodoUpdated        = "todo.updated"
 	TypeNotice             = "notice"
+	TypeContextCompressed  = "context.compressed"
 	TypeError              = "error"
 	TypeThreadUpdated      = "thread.updated"
 	TypeUsageUpdated       = "usage.updated"
