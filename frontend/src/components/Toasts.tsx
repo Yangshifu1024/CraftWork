@@ -17,29 +17,21 @@ export function Toasts() {
       {toasts.map((toast) => {
         const tone = toast.tone ?? "info";
         return (
-          <div
-            key={toast.id}
-            className={`toast ${tone === "danger" ? "err" : tone}${toast.onClick ? " is-action" : ""}`}
-            role={toast.onClick ? "button" : undefined}
-            tabIndex={toast.onClick ? 0 : undefined}
-            onClick={toast.onClick}
-            onKeyDown={(event) => {
-              if (!toast.onClick) {
-                return;
-              }
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                toast.onClick();
-              }
-            }}
-          >
+          <div key={toast.id} className={`toast ${tone === "danger" ? "err" : tone}${toast.onClick ? " is-action" : ""}`}>
             <span className="toast-ico">
               <Icon name={toneIcon[tone] ?? "info"} />
             </span>
-            <div className="toast-main">
-              <div className="toast-title">{toast.title}</div>
-              {toast.description ? <div className="toast-desc">{toast.description}</div> : null}
-            </div>
+            {toast.onClick ? (
+              <button type="button" className="toast-main toast-action" onClick={toast.onClick}>
+                <span className="toast-title">{toast.title}</span>
+                {toast.description ? <span className="toast-desc">{toast.description}</span> : null}
+              </button>
+            ) : (
+              <div className="toast-main">
+                <div className="toast-title">{toast.title}</div>
+                {toast.description ? <div className="toast-desc">{toast.description}</div> : null}
+              </div>
+            )}
             <button
               type="button"
               className="toast-close"

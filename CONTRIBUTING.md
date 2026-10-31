@@ -65,14 +65,25 @@ wails3 generate bindings -clean=true -ts -i
 ```bash
 go test ./...
 go vet ./...
-cd frontend && npx tsc --noEmit && npm run build
+cd frontend && npx tsc --noEmit && npm run test && npm run build
 wails3 build
 ```
+
+浏览器端到端测试与截图回归：
+
+```bash
+cd frontend
+npx playwright install chromium   # 首次运行
+npm run test:e2e                  # 功能用例 + 截图对比
+npm run test:e2e -- --grep-invert @screenshot   # 只跑功能用例
+```
+
+截图基线按操作系统保存；在非 macOS 上运行截图用例前需要生成对应平台基线。
 
 也可以使用 Taskfile 中的聚合命令：
 
 ```bash
-wails3 task test    # go test ./... + 前端类型检查
+wails3 task test    # go test ./... + 前端单元测试与类型检查
 wails3 task check   # go vet ./... + 前端类型检查
 ```
 
