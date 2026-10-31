@@ -49,9 +49,10 @@ tasks:
       - wails3 generate bindings -clean=true -ts -i
 
   test:
-    summary: Runs Go tests and the frontend type check
+    summary: Runs Go tests and the frontend tests and type check
     cmds:
       - go test ./...
+      - cd frontend && npm run test
       - cd frontend && npm run typecheck
 
   check:

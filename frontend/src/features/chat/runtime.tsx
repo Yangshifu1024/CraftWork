@@ -7,7 +7,7 @@ import { useUiStore } from "../../stores/ui";
 
 const imagePattern = /\.(png|jpe?g|gif|webp)$/i;
 
-function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
+export function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
   const content: any[] = [];
   for (const part of message.parts) {
     if (part.kind === "text") {

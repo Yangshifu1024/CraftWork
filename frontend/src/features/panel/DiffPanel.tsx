@@ -116,7 +116,7 @@ export function DiffPanel() {
 
 type DiffLineItem = DiffLine;
 
-function sideRows(lines: DiffLineItem[]) {
+export function sideRows(lines: DiffLineItem[]) {
   const rows: Array<{ left?: DiffLineItem; right?: DiffLineItem }> = [];
   let pendingDelete: DiffLineItem | null = null;
   for (const line of lines) {
