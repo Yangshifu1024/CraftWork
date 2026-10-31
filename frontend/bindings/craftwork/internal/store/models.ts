@@ -113,6 +113,16 @@ export interface Snapshot {
     "messages": Message[] | null;
     "lastSeq": number;
     "approvals": Approval[] | null;
+
+    /**
+     * HasMore 表示当前页之前还有更早的消息。
+     */
+    "hasMore": boolean;
+
+    /**
+     * OldestSeq 是当前页第一条消息中最小的部件序号，用于向前翻页。
+     */
+    "oldestSeq": number;
 }
 
 /**

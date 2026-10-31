@@ -73,3 +73,13 @@ export function SetModel(threadID: string, modelID: string): $CancellablePromise
 export function Snapshot(threadID: string): $CancellablePromise<store$0.Snapshot | null> {
     return $Call.ByID(1683354009, threadID);
 }
+
+/**
+ * SnapshotPage 返回最近一页消息，支持按部件序号向前翻页。
+ * 
+ * beforeSeq 为 0 时取最新一页；大于 0 时返回该序号之前的消息。limit
+ * 会被限制在 1–500 之间，避免一次拉取过多数据。
+ */
+export function SnapshotPage(threadID: string, limit: number, beforeSeq: number): $CancellablePromise<store$0.Snapshot | null> {
+    return $Call.ByID(3197835994, threadID, limit, beforeSeq);
+}

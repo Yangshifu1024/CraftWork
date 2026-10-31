@@ -27,10 +27,13 @@ interface ThreadState {
   searchResults: ThreadView[] | null;
   attachments: AttachmentInfo[];
   connected: boolean;
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
   connect(): void;
   boot(): Promise<void>;
   refresh(mode?: Mode): Promise<void>;
   select(threadID: string): Promise<void>;
+  loadEarlier(): Promise<void>;
   create(): Promise<void>;
   duplicate(threadID: string): Promise<void>;
   rename(threadID: string, title: string): Promise<void>;
@@ -209,6 +212,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   searchResults: null,
   attachments: [],
   connected: false,
+  hasEarlier: false,
+  loadingEarlier: false,
 
   connect() {
     if (get().connected) {
@@ -256,7 +261,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       pendingApprovals: [],
     }));
     try {
-      const snapshot = await api.threads.snapshot(threadID);
+      const snapshot = await api.threads.snapshotPage(threadID, 80, 0);
       const messages = normalizeMessages(threadID, snapshot);
       const lastStreaming = [...messages].reverse().find((message) => message.status === "streaming");
       set({
@@ -265,6 +270,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         runningMessageID: lastStreaming?.id ?? null,
         pendingApprovals: collectApprovals(messages),
         loading: false,
+        hasEarlier: snapshot.hasMore ?? false,
+        loadingEarlier: false,
         threads: updateThread(get().threads, threadID, {
           status: snapshot.thread.status as ThreadView["status"],
         }),
@@ -272,6 +279,45 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     } catch (error) {
       console.error("读取线程快照失败", error);
       set({ loading: false });
+    }
+  },
+
+  async loadEarlier() {
+    const mode = useAppStore.getState().mode;
+    const threadID = get().activeID[mode];
+    if (!threadID || !get().hasEarlier || get().loadingEarlier) {
+      return;
+    }
+    const firstMessage = get().messages[0];
+    const firstSeq = firstMessage?.parts.reduce(
+      (smallest, part) => (part.seq > 0 && part.seq < smallest ? part.seq : smallest),
+      Number.MAX_SAFE_INTEGER,
+    );
+    if (!firstSeq || firstSeq === Number.MAX_SAFE_INTEGER) {
+      set({ hasEarlier: false });
+      return;
+    }
+    set({ loadingEarlier: true });
+    try {
+      const snapshot = await api.threads.snapshotPage(threadID, 80, firstSeq);
+      const older = normalizeMessages(threadID, snapshot);
+      const current = get().messages;
+      const existing = new Set(current.map((message) => message.id));
+      const prepended = older.filter((message) => !existing.has(message.id));
+      const merged = [...prepended, ...current];
+      set({
+        messages: merged,
+        hasEarlier: snapshot.hasMore ?? false,
+        loadingEarlier: false,
+        pendingApprovals: collectApprovals(merged),
+      });
+    } catch (error) {
+      set({ loadingEarlier: false });
+      useUiStore.getState().toast({
+        title: "加载更早消息失败",
+        description: String(error),
+        tone: "danger",
+      });
     }
   },
 

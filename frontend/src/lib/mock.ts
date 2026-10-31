@@ -609,6 +609,20 @@ export const mockApi: Api = {
       delete messages[threadID];
     },
     snapshot: async (threadID) => snapshot(threadID),
+    snapshotPage: async (threadID, limit, beforeSeq) => {
+      const full = snapshot(threadID);
+      let messages = full.messages ?? [];
+      if (beforeSeq > 0) {
+        messages = messages.filter((message) => {
+          const last = Math.max(0, ...((message.parts ?? []).map((part) => part.seq)));
+          return last < beforeSeq;
+        });
+      }
+      const hasMore = messages.length > limit;
+      const page = hasMore ? messages.slice(-limit) : messages;
+      const oldestSeq = page[0]?.parts?.[0]?.seq ?? 0;
+      return { ...full, messages: page, hasMore, oldestSeq };
+    },
   },
   chat: {
     send: async (threadID, text, attachments = []) => {

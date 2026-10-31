@@ -178,7 +178,25 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 		Messages:  messages,
 		LastSeq:   lastSeq,
 		Approvals: approvals,
+		OldestSeq: firstPartSeq(messages),
 	}, nil
+}
+
+// firstPartSeq 返回第一条有部件消息中的最小序号。
+func firstPartSeq(messages []Message) int64 {
+	for _, message := range messages {
+		if len(message.Parts) == 0 {
+			continue
+		}
+		smallest := message.Parts[0].Seq
+		for _, part := range message.Parts[1:] {
+			if part.Seq < smallest {
+				smallest = part.Seq
+			}
+		}
+		return smallest
+	}
+	return 0
 }
 
 type approvalLocation struct {

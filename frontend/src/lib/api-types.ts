@@ -38,6 +38,7 @@ export interface Api {
     archive(threadID: string, archived: boolean): Promise<void>;
     remove(threadID: string): Promise<void>;
     snapshot(threadID: string): Promise<ThreadSnapshot>;
+    snapshotPage(threadID: string, limit: number, beforeSeq: number): Promise<ThreadSnapshot>;
   };
   chat: {
     send(threadID: string, text: string, attachments?: string[]): Promise<string>;

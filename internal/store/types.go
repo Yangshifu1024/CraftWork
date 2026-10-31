@@ -159,4 +159,8 @@ type Snapshot struct {
 	Messages  []Message  `json:"messages"`
 	LastSeq   int64      `json:"lastSeq"`
 	Approvals []Approval `json:"approvals"`
+	// HasMore 表示当前页之前还有更早的消息。
+	HasMore bool `json:"hasMore"`
+	// OldestSeq 是当前页第一条消息中最小的部件序号，用于向前翻页。
+	OldestSeq int64 `json:"oldestSeq"`
 }

@@ -62,6 +62,8 @@ export function useChatRuntime() {
   const send = useThreadStore((state) => state.send);
   const cancel = useThreadStore((state) => state.cancel);
   const regenerate = useThreadStore((state) => state.regenerate);
+  const hasEarlier = useThreadStore((state) => state.hasEarlier);
+  const loadEarlier = useThreadStore((state) => state.loadEarlier);
 
   const mode = useAppStore((state) => state.mode);
   const providers = useAppStore((state) => state.providers);
@@ -115,6 +117,8 @@ export function useChatRuntime() {
     messages,
     convertMessage: convert,
     isRunning: running,
+    hasEarlier,
+    onLoadEarlier: loadEarlier,
     onNew: handleNew,
     onCancel: handleCancel,
     onReload: handleReload,

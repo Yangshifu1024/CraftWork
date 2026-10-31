@@ -228,6 +228,8 @@ export interface ThreadSnapshot {
     parts: Array<{ id: string; kind: string; seq: number; data: any }> | null;
   }> | null;
   lastSeq: number;
+  hasMore?: boolean;
+  oldestSeq?: number;
   approvals: Array<{
     id: string;
     threadId: string;

@@ -67,6 +67,11 @@ export function ChatPane() {
           autoScroll
         >
           <div className="chat-stream">
+            <ThreadPrimitive.LoadEarlier className="load-earlier">
+              <Icon name="chevron-up" className="ico" />
+              <span>加载更早消息</span>
+            </ThreadPrimitive.LoadEarlier>
+
             {messages.length === 0 ? (
               <div className="chat-empty">
                 <span className="empty-mark">

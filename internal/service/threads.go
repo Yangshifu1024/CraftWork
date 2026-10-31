@@ -153,6 +153,62 @@ func (s *ThreadService) Snapshot(threadID string) (*store.Snapshot, error) {
 	return s.db.Snapshot(threadID)
 }
 
+// SnapshotPage 返回最近一页消息，支持按部件序号向前翻页。
+//
+// beforeSeq 为 0 时取最新一页；大于 0 时返回该序号之前的消息。limit
+// 会被限制在 1–500 之间，避免一次拉取过多数据。
+func (s *ThreadService) SnapshotPage(threadID string, limit int, beforeSeq int64) (*store.Snapshot, error) {
+	if limit <= 0 {
+		limit = 80
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	snapshot, err := s.db.Snapshot(threadID)
+	if err != nil {
+		return nil, err
+	}
+
+	messages := snapshot.Messages
+	if beforeSeq > 0 {
+		older := make([]store.Message, 0, len(messages))
+		for _, message := range messages {
+			if lastPartSeq(message) < beforeSeq {
+				older = append(older, message)
+			}
+		}
+		messages = older
+	}
+	if len(messages) > limit {
+		snapshot.Messages = messages[len(messages)-limit:]
+		snapshot.HasMore = true
+	} else {
+		snapshot.Messages = messages
+		snapshot.HasMore = false
+	}
+	snapshot.OldestSeq = oldestPartSeq(snapshot.Messages)
+	return snapshot, nil
+}
+
+func lastPartSeq(message store.Message) int64 {
+	var last int64
+	for _, part := range message.Parts {
+		if part.Seq > last {
+			last = part.Seq
+		}
+	}
+	return last
+}
+
+func oldestPartSeq(messages []store.Message) int64 {
+	for _, message := range messages {
+		for _, part := range message.Parts {
+			return part.Seq
+		}
+	}
+	return 0
+}
+
 func toViews(threads []store.Thread) []ThreadView {
 	result := make([]ThreadView, 0, len(threads))
 	for _, thread := range threads {

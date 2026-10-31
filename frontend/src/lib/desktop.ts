@@ -44,6 +44,8 @@ export const desktopApi: Api = {
     remove: (threadID) => ThreadService.Delete(threadID),
     snapshot: async (threadID) =>
       (await ThreadService.Snapshot(threadID)) as unknown as ThreadSnapshot,
+    snapshotPage: async (threadID, limit, beforeSeq) =>
+      (await ThreadService.SnapshotPage(threadID, limit, beforeSeq)) as unknown as ThreadSnapshot,
   },
   chat: {
     send: (threadID, text, attachments = []) => ChatService.Send(threadID, text, attachments),

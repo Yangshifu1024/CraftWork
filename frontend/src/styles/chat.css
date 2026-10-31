@@ -57,6 +57,24 @@
   gap: 22px;
 }
 
+/* 消息分页与长线程渲染隔离：离屏消息跳过布局与绘制。 */
+.load-earlier {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-hover);
+  color: var(--text-3);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.load-earlier:hover { color: var(--text); border-color: var(--border-strong); }
+.load-earlier .ico { width: 12px; height: 12px; }
+.msg { content-visibility: auto; contain-intrinsic-size: auto 96px; }
+
 .jump-bottom {
   position: sticky;
   bottom: 14px;
