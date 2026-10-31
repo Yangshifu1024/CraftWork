@@ -79,6 +79,33 @@ jobs:
       - name: 检查前端依赖漏洞
         run: npm audit --audit-level=high
 
+  e2e:
+    name: 浏览器端到端测试
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 安装 Chromium
+        run: npx playwright install --with-deps chromium
+
+      # 截图基线按操作系统保存；CI 只跑功能用例，截图回归在本地执行。
+      - name: 端到端测试
+        run: npm run test:e2e -- --grep-invert @screenshot
+
   bindings:
     name: 绑定漂移检查
     runs-on: ubuntu-latest

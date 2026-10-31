@@ -17,6 +17,7 @@ export function ChatPane() {
   const runtime = useChatRuntime();
   const mode = useAppStore((state) => state.mode);
   const messages = useThreadStore((state) => state.messages);
+  const hasEarlier = useThreadStore((state) => state.hasEarlier);
   const send = useThreadStore((state) => state.send);
   const addAttachments = useThreadStore((state) => state.addAttachments);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -67,10 +68,12 @@ export function ChatPane() {
           autoScroll
         >
           <div className="chat-stream">
-            <ThreadPrimitive.LoadEarlier className="load-earlier">
-              <Icon name="chevron-up" className="ico" />
-              <span>加载更早消息</span>
-            </ThreadPrimitive.LoadEarlier>
+            {hasEarlier ? (
+              <ThreadPrimitive.LoadEarlier className="load-earlier">
+                <Icon name="chevron-up" className="ico" />
+                <span>加载更早消息</span>
+              </ThreadPrimitive.LoadEarlier>
+            ) : null}
 
             {messages.length === 0 ? (
               <div className="chat-empty">

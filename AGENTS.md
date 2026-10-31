@@ -70,6 +70,8 @@ M3（Word/Excel/PDF 解析）、M4（MCP、沙箱、自动更新）目前是留�
 | Go 静态检查 | `go vet ./...` |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
 | 前端单元测试 | `cd frontend && npm run test` |
+| 浏览器端到端测试 | `cd frontend && npm run test:e2e`（首次需 `npx playwright install chromium`） |
+| 截图回归 | `cd frontend && npm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
 | 前端构建 | `cd frontend && npm run build` |
 | 一键测试 | `wails3 task test` |
 | 一键检查 | `wails3 task check` |
