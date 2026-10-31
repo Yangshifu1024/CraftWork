@@ -25,6 +25,11 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 				Input     map[string]any `json:"input"`
 				ToolUseID string         `json:"tool_use_id"`
 				Content   string         `json:"content"`
+				Source    struct {
+					Type      string `json:"type"`
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
 			} `json:"content"`
 		} `json:"messages"`
 		Tools []struct {
@@ -91,7 +96,10 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 		System:    "你是助手",
 		MaxTokens: 256,
 		Messages: []Message{
-			{Role: "user", Content: "列出文件"},
+			{Role: "user", Content: "列出文件", Attachments: []Attachment{
+				{Name: "note.txt", Text: "附件内容"},
+				{Name: "pic.png", MIME: "image/png", Data: "cGlj"},
+			}},
 			{Role: "assistant", Content: "我来看看。", ToolCalls: []ToolCall{
 				{ID: "toolu_1", Name: "fs_list", Args: map[string]any{"path": "."}},
 			}},
@@ -126,6 +134,17 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 	}
 	if len(body.Messages) != 3 {
 		t.Fatalf("消息数量不符: %d", len(body.Messages))
+	}
+	first := body.Messages[0]
+	if len(first.Content) != 3 {
+		t.Fatalf("用户消息应包含文本与附件块: %+v", first.Content)
+	}
+	if !strings.Contains(first.Content[1].Text, "不可信") || !strings.Contains(first.Content[1].Text, "附件内容") {
+		t.Fatalf("文本附件包装不符: %+v", first.Content[1])
+	}
+	if first.Content[2].Type != "image" || first.Content[2].Source.MediaType != "image/png" ||
+		first.Content[2].Source.Data != "cGlj" {
+		t.Fatalf("图片附件块不符: %+v", first.Content[2])
 	}
 	if body.Messages[1].Role != "assistant" || len(body.Messages[1].Content) != 2 {
 		t.Fatalf("assistant 内容块不符: %+v", body.Messages[1])

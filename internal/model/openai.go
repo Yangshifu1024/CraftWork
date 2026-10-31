@@ -110,7 +110,11 @@ func (c *OpenAICompat) requestBody(req Request) (map[string]any, error) {
 				"content":      message.Content,
 			})
 		default:
-			messages = append(messages, map[string]any{"role": message.Role, "content": message.Content})
+			content := any(message.Content)
+			if message.Role == "user" && len(message.Attachments) > 0 {
+				content = openAIUserContent(message)
+			}
+			messages = append(messages, map[string]any{"role": message.Role, "content": content})
 		}
 	}
 
@@ -138,6 +142,41 @@ func (c *OpenAICompat) requestBody(req Request) (map[string]any, error) {
 		body["tools"] = tools
 	}
 	return body, nil
+}
+
+func openAIUserContent(message Message) any {
+	texts := make([]string, 0, len(message.Attachments)+1)
+	if message.Content != "" {
+		texts = append(texts, message.Content)
+	}
+	var images []map[string]any
+	for _, attachment := range message.Attachments {
+		if attachment.Skipped != "" {
+			texts = append(texts, attachment.SkipNotice())
+			continue
+		}
+		if attachment.Text != "" {
+			texts = append(texts, attachment.PromptText())
+		}
+		if attachment.IsImage() {
+			images = append(images, map[string]any{
+				"type": "image_url",
+				"image_url": map[string]any{
+					"url": "data:" + attachment.MIME + ";base64," + attachment.Data,
+				},
+			})
+		}
+	}
+	text := strings.Join(texts, "\n\n")
+	if len(images) == 0 {
+		return text
+	}
+	parts := make([]map[string]any, 0, len(images)+1)
+	if text != "" {
+		parts = append(parts, map[string]any{"type": "text", "text": text})
+	}
+	parts = append(parts, images...)
+	return parts
 }
 
 type sseEvent struct {

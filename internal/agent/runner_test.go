@@ -429,6 +429,39 @@ func TestRunnerGeminiToolLoop(t *testing.T) {
 	}
 }
 
+func TestHistoryLoadsAttachmentContents(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.workspace, "note.txt")
+	if err := os.WriteFile(path, []byte("附件内容"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.AppendEvent(&store.EventRecord{
+		ID: "p_attach", ThreadID: "th_1", MessageID: "msg_attach",
+		Kind: "user_message",
+		Payload: map[string]any{
+			"text":        "看看附件",
+			"attachments": []string{path},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := h.runner.history(h.thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) == 0 {
+		t.Fatal("历史不应为空")
+	}
+	last := history[len(history)-1]
+	if last.Role != "user" || last.Content != "看看附件" {
+		t.Fatalf("最后一条用户消息不符: %+v", last)
+	}
+	if len(last.Attachments) != 1 || last.Attachments[0].Text != "附件内容" {
+		t.Fatalf("附件内容未进入模型历史: %+v", last.Attachments)
+	}
+}
+
 func waitApproval(t *testing.T, db *store.DB, threadID string) store.Approval {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

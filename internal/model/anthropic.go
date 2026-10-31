@@ -128,10 +128,30 @@ func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
 				"content":     message.Content,
 			}})
 		default:
-			if message.Content == "" {
-				continue
+			var blocks []map[string]any
+			if message.Content != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": message.Content})
 			}
-			appendMessage("user", []map[string]any{{"type": "text", "text": message.Content}})
+			for _, attachment := range message.Attachments {
+				if attachment.Skipped != "" {
+					blocks = append(blocks, map[string]any{"type": "text", "text": attachment.SkipNotice()})
+					continue
+				}
+				if attachment.Text != "" {
+					blocks = append(blocks, map[string]any{"type": "text", "text": attachment.PromptText()})
+				}
+				if attachment.IsImage() {
+					blocks = append(blocks, map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": attachment.MIME,
+							"data":       attachment.Data,
+						},
+					})
+				}
+			}
+			appendMessage("user", blocks)
 		}
 	}
 

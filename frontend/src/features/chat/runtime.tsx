@@ -5,7 +5,7 @@ import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 
-const imagePattern = /\.(png|jpe?g|gif|webp|bmp|heic|heif|svg)$/i;
+const imagePattern = /\.(png|jpe?g|gif|webp)$/i;
 
 function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
   const content: any[] = [];

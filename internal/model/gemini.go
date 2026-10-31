@@ -83,6 +83,12 @@ type geminiPart struct {
 	ThoughtSignature string                  `json:"thoughtSignature,omitempty"`
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
+	InlineData       *geminiInlineData       `json:"inlineData,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type geminiFunctionCall struct {
@@ -151,10 +157,25 @@ func (g *Gemini) requestBody(req Request) (map[string]any, error) {
 				},
 			}})
 		default:
-			if message.Content == "" {
-				continue
+			var parts []geminiPart
+			if message.Content != "" {
+				parts = append(parts, geminiPart{Text: message.Content})
 			}
-			appendContent("user", []geminiPart{{Text: message.Content}})
+			for _, attachment := range message.Attachments {
+				if attachment.Skipped != "" {
+					parts = append(parts, geminiPart{Text: attachment.SkipNotice()})
+					continue
+				}
+				if attachment.Text != "" {
+					parts = append(parts, geminiPart{Text: attachment.PromptText()})
+				}
+				if attachment.IsImage() {
+					parts = append(parts, geminiPart{
+						InlineData: &geminiInlineData{MimeType: attachment.MIME, Data: attachment.Data},
+					})
+				}
+			}
+			appendContent("user", parts)
 		}
 	}
 

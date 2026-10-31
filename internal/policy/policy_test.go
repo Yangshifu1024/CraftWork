@@ -7,6 +7,34 @@ import (
 	"testing"
 )
 
+func TestResolveAbsolutePathThroughSymlinkedWorkspace(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(realDir, "note.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	canonical, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := Resolve(link, filepath.Join(link, "note.txt"))
+	if err != nil {
+		t.Fatalf("符号链接工作区中的绝对路径不应失败: %v", err)
+	}
+	if resolved != canonical {
+		t.Fatalf("解析结果不符: got %s want %s", resolved, canonical)
+	}
+}
+
 func TestResolveRejectsEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

@@ -22,18 +22,18 @@ func Resolve(workspace, rel string) (string, error) {
 	if workspace == "" {
 		return "", errors.New("工作区未设置")
 	}
-	root, err := filepath.Abs(workspace)
+	absRoot, err := filepath.Abs(workspace)
 	if err != nil {
 		return "", fmt.Errorf("解析工作区: %w", err)
 	}
-	root, err = filepath.EvalSymlinks(root)
+	root, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
 		return "", fmt.Errorf("解析工作区符号链接: %w", err)
 	}
 
 	candidate := rel
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(root, candidate)
+		candidate = filepath.Join(absRoot, candidate)
 	}
 	candidate = filepath.Clean(candidate)
 
@@ -43,10 +43,12 @@ func Resolve(workspace, rel string) (string, error) {
 	}
 
 	// 先做词法校验：即使目标不存在，也不能接受 ../ 之类的越界路径。
-	if !within(root, candidate) {
+	if !within(absRoot, candidate) {
 		return "", ErrOutsideWorkspace
 	}
 
+	// 再解析符号链接，防止通过链接逃逸。绝对路径可能使用未解析的工作区
+	// 别名（例如 macOS 的 /var 与 /private/var），因此最终以解析结果为准。
 	resolved, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
 		if !os.IsNotExist(err) {

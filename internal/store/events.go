@@ -122,7 +122,11 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 		}
 		if kind == "user_message" {
 			if object, ok := data.(map[string]any); ok {
-				data = map[string]any{"text": object["text"]}
+				preserved := map[string]any{"text": object["text"]}
+				if attachments, ok := object["attachments"]; ok {
+					preserved["attachments"] = attachments
+				}
+				data = preserved
 			}
 		}
 		part := Part{ID: id, Kind: partKind, Seq: seq, Data: data}

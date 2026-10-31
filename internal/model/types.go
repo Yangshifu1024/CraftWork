@@ -49,6 +49,19 @@ type Message struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
 	ToolCallID string     `json:"toolCallId,omitempty"`
+	// Attachments 是用户消息携带的附件内容。Text 为文本内容，Data 为图片
+	// 的 base64 数据；Skipped 表示未读取的原因。
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
+// Attachment 是随用户消息发送给模型的附件。
+type Attachment struct {
+	Name    string `json:"name"`
+	MIME    string `json:"mime,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Data    string `json:"data,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	Skipped string `json:"skipped,omitempty"`
 }
 
 // ToolSpec 是暴露给模型的工具定义。

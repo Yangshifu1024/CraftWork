@@ -30,6 +30,10 @@ func TestGeminiStreamConvertsContentsAndTools(t *testing.T) {
 					Name     string         `json:"name"`
 					Response map[string]any `json:"response"`
 				} `json:"functionResponse"`
+				InlineData *struct {
+					MimeType string `json:"mimeType"`
+					Data     string `json:"data"`
+				} `json:"inlineData"`
 			} `json:"parts"`
 		} `json:"contents"`
 		Tools []struct {
@@ -75,7 +79,10 @@ func TestGeminiStreamConvertsContentsAndTools(t *testing.T) {
 		Model:  "gemini-2.5-pro",
 		System: "你是助手",
 		Messages: []Message{
-			{Role: "user", Content: "列出文件"},
+			{Role: "user", Content: "列出文件", Attachments: []Attachment{
+				{Name: "note.txt", Text: "附件内容"},
+				{Name: "pic.png", MIME: "image/png", Data: "cGlj"},
+			}},
 			{Role: "assistant", ToolCalls: []ToolCall{
 				{ID: "call_1", Name: "fs_list", Args: map[string]any{"path": "."}, Signature: "sig-1"},
 			}},
@@ -111,6 +118,16 @@ func TestGeminiStreamConvertsContentsAndTools(t *testing.T) {
 	}
 	if body.Contents[0].Role != "user" || body.Contents[0].Parts[0].Text != "列出文件" {
 		t.Fatalf("用户内容不符: %+v", body.Contents[0])
+	}
+	if len(body.Contents[0].Parts) != 3 {
+		t.Fatalf("用户内容应包含文本与附件: %+v", body.Contents[0].Parts)
+	}
+	if !strings.Contains(body.Contents[0].Parts[1].Text, "不可信") {
+		t.Fatalf("文本附件包装不符: %+v", body.Contents[0].Parts[1])
+	}
+	inline := body.Contents[0].Parts[2].InlineData
+	if inline == nil || inline.MimeType != "image/png" || inline.Data != "cGlj" {
+		t.Fatalf("图片附件不符: %+v", body.Contents[0].Parts[2])
 	}
 	modelContent := body.Contents[1]
 	if modelContent.Role != "model" || modelContent.Parts[0].FunctionCall == nil {
