@@ -378,6 +378,12 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 				approvalID := id.New("ap")
 				approvalPartID := id.New("part")
 				allowPermanent := r.policy.AllowsPermanent(assessment.Risk)
+				facts := approvalFacts(assessment, summary)
+				if call.Name == "shell_exec" {
+					if prefix, ok := commandPrefix(stringValue(call.Args["command"])); ok {
+						facts = append(facts, Fact{Label: "授权粒度", Value: "允许“" + prefix + "”开头的命令"})
+					}
+				}
 
 				payload := map[string]any{
 					"partId":         approvalPartID,
@@ -388,7 +394,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					"title":          approvalTitle(call.Name),
 					"target":         assessment.Target,
 					"detail":         assessment.Reason,
-					"facts":          approvalFacts(assessment, summary),
+					"facts":          facts,
 					"args":           call.Args,
 					"allowPermanent": allowPermanent,
 					"status":         "waiting",
@@ -412,7 +418,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					Title:          approvalTitle(call.Name),
 					Target:         assessment.Target,
 					Detail:         assessment.Reason,
-					Facts:          approvalFacts(assessment, summary),
+					Facts:          facts,
 					Args:           call.Args,
 					AllowPermanent: allowPermanent,
 				})
