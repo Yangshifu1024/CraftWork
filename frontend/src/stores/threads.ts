@@ -613,6 +613,18 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           });
           break;
         }
+        case EVENT.notice: {
+          if (!runningMessageID || !event.data?.partId) {
+            break;
+          }
+          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
+            id: event.data.partId,
+            kind: "notice",
+            seq: 0,
+            data: event.data,
+          });
+          break;
+        }
         case EVENT.runCompleted: {
           messages = setMessageStatus(messages, runningMessageID, "complete");
           running = false;

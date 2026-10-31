@@ -19,6 +19,7 @@ type Settings struct {
 	PanelWidth       int    `json:"panelWidth"`
 	ApprovalLevel    string `json:"approvalLevel"`
 	DefaultModel     string `json:"defaultModel"`
+	FallbackModel    string `json:"fallbackModel"`
 	ActiveWorkspace  string `json:"activeWorkspace"`
 	Language         string `json:"language"`
 	FontSize         int    `json:"fontSize"`
@@ -101,6 +102,13 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	if _, _, ok := model.FindModel(next.DefaultModel); !ok {
 		_, modelInfo := model.DefaultModel()
 		next.DefaultModel = modelInfo.ID
+	}
+	// 失败转移只接受真实提供商；空字符串表示关闭。
+	if next.FallbackModel != "" {
+		provider, _, ok := model.FindModel(next.FallbackModel)
+		if !ok || provider.Kind == "mock" || next.FallbackModel == next.DefaultModel {
+			next.FallbackModel = ""
+		}
 	}
 
 	if next.ActiveWorkspace != "" {

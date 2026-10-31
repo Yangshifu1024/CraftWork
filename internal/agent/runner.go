@@ -25,6 +25,16 @@ const (
 // ModelFactory 根据模型标识创建客户端，便于测试注入假模型。
 type ModelFactory interface {
 	Client(modelID string) (model.Client, error)
+	// FallbackModel 返回配置的失败转移模型；没有配置时返回空字符串。
+	FallbackModel(modelID string) string
+}
+
+// streamSession 是一次已经建立的模型流及其超时上下文。
+type streamSession struct {
+	modelID string
+	ctx     context.Context
+	cancel  context.CancelFunc
+	chunks  <-chan model.Chunk
 }
 
 // Runner 负责一次 Agent 执行的完整循环。
@@ -109,7 +119,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 	history, err := r.history(thread.ID)
 	if err != nil {
-		r.fail(thread, runID, messageID, "history_failed", err.Error())
+		r.fail(thread, runID, messageID, "history_failed", err.Error(), true)
 		return
 	}
 
@@ -122,36 +132,30 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			return
 		}
 
-		client, err := r.models.Client(thread.ModelID)
-		if err != nil {
-			r.fail(thread, runID, messageID, "model_unavailable", err.Error())
-			return
-		}
-
 		textPartID := ""
 		reasoningPartID := ""
 		var textBuilder, reasoningBuilder strings.Builder
 		var toolCalls []model.ToolCall
 		var usage *model.Usage
 
-		streamCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
-		stream, err := client.Stream(streamCtx, model.Request{
-			Model:    thread.ModelID,
-			Mode:     mode,
-			System:   system,
-			Messages: history,
-			Tools:    specs,
-		})
+		session, err := r.openSession(ctx, thread, runID, messageID, mode, system, history, specs)
 		if err != nil {
-			cancel()
-			r.fail(thread, runID, messageID, "model_error", err.Error())
+			if ctx.Err() != nil {
+				r.canceled(thread, runID, messageID)
+				return
+			}
+			r.failWithError(thread, runID, messageID, "model_error", err)
 			return
 		}
 
-		for chunk := range stream {
+		for chunk := range session.chunks {
 			if chunk.Err != nil {
-				cancel()
-				r.fail(thread, runID, messageID, "model_stream_error", chunk.Err.Error())
+				session.cancel()
+				if ctx.Err() != nil {
+					r.canceled(thread, runID, messageID)
+					return
+				}
+				r.failWithError(thread, runID, messageID, "model_stream_error", chunk.Err)
 				return
 			}
 			if chunk.Reasoning != "" {
@@ -181,10 +185,21 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				usage = chunk.Usage
 			}
 		}
-		cancel()
+		streamErr := session.ctx.Err()
+		session.cancel()
 
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID)
+			return
+		}
+		if errors.Is(streamErr, context.DeadlineExceeded) {
+			r.failWithError(thread, runID, messageID, "model_timeout",
+				model.WrapError(model.CodeTimeout, "模型服务", "模型响应超时，请稍后重试或精简上下文", streamErr))
+			return
+		}
+		if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
+			r.failWithError(thread, runID, messageID, "model_stream_error",
+				model.TransportError("模型服务", streamErr))
 			return
 		}
 
@@ -205,7 +220,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			})
 		}
 		if usage != nil {
-			r.recordUsage(thread, runID, usage)
+			r.recordUsage(thread, runID, session.modelID, usage)
 		}
 
 		if len(toolCalls) == 0 {
@@ -237,7 +252,76 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		history = append(history, results...)
 	}
 
-	r.fail(thread, runID, messageID, "max_iterations", "达到模型调用上限，已停止本次运行")
+	r.fail(thread, runID, messageID, "max_iterations", "达到模型调用上限，已停止本次运行", false)
+}
+
+// openSession 选择模型并建立流。
+//
+// 只有在请求尚未建立时遇到可重试错误（429、5xx、超时、连接失败）才会切换
+// 到失败转移模型；一旦收到任何片段，后续错误不再转移，避免上下文混乱。
+func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, messageID, mode, system string,
+	history []model.Message, specs []model.ToolSpec) (*streamSession, error) {
+	candidates := []string{thread.ModelID}
+	if fallback := r.models.FallbackModel(thread.ModelID); fallback != "" && fallback != thread.ModelID {
+		candidates = append(candidates, fallback)
+	}
+
+	var lastErr error
+	for index, candidate := range candidates {
+		client, err := r.models.Client(candidate)
+		if err != nil {
+			lastErr = err
+			if index < len(candidates)-1 && model.Retryable(err) {
+				r.switchNotice(thread, runID, messageID, candidate, candidates[index+1], err)
+				continue
+			}
+			return nil, err
+		}
+
+		streamCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
+		chunks, err := client.Stream(streamCtx, model.Request{
+			Model:    candidate,
+			Mode:     mode,
+			System:   system,
+			Messages: history,
+			Tools:    specs,
+		})
+		if err == nil {
+			return &streamSession{
+				modelID: candidate,
+				ctx:     streamCtx,
+				cancel:  cancel,
+				chunks:  chunks,
+			}, nil
+		}
+		cancel()
+		lastErr = err
+		if ctx.Err() != nil {
+			provider, _ := model.Resolve(candidate)
+			return nil, model.TransportError(provider.Name, ctx.Err())
+		}
+		if index < len(candidates)-1 && model.Retryable(err) {
+			r.switchNotice(thread, runID, messageID, candidate, candidates[index+1], err)
+			continue
+		}
+		return nil, err
+	}
+	if lastErr == nil {
+		lastErr = model.NewError(model.CodeProviderUnavailable, "模型服务", "没有可用的模型")
+	}
+	return nil, lastErr
+}
+
+// switchNotice 把失败转移记录成可见提示，便于用户知道本轮换了模型。
+func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to string, cause error) {
+	fromProvider, fromInfo := model.Resolve(from)
+	toProvider, toInfo := model.Resolve(to)
+	text := fmt.Sprintf("主模型 %s · %s 暂时不可用（%s），已切换到 %s · %s。",
+		fromProvider.Name, fromInfo.Name, cause.Error(), toProvider.Name, toInfo.Name)
+	partID := id.New("part")
+	payload := map[string]any{"partId": partID, "text": text}
+	r.persist(thread.ID, messageID, runID, partID, "notice", payload)
+	r.bus.Publish(events.TypeNotice, thread.ID, runID, payload)
 }
 
 // runTool 执行一次工具调用，返回用于回填给模型的结果。
@@ -372,6 +456,9 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"durationMs": duration.Milliseconds(),
 		"summary":    summary,
 	}
+	if call.Signature != "" {
+		payload["signature"] = call.Signature
+	}
 	r.persist(thread.ID, messageID, runID, partID, "tool_call", payload)
 	r.bus.Publish(events.TypeToolCompleted, thread.ID, runID, payload)
 
@@ -427,7 +514,7 @@ func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
 	r.bus.Flush(thread.ID)
 }
 
-func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string) {
+func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool) {
 	_ = r.db.FinishRun(runID, "error", code, message)
 	_ = r.db.SetThreadStatus(thread.ID, "error")
 
@@ -436,7 +523,7 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"partId":    partID,
 		"code":      code,
 		"message":   message,
-		"retryable": true,
+		"retryable": retryable,
 	}
 	r.persist(thread.ID, messageID, runID, partID, "error", payload)
 	r.bus.Publish(events.TypeError, thread.ID, runID, payload)
@@ -453,10 +540,21 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 	r.bus.Flush(thread.ID)
 }
 
-func (r *Runner) recordUsage(thread store.Thread, runID string, usage *model.Usage) {
+func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCode string, err error) {
+	if err == nil {
+		err = errors.New("未知模型错误")
+	}
+	code := string(model.CodeOf(err))
+	if code == "" || code == string(model.CodeUnknown) {
+		code = fallbackCode
+	}
+	r.fail(thread, runID, messageID, code, err.Error(), model.Retryable(err))
+}
+
+func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *model.Usage) {
 	row := &store.UsageRow{
 		ThreadID:        thread.ID,
-		ModelID:         thread.ModelID,
+		ModelID:         modelID,
 		InputTokens:     usage.InputTokens,
 		OutputTokens:    usage.OutputTokens,
 		CacheTokens:     usage.CacheTokens,
@@ -509,9 +607,10 @@ func (r *Runner) history(threadID string) ([]model.Message, error) {
 				case "tool":
 					data, _ := part.Data.(map[string]any)
 					call := model.ToolCall{
-						ID:   stringValue(data["toolCallId"]),
-						Name: stringValue(data["name"]),
-						Args: objectValue(data["args"]),
+						ID:        stringValue(data["toolCallId"]),
+						Name:      stringValue(data["name"]),
+						Args:      objectValue(data["args"]),
+						Signature: stringValue(data["signature"]),
 					}
 					if call.ID == "" || call.Name == "" {
 						continue

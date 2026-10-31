@@ -52,6 +52,7 @@ export function Composer() {
   );
   const currentModel = models.find((model) => model.id === thread?.modelId) ?? models[0];
   const contextK = currentModel?.contextK ?? 32;
+  const supportsVision = currentModel?.caps.vision ?? false;
 
   const estimate = useMemo(() => {
     const characters = messages.reduce((total, message) => {
@@ -118,7 +119,14 @@ export function Composer() {
             <button type="button" className="icon-btn sm" title="添加附件" aria-label="添加附件" onClick={() => void pickFiles()}>
               <Icon name="paperclip" className="ico" />
             </button>
-            <button type="button" className="icon-btn sm" title="添加图片" aria-label="添加图片" onClick={() => void pickFiles()}>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title={supportsVision ? "添加图片" : "当前模型不支持图片输入"}
+              aria-label="添加图片"
+              disabled={!supportsVision}
+              onClick={() => void pickFiles()}
+            >
               <Icon name="image" className="ico" />
             </button>
             <span className="composer-sep" aria-hidden="true" />

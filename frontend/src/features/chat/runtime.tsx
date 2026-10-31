@@ -1,9 +1,13 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useExternalStoreRuntime, type ThreadMessageLike } from "@assistant-ui/react";
 import type { ChatMessage } from "../../lib/types";
+import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
+import { useUiStore } from "../../stores/ui";
 
-function convertMessage(message: ChatMessage): ThreadMessageLike {
+const imagePattern = /\.(png|jpe?g|gif|webp|bmp|heic|heif|svg)$/i;
+
+function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
   const content: any[] = [];
   for (const part of message.parts) {
     if (part.kind === "text") {
@@ -18,6 +22,10 @@ function convertMessage(message: ChatMessage): ThreadMessageLike {
       continue;
     }
     if (part.kind === "reasoning") {
+      // 能力矩阵：当前模型不支持推理时不渲染推理块。
+      if (!reasoningEnabled) {
+        continue;
+      }
       content.push({ type: "reasoning", text: String(part.data?.text ?? "") });
       continue;
     }
@@ -55,6 +63,26 @@ export function useChatRuntime() {
   const cancel = useThreadStore((state) => state.cancel);
   const regenerate = useThreadStore((state) => state.regenerate);
 
+  const mode = useAppStore((state) => state.mode);
+  const providers = useAppStore((state) => state.providers);
+  const threads = useThreadStore((state) => state.threads[mode]);
+  const activeID = useThreadStore((state) => state.activeID[mode]);
+  const currentModel = useMemo(() => {
+    const thread = threads.find((item) => item.id === activeID);
+    if (!thread) {
+      return undefined;
+    }
+    return providers.flatMap((provider) => provider.models).find((model) => model.id === thread.modelId);
+  }, [threads, activeID, providers]);
+
+  const reasoningEnabled = currentModel?.caps.reasoning ?? false;
+  const visionEnabled = currentModel?.caps.vision ?? false;
+
+  const convert = useCallback(
+    (message: ChatMessage) => convertMessage(message, reasoningEnabled),
+    [reasoningEnabled],
+  );
+
   const handleNew = useCallback(
     async (message: any) => {
       const text = (message.content ?? [])
@@ -62,9 +90,17 @@ export function useChatRuntime() {
         .map((part: any) => String(part.text ?? ""))
         .join("\n");
       const attachments = useThreadStore.getState().attachments.map((item) => item.path);
+      if (!visionEnabled && attachments.some((path) => imagePattern.test(path))) {
+        useUiStore.getState().toast({
+          title: "当前模型不支持图片输入",
+          description: "请切换支持图片的模型，或移除图片附件后再发送。",
+          tone: "warn",
+        });
+        return;
+      }
       await send(text, attachments);
     },
-    [send],
+    [send, visionEnabled],
   );
 
   const handleCancel = useCallback(async () => {
@@ -77,7 +113,7 @@ export function useChatRuntime() {
 
   return useExternalStoreRuntime<ChatMessage>({
     messages,
-    convertMessage,
+    convertMessage: convert,
     isRunning: running,
     onNew: handleNew,
     onCancel: handleCancel,

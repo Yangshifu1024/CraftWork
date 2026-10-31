@@ -312,9 +312,20 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   );
 }
 
+const errorHints: Record<string, string> = {
+  auth: "密钥无效或权限不足：请在设置 → 模型 → 提供商中重新保存 API Key，并确认该 Key 允许调用模型。",
+  rate_limit: "请求被限流或额度不足：请稍后重试，或在设置中切换其他模型。",
+  timeout: "模型响应超时：可以重试；长对话可先精简历史或新建线程。",
+  context_overflow: "输入超出模型上下文窗口：请新建线程、精简历史，或切换到上下文更大的模型。",
+  provider_unavailable: "模型服务暂时不可用：请稍后重试，或切换到其他提供商。",
+  invalid_request: "请求参数不被模型接受：请检查模型名称、端点与工具配置。",
+  canceled: "本次生成已取消。",
+};
+
 export function ErrorCard({ data }: { data: ErrorPartData }) {
   const regenerate = useThreadStore((state) => state.regenerate);
   const toast = useUiStore((state) => state.toast);
+  const hint = errorHints[data.code];
   return (
     <div className="blk error-card">
       <div className="error-head">
@@ -324,6 +335,7 @@ export function ErrorCard({ data }: { data: ErrorPartData }) {
         <span className="badge danger">{data.code || "error"}</span>
       </div>
       <div className="error-body">{data.message}</div>
+      {hint ? <div className="error-hint">{hint}</div> : null}
       <div className="error-actions">
         <button type="button" className="btn sm" onClick={() => void regenerate()}>
           <Icon name="refresh" />

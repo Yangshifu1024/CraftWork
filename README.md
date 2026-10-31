@@ -44,7 +44,8 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 - 流式文本、推理折叠、工具卡片、任务清单、错误卡片。
 - 停止生成、重新生成、线程内切换模型。
 - 附件、拖放、`path:line` 引用、Markdown 表格与代码块高亮。
-- 多提供商：本地演示、OpenAI 与 OpenAI 兼容服务；Anthropic / Gemini 原生协议在 M1。
+- 多提供商：本地演示、OpenAI 与 OpenAI 兼容服务、Anthropic Messages、Google Gemini。
+- 错误分类（限流、认证、超时、上下文溢出等）、有限重试与失败转移。
 
 ### 审批与安全
 
@@ -165,7 +166,7 @@ CRAFTWORK_DEMO=1 wails3 dev
 
 ## 参与贡献
 
-欢迎提交 Issue 与 Pull Request。
+欢迎提交 Issue 与 Pull Request。完整的环境准备、代码约定、检查命令与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### 开始之前
 
@@ -189,9 +190,11 @@ wails3 build
 5. 提交 PR，描述变更、验证方式与影响的文档。
 6. 贡献使用 DCO：`git commit -s`。
 
+CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂移检查以及依赖审计；PR 合并前需要全部通过。
+
 ### 适合上手的方向
 
-- M1：Anthropic / Gemini 原生协议、上下文压缩、Vitest / Playwright。
+- M1：上下文压缩、附件内容进入模型、系统通知、Vitest / Playwright。
 - M2：命令前缀授权、补丁预演、Git 工具、终端搜索。
 - M3：Word / Excel / PDF 的结构化解析与写入。
 - M4：MCP 客户端、沙箱、自动更新、签名与公证。
@@ -201,7 +204,7 @@ wails3 build
 | 阶段 | 状态 | 目标 |
 | --- | --- | --- |
 | M0 骨架 | 已完成 | 三栏界面、流式对话、工具与审批、编辑器、差异、终端、设置、审计 |
-| M1 对话 | 下一步 | 多提供商原生协议、上下文压缩、附件内容、通知、前端测试 |
+| M1 对话 | 进行中 | 多提供商原生协议、上下文压缩、附件内容、通知、前端测试 |
 | M2 Code 闭环 | 计划 | 命令前缀授权、补丁预演、Git 工具、终端搜索 |
 | M3 Work 模式 | 计划 | Word / Excel / PDF 文本级读写、文档差异与备份 |
 | M4 安全与发布 | 计划 | 沙箱、MCP、自动更新、签名、公证、安装包 |
@@ -212,8 +215,9 @@ wails3 build
 - [技术设计方案](docs/技术设计方案.md)
 - [界面设计方案](docs/界面设计方案.md)
 - [高保真原型说明](docs/prototype/README.md)
+- [贡献指南](CONTRIBUTING.md)
 - [开发与协作约定](AGENTS.md)
 
 ## 许可证
 
-Apache-2.0；贡献流程使用 DCO。
+Apache-2.0，见 [LICENSE](LICENSE)；贡献流程使用 DCO（`git commit -s`）。

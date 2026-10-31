@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
 import type { AppInfo, Mode, ProviderView, Settings, Theme, WorkspaceView } from "../lib/types";
+import { useUiStore } from "./ui";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
@@ -8,6 +9,7 @@ export const DEFAULT_SETTINGS: Settings = {
   panelWidth: 440,
   approvalLevel: "graded",
   defaultModel: "local-demo",
+  fallbackModel: "",
   activeWorkspace: "",
   language: "zh-CN",
   fontSize: 13,
@@ -58,11 +60,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async boot() {
     try {
-      const [info, settings, workspaces, active] = await Promise.all([
+      const [info, settings, workspaces, active, keyWarnings] = await Promise.all([
         api.app.info(),
         api.settings.get(),
         api.workspace.list(),
         api.workspace.active().catch(() => null),
+        api.providers.warnings().catch(() => [] as string[]),
       ]);
       applyTheme(settings.theme as Theme);
       applyMode(settings.mode as Mode);
@@ -80,6 +83,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeWorkspace: active ?? workspaces[0] ?? null,
         booted: true,
       });
+      if (keyWarnings.length > 0) {
+        useUiStore.getState().toast({
+          title: "密钥文件权限已自动收紧",
+          description: keyWarnings.join("；"),
+          tone: "warn",
+        });
+      }
     } catch (error) {
       console.error("应用初始化失败", error);
       set({ booted: true });

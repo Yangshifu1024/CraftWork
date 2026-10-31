@@ -180,6 +180,7 @@ docs/                    需求、界面、技术方案、原型
 ### 6.6 错误处理
 
 - Go 侧返回可读错误；不要 panic 到用户界面。
+- 模型调用错误统一使用 `internal/model` 的 `Error` 与错误码（`auth`、`rate_limit`、`timeout`、`context_overflow` 等）；新增提供商必须映射到既有错误码，不要向前端抛原始 HTTP 错误。
 - 前端调用失败要 `toast` 提示，不能只 `console.error`。
 - 后台 goroutine 失败要写日志并推送 `error` 事件，不能静默退出。
 
@@ -215,6 +216,8 @@ wails3 build
 CRAFTWORK_HOME=/tmp/cw-smoke CRAFTWORK_DEMO=1 ./bin/craftwork
 ```
 
+CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`govulncheck`、`npm ci`、`npm run typecheck`、`npm run build`、`npm audit`，并重新生成绑定检查 `frontend/bindings` 是否漂移。本地提交前仍以本节命令为准。
+
 ## 9. 文档同步
 
 | 改动 | 需要同步 |
@@ -223,14 +226,14 @@ CRAFTWORK_HOME=/tmp/cw-smoke CRAFTWORK_DEMO=1 ./bin/craftwork
 | 产品定位、约束、功能验收、指标 | `docs/产品需求文档.md` |
 | 布局、组件、交互、图标、视觉 | `docs/界面设计方案.md` |
 | 原型行为或模块映射 | `docs/prototype/README.md` |
-| 使用方式、功能、架构、贡献流程 | `README.md` |
+| 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
 | 开发约定、命令、陷阱 | 本文件 |
 
 版本号规则：需求文档 v4.x、技术方案 v2.x、界面方案 v1.x；修改后在文档头同步日期。
 
 ## 10. 当前留桩
 
-- M1：Anthropic / Gemini 原生协议、上下文压缩、附件内容进入模型、通知、Vitest/Playwright。
+- M1：上下文压缩、附件内容进入模型、通知、Vitest/Playwright（Anthropic / Gemini 原生协议已接入）。
 - M2：Shell 命令前缀授权、补丁预演、Git 工具、终端搜索。
 - M3：Word / Excel / PDF 结构化解析与写入（`internal/doc` 目前只返回预览模型）。
 - M4：MCP 客户端、沙箱、自动更新、签名与公证。

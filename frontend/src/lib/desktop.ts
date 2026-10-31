@@ -93,6 +93,7 @@ export const desktopApi: Api = {
       const raw = (await ProviderService.List()) ?? [];
       return raw.map((provider) => ({ ...provider, models: provider.models ?? [] }));
     },
+    warnings: async () => (await ProviderService.Warnings()) ?? [],
     setKey: (providerID, key) => ProviderService.SetKey(providerID, key),
     clearKey: (providerID) => ProviderService.ClearKey(providerID),
     test: (providerID) => ProviderService.Test(providerID),

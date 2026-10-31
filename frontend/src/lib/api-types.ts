@@ -61,6 +61,7 @@ export interface Api {
   };
   providers: {
     list(): Promise<ProviderView[]>;
+    warnings(): Promise<string[]>;
     setKey(providerID: string, key: string): Promise<void>;
     clearKey(providerID: string): Promise<void>;
     test(providerID: string): Promise<ConnectionResult>;

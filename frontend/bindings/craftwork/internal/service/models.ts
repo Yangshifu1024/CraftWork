@@ -25,6 +25,7 @@ export interface ConnectionResult {
     "ok": boolean;
     "message": string;
     "latencyMs": number;
+    "code"?: string;
 }
 
 /**
@@ -113,6 +114,7 @@ export interface Settings {
     "panelWidth": number;
     "approvalLevel": string;
     "defaultModel": string;
+    "fallbackModel": string;
     "activeWorkspace": string;
     "language": string;
     "fontSize": number;

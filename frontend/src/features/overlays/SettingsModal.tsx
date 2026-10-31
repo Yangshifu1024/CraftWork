@@ -262,6 +262,31 @@ export function SettingsModal() {
                   </select>
                 </Row>
 
+                <Row
+                  label="失败转移模型"
+                  desc="主模型遇到限流、5xx、超时或连接失败时自动切换；工具执行过程中不切换，未配置密钥的模型不会生效。"
+                >
+                  <select
+                    className="select"
+                    value={settings.fallbackModel ?? ""}
+                    onChange={(event) => update({ fallbackModel: event.target.value })}
+                  >
+                    <option value="">不自动转移</option>
+                    {providers
+                      .filter((provider) => provider.kind !== "mock")
+                      .flatMap((provider) =>
+                        provider.models
+                          .filter((model) => model.id !== settings.defaultModel)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {provider.name} · {model.name}
+                              {model.available ? "" : "（未配置密钥）"}
+                            </option>
+                          )),
+                      )}
+                  </select>
+                </Row>
+
                 {providers.map((provider) => (
                   <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
                     <div className="provider-head">

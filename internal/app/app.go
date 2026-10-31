@@ -100,12 +100,15 @@ func Run(frontend embed.FS, build version.Info) error {
 			})
 		},
 	})
+	settingsService := service.NewSettingsService(db, bus, engine, registry)
 	modelFactory := model.NewFactory(secrets)
+	modelFactory.SetFallbackResolver(func(string) string {
+		return settingsService.Get().FallbackModel
+	})
 	broker := agent.NewBroker(db, bus)
 	runner := agent.NewRunner(db, bus, registry, engine, broker, modelFactory)
 
 	appService := service.NewAppService(dataDir, build)
-	settingsService := service.NewSettingsService(db, bus, engine, registry)
 	threadService := service.NewThreadService(db, bus)
 	chatService := service.NewChatService(db, bus, runner, broker)
 	workspaceService := service.NewWorkspaceService(db, bus, engine, registry, filepath.Join(dataDir, "backups"))

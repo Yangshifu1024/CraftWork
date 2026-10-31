@@ -36,8 +36,15 @@ export function SetKey(providerID: string, key: string): $CancellablePromise<voi
 }
 
 /**
- * Test 测试提供商连接。
+ * Test 测试提供商连接。不同协议使用各自的列表接口与鉴权头。
  */
 export function Test(providerID: string): $CancellablePromise<$models.ConnectionResult> {
     return $Call.ByID(3763667440, providerID);
+}
+
+/**
+ * Warnings 返回密钥文件权限等问题，供界面在启动时提示用户。
+ */
+export function Warnings(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2307677185);
 }
