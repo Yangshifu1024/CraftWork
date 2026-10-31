@@ -1,8 +1,8 @@
 # CraftWork 高保真可交互原型
 
-本目录是《Go 原生桌面 Agent 产品需求文档》v3.0 的配套高保真原型，用于产品评审、交互确认与视觉走查。
+本目录是《CraftWork 产品需求文档》v4.0 的配套高保真原型，用于产品评审、交互确认与前端视觉走查。
 
-> **边界说明**：原型使用 HTML / CSS / JavaScript 编写，仅用于演示交互与视觉，**不是正式实现**。正式产品按需求文档的硬约束使用 Go 原生界面与图形层，**不使用任何 WebView**（排除 Electron、Tauri、Wails、WebView2、CEF、Qt WebEngine）。
+> **边界说明**：原型使用 HTML / CSS / JavaScript 编写，是**前端实现的视觉与交互基线**。正式产品使用 Wails3 + React + TypeScript + assistant-ui，运行在系统 WebView 中；原型的 class 名、CSS token 与 DOM 结构会被直接复用。原型本身不加载任何外部资源，也不代表正式产品的技术实现。
 
 ---
 
@@ -47,6 +47,27 @@ docs/prototype/
 │   └── app.js            启动、线程列表、工作区卡片、状态栏、快捷键、面板拖拽
 └── README.md             本文件
 ```
+
+---
+
+## 二·补、模块与正式实现的对应
+
+| 原型模块 | 正式实现 |
+| --- | --- |
+| `js/data.js` | Go 后端 SQLite；演示数据由 `CRAFTWORK_DEMO=1` 写入 |
+| `js/markdown.js` | `frontend/src/features/chat/Markdown.tsx`（react-markdown + remark-gfm + highlight.js） |
+| `js/core.js` | `stores/*`、`components/Popover`、`Toasts`、`ConfirmDialog` |
+| `js/chat.js` | `features/chat/*`（assistant-ui 运行时 + 自定义部件） |
+| `js/panel-files.js` | `features/panel/FilesPanel` + `Editor`（CodeMirror 6） |
+| `js/panel-diff.js` | `features/panel/DiffPanel` + `internal/editor` |
+| `js/panel-terminal.js` | `features/panel/TerminalPanel` + `TerminalService`（真实 PTY） |
+| `js/panel-document.js` | `features/panel/DocumentPanel` + `DocumentService`（结构化解析 M3） |
+| `js/overlays.js` | `features/overlays/*`（命令面板、设置、审计/用量/备份） |
+| `js/scenarios.js` | `internal/agent` Run 循环 + `internal/model` Mock 客户端 |
+| `js/app.js` | `app/AppShell` + `stores/panel` + `stores/app` |
+| `index.html` 图标 sprite | `components/Icon.tsx`（lucide-react 映射表） |
+
+原型的 CSS 按 `base / chat / panel / overlay` 分区复制到 `frontend/src/styles/`；新增组件样式集中在 `highlight.css`、`app-extra.css`、`desktop.css`。
 
 ---
 
@@ -161,17 +182,20 @@ docs/prototype/
 
 ## 七、已知限制
 
-- 界面语言固定为简体中文；设置中的 English 选项仅作展示，不切换文案（需求中的完整国际化需要接入消息编号表）。
-- 代码编辑器为只读预览；切换到编辑态后可以输入，但保存只会提示「原型演示」，不写盘。
-- Markdown 渲染是轻量实现，覆盖标题、列表、任务列表、引用、分隔线、表格、代码块、行内格式与链接；复杂嵌套语法可能不完全还原。
-- 终端为命令模拟，不支持真实伪终端、光标定位与全屏程序（如 vim、top）。
-- 审批与审计不落库；「恢复备份」「导出数据」等操作只给出反馈，不产生真实文件。
-- 屏幕阅读器支持有限，与需求文档中的可访问性说明一致。
+以下限制只针对**原型**；正式实现已在对应模块中替换：
+
+- 原型界面语言固定为简体中文；正式实现的设置页也固定中文，完整国际化在 M1 建立消息编号表。
+- 原型代码编辑器为只读预览，编辑态不写盘；正式实现使用 CodeMirror 6，保存走备份与外部修改检查。
+- 原型 Markdown 为轻量实现；正式实现使用 react-markdown + highlight.js，并保留 `.md` 排版样式。
+- 原型终端为命令模拟；正式实现连接 Go 侧真实 PTY（xterm.js）。
+- 原型审批与审计不落库；正式实现写入 SQLite，并在审计面板可查。
+- 原型 Office / PDF 用 HTML 模拟；正式实现的解析在 M3 接入，当前版本只展示文件信息与纯文本预览。
+- 原型屏幕阅读器支持有限；正式实现基于 DOM 与 ARIA，支持范围同样有限。
 
 ---
 
 ## 八、修改与缓存
 
-`index.html` 中的样式与脚本引用带有 `?v=16` 版本参数，用于避免浏览器复用旧缓存。修改 `js/` 或 `*.css` 后，把该版本号递增（例如改为 `?v=17`）再刷新页面即可。
+`index.html` 中的样式与脚本引用带有 `?v=16` 版本参数，用于避免浏览器复用旧缓存。修改 `js/` 或 `*.css` 后，把该版本号递增（例如改为 `?v=17`）再刷新页面即可。该机制只用于静态预览；正式前端由 Vite 生成带哈希的资源文件名。
 
 如需调整演示内容，优先修改 `js/data.js`（线程、消息、文件、文档、终端、MCP、审计）与 `js/scenarios.js`（流式回复与审批后续流程），界面渲染逻辑集中在其余模块。

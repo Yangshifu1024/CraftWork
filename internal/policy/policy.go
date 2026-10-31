@@ -1,0 +1,292 @@
+// Package policy 负责工具风险分级、审批档位与路径安全校验。
+//
+// 三道防线互相独立：工具自身做参数校验，策略引擎决定是否需要审批，
+// 路径解析拒绝任何越界访问。前端传入的路径一律视为不可信。
+package policy
+
+import (
+	"strconv"
+	"strings"
+)
+
+// Risk 是工具调用的风险等级。
+type Risk int
+
+const (
+	// R0 只读：自动允许并记录审计。
+	R0 Risk = iota
+	// R1 写工作区：每次询问（文档写入必须每次）。
+	R1
+	// R2 执行：每次询问，或按命令前缀允许。
+	R2
+	// R3 网络或越界：每次询问，不提供永久允许。
+	R3
+	// R4 破坏性：阻止，双重确认也不放行。
+	R4
+)
+
+// String 返回 R0–R4。
+func (r Risk) String() string {
+	return "R" + strconv.Itoa(int(r))
+}
+
+// Level 是审批档位。
+type Level string
+
+const (
+	// LevelGraded 分级：R0 自动；R1–R3 询问；R4 阻止。
+	LevelGraded Level = "graded"
+	// LevelStrict 严格：写入与执行逐次询问，不提供永久允许。
+	LevelStrict Level = "strict"
+	// LevelReadonly 只读：只允许 R0。
+	LevelReadonly Level = "readonly"
+)
+
+// ParseLevel 把前端字符串转换为审批档位，未知值回退到分级。
+func ParseLevel(value string) Level {
+	switch Level(value) {
+	case LevelStrict:
+		return LevelStrict
+	case LevelReadonly:
+		return LevelReadonly
+	default:
+		return LevelGraded
+	}
+}
+
+// Action 是策略引擎对一次调用的处置。
+type Action string
+
+const (
+	// ActionAllow 直接执行。
+	ActionAllow Action = "allow"
+	// ActionAsk 挂起等待用户审批。
+	ActionAsk Action = "ask"
+	// ActionDeny 直接拒绝。
+	ActionDeny Action = "deny"
+)
+
+// Assessment 是一次工具调用的策略结论。
+type Assessment struct {
+	Risk   Risk   `json:"risk"`
+	Reason string `json:"reason"`
+	Target string `json:"target,omitempty"`
+}
+
+// Engine 根据审批档位、工作区与信任状态判断工具调用。
+type Engine struct {
+	level      Level
+	workspace  string
+	restricted bool
+}
+
+// New 创建策略引擎。workspace 必须是已经解析过的绝对路径。
+func New(level Level, workspace string) *Engine {
+	return &Engine{level: level, workspace: workspace}
+}
+
+// Level 返回当前审批档位。
+func (e *Engine) Level() Level {
+	return e.level
+}
+
+// SetLevel 更新审批档位。
+func (e *Engine) SetLevel(level Level) {
+	e.level = level
+}
+
+// Restricted 返回工作区是否处于受限模式。
+func (e *Engine) Restricted() bool {
+	return e.restricted
+}
+
+// SetRestricted 设置工作区信任状态。受限模式下网络访问直接拒绝，
+// 且不提供任何永久授权。
+func (e *Engine) SetRestricted(restricted bool) {
+	e.restricted = restricted
+}
+
+// Workspace 返回当前工作区根目录。
+func (e *Engine) Workspace() string {
+	return e.workspace
+}
+
+// SetWorkspace 更新工作区根目录。
+func (e *Engine) SetWorkspace(workspace string) {
+	e.workspace = workspace
+}
+
+// Assess 评估工具调用。args 是模型给出的原始参数。
+func (e *Engine) Assess(tool string, args map[string]any) Assessment {
+	base := baseRisk(tool)
+	assessment := Assessment{Risk: base, Reason: riskReason(base)}
+
+	switch tool {
+	case "fs_read", "fs_list", "fs_glob", "fs_grep", "fs_write", "fs_edit", "apply_patch":
+		path := stringArg(args, "path")
+		if path == "" {
+			path = stringArg(args, "file")
+		}
+		assessment.Target = path
+		if path == "" {
+			return assessment
+		}
+		resolved, err := Resolve(e.workspace, path)
+		if err != nil {
+			assessment.Risk = R3
+			assessment.Reason = "路径超出工作区"
+			return assessment
+		}
+		assessment.Target = resolved
+	case "shell_exec":
+		command := stringArg(args, "command")
+		assessment.Target = command
+		if command == "" {
+			assessment.Risk = R2
+			assessment.Reason = "执行命令"
+			return assessment
+		}
+		if isDestructiveCommand(command) {
+			assessment.Risk = R4
+			assessment.Reason = "包含破坏性命令"
+			return assessment
+		}
+		if isNetworkCommand(command) {
+			assessment.Risk = R3
+			assessment.Reason = "命令可能访问网络"
+			return assessment
+		}
+		assessment.Risk = R2
+		assessment.Reason = "在工作区内执行命令"
+	case "git_commit":
+		assessment.Target = "git commit"
+	}
+	return assessment
+}
+
+// Action 根据审批档位与信任状态给出处置。
+func (e *Engine) Action(risk Risk) Action {
+	if e.level == LevelReadonly {
+		if risk == R0 {
+			return ActionAllow
+		}
+		return ActionDeny
+	}
+	// 受限工作区默认断网：R3 直接拒绝，而不是交给用户审批。
+	if e.restricted && risk == R3 {
+		return ActionDeny
+	}
+	if e.level == LevelStrict {
+		if risk == R0 {
+			return ActionAllow
+		}
+		if risk == R4 {
+			return ActionDeny
+		}
+		return ActionAsk
+	}
+	// LevelGraded
+	switch risk {
+	case R0:
+		return ActionAllow
+	case R1, R2, R3:
+		return ActionAsk
+	default:
+		return ActionDeny
+	}
+}
+
+// AllowsPermanent 判断该风险是否允许“本会话 / 本工作区”授权。
+// R3、R4 永远不提供永久允许；严格、只读与受限工作区也不提供。
+func (e *Engine) AllowsPermanent(risk Risk) bool {
+	if e.level != LevelGraded || e.restricted {
+		return false
+	}
+	return risk == R1 || risk == R2
+}
+
+// AllowsWrite 判断当前档位是否允许写操作。
+func (e *Engine) AllowsWrite() bool {
+	return e.level != LevelReadonly
+}
+
+// IsWorkspaceTrusted 判断工作区信任状态。受限工作区只允许只读工具。
+func IsWorkspaceTrusted(trust string) bool {
+	return trust == "trusted"
+}
+
+func baseRisk(tool string) Risk {
+	switch tool {
+	case "fs_read", "fs_list", "fs_glob", "fs_grep",
+		"git_status", "git_diff", "git_log", "todo_write", "ask_user":
+		return R0
+	case "fs_write", "fs_edit", "apply_patch", "git_commit":
+		return R1
+	case "shell_exec", "task":
+		return R2
+	default:
+		// MCP 工具由服务器配置决定；未知工具默认按执行类处理。
+		return R2
+	}
+}
+
+func riskReason(risk Risk) string {
+	switch risk {
+	case R0:
+		return "只读操作"
+	case R1:
+		return "写入工作区"
+	case R2:
+		return "执行命令"
+	case R3:
+		return "网络或越界访问"
+	default:
+		return "破坏性操作"
+	}
+}
+
+func stringArg(args map[string]any, key string) string {
+	value, ok := args[key]
+	if !ok {
+		return ""
+	}
+	text, _ := value.(string)
+	return text
+}
+
+// destructivePatterns 命中后直接判 R4，不提供任何放行入口。
+var destructivePatterns = []string{
+	"rm -rf /", "rm -rf ~", "rm -rf .", "mkfs", "dd if=",
+	"chmod 777", "chmod -r 777", "chown -r", "> /dev/",
+	":(){:|:&};:", "shutdown", "reboot", "halt",
+	"git push --force", "git reset --hard", "git clean -fdx",
+}
+
+func isDestructiveCommand(command string) bool {
+	lower := strings.ToLower(command)
+	if strings.Contains(lower, "sudo ") {
+		return true
+	}
+	for _, pattern := range destructivePatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+var networkCommands = []string{
+	"curl ", "wget ", "ssh ", "scp ", "sftp ", "nc ", "netcat ",
+	"npm install", "npm i ", "pnpm add", "yarn add", "go get", "pip install",
+	"docker pull", "git clone", "git fetch", "git pull", "git push",
+}
+
+func isNetworkCommand(command string) bool {
+	lower := strings.ToLower(command)
+	for _, prefix := range networkCommands {
+		if strings.Contains(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}

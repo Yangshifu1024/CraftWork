@@ -1,0 +1,133 @@
+/* 新增组件需要的补充样式：CodeMirror、xterm 与文本预览。 */
+
+.cm-host {
+  height: 100%;
+  min-height: 0;
+}
+
+.cm-host .cm-editor {
+  height: 100%;
+}
+
+.cm-host .cm-scroller {
+  overflow: auto;
+}
+
+.cm-host .cm-search {
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.cm-host .cm-search input,
+.cm-host .cm-search button {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 5px;
+  margin-right: 4px;
+}
+
+.term-host {
+  min-height: 0;
+  flex: 1;
+  padding: 6px 4px 6px 10px;
+  background: var(--code-bg);
+}
+
+.term-host .xterm {
+  height: 100%;
+}
+
+.term-host .xterm-viewport {
+  background: transparent !important;
+  scrollbar-width: thin;
+}
+
+.term-host .xterm-screen {
+  height: 100%;
+}
+
+.term-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 9.5px;
+  color: var(--text-4);
+  background: var(--bg-panel);
+  flex: none;
+}
+
+.term-tab-close {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--text-4);
+}
+
+.term-tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.doc-text {
+  margin: 0;
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.doc-meta {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+}
+
+.doc-note {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+/* 数据面板标签：图标与文字保持同行。 */
+.data-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.data-tab .ico {
+  width: 12px;
+  height: 12px;
+  margin-right: 0;
+  vertical-align: 0;
+}
+
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.msg-attachments .attach-chip {
+  height: 24px;
+  font-size: 10.5px;
+}
+
+.md-image-note {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--text-3);
+  font-size: 10.5px;
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="craftwork"
+        Arguments=""
+        InstallLocation="C:\Program Files\CraftWork\CraftWork">
+    </Installer>
+    <PackageInformation
+        PackageName="CraftWork"
+        PackageDisplayName="CraftWork"
+        PublisherName="CN=CraftWork"
+        PublisherDisplayName="CraftWork"
+        Version="0.1.0.0"
+        PackageDescription="本地优先的桌面 Agent">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.craftwork.app"
+                Description="本地优先的桌面 Agent"
+                DisplayName="CraftWork"
+                ExecutableName="craftwork"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>CraftWork</DisplayName>
+            <PublisherDisplayName>CraftWork</PublisherDisplayName>
+            <Description>本地优先的桌面 Agent</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="craftwork.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
