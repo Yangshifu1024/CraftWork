@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,12 +58,12 @@ func (c *OpenAICompat) Stream(ctx context.Context, req Request) (<-chan Chunk, e
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("请求模型服务: %w", err)
+		return nil, TransportError(c.provider.Name, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		resp.Body.Close()
-		return nil, fmt.Errorf("模型服务返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+		return nil, HTTPError(c.provider.Name, resp.StatusCode, snippet)
 	}
 
 	channel := make(chan Chunk, 16)
@@ -170,6 +169,8 @@ type sseEvent struct {
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
 	} `json:"error"`
 }
 
@@ -208,8 +209,9 @@ func (c *OpenAICompat) consume(ctx context.Context, body io.Reader, channel chan
 			continue
 		}
 		if event.Error != nil {
+			kind := firstNonEmpty(event.Error.Type, event.Error.Code)
 			select {
-			case channel <- Chunk{Err: errors.New(event.Error.Message)}:
+			case channel <- Chunk{Err: StreamError(c.provider.Name, event.Error.Message, kind)}:
 			case <-ctx.Done():
 			}
 			return

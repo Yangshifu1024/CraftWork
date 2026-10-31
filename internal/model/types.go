@@ -38,6 +38,9 @@ type ToolCall struct {
 	ID   string         `json:"id"`
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
+	// Signature 是 Gemini 思考模型的 thoughtSignature，用于在回填工具结果时
+	// 保持上下文一致。其他提供商忽略该字段。
+	Signature string `json:"signature,omitempty"`
 }
 
 // Message 是发送给模型的对话消息。

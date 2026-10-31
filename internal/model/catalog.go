@@ -15,7 +15,7 @@ func Providers() []Provider {
 			Note:        "无需密钥，用于本地演示与端到端测试。",
 			Models: []ModelInfo{
 				{ID: "local-demo", Name: "Local Demo", Provider: "local", ContextK: 32,
-					Caps: Capabilities{Stream: true, Tools: true}, Default: true},
+					Caps: Capabilities{Stream: true, Tools: true, Reasoning: true}, Default: true},
 			},
 		},
 		{
@@ -85,22 +85,22 @@ func Providers() []Provider {
 		{
 			ID:          "anthropic",
 			Name:        "Anthropic",
-			Kind:        "unsupported",
+			Kind:        "anthropic",
 			Endpoint:    "https://api.anthropic.com",
 			KeyRequired: true,
-			Note:        "原生 Messages 协议适配器在 M1 接入，当前版本不可用。",
+			Note:        "原生 Messages 协议，支持流式输出、工具调用与图片输入。",
 			Models: []ModelInfo{
 				{ID: "claude-sonnet-4", Name: "Claude Sonnet 4", Provider: "anthropic", ContextK: 200,
-					Caps: Capabilities{Stream: true, Tools: true, Vision: true, Reasoning: true}},
+					Caps: Capabilities{Stream: true, Tools: true, Vision: true}},
 			},
 		},
 		{
 			ID:          "gemini",
 			Name:        "Google Gemini",
-			Kind:        "unsupported",
+			Kind:        "gemini",
 			Endpoint:    "https://generativelanguage.googleapis.com",
 			KeyRequired: true,
-			Note:        "原生 generateContent 适配器在 M1 接入，当前版本不可用。",
+			Note:        "原生 generateContent 协议，支持流式输出、函数调用与图片输入。",
 			Models: []ModelInfo{
 				{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro", Provider: "gemini", ContextK: 1000,
 					Caps: Capabilities{Stream: true, Tools: true, Vision: true, Reasoning: true}},
