@@ -185,6 +185,8 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const newText = typeof args.new_string === "string" ? args.new_string : "";
   const hasDiffPreview = data.tool === "fs_edit" && Boolean(oldText);
   const isCommand = data.tool === "shell_exec";
+  const patchText = typeof args.patch === "string" ? args.patch : "";
+  const isPatch = data.tool === "apply_patch" && Boolean(patchText);
   const previewLinesValue = hasDiffPreview ? previewLines(oldText, newText) : [];
 
   const note =
@@ -231,11 +233,11 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
             </span>
           ))}
         </div>
-        {hasDiffPreview || isCommand ? (
+        {hasDiffPreview || isCommand || isPatch ? (
           <div className="approval-diff-preview">
             <div className="approval-diff-head">
               <Icon name="diff" />
-              <span>{hasDiffPreview ? "文本级差异预览" : "命令预览"}</span>
+              <span>{hasDiffPreview ? "文本级差异预览" : isPatch ? "补丁预览" : "命令预览"}</span>
               <span className="spacer" />
               {hasDiffPreview ? (
                 <button type="button" onClick={() => void openDiff(data.target, oldText, newText)}>
@@ -244,21 +246,43 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
               ) : null}
             </div>
             <div className="approval-diff-body">
-              {hasDiffPreview
-                ? previewLinesValue.map((line, index) => (
-                    <div key={index} className={cn("diff-line", line.kind)}>
-                      <span className="sign">{line.kind === "add" ? "+" : "−"}</span>
-                      <span className="ln" />
-                      <span>{line.text}</span>
-                    </div>
-                  ))
-                : (
-                    <div className="diff-line ctx">
-                      <span className="sign">$</span>
-                      <span className="ln" />
-                      <span>{data.target}</span>
-                    </div>
-                  )}
+              {hasDiffPreview ? (
+                previewLinesValue.map((line, index) => (
+                  <div key={index} className={cn("diff-line", line.kind)}>
+                    <span className="sign">{line.kind === "add" ? "+" : "−"}</span>
+                    <span className="ln" />
+                    <span>{line.text}</span>
+                  </div>
+                ))
+              ) : isPatch ? (
+                patchText
+                  .split("\n")
+                  .slice(0, 60)
+                  .map((line, index) => {
+                    const kind = line.startsWith("@@")
+                      ? "ctx"
+                      : line.startsWith("+")
+                        ? "add"
+                        : line.startsWith("-")
+                          ? "del"
+                          : "ctx";
+                    return (
+                      <div key={index} className={cn("diff-line", kind)}>
+                        <span className="sign">
+                          {kind === "add" ? "+" : kind === "del" ? "−" : line.startsWith("@@") ? "@" : " "}
+                        </span>
+                        <span className="ln" />
+                        <span>{line}</span>
+                      </div>
+                    );
+                  })
+              ) : (
+                <div className="diff-line ctx">
+                  <span className="sign">$</span>
+                  <span className="ln" />
+                  <span>{data.target}</span>
+                </div>
+              )}
             </div>
           </div>
         ) : null}

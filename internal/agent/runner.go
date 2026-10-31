@@ -706,6 +706,8 @@ func approvalTitle(tool string) string {
 		return "写入文件"
 	case "fs_edit":
 		return "修改文件"
+	case "apply_patch":
+		return "应用补丁"
 	case "shell_exec":
 		return "执行命令"
 	case "git_commit":
@@ -729,7 +731,7 @@ func approvalFacts(assessment policy.Assessment, summary string) []Fact {
 
 func toolSummary(name string, args map[string]any) string {
 	switch name {
-	case "fs_read", "fs_list", "fs_write", "fs_edit":
+	case "fs_read", "fs_list", "fs_write", "fs_edit", "apply_patch":
 		path := stringValue(args["path"])
 		if path == "" {
 			path = "."
@@ -743,6 +745,12 @@ func toolSummary(name string, args map[string]any) string {
 		return stringValue(args["command"])
 	case "git_status":
 		return "git status"
+	case "git_diff":
+		return "git diff"
+	case "git_log":
+		return "git log"
+	case "git_commit":
+		return stringValue(args["message"])
 	case "todo_write":
 		return "更新任务清单"
 	default:

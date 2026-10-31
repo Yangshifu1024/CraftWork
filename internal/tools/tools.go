@@ -61,6 +61,7 @@ func NewRegistry(opts Options) *Registry {
 		&fsGrepTool{registry: registry},
 		&fsWriteTool{registry: registry},
 		&fsEditTool{registry: registry},
+		&applyPatchTool{registry: registry},
 		&shellExecTool{registry: registry},
 		&gitStatusTool{registry: registry},
 		&todoWriteTool{},
