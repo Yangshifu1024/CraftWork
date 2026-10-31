@@ -121,6 +121,7 @@ export interface Settings {
     "codeTheme": string;
     "terminalFontSize": number;
     "autoUpdate": boolean;
+    "notifications": boolean;
     "updateChannel": string;
     "telemetry": boolean;
 }

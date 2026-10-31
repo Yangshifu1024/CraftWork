@@ -5,6 +5,7 @@ export interface Toast {
   title: string;
   description?: string;
   tone?: "info" | "ok" | "warn" | "danger";
+  onClick?: () => void;
 }
 
 export interface ConfirmRequest {

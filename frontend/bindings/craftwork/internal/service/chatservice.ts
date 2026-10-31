@@ -34,8 +34,8 @@ export function Regenerate(threadID: string): $CancellablePromise<string> {
 /**
  * Send 写入用户消息并启动一次 run，返回 runID。
  * 
- * attachments 是附件路径列表。当前版本只记录路径并把名称展示在消息里，
- * 附件内容进入模型上下文在 M1 接入。
+ * attachments 是附件路径列表。路径与内容由 Agent 在构建模型历史时读取，
+ * 读取前会经 policy.Resolve 校验工作区边界并施加大小限制。
  */
 export function Send(threadID: string, text: string, attachments: string[] | null): $CancellablePromise<string> {
     return $Call.ByID(3272373685, threadID, text, attachments);

@@ -26,6 +26,7 @@ type Settings struct {
 	CodeTheme        string `json:"codeTheme"`
 	TerminalFontSize int    `json:"terminalFontSize"`
 	AutoUpdate       bool   `json:"autoUpdate"`
+	Notifications    bool   `json:"notifications"`
 	UpdateChannel    string `json:"updateChannel"`
 	Telemetry        bool   `json:"telemetry"`
 }
@@ -44,6 +45,7 @@ func DefaultSettings() Settings {
 		CodeTheme:        "dark",
 		TerminalFontSize: 12,
 		AutoUpdate:       true,
+		Notifications:    true,
 		UpdateChannel:    "stable",
 		Telemetry:        false,
 	}

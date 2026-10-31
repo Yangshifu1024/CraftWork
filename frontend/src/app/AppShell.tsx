@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { Statusbar } from "../features/statusbar/Statusbar";
 import { ChatPane } from "../features/chat/ChatPane";
+import { useNotifications } from "../features/chat/useNotifications";
 import { Panel } from "../features/panel/Panel";
 import { Toasts } from "../components/Toasts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -22,6 +23,7 @@ const DataModal = lazy(() =>
 );
 
 export function AppShell() {
+  useNotifications();
   const width = usePanelStore((state) => state.width);
   const open = usePanelStore((state) => state.open);
   const maximized = usePanelStore((state) => state.maximized);

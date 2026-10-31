@@ -209,6 +209,12 @@ export function SettingsModal() {
                 <Row label="自动检查更新" desc="仅检查签名清单，不上传任何数据。">
                   <Switch on={settings.autoUpdate} onChange={(value) => update({ autoUpdate: value })} />
                 </Row>
+                <Row
+                  label="系统通知"
+                  desc="审批等待、回复完成或运行失败时发送系统通知；窗口聚焦时不打扰，应用内提示可点击回到对应线程。"
+                >
+                  <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} />
+                </Row>
                 <Row label="遥测" desc="产品不收集遥测；此项固定关闭。">
                   <Switch on={settings.telemetry} onChange={() => undefined} disabled />
                 </Row>

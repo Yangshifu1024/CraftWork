@@ -18,6 +18,7 @@ import (
 	"craftwork/internal/events"
 	"craftwork/internal/id"
 	"craftwork/internal/model"
+	"craftwork/internal/notify"
 	"craftwork/internal/policy"
 	"craftwork/internal/secret"
 	"craftwork/internal/service"
@@ -183,6 +184,17 @@ func Run(frontend embed.FS, build version.Info) error {
 			TitleBar:                application.MacTitleBarHiddenInset,
 			InvisibleTitleBarHeight: 48,
 		},
+	})
+
+	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
+	runner.SetNotifier(func(title, message string) {
+		if !settingsService.Get().Notifications {
+			return
+		}
+		if current := wailsApp.Window.Current(); current != nil && current.IsFocused() {
+			return
+		}
+		notify.Send(title, message)
 	})
 
 	return wailsApp.Run()

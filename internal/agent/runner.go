@@ -49,6 +49,7 @@ type Runner struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
+	notify  func(title, message string)
 }
 
 // NewRunner 创建运行器。
@@ -63,6 +64,22 @@ func NewRunner(db *store.DB, bus *events.Bus, registry *tools.Registry,
 		models:        models,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
+	}
+}
+
+// SetNotifier 设置系统通知回调。宿主通常在这里判断窗口是否聚焦。
+func (r *Runner) SetNotifier(notifier func(title, message string)) {
+	r.mu.Lock()
+	r.notify = notifier
+	r.mu.Unlock()
+}
+
+func (r *Runner) sendNotification(title, message string) {
+	r.mu.Lock()
+	notifier := r.notify
+	r.mu.Unlock()
+	if notifier != nil {
+		notifier(title, message)
 	}
 }
 
@@ -382,6 +399,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					"threadId": thread.ID,
 					"status":   "awaiting",
 				})
+				r.sendNotification("需要审批", approvalTitle(call.Name)+" · "+summary)
 
 				decision, err := r.broker.Ask(ctx, ApprovalRequest{
 					ID:             approvalID,
@@ -505,6 +523,7 @@ func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 		"status":   "idle",
 	})
 	r.bus.Flush(thread.ID)
+	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
 func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
@@ -543,6 +562,7 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"status":   "error",
 	})
 	r.bus.Flush(thread.ID)
+	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
 }
 
 func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCode string, err error) {

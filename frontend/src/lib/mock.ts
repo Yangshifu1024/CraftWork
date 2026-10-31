@@ -39,6 +39,7 @@ const settings: Settings = {
   codeTheme: "dark",
   terminalFontSize: 12,
   autoUpdate: true,
+  notifications: true,
   updateChannel: "stable",
   telemetry: false,
 };
