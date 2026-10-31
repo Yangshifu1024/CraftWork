@@ -70,8 +70,10 @@ func Run(frontend embed.FS, build version.Info) error {
 		return err
 	}
 	defer db.Close()
-	if err := db.InterruptStaleRuns(); err != nil {
+	if interrupted, err := db.InterruptStaleRuns(); err != nil {
 		slog.Warn("清理上次未完成的运行失败", "err", err)
+	} else if interrupted > 0 {
+		slog.Warn("已标记上次中断的运行", "count", interrupted)
 	}
 
 	secrets, err := secret.Open(dataDir)

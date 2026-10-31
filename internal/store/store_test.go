@@ -63,6 +63,88 @@ func TestThreadAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestInterruptStaleRuns(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := NowMillis()
+	thread := &Thread{ID: "th_stale", Mode: "code", Title: "中断", ModelID: "local-demo",
+		Status: "running", CreatedAt: now, UpdatedAt: now}
+	if err := db.CreateThread(thread); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRun(&Run{
+		ID: "run_stale", ThreadID: "th_stale", MessageID: "msg_stale",
+		Status: "running", ModelID: "local-demo", StartedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateApproval(&Approval{
+		ID: "ap_stale", ThreadID: "th_stale", RunID: "run_stale", ToolCallID: "call_1",
+		Tool: "fs_write", Risk: "R1", RequestedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := db.InterruptStaleRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("应中断 1 个运行，实际 %d", count)
+	}
+
+	recovered, err := db.GetThread("th_stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Status != "error" {
+		t.Fatalf("线程状态应为 error，实际 %s", recovered.Status)
+	}
+	runs, err := db.threadRuns("th_stale")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("运行记录不符: %v %+v", err, runs)
+	}
+	if runs[0].Status != "interrupted" || runs[0].ErrorCode != "interrupted" {
+		t.Fatalf("运行中断标记不符: %+v", runs[0])
+	}
+	approval, err := db.GetApproval("ap_stale")
+	if err != nil || approval.Decision != "canceled" {
+		t.Fatalf("挂起审批应被取消: %v %+v", err, approval)
+	}
+
+	snapshot, err := db.Snapshot("th_stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundError := false
+	for _, message := range snapshot.Messages {
+		for _, part := range message.Parts {
+			if part.Kind != "error" {
+				continue
+			}
+			data, _ := part.Data.(map[string]any)
+			if data["code"] == "interrupted" {
+				foundError = true
+			}
+		}
+	}
+	if !foundError {
+		t.Fatal("应写入可重试的中断错误事件")
+	}
+
+	again, err := db.InterruptStaleRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != 0 {
+		t.Fatalf("重复恢复不应再次中断: %d", again)
+	}
+}
+
 func TestApprovalResolution(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

@@ -319,6 +319,7 @@ const errorHints: Record<string, string> = {
   context_overflow: "输入超出模型上下文窗口：请新建线程、精简历史，或切换到上下文更大的模型。",
   provider_unavailable: "模型服务暂时不可用：请稍后重试，或切换到其他提供商。",
   invalid_request: "请求参数不被模型接受：请检查模型名称、端点与工具配置。",
+  interrupted: "上次运行在应用退出时中断，已保留已产生的消息；可以点击重试继续。",
   canceled: "本次生成已取消。",
 };
 

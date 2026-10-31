@@ -2,6 +2,8 @@ package store
 
 import (
 	"fmt"
+
+	"craftwork/internal/id"
 )
 
 // AppendEvent 在事务内分配线程内单调递增的 seq 并写入事件。
@@ -243,35 +245,89 @@ func (db *DB) FinishRun(id, status, code, message string) error {
 }
 
 // InterruptStaleRuns 在启动时把未完成的运行与线程标记为中断。
-func (db *DB) InterruptStaleRuns() error {
+//
+// 返回被中断的运行数量。除了更新 runs / threads / approvals，还会为每个
+// 中断的 run 写入一条 error 事件，让界面显示可重试的错误卡片。
+func (db *DB) InterruptStaleRuns() (int, error) {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
 	tx, err := db.sqlDB.Begin()
 	if err != nil {
-		return fmt.Errorf("开始中断事务: %w", err)
+		return 0, fmt.Errorf("开始中断事务: %w", err)
 	}
 	defer tx.Rollback()
 
+	rows, err := tx.Query(`SELECT id, thread_id, message_id FROM runs WHERE status = 'running'`)
+	if err != nil {
+		return 0, fmt.Errorf("读取未完成运行: %w", err)
+	}
+	type staleRun struct {
+		id, threadID, messageID string
+	}
+	var stale []staleRun
+	for rows.Next() {
+		var run staleRun
+		if err := rows.Scan(&run.id, &run.threadID, &run.messageID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("扫描未完成运行: %w", err)
+		}
+		stale = append(stale, run)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("遍历未完成运行: %w", err)
+	}
+	rows.Close()
+
+	now := nowMillis()
+	message := "应用退出导致运行中断，已保留已产生的消息，可以重试。"
 	if _, err := tx.Exec(
-		`UPDATE runs SET status = 'interrupted', finished_at = ?
-		 WHERE status = 'running'`, nowMillis()); err != nil {
-		return fmt.Errorf("中断旧运行: %w", err)
+		`UPDATE runs SET status = 'interrupted', finished_at = ?,
+		        error_code = 'interrupted', error_message = ?
+		 WHERE status = 'running'`, now, message); err != nil {
+		return 0, fmt.Errorf("中断旧运行: %w", err)
 	}
 	if _, err := tx.Exec(
 		`UPDATE approvals SET decision = 'canceled', decided_at = ?
-		 WHERE decision IS NULL`, nowMillis()); err != nil {
-		return fmt.Errorf("取消挂起审批: %w", err)
+		 WHERE decision IS NULL`, now); err != nil {
+		return 0, fmt.Errorf("取消挂起审批: %w", err)
 	}
 	if _, err := tx.Exec(
 		`UPDATE threads SET status = 'idle', updated_at = ?
-		 WHERE status IN ('running', 'awaiting')`, nowMillis()); err != nil {
-		return fmt.Errorf("重置线程状态: %w", err)
+		 WHERE status IN ('running', 'awaiting')`, now); err != nil {
+		return 0, fmt.Errorf("重置线程状态: %w", err)
 	}
+
+	for _, run := range stale {
+		if _, err := tx.Exec(
+			`UPDATE threads SET status = 'error', updated_at = ? WHERE id = ?`,
+			now, run.threadID); err != nil {
+			return 0, fmt.Errorf("标记中断线程: %w", err)
+		}
+		partID := id.New("part")
+		payload, err := MarshalPayload(map[string]any{
+			"partId":    partID,
+			"code":      "interrupted",
+			"message":   message,
+			"retryable": true,
+		})
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO events (id, thread_id, message_id, run_id, seq, kind, payload, created_at)
+			 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE thread_id = ?),
+			         'error', ?, ?)`,
+			id.New("ev"), run.threadID, run.messageID, run.id, run.threadID, payload, now); err != nil {
+			return 0, fmt.Errorf("写入中断事件: %w", err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("提交中断事务: %w", err)
+		return 0, fmt.Errorf("提交中断事务: %w", err)
 	}
-	return nil
+	return len(stale), nil
 }
 
 func (db *DB) threadRuns(threadID string) ([]Run, error) {
