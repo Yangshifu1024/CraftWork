@@ -236,7 +236,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 
 ## 10. 当前留桩
 
-- M4：沙箱、自动更新、签名与公证、Streamable HTTP MCP、MCP 信任列表。
+- M4：沙箱、更新下载/替换与回滚、Streamable HTTP MCP、MCP 信任列表；签名/公证/DMG 已接入 Wails 工具链，需要开发者证书与发布密钥。
 - M3 限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
 - 真实密钥验收：OpenAI / Anthropic / Gemini 需要本地配置密钥后各跑一次工具调用闭环。
 - 跨平台：Windows 系统通知、Linux 打包与 CI 兼容性需要实机验证。
