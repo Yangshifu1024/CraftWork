@@ -92,7 +92,7 @@ func TestSnapshotWorkDuration(t *testing.T) {
 	}
 	if err := db.CreateRun(&Run{
 		ID: "run_work", ThreadID: "th_work", MessageID: "msg_assistant",
-		Status: "running", ModelID: "openai/gpt-5.1", StartedAt: now,
+		Status: "running", ModelID: "openai/gpt-5.1", StartedAt: now - 200,
 	}); err != nil {
 		t.Fatal(err)
 	}

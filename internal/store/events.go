@@ -7,6 +7,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"craftwork/internal/id"
@@ -104,7 +105,9 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 			lastSeq = seq
 		}
 		// 运行生命周期事件只驱动状态，不产生消息部件。
-		if kind == "run_started" || kind == "run_finished" {
+		// 上下文摘要是模型历史的内部事实（history 重建时单独读取），
+		// 界面上不可见，同样在这里跳过。
+		if kind == "run_started" || kind == "run_finished" || kind == "context_summary" {
 			continue
 		}
 
@@ -419,4 +422,45 @@ func nullString(value string) any {
 		return nil
 	}
 	return value
+}
+
+// ContextSummary 是一次上下文压缩的持久化结果。
+type ContextSummary struct {
+	// Summary 是早期对话的摘要文本。
+	Summary string
+	// UntilSeq 是被摘要覆盖的最后一条事件的序号；重建模型历史时
+	// 截止该序号（含）的消息都被摘要替代。
+	UntilSeq int64
+}
+
+// LatestContextSummary 返回会话最新的上下文压缩摘要；没有摘要时返回 nil。
+//
+// 压缩只写不删：旧的摘要事件被「最新一条」语义自然淘汰，避免压缩
+// 历史时还要维护事件之间的覆盖关系。
+func (db *DB) LatestContextSummary(threadID string) (*ContextSummary, error) {
+	row := db.sqlDB.QueryRow(
+		`SELECT payload FROM events
+		 WHERE thread_id = ? AND kind = 'context_summary'
+		 ORDER BY seq DESC LIMIT 1`, threadID)
+	var payload string
+	if err := row.Scan(&payload); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取上下文摘要: %w", err)
+	}
+	data, err := UnmarshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("解析上下文摘要: %w", err)
+	}
+	object, ok := data.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	summary, _ := object["summary"].(string)
+	seq, _ := object["untilSeq"].(float64)
+	if summary == "" || seq <= 0 {
+		return nil, nil
+	}
+	return &ContextSummary{Summary: summary, UntilSeq: int64(seq)}, nil
 }

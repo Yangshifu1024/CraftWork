@@ -95,9 +95,13 @@ func planCompression(messages []model.Message, window int64) ([]model.Message, [
 
 // maybeCompress 在历史超过模型窗口 70% 时摘要早期消息，并写入事件与可见提示。
 //
+// seqs 与 history 一一对应，是每条消息截止的事件序号：新摘要成功后会把
+// 覆盖范围（untilSeq）写入事件表，下一次运行的 history 重建直接复用，
+// 不再对同一批早期消息重复调用模型。
+//
 // 摘要失败时保留原始历史，让本轮继续尝试；不会因为压缩失败直接中断运行。
 func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, messageID string,
-	history []model.Message) []model.Message {
+	history []model.Message, seqs []int64) []model.Message {
 	_, info, ok := model.Resolve(thread.ModelID)
 	if !ok {
 		return history
@@ -138,6 +142,21 @@ func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, 
 	}
 	r.persist(thread.ID, messageID, runID, id.New("ev"), "context_compressed", payload)
 	r.records.Emit(events.TypeContextCompressed, thread.ID, runID, payload)
+
+	// 摘要持久化为模型历史的内部事实：context_summary 不在界面部件映射里，
+	// 只进数据库；下一次运行的 history 重建按 untilSeq 复用它。
+	// untilSeq 取自最后一条被摘要消息的截止序号；早先更小的摘要事件被
+	// 「最新一条」语义自然淘汰。
+	untilSeq := int64(0)
+	if len(early) > 0 && len(early)-1 < len(seqs) {
+		untilSeq = seqs[len(early)-1]
+	}
+	if untilSeq > 0 {
+		r.persist(thread.ID, messageID, runID, id.New("ev"), "context_summary", map[string]any{
+			"summary":  summary,
+			"untilSeq": untilSeq,
+		})
+	}
 
 	noticeID := id.New("part")
 	notice := fmt.Sprintf("上下文已压缩：省略 %d 条早期消息，保留最近 %d 条。", len(early), len(recent))

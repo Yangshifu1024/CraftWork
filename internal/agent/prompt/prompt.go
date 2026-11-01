@@ -41,6 +41,48 @@ type Section struct {
 	Content string
 }
 
+// GitSnapshot 是会话工作区的 Git 快照，由调用方在运行开始时读取。
+type GitSnapshot struct {
+	// Branch 是当前分支名；分离 HEAD 时为 "HEAD"。
+	Branch string
+	// StatusLines 是 git status --short 的输出行；空表示工作区干净。
+	StatusLines []string
+	// Commits 是最近几条单行提交记录。
+	Commits []string
+}
+
+// EnvInfo 是运行环境的公告事实。
+type EnvInfo struct {
+	// Today 是本地时区的当天日期，格式 2006-01-02。
+	Today string
+	// Platform 是 "操作系统/架构" 形式的平台标识，例如 darwin/arm64。
+	Platform string
+	// Shell 是用户默认 shell 的可执行名，可为空。
+	Shell string
+}
+
+// Instruction 是一份读取后的指令文件。
+type Instruction struct {
+	// Path 是文件的绝对路径，展示给模型用于溯源。
+	Path string
+	// Scope 说明文件的适用范围："global"（用户全局）或 "project"（随代码库提交）。
+	Scope string
+	// Content 是文件正文；调用方已按行数与字符数截断。
+	Content string
+	// Truncated 表示正文被截断过，组装时会追加截断提示。
+	Truncated bool
+}
+
+// EnvContextSnapshot 是一次运行开始时收集到的环境上下文。
+type EnvContextSnapshot struct {
+	// Env 是环境公告事实；零值时环境节省略。
+	Env EnvInfo
+	// Git 是 Git 快照；nil 表示不在仓库或读取失败，整个 Git 段省略。
+	Git *GitSnapshot
+	// Instructions 是读取到的指令文件，按显示顺序排列。
+	Instructions []Instruction
+}
+
 // Input 是组装系统提示词所需的全部运行时事实。
 type Input struct {
 	// Mode 是会话模式："code" 或 "work"。
@@ -49,6 +91,8 @@ type Input struct {
 	Workspace string
 	// Restricted 表示当前工作区未标记为可信；此时追加受限工作区条款。
 	Restricted bool
+	// EnvContext 是本次运行收集到的环境上下文。
+	EnvContext EnvContextSnapshot
 }
 
 // Stat 是一节组装后的用量统计，供日志与后续界面展示。
@@ -71,6 +115,10 @@ func Build(in Input) ([]model.SystemBlock, []Stat) {
 		buildPrefixSection(),
 		buildIdentitySection(),
 		buildModeRulesSection(in),
+	}
+	sections = append(sections, buildEnvSection(in.EnvContext.Env, in.EnvContext.Git)...)
+	if section := buildInstructionsSection(in.EnvContext.Instructions); section != nil {
+		sections = append(sections, *section)
 	}
 
 	var prefix []string
@@ -157,4 +205,79 @@ func buildModeRulesSection(in Input) Section {
 		lines = append(lines, "- 当前工作区未标记为可信：高风险操作会被直接拒绝或逐次询问，已有授权不生效，也不提供永久授权；遇到拒绝时说明原因并改用风险更低的方式，不要反复重试。")
 	}
 	return Section{Name: "会话规则", Source: "mode_rules", Hint: HintDynamic, Content: strings.Join(lines, "\n")}
+}
+
+// buildEnvSection 是环境公告：日期、平台与可选的 Git 快照。
+//
+// 这些事实每次运行开始时读取，同一会话内多数时候不变；日期跨天、Git
+// 状态变化会击穿动态缓存块，但稳定块不受影响，代价可控。
+// Env 为零值时整节省略。
+func buildEnvSection(env EnvInfo, git *GitSnapshot) []Section {
+	if env.Today == "" && env.Platform == "" && env.Shell == "" {
+		return nil
+	}
+	lines := []string{"# 环境"}
+	if env.Today != "" {
+		lines = append(lines, "- 今天日期："+env.Today)
+	}
+	if env.Platform != "" {
+		lines = append(lines, "- 平台："+env.Platform)
+	}
+	if env.Shell != "" {
+		lines = append(lines, "- Shell："+env.Shell)
+	}
+	sections := []Section{{
+		Name: "环境公告", Source: "env", Hint: HintDynamic,
+		Content: strings.Join(lines, "\n"),
+	}}
+	if git != nil {
+		gitLines := []string{"# Git 快照"}
+		if git.Branch != "" {
+			gitLines = append(gitLines, "- 当前分支："+git.Branch)
+		}
+		if len(git.StatusLines) > 0 {
+			gitLines = append(gitLines, "- 未提交变更：\n"+strings.Join(git.StatusLines, "\n"))
+		} else {
+			gitLines = append(gitLines, "- 未提交变更：（干净）")
+		}
+		if len(git.Commits) > 0 {
+			gitLines = append(gitLines, "- 最近提交：\n"+strings.Join(git.Commits, "\n"))
+		}
+		sections = append(sections, Section{
+			Name: "Git 快照", Source: "git_context", Hint: HintDynamic,
+			Content: strings.Join(gitLines, "\n"),
+		})
+	}
+	return sections
+}
+
+// buildInstructionsSection 是用户与项目的指令文件（AGENTS.md）。
+//
+// 包装导语明确要求模型把这些指令当作最高优先级约束；没有读到任何
+// 文件时整节省略。指令只进入动态块：会话内文件不重读，内容稳定。
+func buildInstructionsSection(instructions []Instruction) *Section {
+	var parts []string
+	for _, item := range instructions {
+		if strings.TrimSpace(item.Content) == "" {
+			continue
+		}
+		label := "项目指令，随代码库提交"
+		if item.Scope == "global" {
+			label = "用户的全局私人指令，对所有项目生效"
+		}
+		body := item.Content
+		if item.Truncated {
+			body += "\n\n[文件过长已截断；不要向用户提及截断，需要更多内容时用 Read 工具读取该文件。]"
+		}
+		parts = append(parts, "文件 "+item.Path+"（"+label+"）的内容：\n\n"+body)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	content := strings.Join([]string{
+		"以下是代码库与用户的指令。务必遵守这些指令。重要：这些指令覆盖默认行为，必须严格按照原文执行。",
+		"",
+		strings.Join(parts, "\n\n"),
+	}, "\n")
+	return &Section{Name: "指令文件", Source: "instructions", Hint: HintDynamic, Content: content}
 }

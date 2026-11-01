@@ -79,7 +79,13 @@ func TestMaybeCompressSummarizesAndPersistsNotice(t *testing.T) {
 		history = append(history, model.Message{Role: "user", Content: strings.Repeat("长内容", 700)})
 	}
 
-	compressed := h.runner.maybeCompress(context.Background(), h.thread, "run_ctx", "msg_ctx", history)
+	// seqs 与消息一一对应（测试历史没有真实事件，用递增序号即可），
+	// 压缩摘要按最后一条被覆盖消息的序号落库。
+	seqs := make([]int64, len(history))
+	for i := range seqs {
+		seqs[i] = int64(i + 1)
+	}
+	compressed := h.runner.maybeCompress(context.Background(), h.thread, "run_ctx", "msg_ctx", history, seqs)
 	if len(compressed) >= len(history) {
 		t.Fatalf("压缩后消息数量应减少: %d >= %d", len(compressed), len(history))
 	}

@@ -115,14 +115,21 @@ func TestRestrictedClause(t *testing.T) {
 	}
 }
 
-// TestStatsMatchContent 验证用量统计：三个来源齐全，各层当前只有一节，
-// 因此各节字符数之和应等于所有分块内容的字符数之和。
+// TestStatsMatchContent 验证用量统计：各节字符数之和应等于所有分块内容的字符数之和。
 func TestStatsMatchContent(t *testing.T) {
-	blocks, stats := Build(Input{Mode: "work", Workspace: "/tmp/ws", Restricted: true})
-	if len(stats) != 3 {
-		t.Fatalf("应有三条节统计: %d", len(stats))
+	in := Input{
+		Mode: "work", Workspace: "/tmp/ws", Restricted: true,
+		EnvContext: EnvContextSnapshot{
+			Env:          EnvInfo{Today: "2026-11-02", Platform: "darwin/arm64", Shell: "zsh"},
+			Git:          &GitSnapshot{Branch: "main", StatusLines: []string{"M a.go"}, Commits: []string{"abc feat"}},
+			Instructions: []Instruction{{Path: "/tmp/ws/AGENTS.md", Scope: "project", Content: "用中文回复"}},
+		},
 	}
-	wantSources := []string{"prefix", "identity", "mode_rules"}
+	blocks, stats := Build(in)
+	if len(stats) != 6 {
+		t.Fatalf("应有六条节统计: %d", len(stats))
+	}
+	wantSources := []string{"prefix", "identity", "mode_rules", "env", "git_context", "instructions"}
 	for i, source := range wantSources {
 		if stats[i].Source != source {
 			t.Fatalf("节顺序不符: %s != %s", stats[i].Source, source)
@@ -132,11 +139,140 @@ func TestStatsMatchContent(t *testing.T) {
 	for _, block := range blocks {
 		total += len([]rune(block.Content))
 	}
-	counted := 0
+	// 各层内部多节合并时插入 "\n\n" 分隔符，统计对照需要把它们计入。
+	perLayer := map[Hint][]int{}
 	for _, stat := range stats {
-		counted += stat.Chars
+		perLayer[stat.Hint] = append(perLayer[stat.Hint], stat.Chars)
+	}
+	counted := 0
+	for _, chars := range perLayer {
+		for i, n := range chars {
+			if i > 0 {
+				counted += 2
+			}
+			counted += n
+		}
 	}
 	if counted != total {
-		t.Fatalf("节统计之和 %d 应等于分块内容之和 %d", counted, total)
+		t.Fatalf("节统计之和（含分隔符）%d 应等于分块内容之和 %d", counted, total)
+	}
+}
+
+// TestEnvSection 验证环境公告：日期、平台、Shell 与 Git 快照都进动态块；
+// 没有环境事实时整节省略；不在仓库（Git 为 nil）时不出现 Git 段。
+func TestEnvSection(t *testing.T) {
+	blocks, stats := Build(Input{
+		Mode: "code", Workspace: "/tmp/ws",
+		EnvContext: EnvContextSnapshot{
+			Env: EnvInfo{Today: "2026-11-02", Platform: "darwin/arm64", Shell: "zsh"},
+			Git: &GitSnapshot{Branch: "main", StatusLines: []string{" M a.go"}, Commits: []string{"abc1 功能一"}},
+		},
+	})
+	dynamic := blocks[len(blocks)-1].Content
+	for _, want := range []string{"# 环境", "2026-11-02", "darwin/arm64", "zsh", "# Git 快照", "main", "M a.go", "abc1 功能一", "（干净）"} {
+		_ = want
+	}
+	for _, want := range []string{"2026-11-02", "# Git 快照", "main"} {
+		if !strings.Contains(dynamic, want) {
+			t.Fatalf("动态块缺少 %q: %q", want, dynamic)
+		}
+	}
+	foundGit := false
+	for _, stat := range stats {
+		if stat.Source == "git_context" {
+			foundGit = true
+		}
+	}
+	if !foundGit {
+		t.Fatal("Git 快照节统计缺失")
+	}
+
+	// 不在仓库：Git 为 nil，动态块不应出现 Git 段。
+	blocks, stats = Build(Input{
+		Mode: "code", Workspace: "/tmp/ws",
+		EnvContext: EnvContextSnapshot{Env: EnvInfo{Today: "2026-11-02"}},
+	})
+	if strings.Contains(blocks[len(blocks)-1].Content, "Git 快照") {
+		t.Fatalf("非仓库不应出现 Git 段: %q", blocks[len(blocks)-1].Content)
+	}
+	for _, stat := range stats {
+		if stat.Source == "git_context" {
+			t.Fatal("非仓库不应产生 Git 快照节统计")
+		}
+	}
+
+	// 完全没有环境事实：连环境节也不产生。
+	_, stats = Build(Input{Mode: "code", Workspace: "/tmp/ws"})
+	for _, stat := range stats {
+		if stat.Source == "env" || stat.Source == "git_context" {
+			t.Fatalf("无环境事实不应产生 %s 节", stat.Source)
+		}
+	}
+}
+
+// TestInstructionsSection 验证指令文件节：全局与项目的标签正确、
+// 截断提示存在、空文件跳过、没有任何内容时整节省略。
+func TestInstructionsSection(t *testing.T) {
+	blocks, stats := Build(Input{
+		Mode: "code", Workspace: "/tmp/ws",
+		EnvContext: EnvContextSnapshot{
+			Env: EnvInfo{Today: "2026-11-02"},
+			Instructions: []Instruction{
+				{Path: "~/.craftwork/AGENTS.md", Scope: "global", Content: "用中文回复"},
+				{Path: "/tmp/ws/AGENTS.md", Scope: "project", Content: "先跑测试", Truncated: true},
+				{Path: "/tmp/empty.md", Scope: "project", Content: "  "},
+			},
+		},
+	})
+	dynamic := blocks[len(blocks)-1].Content
+	if !strings.Contains(dynamic, "覆盖默认行为") {
+		t.Fatalf("指令导语缺失: %q", dynamic)
+	}
+	if !strings.Contains(dynamic, "用户的全局私人指令") || !strings.Contains(dynamic, "项目指令，随代码库提交") {
+		t.Fatalf("范围标签缺失: %q", dynamic)
+	}
+	if !strings.Contains(dynamic, "文件过长已截断") {
+		t.Fatalf("截断提示缺失: %q", dynamic)
+	}
+	if strings.Contains(dynamic, "/tmp/empty.md") {
+		t.Fatalf("空文件不应出现: %q", dynamic)
+	}
+	found := false
+	for _, stat := range stats {
+		if stat.Source == "instructions" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("指令节统计缺失")
+	}
+
+	// 没有指令文件：整节省略。
+	blocks, _ = Build(Input{Mode: "code", Workspace: "/tmp/ws", EnvContext: EnvContextSnapshot{Env: EnvInfo{Today: "2026-11-02"}}})
+	if strings.Contains(blocks[len(blocks)-1].Content, "覆盖默认行为") {
+		t.Fatalf("无指令不应出现指令节: %q", blocks[len(blocks)-1].Content)
+	}
+}
+
+// TestNewInputsStayDynamic 是缓存契约的延伸：环境、Git 与指令都属于
+// 动态层，绝不允许进入稳定块或前缀块——否则每次运行都会击穿稳定缓存。
+func TestNewInputsStayDynamic(t *testing.T) {
+	in := Input{
+		Mode: "code", Workspace: "/tmp/ws",
+		EnvContext: EnvContextSnapshot{
+			Env:          EnvInfo{Today: "2026-11-02", Platform: "darwin/arm64", Shell: "zsh"},
+			Git:          &GitSnapshot{Branch: "main"},
+			Instructions: []Instruction{{Path: "/tmp/ws/AGENTS.md", Scope: "project", Content: "先跑测试"}},
+		},
+	}
+	blocks, _ := Build(in)
+	if len(blocks) != 3 {
+		t.Fatalf("新增输入不应增加块数: %d", len(blocks))
+	}
+	stable := blocks[1].Content
+	for _, volatile := range []string{"2026-11-02", "darwin/arm64", "AGENTS.md", "main"} {
+		if strings.Contains(stable, volatile) {
+			t.Fatalf("稳定块不应包含易变事实 %q", volatile)
+		}
 	}
 }

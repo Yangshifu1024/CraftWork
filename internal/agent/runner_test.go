@@ -111,7 +111,7 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 	engine := policy.New(policy.LevelGraded, workspace)
 	recorder := record.New(db, bus)
 	approvals := NewApprovals(db, recorder)
-	runner := NewRunner(db, recorder, registry, engine, approvals, factory, "")
+	runner := NewRunner(db, recorder, registry, engine, approvals, factory, "", "")
 
 	thread := store.Thread{
 		ID: "th_1", Mode: "code", Title: "测试", ModelID: "test/fake",
@@ -403,7 +403,7 @@ func TestHistoryLoadsAttachmentContents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	history, err := h.runner.history(h.thread)
+	history, _, err := h.runner.history(h.thread)
 	if err != nil {
 		t.Fatal(err)
 	}
