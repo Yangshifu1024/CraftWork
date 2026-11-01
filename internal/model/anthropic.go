@@ -1,18 +1,10 @@
 package model
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
-	"sort"
 	"strings"
-	"sync"
-
-	"craftwork/internal/id"
 )
 
 const anthropicVersion = "2023-06-01"
@@ -47,37 +39,16 @@ func (c *Anthropic) Stream(ctx context.Context, req Request) (<-chan Chunk, erro
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("编码模型请求: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, joinAPIPath(c.endpoint, "/v1/messages"), bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("创建模型请求: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("x-api-key", c.apiKey)
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
-
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return nil, TransportError(c.provider.Name, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
-		return nil, HTTPError(c.provider.Name, resp.StatusCode, snippet)
-	}
-
-	channel := make(chan Chunk, 16)
-	go func() {
-		defer close(channel)
-		defer resp.Body.Close()
-		c.consume(ctx, resp.Body, channel)
-	}()
-	return channel, nil
+	return streamSSE(ctx, streamRequest{
+		provider: c.provider.Name,
+		client:   c.http,
+		endpoint: joinAPIPath(c.endpoint, "/v1/messages"),
+		headers: map[string]string{
+			"x-api-key":         c.apiKey,
+			"anthropic-version": anthropicVersion,
+		},
+		body: body,
+	}, &anthropicDecoder{provider: c.provider.Name, tools: newToolCallBuilder()})
 }
 
 func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
@@ -221,138 +192,82 @@ type anthropicEvent struct {
 	} `json:"error"`
 }
 
-type anthropicToolBlock struct {
-	mu   sync.Mutex
-	id   string
-	name string
-	raw  strings.Builder
+// anthropicDecoder 把 Messages API 的 SSE 事件翻译成片段。
+type anthropicDecoder struct {
+	provider  string
+	tools     *toolCallBuilder
+	usage     Usage
+	usageSeen bool
 }
 
-func (c *Anthropic) consume(ctx context.Context, body io.Reader, channel chan<- Chunk) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-
-	blocks := map[int]*anthropicToolBlock{}
-	var order []int
-	var usage Usage
-	usageSeen := false
-
-	for scanner.Scan() {
-		if ctx.Err() != nil {
-			return
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" {
-			continue
-		}
-
-		var event anthropicEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			continue
-		}
-
-		switch event.Type {
-		case "error":
-			message := "模型服务返回错误"
-			kind := ""
-			if event.Error != nil {
-				if event.Error.Message != "" {
-					message = event.Error.Message
-				}
-				kind = event.Error.Type
-			}
-			send(ctx, channel, Chunk{Err: StreamError(c.provider.Name, message, kind)})
-			return
-		case "message_start":
-			if event.Message != nil {
-				usage.InputTokens = event.Message.Usage.InputTokens
-				usage.CacheTokens = event.Message.Usage.CacheCreationInputTokens + event.Message.Usage.CacheReadInputTokens
-				usageSeen = true
-			}
-		case "content_block_start":
-			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
-				block := &anthropicToolBlock{id: event.ContentBlock.ID, name: event.ContentBlock.Name}
-				if raw := strings.TrimSpace(string(event.ContentBlock.Input)); raw != "" && raw != "{}" {
-					block.raw.WriteString(raw)
-				}
-				blocks[event.Index] = block
-				order = append(order, event.Index)
-			}
-		case "content_block_delta":
-			if event.Delta == nil {
-				continue
-			}
-			switch event.Delta.Type {
-			case "text_delta":
-				if event.Delta.Text != "" {
-					if !send(ctx, channel, Chunk{Text: event.Delta.Text}) {
-						return
-					}
-				}
-			case "thinking_delta":
-				if event.Delta.Thinking != "" {
-					if !send(ctx, channel, Chunk{Reasoning: event.Delta.Thinking}) {
-						return
-					}
-				}
-			case "input_json_delta":
-				if block := blocks[event.Index]; block != nil {
-					block.mu.Lock()
-					block.raw.WriteString(event.Delta.PartialJSON)
-					block.mu.Unlock()
-				}
-			}
-		case "message_delta":
-			if event.Usage != nil {
-				usage.OutputTokens = event.Usage.OutputTokens
-				if event.Usage.InputTokens > 0 {
-					usage.InputTokens = event.Usage.InputTokens
-				}
-				usageSeen = true
-			}
-		case "message_stop":
-			c.emitToolBlocks(ctx, channel, blocks, order)
-			if !usageSeen {
-				usage = Usage{}
-			}
-			send(ctx, channel, Chunk{Usage: &usage, Done: true})
-			return
-		}
+func (d *anthropicDecoder) decode(payload []byte, emit emitFunc) (bool, error) {
+	var event anthropicEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return false, nil
 	}
 
-	if ctx.Err() != nil {
-		return
+	switch event.Type {
+	case "error":
+		message := "模型服务返回错误"
+		kind := ""
+		if event.Error != nil {
+			if event.Error.Message != "" {
+				message = event.Error.Message
+			}
+			kind = event.Error.Type
+		}
+		return false, StreamError(d.provider, message, kind)
+	case "message_start":
+		if event.Message != nil {
+			d.usage.InputTokens = event.Message.Usage.InputTokens
+			d.usage.CacheTokens = event.Message.Usage.CacheCreationInputTokens + event.Message.Usage.CacheReadInputTokens
+			d.usageSeen = true
+		}
+	case "content_block_start":
+		if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+			initial := strings.TrimSpace(string(event.ContentBlock.Input))
+			if initial == "{}" {
+				initial = ""
+			}
+			d.tools.add(event.Index, event.ContentBlock.ID, event.ContentBlock.Name, initial)
+		}
+	case "content_block_delta":
+		if event.Delta == nil {
+			return false, nil
+		}
+		switch event.Delta.Type {
+		case "text_delta":
+			if event.Delta.Text != "" && !emit(Chunk{Text: event.Delta.Text}) {
+				return true, nil
+			}
+		case "thinking_delta":
+			if event.Delta.Thinking != "" && !emit(Chunk{Reasoning: event.Delta.Thinking}) {
+				return true, nil
+			}
+		case "input_json_delta":
+			d.tools.add(event.Index, "", "", event.Delta.PartialJSON)
+		}
+	case "message_delta":
+		if event.Usage != nil {
+			d.usage.OutputTokens = event.Usage.OutputTokens
+			if event.Usage.InputTokens > 0 {
+				d.usage.InputTokens = event.Usage.InputTokens
+			}
+			d.usageSeen = true
+		}
+	case "message_stop":
+		return true, nil
 	}
-	// 连接提前结束时仍然交付已经累积的内容，避免整轮结果丢失。
-	c.emitToolBlocks(ctx, channel, blocks, order)
-	send(ctx, channel, Chunk{Usage: &usage, Done: true})
+	return false, nil
 }
 
-func (c *Anthropic) emitToolBlocks(ctx context.Context, channel chan<- Chunk, blocks map[int]*anthropicToolBlock, order []int) {
-	sort.Ints(order)
-	for _, index := range order {
-		block := blocks[index]
-		if block == nil {
-			continue
-		}
-		block.mu.Lock()
-		call := ToolCall{
-			ID:   block.id,
-			Name: block.name,
-			Args: parseArguments(block.raw.String()),
-		}
-		block.mu.Unlock()
-		if call.ID == "" {
-			call.ID = id.New("call")
-		}
-		if !send(ctx, channel, Chunk{ToolCall: &call}) {
-			return
-		}
+func (d *anthropicDecoder) finish(emit emitFunc) {
+	d.tools.flush(emit)
+	usage := d.usage
+	if !d.usageSeen {
+		usage = Usage{}
 	}
+	emit(Chunk{Usage: &usage, Done: true})
 }
 
 var _ Client = (*Anthropic)(nil)

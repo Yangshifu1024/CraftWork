@@ -1,17 +1,11 @@
 package model
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
-	"sync"
-
-	"craftwork/internal/id"
 )
 
 // OpenAICompat 是 OpenAI Chat Completions 与兼容服务的客户端。
@@ -41,38 +35,17 @@ func (c *OpenAICompat) Stream(ctx context.Context, req Request) (<-chan Chunk, e
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("编码模型请求: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/chat/completions", bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("创建模型请求: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
+	headers := map[string]string{}
 	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		headers["Authorization"] = "Bearer " + c.apiKey
 	}
-
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return nil, TransportError(c.provider.Name, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
-		return nil, HTTPError(c.provider.Name, resp.StatusCode, snippet)
-	}
-
-	channel := make(chan Chunk, 16)
-	go func() {
-		defer close(channel)
-		defer resp.Body.Close()
-		c.consume(ctx, resp.Body, channel)
-	}()
-	return channel, nil
+	return streamSSE(ctx, streamRequest{
+		provider: c.provider.Name,
+		client:   c.http,
+		endpoint: c.endpoint + "/chat/completions",
+		headers:  headers,
+		body:     body,
+	}, &openAIDecoder{provider: c.provider.Name, tools: newToolCallBuilder()})
 }
 
 func (c *OpenAICompat) requestBody(req Request) (map[string]any, error) {
@@ -213,138 +186,60 @@ type sseEvent struct {
 	} `json:"error"`
 }
 
-type toolAccumulator struct {
-	mu   sync.Mutex
-	id   string
-	name string
-	args strings.Builder
+// openAIDecoder 把 Chat Completions 的 SSE 事件翻译成片段。
+type openAIDecoder struct {
+	provider string
+	tools    *toolCallBuilder
+	usage    *Usage
 }
 
-func (c *OpenAICompat) consume(ctx context.Context, body io.Reader, channel chan<- Chunk) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-
-	accumulators := map[int]*toolAccumulator{}
-	var usage *Usage
-
-	for scanner.Scan() {
-		if ctx.Err() != nil {
-			return
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" {
-			continue
-		}
-		if payload == "[DONE]" {
-			break
-		}
-
-		var event sseEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			continue
-		}
-		if event.Error != nil {
-			kind := firstNonEmpty(event.Error.Type, event.Error.Code)
-			select {
-			case channel <- Chunk{Err: StreamError(c.provider.Name, event.Error.Message, kind)}:
-			case <-ctx.Done():
-			}
-			return
-		}
-		if event.Usage != nil {
-			usage = &Usage{
-				InputTokens:     event.Usage.PromptTokens,
-				OutputTokens:    event.Usage.CompletionTokens,
-				CacheTokens:     event.Usage.PromptTokensDetails.CachedTokens,
-				ReasoningTokens: event.Usage.CompletionTokensDetails.ReasoningTokens,
-			}
-		}
-		for _, choice := range event.Choices {
-			delta := choice.Delta
-			if delta.ReasoningContent != "" || delta.Reasoning != "" {
-				text := delta.ReasoningContent
-				if text == "" {
-					text = delta.Reasoning
-				}
-				if !send(ctx, channel, Chunk{Reasoning: text}) {
-					return
-				}
-			}
-			if delta.Content != "" {
-				if !send(ctx, channel, Chunk{Text: delta.Content}) {
-					return
-				}
-			}
-			for _, toolCall := range delta.ToolCalls {
-				accumulator := accumulators[toolCall.Index]
-				if accumulator == nil {
-					accumulator = &toolAccumulator{}
-					accumulators[toolCall.Index] = accumulator
-				}
-				accumulator.mu.Lock()
-				if toolCall.ID != "" {
-					accumulator.id = toolCall.ID
-				}
-				if toolCall.Function.Name != "" {
-					accumulator.name = toolCall.Function.Name
-				}
-				accumulator.args.WriteString(toolCall.Function.Arguments)
-				accumulator.mu.Unlock()
-			}
+func (d *openAIDecoder) decode(payload []byte, emit emitFunc) (bool, error) {
+	var event sseEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return false, nil
+	}
+	if event.Error != nil {
+		kind := firstNonEmpty(event.Error.Type, event.Error.Code)
+		return false, StreamError(d.provider, event.Error.Message, kind)
+	}
+	if event.Usage != nil {
+		d.usage = &Usage{
+			InputTokens:     event.Usage.PromptTokens,
+			OutputTokens:    event.Usage.CompletionTokens,
+			CacheTokens:     event.Usage.PromptTokensDetails.CachedTokens,
+			ReasoningTokens: event.Usage.CompletionTokensDetails.ReasoningTokens,
 		}
 	}
+	for _, choice := range event.Choices {
+		delta := choice.Delta
+		if delta.ReasoningContent != "" || delta.Reasoning != "" {
+			text := delta.ReasoningContent
+			if text == "" {
+				text = delta.Reasoning
+			}
+			if !emit(Chunk{Reasoning: text}) {
+				return true, nil
+			}
+		}
+		if delta.Content != "" {
+			if !emit(Chunk{Text: delta.Content}) {
+				return true, nil
+			}
+		}
+		for _, call := range delta.ToolCalls {
+			d.tools.add(call.Index, call.ID, call.Function.Name, call.Function.Arguments)
+		}
+	}
+	return false, nil
+}
 
-	if ctx.Err() != nil {
-		return
-	}
-	for index := 0; index < len(accumulators); index++ {
-		accumulator := accumulators[index]
-		if accumulator == nil {
-			continue
-		}
-		accumulator.mu.Lock()
-		call := ToolCall{
-			ID:   accumulator.id,
-			Name: accumulator.name,
-			Args: parseArguments(accumulator.args.String()),
-		}
-		accumulator.mu.Unlock()
-		if call.ID == "" {
-			call.ID = id.New("call")
-		}
-		if !send(ctx, channel, Chunk{ToolCall: &call}) {
-			return
-		}
-	}
+func (d *openAIDecoder) finish(emit emitFunc) {
+	d.tools.flush(emit)
+	usage := d.usage
 	if usage == nil {
 		usage = &Usage{}
 	}
-	send(ctx, channel, Chunk{Usage: usage, Done: true})
-}
-
-func send(ctx context.Context, channel chan<- Chunk, chunk Chunk) bool {
-	select {
-	case channel <- chunk:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func parseArguments(raw string) map[string]any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return map[string]any{}
-	}
-	var args map[string]any
-	if err := json.Unmarshal([]byte(raw), &args); err != nil {
-		return map[string]any{"_raw": raw}
-	}
-	return args
+	emit(Chunk{Usage: usage, Done: true})
 }
 
 var _ Client = (*OpenAICompat)(nil)

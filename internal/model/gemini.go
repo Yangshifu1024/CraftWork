@@ -1,17 +1,11 @@
 package model
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"craftwork/internal/id"
 )
 
 // Gemini 是 Google Gemini generateContent / streamGenerateContent 的客户端。
@@ -44,37 +38,14 @@ func (g *Gemini) Stream(ctx context.Context, req Request) (<-chan Chunk, error) 
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("编码模型请求: %w", err)
-	}
-
 	target := joinAPIPath(g.endpoint, "/v1beta/models/"+url.PathEscape(req.Model)+":streamGenerateContent") + "?alt=sse"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("创建模型请求: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("x-goog-api-key", g.apiKey)
-
-	resp, err := g.http.Do(httpReq)
-	if err != nil {
-		return nil, TransportError(g.provider.Name, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
-		return nil, HTTPError(g.provider.Name, resp.StatusCode, snippet)
-	}
-
-	channel := make(chan Chunk, 16)
-	go func() {
-		defer close(channel)
-		defer resp.Body.Close()
-		g.consume(ctx, resp.Body, channel)
-	}()
-	return channel, nil
+	return streamSSE(ctx, streamRequest{
+		provider: g.provider.Name,
+		client:   g.http,
+		endpoint: target,
+		headers:  map[string]string{"x-goog-api-key": g.apiKey},
+		body:     body,
+	}, &geminiDecoder{provider: g.provider.Name})
 }
 
 type geminiPart struct {
@@ -233,89 +204,72 @@ type geminiResponse struct {
 	} `json:"error"`
 }
 
-func (g *Gemini) consume(ctx context.Context, body io.Reader, channel chan<- Chunk) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+// geminiDecoder 把 generateContent 的 SSE 事件翻译成片段。
+type geminiDecoder struct {
+	provider  string
+	usage     Usage
+	usageSeen bool
+}
 
-	var usage Usage
-	usageSeen := false
-
-	for scanner.Scan() {
-		if ctx.Err() != nil {
-			return
+func (d *geminiDecoder) decode(payload []byte, emit emitFunc) (bool, error) {
+	var event geminiResponse
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return false, nil
+	}
+	if event.Error != nil {
+		message := event.Error.Message
+		if event.Error.Code > 0 {
+			return false, StatusError(d.provider, event.Error.Code, message)
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
-			continue
+		return false, StreamError(d.provider, message, event.Error.Status)
+	}
+	if event.UsageMetadata != nil {
+		d.usage = Usage{
+			InputTokens:     event.UsageMetadata.PromptTokenCount,
+			OutputTokens:    event.UsageMetadata.CandidatesTokenCount,
+			CacheTokens:     event.UsageMetadata.CachedContentTokenCount,
+			ReasoningTokens: event.UsageMetadata.ThoughtsTokenCount,
 		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			continue
-		}
-
-		var event geminiResponse
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			continue
-		}
-		if event.Error != nil {
-			message := event.Error.Message
-			code := event.Error.Code
-			var streamErr error
-			if code > 0 {
-				streamErr = StatusError(g.provider.Name, code, message)
-			} else {
-				streamErr = StreamError(g.provider.Name, message, event.Error.Status)
+		d.usageSeen = true
+	}
+	for _, candidate := range event.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.FunctionCall != nil {
+				call := ToolCall{
+					ID:        newCallID(),
+					Name:      part.FunctionCall.Name,
+					Args:      part.FunctionCall.Args,
+					Signature: part.ThoughtSignature,
+				}
+				if call.Args == nil {
+					call.Args = map[string]any{}
+				}
+				if !emit(Chunk{ToolCall: &call}) {
+					return true, nil
+				}
+				continue
 			}
-			send(ctx, channel, Chunk{Err: streamErr})
-			return
-		}
-		if event.UsageMetadata != nil {
-			usage = Usage{
-				InputTokens:     event.UsageMetadata.PromptTokenCount,
-				OutputTokens:    event.UsageMetadata.CandidatesTokenCount,
-				CacheTokens:     event.UsageMetadata.CachedContentTokenCount,
-				ReasoningTokens: event.UsageMetadata.ThoughtsTokenCount,
+			if part.Text == "" {
+				continue
 			}
-			usageSeen = true
-		}
-		for _, candidate := range event.Candidates {
-			for _, part := range candidate.Content.Parts {
-				if part.FunctionCall != nil {
-					call := ToolCall{
-						ID:        id.New("call"),
-						Name:      part.FunctionCall.Name,
-						Args:      part.FunctionCall.Args,
-						Signature: part.ThoughtSignature,
-					}
-					if call.Args == nil {
-						call.Args = map[string]any{}
-					}
-					if !send(ctx, channel, Chunk{ToolCall: &call}) {
-						return
-					}
-					continue
-				}
-				if part.Text == "" {
-					continue
-				}
-				chunk := Chunk{Text: part.Text}
-				if part.Thought {
-					chunk = Chunk{Reasoning: part.Text}
-				}
-				if !send(ctx, channel, chunk) {
-					return
-				}
+			chunk := Chunk{Text: part.Text}
+			if part.Thought {
+				chunk = Chunk{Reasoning: part.Text}
+			}
+			if !emit(chunk) {
+				return true, nil
 			}
 		}
 	}
+	return false, nil
+}
 
-	if ctx.Err() != nil {
-		return
-	}
-	if !usageSeen {
+func (d *geminiDecoder) finish(emit emitFunc) {
+	usage := d.usage
+	if !d.usageSeen {
 		usage = Usage{}
 	}
-	send(ctx, channel, Chunk{Usage: &usage, Done: true})
+	emit(Chunk{Usage: &usage, Done: true})
 }
 
 var _ Client = (*Gemini)(nil)
