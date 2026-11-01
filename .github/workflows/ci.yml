@@ -35,6 +35,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev
 
+      # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而该目录不入库；
+      # 编译根包时必须至少有一个文件，否则报 "no matching files found"。
+      # 测试与静态检查不读取嵌入内容，放一个占位文件即可。
+      - name: 准备前端嵌入占位
+        run: |
+          mkdir -p frontend/dist
+          printf '<!doctype html>\n' > frontend/dist/index.html
+
       - name: 单元测试
         run: go test ./...
 
