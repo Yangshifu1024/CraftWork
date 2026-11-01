@@ -7,43 +7,44 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"craftwork/internal/policy"
 )
 
 const gitTimeout = 30 * time.Second
 
 // ---------- git_diff ----------
 
-type gitDiffTool struct{ registry *Registry }
+type gitDiffTool struct{}
 
-func (t *gitDiffTool) Name() string { return "git_diff" }
-
-func (t *gitDiffTool) Description() string {
-	return "查看工作区的 Git 差异（只读）。可以只看某个路径或暂存区。"
-}
-
-func (t *gitDiffTool) Schema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "可选的相对路径"},
-			"staged": map[string]any{"type": "boolean", "description": "是否查看暂存区差异"},
+func (t *gitDiffTool) Spec() Spec {
+	return Spec{
+		Name:        "git_diff",
+		Description: "查看工作区的 Git 差异（只读）。可以只看某个路径或暂存区。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		SummaryArg:  "path",
+		SummaryText: "git diff",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":   map[string]any{"type": "string", "description": "可选的相对路径"},
+				"staged": map[string]any{"type": "boolean", "description": "是否查看暂存区差异"},
+			},
 		},
 	}
 }
 
-func (t *gitDiffTool) Execute(ctx context.Context, args map[string]any) Result {
+func (t *gitDiffTool) Execute(ctx context.Context, call Call) Result {
+	args := call.Args
 	arguments := []string{"diff", "--no-color"}
 	if boolArg(args, "staged") {
 		arguments = append(arguments, "--staged")
 	}
-	if path := stringArg(args, "path"); path != "" {
-		_, display, err := t.registry.resolve(path)
-		if err != nil {
-			return errorResult("%v", err)
-		}
-		arguments = append(arguments, "--", display)
+	if stringArg(args, "path") != "" {
+		arguments = append(arguments, "--", call.Display)
 	}
-	output, exitCode, timedOut, err := runGit(ctx, t.registry.Workspace(), gitTimeout, arguments...)
+	output, exitCode, timedOut, err := runGit(ctx, call.Workspace, gitTimeout, arguments...)
 	if timedOut {
 		return errorResult("git diff 超时")
 	}
@@ -54,7 +55,7 @@ func (t *gitDiffTool) Execute(ctx context.Context, args map[string]any) Result {
 	if strings.TrimSpace(output) == "" {
 		return Result{Output: "没有差异"}
 	}
-	result := Result{Output: truncate(output, maxOutputBytes), Meta: map[string]any{"staged": boolArg(args, "staged")}}
+	result := Result{Output: output, Meta: map[string]any{"staged": boolArg(args, "staged")}}
 	if exitCode != 0 {
 		result.IsError = true
 	}
@@ -63,25 +64,28 @@ func (t *gitDiffTool) Execute(ctx context.Context, args map[string]any) Result {
 
 // ---------- git_log ----------
 
-type gitLogTool struct{ registry *Registry }
+type gitLogTool struct{}
 
-func (t *gitLogTool) Name() string { return "git_log" }
-
-func (t *gitLogTool) Description() string {
-	return "查看最近的 Git 提交记录（只读），默认 20 条。"
-}
-
-func (t *gitLogTool) Schema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "description": "提交条数，默认 20"},
-			"path":  map[string]any{"type": "string", "description": "可选的相对路径"},
+func (t *gitLogTool) Spec() Spec {
+	return Spec{
+		Name:        "git_log",
+		Description: "查看最近的 Git 提交记录（只读），默认 20 条。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		SummaryArg:  "path",
+		SummaryText: "git log",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "description": "提交条数，默认 20"},
+				"path":  map[string]any{"type": "string", "description": "可选的相对路径"},
+			},
 		},
 	}
 }
 
-func (t *gitLogTool) Execute(ctx context.Context, args map[string]any) Result {
+func (t *gitLogTool) Execute(ctx context.Context, call Call) Result {
+	args := call.Args
 	limit := intArg(args, "limit", 20)
 	if limit < 1 {
 		limit = 1
@@ -90,14 +94,10 @@ func (t *gitLogTool) Execute(ctx context.Context, args map[string]any) Result {
 		limit = 100
 	}
 	arguments := []string{"log", "--oneline", "--decorate", "-n", fmt.Sprintf("%d", limit)}
-	if path := stringArg(args, "path"); path != "" {
-		_, display, err := t.registry.resolve(path)
-		if err != nil {
-			return errorResult("%v", err)
-		}
-		arguments = append(arguments, "--", display)
+	if stringArg(args, "path") != "" {
+		arguments = append(arguments, "--", call.Display)
 	}
-	output, exitCode, timedOut, err := runGit(ctx, t.registry.Workspace(), gitTimeout, arguments...)
+	output, exitCode, timedOut, err := runGit(ctx, call.Workspace, gitTimeout, arguments...)
 	if timedOut {
 		return errorResult("git log 超时")
 	}
@@ -108,7 +108,7 @@ func (t *gitLogTool) Execute(ctx context.Context, args map[string]any) Result {
 	if output == "" {
 		return Result{Output: "还没有提交记录"}
 	}
-	result := Result{Output: truncate(output, maxOutputBytes), Meta: map[string]any{"limit": limit}}
+	result := Result{Output: output, Meta: map[string]any{"limit": limit}}
 	if exitCode != 0 {
 		result.IsError = true
 	}
@@ -117,30 +117,32 @@ func (t *gitLogTool) Execute(ctx context.Context, args map[string]any) Result {
 
 // ---------- git_commit ----------
 
-type gitCommitTool struct{ registry *Registry }
+type gitCommitTool struct{}
 
-func (t *gitCommitTool) Name() string { return "git_commit" }
-
-func (t *gitCommitTool) Description() string {
-	return "提交已修改或指定的文件。不会推送；没有指定 paths 时只提交已跟踪文件的修改。"
-}
-
-func (t *gitCommitTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"message"},
-		"properties": map[string]any{
-			"message": map[string]any{"type": "string", "description": "提交信息"},
-			"paths": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": "要提交的文件路径；省略时提交已跟踪文件的修改",
+func (t *gitCommitTool) Spec() Spec {
+	return Spec{
+		Name:        "git_commit",
+		Description: "提交已修改或指定的文件。不会推送；没有指定 paths 时只提交已跟踪文件的修改。",
+		Risk:        policy.R1,
+		Title:       "提交代码",
+		SummaryArg:  "message",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"message"},
+			"properties": map[string]any{
+				"message": map[string]any{"type": "string", "description": "提交信息"},
+				"paths": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "要提交的文件路径；省略时提交已跟踪文件的修改",
+				},
 			},
 		},
 	}
 }
 
-func (t *gitCommitTool) Execute(ctx context.Context, args map[string]any) Result {
+func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
+	args := call.Args
 	message := strings.TrimSpace(stringArg(args, "message"))
 	if message == "" {
 		return errorResult("message 不能为空")
@@ -159,7 +161,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, args map[string]any) Result
 			if strings.TrimSpace(path) == "" {
 				continue
 			}
-			_, display, err := t.registry.resolve(path)
+			_, display, err := call.Resolve(path)
 			if err != nil {
 				return errorResult("%v", err)
 			}
@@ -168,7 +170,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, args map[string]any) Result
 	}
 
 	if len(paths) > 0 {
-		if result := t.gitAdd(ctx, paths); result != nil {
+		if result := t.gitAdd(ctx, call.Workspace, paths); result != nil {
 			return *result
 		}
 	}
@@ -180,7 +182,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, args map[string]any) Result
 	} else {
 		arguments = []string{"commit", "-am", message}
 	}
-	output, exitCode, timedOut, err := runGit(ctx, t.registry.Workspace(), gitTimeout, arguments...)
+	output, exitCode, timedOut, err := runGit(ctx, call.Workspace, gitTimeout, arguments...)
 	if timedOut {
 		return errorResult("git commit 超时")
 	}
@@ -191,16 +193,16 @@ func (t *gitCommitTool) Execute(ctx context.Context, args map[string]any) Result
 		return errorResult("提交失败: %s", truncate(strings.TrimSpace(output), maxOutputBytes))
 	}
 
-	hash, _, _, _ := runGit(ctx, t.registry.Workspace(), 10*time.Second, "rev-parse", "--short", "HEAD")
+	hash, _, _, _ := runGit(ctx, call.Workspace, 10*time.Second, "rev-parse", "--short", "HEAD")
 	hash = strings.TrimSpace(hash)
 	subject := strings.SplitN(message, "\n", 2)[0]
 	line := fmt.Sprintf("已提交 %s：%s\n（未推送）", hash, subject)
 	return Result{Output: line, Meta: map[string]any{"hash": hash, "message": message, "paths": paths}}
 }
 
-func (t *gitCommitTool) gitAdd(ctx context.Context, paths []string) *Result {
+func (t *gitCommitTool) gitAdd(ctx context.Context, workspace string, paths []string) *Result {
 	arguments := append([]string{"add", "--"}, paths...)
-	output, exitCode, timedOut, err := runGit(ctx, t.registry.Workspace(), gitTimeout, arguments...)
+	output, exitCode, timedOut, err := runGit(ctx, workspace, gitTimeout, arguments...)
 	if timedOut {
 		result := errorResult("git add 超时")
 		return &result

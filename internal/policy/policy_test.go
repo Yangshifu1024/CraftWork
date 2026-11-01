@@ -104,23 +104,17 @@ func TestActionByLevel(t *testing.T) {
 	}
 }
 
-func TestAssessShellCommands(t *testing.T) {
-	root := t.TempDir()
-	engine := New(LevelGraded, root)
-
-	if result := engine.Assess("shell_exec", map[string]any{"command": "rm -rf /"}); result.Risk != R4 {
-		t.Fatalf("破坏性命令应为 R4，实际 %s", result.Risk)
+func TestClassifyCommand(t *testing.T) {
+	if risk, _ := ClassifyCommand("rm -rf /"); risk != R4 {
+		t.Fatalf("破坏性命令应为 R4，实际 %s", risk)
 	}
-	if result := engine.Assess("shell_exec", map[string]any{"command": "curl https://example.com"}); result.Risk != R3 {
-		t.Fatalf("联网命令应为 R3，实际 %s", result.Risk)
+	if risk, _ := ClassifyCommand("curl https://example.com"); risk != R3 {
+		t.Fatalf("联网命令应为 R3，实际 %s", risk)
 	}
-	if result := engine.Assess("shell_exec", map[string]any{"command": "go test ./..."}); result.Risk != R2 {
-		t.Fatalf("普通命令应为 R2，实际 %s", result.Risk)
+	if risk, _ := ClassifyCommand("go test ./..."); risk != R2 {
+		t.Fatalf("普通命令应为 R2，实际 %s", risk)
 	}
-	if result := engine.Assess("fs_read", map[string]any{"path": "../secret"}); result.Risk != R3 {
-		t.Fatalf("越界读取应为 R3，实际 %s", result.Risk)
-	}
-	if result := engine.Assess("fs_edit", map[string]any{"path": "a.txt"}); result.Risk != R1 {
-		t.Fatalf("工作区内写入应为 R1，实际 %s", result.Risk)
+	if risk, _ := ClassifyCommand(""); risk != R2 {
+		t.Fatalf("空命令应为 R2，实际 %s", risk)
 	}
 }

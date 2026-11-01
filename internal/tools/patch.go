@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"craftwork/internal/policy"
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
@@ -24,36 +26,36 @@ type patchHunk struct {
 }
 
 // applyPatchTool 在单个文件上预演或应用统一 diff 补丁。
-type applyPatchTool struct{ registry *Registry }
+type applyPatchTool struct{}
 
-func (t *applyPatchTool) Name() string { return "apply_patch" }
-
-func (t *applyPatchTool) Description() string {
-	return "把统一 diff 补丁应用到工作区内的一个文件。支持 dry_run 预演和 hunks 逐块应用；写入前会备份原文件。"
-}
-
-func (t *applyPatchTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"path", "patch"},
-		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "要修改的文件（相对工作区）"},
-			"patch":   map[string]any{"type": "string", "description": "统一 diff，包含一个或多个 @@ 块"},
-			"dry_run": map[string]any{"type": "boolean", "description": "只预演，不写入文件"},
-			"hunks": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "integer"},
-				"description": "只应用指定补丁块（从 1 开始）；省略表示全部",
+func (t *applyPatchTool) Spec() Spec {
+	return Spec{
+		Name:        "apply_patch",
+		Description: "把统一 diff 补丁应用到工作区内的一个文件。支持 dry_run 预演和 hunks 逐块应用；写入前会备份原文件。",
+		Risk:        policy.R1,
+		PathArg:     "path",
+		Work:        true,
+		Title:       "应用补丁",
+		SummaryArg:  "path",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"path", "patch"},
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string", "description": "要修改的文件（相对工作区）"},
+				"patch":   map[string]any{"type": "string", "description": "统一 diff，包含一个或多个 @@ 块"},
+				"dry_run": map[string]any{"type": "boolean", "description": "只预演，不写入文件"},
+				"hunks": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "integer"},
+					"description": "只应用指定补丁块（从 1 开始）；省略表示全部",
+				},
 			},
 		},
 	}
 }
 
-func (t *applyPatchTool) Execute(_ context.Context, args map[string]any) Result {
-	rel := stringArg(args, "path")
-	if rel == "" {
-		return errorResult("path 不能为空")
-	}
+func (t *applyPatchTool) Execute(_ context.Context, call Call) Result {
+	args := call.Args
 	patch := stringArg(args, "patch")
 	if strings.TrimSpace(patch) == "" {
 		return errorResult("patch 不能为空")
@@ -67,10 +69,7 @@ func (t *applyPatchTool) Execute(_ context.Context, args map[string]any) Result 
 		return errorResult("%v", err)
 	}
 
-	abs, display, err := t.registry.resolve(rel)
-	if err != nil {
-		return errorResult("%v", err)
-	}
+	abs, display := call.Target, call.Display
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return errorResult("读取文件失败（apply_patch 只修改已有文件）: %v", err)
@@ -92,7 +91,7 @@ func (t *applyPatchTool) Execute(_ context.Context, args map[string]any) Result 
 		}
 	}
 
-	if err := t.registry.backup(abs, data); err != nil {
+	if err := call.Backup(data); err != nil {
 		return errorResult("写入前备份失败: %v", err)
 	}
 	mode := os.FileMode(0o644)

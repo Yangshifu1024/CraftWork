@@ -10,41 +10,40 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"craftwork/internal/policy"
 )
 
-type shellExecTool struct{ registry *Registry }
+type shellExecTool struct{}
 
-func (t *shellExecTool) Name() string { return "shell_exec" }
-
-func (t *shellExecTool) Description() string {
-	return "在工作区内执行 Shell 命令，默认超时 120 秒，输出截断到 32 KB。命令需要经过审批。"
-}
-
-func (t *shellExecTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"command"},
-		"properties": map[string]any{
-			"command": map[string]any{"type": "string", "description": "要执行的命令"},
-			"cwd":     map[string]any{"type": "string", "description": "工作目录（相对工作区），默认工作区根"},
-			"timeout": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "超时秒数，默认 120"},
+func (t *shellExecTool) Spec() Spec {
+	return Spec{
+		Name:        "shell_exec",
+		Description: "在工作区内执行 Shell 命令，默认超时 120 秒，输出截断到 32 KB。命令需要经过审批。",
+		Risk:        policy.R2,
+		PathArg:     "cwd",
+		CommandArg:  "command",
+		Title:       "执行命令",
+		SummaryArg:  "command",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"command"},
+			"properties": map[string]any{
+				"command": map[string]any{"type": "string", "description": "要执行的命令"},
+				"cwd":     map[string]any{"type": "string", "description": "工作目录（相对工作区），默认工作区根"},
+				"timeout": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "超时秒数，默认 120"},
+			},
 		},
 	}
 }
 
-func (t *shellExecTool) Execute(ctx context.Context, args map[string]any) Result {
+func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
+	args := call.Args
 	command := stringArg(args, "command")
 	if strings.TrimSpace(command) == "" {
 		return errorResult("command 不能为空")
 	}
-	cwd := t.registry.Workspace()
-	if value := stringArg(args, "cwd"); value != "" {
-		resolved, _, err := t.registry.resolve(value)
-		if err != nil {
-			return errorResult("%v", err)
-		}
-		cwd = resolved
-	}
+	cwd := call.Target
 	timeoutSeconds := intArg(args, "timeout", 120)
 	if timeoutSeconds < 1 {
 		timeoutSeconds = 1
@@ -57,7 +56,7 @@ func (t *shellExecTool) Execute(ctx context.Context, args map[string]any) Result
 	output, exitCode, timedOut, err := runShell(ctx, cwd, command, time.Duration(timeoutSeconds)*time.Second)
 	duration := time.Since(start).Round(time.Millisecond)
 	if timedOut {
-		return errorResult("命令超时（%s）：%s", duration, truncate(output, maxOutputBytes))
+		return errorResult("命令超时（%s）：%s", duration, output)
 	}
 	if err != nil && exitCode < 0 {
 		return errorResult("执行命令失败: %v", err)
@@ -67,27 +66,27 @@ func (t *shellExecTool) Execute(ctx context.Context, args map[string]any) Result
 		output = "(无输出)"
 	}
 	text := fmt.Sprintf("$ %s\n%s\n[退出码 %d · %s]", command, output, exitCode, duration)
-	result := Result{Output: truncate(text, maxOutputBytes), Meta: map[string]any{"exitCode": exitCode}}
+	result := Result{Output: text, Meta: map[string]any{"exitCode": exitCode}}
 	if exitCode != 0 {
 		result.IsError = true
 	}
 	return result
 }
 
-type gitStatusTool struct{ registry *Registry }
+type gitStatusTool struct{}
 
-func (t *gitStatusTool) Name() string { return "git_status" }
-
-func (t *gitStatusTool) Description() string {
-	return "查看当前工作区的 Git 分支与文件状态（只读）。"
+func (t *gitStatusTool) Spec() Spec {
+	return Spec{
+		Name:        "git_status",
+		Description: "查看当前工作区的 Git 分支与文件状态（只读）。",
+		Risk:        policy.R0,
+		SummaryText: "git status",
+		Schema:      map[string]any{"type": "object", "properties": map[string]any{}},
+	}
 }
 
-func (t *gitStatusTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{}}
-}
-
-func (t *gitStatusTool) Execute(ctx context.Context, _ map[string]any) Result {
-	output, exitCode, timedOut, err := runShell(ctx, t.registry.Workspace(), "git status --short --branch", 20*time.Second)
+func (t *gitStatusTool) Execute(ctx context.Context, call Call) Result {
+	output, exitCode, timedOut, err := runShell(ctx, call.Workspace, "git status --short --branch", 20*time.Second)
 	if timedOut {
 		return errorResult("git status 超时")
 	}
@@ -101,7 +100,7 @@ func (t *gitStatusTool) Execute(ctx context.Context, _ map[string]any) Result {
 	if exitCode != 0 {
 		return Result{Output: output, IsError: true}
 	}
-	return Result{Output: truncate(output, maxOutputBytes)}
+	return Result{Output: output}
 }
 
 // runShell 在工作目录中执行命令，返回合并输出、退出码与是否超时。

@@ -130,11 +130,12 @@ func TestDynamicToolNameAndSchema(t *testing.T) {
 	if dynamic.Name() != "mcp__my-server__echo" {
 		t.Fatalf("工具名称不符: %s", dynamic.Name())
 	}
-	if !strings.Contains(dynamic.Description(), "My Server") {
-		t.Fatalf("描述应包含服务器名: %s", dynamic.Description())
+	spec := dynamic.Spec()
+	if !strings.Contains(spec.Description, "My Server") {
+		t.Fatalf("描述应包含服务器名: %s", spec.Description)
 	}
-	if dynamic.Schema()["type"] != "object" {
-		t.Fatalf("Schema 不符: %+v", dynamic.Schema())
+	if spec.Schema["type"] != "object" {
+		t.Fatalf("Schema 不符: %+v", spec.Schema)
 	}
 }
 

@@ -9,34 +9,35 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"craftwork/internal/policy"
 )
 
 // ---------- fs_list ----------
 
-type fsListTool struct{ registry *Registry }
+type fsListTool struct{}
 
-func (t *fsListTool) Name() string { return "fs_list" }
-
-func (t *fsListTool) Description() string {
-	return "列出工作区目录下的文件与子目录，默认只列一层。"
-}
-
-func (t *fsListTool) Schema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":  map[string]any{"type": "string", "description": "相对工作区的路径，默认为 ."},
-			"depth": map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "递归深度，默认 1"},
+func (t *fsListTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_list",
+		Description: "列出工作区目录下的文件与子目录，默认只列一层。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		Work:        true,
+		SummaryArg:  "path",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":  map[string]any{"type": "string", "description": "相对工作区的路径，默认为 ."},
+				"depth": map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "递归深度，默认 1"},
+			},
 		},
 	}
 }
 
-func (t *fsListTool) Execute(_ context.Context, args map[string]any) Result {
-	abs, display, err := t.registry.resolve(stringArg(args, "path"))
-	if err != nil {
-		return errorResult("%v", err)
-	}
-	depth := intArg(args, "depth", 1)
+func (t *fsListTool) Execute(_ context.Context, call Call) Result {
+	abs, display := call.Target, call.Display
+	depth := intArg(call.Args, "depth", 1)
 	if depth < 1 {
 		depth = 1
 	}
@@ -56,7 +57,7 @@ func (t *fsListTool) Execute(_ context.Context, args map[string]any) Result {
 	if err := walkList(abs, "  ", 1, depth, &lines); err != nil {
 		return errorResult("列出目录失败: %v", err)
 	}
-	return Result{Output: truncate(strings.Join(lines, "\n"), maxOutputBytes)}
+	return Result{Output: strings.Join(lines, "\n")}
 }
 
 func walkList(dir, prefix string, level, maxLevel int, lines *[]string) error {
@@ -99,31 +100,31 @@ func walkList(dir, prefix string, level, maxLevel int, lines *[]string) error {
 
 // ---------- fs_read ----------
 
-type fsReadTool struct{ registry *Registry }
+type fsReadTool struct{}
 
-func (t *fsReadTool) Name() string { return "fs_read" }
-
-func (t *fsReadTool) Description() string {
-	return "读取工作区内的文本文件，返回带行号的内容。大文件请用 offset 与 limit 分段读取。"
-}
-
-func (t *fsReadTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"path"},
-		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "相对工作区的文件路径"},
-			"offset": map[string]any{"type": "integer", "minimum": 0, "description": "起始行，从 0 开始"},
-			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": maxReadLines, "description": "读取行数，默认 2000"},
+func (t *fsReadTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_read",
+		Description: "读取工作区内的文本文件，返回带行号的内容。大文件请用 offset 与 limit 分段读取。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		Work:        true,
+		SummaryArg:  "path",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"path"},
+			"properties": map[string]any{
+				"path":   map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "起始行，从 0 开始"},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": maxReadLines, "description": "读取行数，默认 2000"},
+			},
 		},
 	}
 }
 
-func (t *fsReadTool) Execute(_ context.Context, args map[string]any) Result {
-	abs, display, err := t.registry.resolve(stringArg(args, "path"))
-	if err != nil {
-		return errorResult("%v", err)
-	}
+func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
+	abs, display := call.Target, call.Display
+	args := call.Args
 	info, err := os.Stat(abs)
 	if err != nil {
 		return errorResult("读取文件失败: %v", err)
@@ -171,39 +172,38 @@ func (t *fsReadTool) Execute(_ context.Context, args map[string]any) Result {
 	if end < len(lines) {
 		fmt.Fprintf(&builder, "…（还有 %d 行，使用 offset=%d 继续读取）", len(lines)-end, end)
 	}
-	return Result{Output: truncate(builder.String(), maxOutputBytes)}
+	return Result{Output: builder.String()}
 }
 
 // ---------- fs_glob ----------
 
-type fsGlobTool struct{ registry *Registry }
+type fsGlobTool struct{}
 
-func (t *fsGlobTool) Name() string { return "fs_glob" }
-
-func (t *fsGlobTool) Description() string {
-	return "按通配符查找工作区内的文件，支持 *.go、**/*.ts 等模式，最多返回 200 条。"
-}
-
-func (t *fsGlobTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"pattern"},
-		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "通配符模式，例如 **/*.go"},
-			"path":    map[string]any{"type": "string", "description": "起始目录，默认工作区根"},
+func (t *fsGlobTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_glob",
+		Description: "按通配符查找工作区内的文件，支持 *.go、**/*.ts 等模式，最多返回 200 条。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		Work:        true,
+		SummaryArg:  "pattern",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"pattern"},
+			"properties": map[string]any{
+				"pattern": map[string]any{"type": "string", "description": "通配符模式，例如 **/*.go"},
+				"path":    map[string]any{"type": "string", "description": "起始目录，默认工作区根"},
+			},
 		},
 	}
 }
 
-func (t *fsGlobTool) Execute(_ context.Context, args map[string]any) Result {
-	pattern := stringArg(args, "pattern")
+func (t *fsGlobTool) Execute(_ context.Context, call Call) Result {
+	pattern := stringArg(call.Args, "pattern")
 	if pattern == "" {
 		return errorResult("pattern 不能为空")
 	}
-	root, _, err := t.registry.resolve(stringArg(args, "path"))
-	if err != nil {
-		return errorResult("%v", err)
-	}
+	root := call.Target
 
 	var matches []string
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -216,7 +216,7 @@ func (t *fsGlobTool) Execute(_ context.Context, args map[string]any) Result {
 			}
 			return nil
 		}
-		rel := displayPath(t.registry.Workspace(), path)
+		rel := displayPath(call.Workspace, path)
 		if matchGlob(pattern, rel) {
 			matches = append(matches, rel)
 			if len(matches) >= 200 {
@@ -232,7 +232,7 @@ func (t *fsGlobTool) Execute(_ context.Context, args map[string]any) Result {
 		return Result{Output: "没有匹配的文件"}
 	}
 	sort.Strings(matches)
-	return Result{Output: truncate(strings.Join(matches, "\n"), maxOutputBytes)}
+	return Result{Output: strings.Join(matches, "\n")}
 }
 
 func matchGlob(pattern, rel string) bool {
@@ -254,42 +254,43 @@ func matchGlob(pattern, rel string) bool {
 
 // ---------- fs_grep ----------
 
-type fsGrepTool struct{ registry *Registry }
+type fsGrepTool struct{}
 
-func (t *fsGrepTool) Name() string { return "fs_grep" }
-
-func (t *fsGrepTool) Description() string {
-	return "在工作区文本文件中搜索字符串或正则，返回 path:line: 内容，最多 200 条。"
-}
-
-func (t *fsGrepTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"pattern"},
-		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "要搜索的字符串或正则"},
-			"path":    map[string]any{"type": "string", "description": "搜索目录，默认工作区根"},
-			"regex":   map[string]any{"type": "boolean", "description": "是否按正则解释，默认 false"},
+func (t *fsGrepTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_grep",
+		Description: "在工作区文本文件中搜索字符串或正则，返回 path:line: 内容，最多 200 条。",
+		Risk:        policy.R0,
+		PathArg:     "path",
+		Work:        true,
+		SummaryArg:  "pattern",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"pattern"},
+			"properties": map[string]any{
+				"pattern": map[string]any{"type": "string", "description": "要搜索的字符串或正则"},
+				"path":    map[string]any{"type": "string", "description": "搜索目录，默认工作区根"},
+				"regex":   map[string]any{"type": "boolean", "description": "是否按正则解释，默认 false"},
+			},
 		},
 	}
 }
 
-func (t *fsGrepTool) Execute(_ context.Context, args map[string]any) Result {
+func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
+	args := call.Args
 	pattern := stringArg(args, "pattern")
 	if pattern == "" {
 		return errorResult("pattern 不能为空")
 	}
-	root, _, err := t.registry.resolve(stringArg(args, "path"))
-	if err != nil {
-		return errorResult("%v", err)
-	}
+	root := call.Target
 
 	var matcher *regexp.Regexp
 	if boolArg(args, "regex") {
-		matcher, err = regexp.Compile(pattern)
+		compiled, err := regexp.Compile(pattern)
 		if err != nil {
 			return errorResult("正则无效: %v", err)
 		}
+		matcher = compiled
 	}
 
 	var lines []string
@@ -311,7 +312,7 @@ func (t *fsGrepTool) Execute(_ context.Context, args map[string]any) Result {
 		if err != nil || isBinary(data) {
 			return nil
 		}
-		rel := displayPath(t.registry.Workspace(), path)
+		rel := displayPath(call.Workspace, path)
 		for index, line := range strings.Split(string(data), "\n") {
 			matched := false
 			if matcher != nil {
@@ -340,35 +341,31 @@ func (t *fsGrepTool) Execute(_ context.Context, args map[string]any) Result {
 
 // ---------- fs_write ----------
 
-type fsWriteTool struct{ registry *Registry }
+type fsWriteTool struct{}
 
-func (t *fsWriteTool) Name() string { return "fs_write" }
-
-func (t *fsWriteTool) Description() string {
-	return "写入工作区内的文件。已存在的文件会先备份，写入使用临时文件原子替换。"
-}
-
-func (t *fsWriteTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"path", "content"},
-		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "相对工作区的文件路径"},
-			"content": map[string]any{"type": "string", "description": "完整文件内容"},
+func (t *fsWriteTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_write",
+		Description: "写入工作区内的文件。已存在的文件会先备份，写入使用临时文件原子替换。",
+		Risk:        policy.R1,
+		PathArg:     "path",
+		Work:        true,
+		Title:       "写入文件",
+		SummaryArg:  "path",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"path", "content"},
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"content": map[string]any{"type": "string", "description": "完整文件内容"},
+			},
 		},
 	}
 }
 
-func (t *fsWriteTool) Execute(_ context.Context, args map[string]any) Result {
-	rel := stringArg(args, "path")
-	if rel == "" {
-		return errorResult("path 不能为空")
-	}
-	content := stringArg(args, "content")
-	abs, display, err := t.registry.resolve(rel)
-	if err != nil {
-		return errorResult("%v", err)
-	}
+func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
+	content := stringArg(call.Args, "content")
+	abs, display := call.Target, call.Display
 
 	mode := os.FileMode(0o644)
 	if existing, err := os.ReadFile(abs); err == nil {
@@ -376,7 +373,7 @@ func (t *fsWriteTool) Execute(_ context.Context, args map[string]any) Result {
 		if info, statErr := os.Stat(abs); statErr == nil {
 			mode = info.Mode().Perm()
 		}
-		if err := t.registry.backup(abs, existing); err != nil {
+		if err := call.Backup(existing); err != nil {
 			return errorResult("写入前备份失败: %v", err)
 		}
 	}
@@ -394,36 +391,37 @@ func (t *fsWriteTool) Execute(_ context.Context, args map[string]any) Result {
 
 // ---------- fs_edit ----------
 
-type fsEditTool struct{ registry *Registry }
+type fsEditTool struct{}
 
-func (t *fsEditTool) Name() string { return "fs_edit" }
-
-func (t *fsEditTool) Description() string {
-	return "在文件中精确替换一段文本。old_string 必须在文件中唯一匹配；写入前会备份原文件。"
-}
-
-func (t *fsEditTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"path", "old_string", "new_string"},
-		"properties": map[string]any{
-			"path":       map[string]any{"type": "string", "description": "相对工作区的文件路径"},
-			"old_string": map[string]any{"type": "string", "description": "要被替换的原文，必须唯一"},
-			"new_string": map[string]any{"type": "string", "description": "替换后的文本"},
+func (t *fsEditTool) Spec() Spec {
+	return Spec{
+		Name:        "fs_edit",
+		Description: "在文件中精确替换一段文本。old_string 必须在文件中唯一匹配；写入前会备份原文件。",
+		Risk:        policy.R1,
+		PathArg:     "path",
+		Work:        true,
+		Title:       "修改文件",
+		SummaryArg:  "path",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"path", "old_string", "new_string"},
+			"properties": map[string]any{
+				"path":       map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"old_string": map[string]any{"type": "string", "description": "要被替换的原文，必须唯一"},
+				"new_string": map[string]any{"type": "string", "description": "替换后的文本"},
+			},
 		},
 	}
 }
 
-func (t *fsEditTool) Execute(_ context.Context, args map[string]any) Result {
+func (t *fsEditTool) Execute(_ context.Context, call Call) Result {
+	args := call.Args
 	oldText := stringArg(args, "old_string")
 	newText := stringArg(args, "new_string")
 	if oldText == "" {
 		return errorResult("old_string 不能为空")
 	}
-	abs, display, err := t.registry.resolve(stringArg(args, "path"))
-	if err != nil {
-		return errorResult("%v", err)
-	}
+	abs, display := call.Target, call.Display
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return errorResult("读取文件失败: %v", err)
@@ -436,7 +434,7 @@ func (t *fsEditTool) Execute(_ context.Context, args map[string]any) Result {
 	if count > 1 {
 		return errorResult("在 %s 中匹配到 %d 处相同内容，请提供更长的唯一片段", display, count)
 	}
-	if err := t.registry.backup(abs, data); err != nil {
+	if err := call.Backup(data); err != nil {
 		return errorResult("写入前备份失败: %v", err)
 	}
 	updated := strings.Replace(content, oldText, newText, 1)
@@ -457,25 +455,26 @@ func (t *fsEditTool) Execute(_ context.Context, args map[string]any) Result {
 
 type todoWriteTool struct{}
 
-func (t *todoWriteTool) Name() string { return "todo_write" }
-
-func (t *todoWriteTool) Description() string {
-	return "更新当前任务的待办清单，用于向用户展示进度。"
-}
-
-func (t *todoWriteTool) Schema() map[string]any {
-	return map[string]any{
-		"type":     "object",
-		"required": []string{"items"},
-		"properties": map[string]any{
-			"items": map[string]any{
-				"type": "array",
+func (t *todoWriteTool) Spec() Spec {
+	return Spec{
+		Name:        "todo_write",
+		Description: "更新当前任务的待办清单，用于向用户展示进度。",
+		Risk:        policy.R0,
+		Work:        true,
+		SummaryText: "更新任务清单",
+		Schema: map[string]any{
+			"type":     "object",
+			"required": []string{"items"},
+			"properties": map[string]any{
 				"items": map[string]any{
-					"type":     "object",
-					"required": []string{"text", "status"},
-					"properties": map[string]any{
-						"text":   map[string]any{"type": "string"},
-						"status": map[string]any{"type": "string", "enum": []string{"pending", "active", "done"}},
+					"type": "array",
+					"items": map[string]any{
+						"type":     "object",
+						"required": []string{"text", "status"},
+						"properties": map[string]any{
+							"text":   map[string]any{"type": "string"},
+							"status": map[string]any{"type": "string", "enum": []string{"pending", "active", "done"}},
+						},
 					},
 				},
 			},
@@ -483,8 +482,8 @@ func (t *todoWriteTool) Schema() map[string]any {
 	}
 }
 
-func (t *todoWriteTool) Execute(_ context.Context, args map[string]any) Result {
-	items, _ := args["items"].([]any)
+func (t *todoWriteTool) Execute(_ context.Context, call Call) Result {
+	items, _ := call.Args["items"].([]any)
 	var lines []string
 	for _, item := range items {
 		object, ok := item.(map[string]any)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"craftwork/internal/policy"
 	"craftwork/internal/tools"
 )
 
@@ -25,19 +26,26 @@ func (t *DynamicTool) Name() string {
 	return "mcp__" + sanitize(t.server.ID) + "__" + sanitize(t.info.Name)
 }
 
-func (t *DynamicTool) Description() string {
-	return "MCP " + t.server.Name + "：" + t.info.Description
-}
-
-func (t *DynamicTool) Schema() map[string]any {
-	if t.info.InputSchema == nil {
-		return map[string]any{"type": "object", "properties": map[string]any{}}
+// Spec 声明 MCP 工具的静态元数据。
+//
+// MCP 工具不声明路径参数；风险固定按执行类处理，输出由 Registry
+// 统一截断，服务器返回多大内容都不会直接灌进模型上下文。
+func (t *DynamicTool) Spec() tools.Spec {
+	schema := t.info.InputSchema
+	if schema == nil {
+		schema = map[string]any{"type": "object", "properties": map[string]any{}}
 	}
-	return t.info.InputSchema
+	return tools.Spec{
+		Name:        t.Name(),
+		Description: "MCP " + t.server.Name + "：" + t.info.Description,
+		Schema:      schema,
+		Risk:        policy.R2,
+		SummaryText: t.info.Name,
+	}
 }
 
-func (t *DynamicTool) Execute(ctx context.Context, args map[string]any) tools.Result {
-	output, isError, err := t.client.CallTool(ctx, t.info.Name, args)
+func (t *DynamicTool) Execute(ctx context.Context, call tools.Call) tools.Result {
+	output, isError, err := t.client.CallTool(ctx, t.info.Name, call.Args)
 	if err != nil {
 		return tools.Result{Output: fmt.Sprintf("MCP 调用失败: %v", err), IsError: true}
 	}

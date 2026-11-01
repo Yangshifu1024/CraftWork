@@ -116,53 +116,42 @@ func (e *Engine) SetWorkspace(workspace string) {
 	e.workspace = workspace
 }
 
-// Assess 评估工具调用。args 是模型给出的原始参数。
-func (e *Engine) Assess(tool string, args map[string]any) Assessment {
-	base := baseRisk(tool)
-	assessment := Assessment{Risk: base, Reason: riskReason(base)}
+// ToolMeta 是评估一次工具调用所需的静态元数据，由工具自己声明。
+type ToolMeta struct {
+	Name       string
+	Risk       Risk
+	PathArg    string
+	CommandArg string
+}
 
-	switch tool {
-	case "fs_read", "fs_list", "fs_glob", "fs_grep", "fs_write", "fs_edit", "apply_patch",
-		"doc_read", "doc_edit", "xlsx_set_cell":
-		path := stringArg(args, "path")
-		if path == "" {
-			path = stringArg(args, "file")
-		}
-		assessment.Target = path
-		if path == "" {
-			return assessment
-		}
-		resolved, err := Resolve(e.workspace, path)
-		if err != nil {
-			assessment.Risk = R3
-			assessment.Reason = "路径超出工作区"
-			return assessment
-		}
-		assessment.Target = resolved
-	case "shell_exec":
-		command := stringArg(args, "command")
-		assessment.Target = command
-		if command == "" {
-			assessment.Risk = R2
-			assessment.Reason = "执行命令"
-			return assessment
-		}
-		if isDestructiveCommand(command) {
-			assessment.Risk = R4
-			assessment.Reason = "包含破坏性命令"
-			return assessment
-		}
-		if isNetworkCommand(command) {
-			assessment.Risk = R3
-			assessment.Reason = "命令可能访问网络"
-			return assessment
-		}
-		assessment.Risk = R2
-		assessment.Reason = "在工作区内执行命令"
-	case "git_commit":
-		assessment.Target = "git commit"
+// ReasonFor 返回风险等级的默认说明。
+func ReasonFor(risk Risk) string {
+	switch risk {
+	case R0:
+		return "只读操作"
+	case R1:
+		return "写入工作区"
+	case R2:
+		return "执行命令"
+	case R3:
+		return "网络或越界访问"
+	default:
+		return "破坏性操作"
 	}
-	return assessment
+}
+
+// ClassifyCommand 对 Shell 命令做风险分类。
+func ClassifyCommand(command string) (Risk, string) {
+	if strings.TrimSpace(command) == "" {
+		return R2, "执行命令"
+	}
+	if isDestructiveCommand(command) {
+		return R4, "包含破坏性命令"
+	}
+	if isNetworkCommand(command) {
+		return R3, "命令可能访问网络"
+	}
+	return R2, "在工作区内执行命令"
 }
 
 // Action 根据审批档位与信任状态给出处置。
@@ -214,45 +203,6 @@ func (e *Engine) AllowsWrite() bool {
 // IsWorkspaceTrusted 判断工作区信任状态。受限工作区只允许只读工具。
 func IsWorkspaceTrusted(trust string) bool {
 	return trust == "trusted"
-}
-
-func baseRisk(tool string) Risk {
-	switch tool {
-	case "fs_read", "fs_list", "fs_glob", "fs_grep",
-		"git_status", "git_diff", "git_log", "todo_write", "ask_user", "doc_read":
-		return R0
-	case "fs_write", "fs_edit", "apply_patch", "git_commit", "doc_edit", "xlsx_set_cell":
-		return R1
-	case "shell_exec", "task":
-		return R2
-	default:
-		// MCP 工具由服务器配置决定；未知工具默认按执行类处理。
-		return R2
-	}
-}
-
-func riskReason(risk Risk) string {
-	switch risk {
-	case R0:
-		return "只读操作"
-	case R1:
-		return "写入工作区"
-	case R2:
-		return "执行命令"
-	case R3:
-		return "网络或越界访问"
-	default:
-		return "破坏性操作"
-	}
-}
-
-func stringArg(args map[string]any, key string) string {
-	value, ok := args[key]
-	if !ok {
-		return ""
-	}
-	text, _ := value.(string)
-	return text
 }
 
 // destructivePatterns 命中后直接判 R4，不提供任何放行入口。

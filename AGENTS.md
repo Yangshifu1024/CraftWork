@@ -123,11 +123,11 @@ docs/                    需求、界面、技术方案、原型
 
 ### 新增一个工具
 
-1. 在 `internal/tools/` 实现 `Tool` 接口（`Name/Description/Schema/Execute`）。
-2. 在 `NewRegistry` 注册。
-3. 在 `policy.baseRisk` 增加风险等级；需要路径/命令判断时补 `Assess`。
-4. 确认输出截断、错误结构化、写前备份。
-5. 补策略与工具测试。
+1. 在 `internal/tools/` 实现 `Tool` 接口（`Spec/Execute`）。
+2. 在 `Spec` 里声明风险等级、路径参数、命令参数、Work 模式与审批标题/摘要。
+3. 在 `NewRegistry` 注册。
+4. 路径解析、输出截断与错误码由 `Registry.Execute` 统一处理；写前备份调用 `Call.Backup`。
+5. 补工具测试，走 `Registry.Assess` + `Registry.Execute` 接缝。
 
 ### 新增一个前端面板或浮层
 

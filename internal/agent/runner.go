@@ -351,8 +351,14 @@ func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to st
 // runTool 执行一次工具调用，返回用于回填给模型的结果。
 func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messageID string, call model.ToolCall) (model.Message, bool) {
 	partID := id.New("part")
-	summary := toolSummary(call.Name, call.Args)
-	assessment := r.policy.Assess(call.Name, call.Args)
+	assessment, prepared, exists := r.tools.Assess(call.Name, call.Args)
+	spec, _ := r.tools.SpecFor(call.Name)
+	summary := spec.SummaryOf(call.Args)
+	title := spec.TitleOf()
+	if !exists {
+		summary = call.Name
+		title = call.Name
+	}
 
 	r.bus.Publish(events.TypeToolStarted, thread.ID, runID, map[string]any{
 		"partId":     partID,
@@ -364,16 +370,18 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"summary":    summary,
 	})
 
-	tool, exists := r.tools.Get(call.Name)
 	denied := ""
 	aborted := false
 	scope := "auto"
 
-	if !exists {
+	switch {
+	case !exists:
 		denied = fmt.Sprintf("未知工具：%s", call.Name)
-	} else if !r.tools.Allows(thread.Mode, call.Name) {
+	case prepared.Err != nil:
+		denied = prepared.Err.Error()
+	case !r.tools.Allows(thread.Mode, call.Name):
 		denied = "当前模式不支持该工具"
-	} else {
+	default:
 		switch r.policy.Action(assessment.Risk) {
 		case policy.ActionDeny:
 			denied = "当前审批档位拒绝该操作"
@@ -395,7 +403,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					"toolCallId":     call.ID,
 					"tool":           call.Name,
 					"risk":           assessment.Risk.String(),
-					"title":          approvalTitle(call.Name),
+					"title":          title,
 					"target":         assessment.Target,
 					"detail":         assessment.Reason,
 					"facts":          facts,
@@ -409,7 +417,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					"threadId": thread.ID,
 					"status":   "awaiting",
 				})
-				r.sendNotification("需要审批", approvalTitle(call.Name)+" · "+summary)
+				r.sendNotification("需要审批", title+" · "+summary)
 
 				decision, err := r.broker.Ask(ctx, ApprovalRequest{
 					ID:             approvalID,
@@ -419,7 +427,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					ToolCallID:     call.ID,
 					Tool:           call.Name,
 					Risk:           assessment.Risk.String(),
-					Title:          approvalTitle(call.Name),
+					Title:          title,
 					Target:         assessment.Target,
 					Detail:         assessment.Reason,
 					Facts:          facts,
@@ -464,13 +472,13 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 	duration := time.Duration(0)
 	if denied == "" {
 		started := time.Now()
-		result = tool.Execute(ctx, call.Args)
+		result = r.tools.Execute(ctx, prepared)
 		duration = time.Since(started)
 		if ctx.Err() != nil {
 			aborted = true
 		}
 	} else {
-		result = tools.Result{Output: denied, IsError: true}
+		result = tools.Result{Output: denied, IsError: true, Code: tools.CodeToolError}
 	}
 
 	status := "done"
@@ -486,6 +494,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"status":     status,
 		"output":     result.Output,
 		"isError":    result.IsError,
+		"code":       result.Code,
 		"durationMs": duration.Milliseconds(),
 		"summary":    summary,
 	}
@@ -704,27 +713,6 @@ func systemPrompt(mode, workspace string) string {
 - 回答简洁、具体，引用文件时使用 path:line 形式。`, label, workspace)
 }
 
-func approvalTitle(tool string) string {
-	switch tool {
-	case "fs_write":
-		return "写入文件"
-	case "fs_edit":
-		return "修改文件"
-	case "doc_edit":
-		return "修改文档"
-	case "xlsx_set_cell":
-		return "修改表格"
-	case "apply_patch":
-		return "应用补丁"
-	case "shell_exec":
-		return "执行命令"
-	case "git_commit":
-		return "提交代码"
-	default:
-		return tool
-	}
-}
-
 func approvalFacts(assessment policy.Assessment, summary string) []Fact {
 	facts := []Fact{
 		{Label: "风险等级", Value: assessment.Risk.String()},
@@ -735,36 +723,6 @@ func approvalFacts(assessment policy.Assessment, summary string) []Fact {
 		facts = append(facts, Fact{Label: "目标", Value: assessment.Target})
 	}
 	return facts
-}
-
-func toolSummary(name string, args map[string]any) string {
-	switch name {
-	case "fs_read", "fs_list", "fs_write", "fs_edit", "apply_patch",
-		"doc_read", "doc_edit", "xlsx_set_cell":
-		path := stringValue(args["path"])
-		if path == "" {
-			path = "."
-		}
-		return path
-	case "fs_glob":
-		return stringValue(args["pattern"])
-	case "fs_grep":
-		return stringValue(args["pattern"])
-	case "shell_exec":
-		return stringValue(args["command"])
-	case "git_status":
-		return "git status"
-	case "git_diff":
-		return "git diff"
-	case "git_log":
-		return "git log"
-	case "git_commit":
-		return stringValue(args["message"])
-	case "todo_write":
-		return "更新任务清单"
-	default:
-		return name
-	}
 }
 
 func joinTextParts(parts []store.Part) string {

@@ -79,10 +79,17 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 			return nil
 		},
 	})
-	tool := &applyPatchTool{registry: registry}
+	run := func(args map[string]any) Result {
+		t.Helper()
+		_, call, exists := registry.Assess("apply_patch", args)
+		if !exists {
+			t.Fatal("apply_patch 未注册")
+		}
+		return registry.Execute(context.Background(), call)
+	}
 	patch := "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
 
-	dry := tool.Execute(context.Background(), map[string]any{
+	dry := run(map[string]any{
 		"path": "note.txt", "patch": patch, "dry_run": true,
 	})
 	if dry.IsError || !strings.Contains(dry.Output, "预演") {
@@ -96,7 +103,7 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 		t.Fatalf("预演不应备份: %d", backups)
 	}
 
-	applied := tool.Execute(context.Background(), map[string]any{"path": "note.txt", "patch": patch})
+	applied := run(map[string]any{"path": "note.txt", "patch": patch})
 	if applied.IsError || !strings.Contains(applied.Output, "已应用") {
 		t.Fatalf("应用结果不符: %+v", applied)
 	}
@@ -111,10 +118,13 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 
 func TestApplyPatchToolRejectsUnknownFile(t *testing.T) {
 	registry := NewRegistry(Options{Workspace: t.TempDir()})
-	tool := &applyPatchTool{registry: registry}
-	result := tool.Execute(context.Background(), map[string]any{
+	_, call, exists := registry.Assess("apply_patch", map[string]any{
 		"path": "missing.txt", "patch": twoHunkPatch,
 	})
+	if !exists {
+		t.Fatal("apply_patch 未注册")
+	}
+	result := registry.Execute(context.Background(), call)
 	if !result.IsError || !strings.Contains(result.Output, "只修改已有文件") {
 		t.Fatalf("不存在的文件应被拒绝: %+v", result)
 	}

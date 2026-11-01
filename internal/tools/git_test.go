@@ -39,11 +39,16 @@ func TestGitTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := NewRegistry(Options{Workspace: repo})
-	commitTool := &gitCommitTool{registry: registry}
-	logTool := &gitLogTool{registry: registry}
-	diffTool := &gitDiffTool{registry: registry}
+	run := func(name string, args map[string]any) Result {
+		t.Helper()
+		_, call, exists := registry.Assess(name, args)
+		if !exists {
+			t.Fatalf("%s 未注册", name)
+		}
+		return registry.Execute(context.Background(), call)
+	}
 
-	result := commitTool.Execute(context.Background(), map[string]any{
+	result := run("git_commit", map[string]any{
 		"message": "初始提交",
 		"paths":   []any{"a.txt"},
 	})
@@ -51,7 +56,7 @@ func TestGitTools(t *testing.T) {
 		t.Fatalf("首次提交失败: %+v", result)
 	}
 
-	logResult := logTool.Execute(context.Background(), map[string]any{"limit": 5})
+	logResult := run("git_log", map[string]any{"limit": 5})
 	if logResult.IsError || !strings.Contains(logResult.Output, "初始提交") {
 		t.Fatalf("git log 不符: %+v", logResult)
 	}
@@ -59,17 +64,17 @@ func TestGitTools(t *testing.T) {
 	if err := os.WriteFile(path, []byte("b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	diffResult := diffTool.Execute(context.Background(), map[string]any{"path": "a.txt"})
+	diffResult := run("git_diff", map[string]any{"path": "a.txt"})
 	if diffResult.IsError || !strings.Contains(diffResult.Output, "-a") || !strings.Contains(diffResult.Output, "+b") {
 		t.Fatalf("git diff 不符: %+v", diffResult)
 	}
 
-	dryEmpty := commitTool.Execute(context.Background(), map[string]any{"message": "空提交"})
+	dryEmpty := run("git_commit", map[string]any{"message": "空提交"})
 	if dryEmpty.IsError {
 		t.Fatalf("存在已跟踪修改时提交应成功: %+v", dryEmpty)
 	}
 
-	empty := commitTool.Execute(context.Background(), map[string]any{"message": "空提交"})
+	empty := run("git_commit", map[string]any{"message": "空提交"})
 	if !empty.IsError {
 		t.Fatalf("没有改动时提交应失败: %+v", empty)
 	}
