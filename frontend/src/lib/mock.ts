@@ -15,6 +15,9 @@ import { dispatch, envelope } from "./bus";
 import type {
   AuditEntry,
   Backup,
+  CatalogMeta,
+  CatalogModelView,
+  CatalogProviderView,
   ChatMessage,
   ChatPart,
   DiffResult,
@@ -42,7 +45,7 @@ const settings: Settings = {
   mode: "code",
   panelWidth: 440,
   approvalLevel: "graded",
-  defaultModel: "local-demo",
+  defaultModel: "openai/gpt-5.1",
   fallbackModel: "",
   activeWorkspace: "ws_demo",
   language: "zh-CN",
@@ -74,8 +77,8 @@ const threads: Record<string, ThreadView[]> = {
       id: "th_code_1",
       mode: "code",
       title: "修复登录刷新超时",
-      modelId: "local-demo",
-      modelName: "Local Demo",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
       workspaceId: "ws_demo",
       status: "idle",
       archived: false,
@@ -87,8 +90,8 @@ const threads: Record<string, ThreadView[]> = {
       id: "th_code_2",
       mode: "code",
       title: "为工作区搜索补上中文分词",
-      modelId: "local-demo",
-      modelName: "Local Demo",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
       workspaceId: "ws_demo",
       status: "idle",
       archived: false,
@@ -102,8 +105,8 @@ const threads: Record<string, ThreadView[]> = {
       id: "th_work_1",
       mode: "work",
       title: "整理季度会议纪要",
-      modelId: "local-demo",
-      modelName: "Local Demo",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
       workspaceId: "ws_demo",
       status: "idle",
       archived: false,
@@ -115,8 +118,8 @@ const threads: Record<string, ThreadView[]> = {
       id: "th_work_2",
       mode: "work",
       title: "修正预算表合计公式",
-      modelId: "local-demo",
-      modelName: "Local Demo",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
       workspaceId: "ws_demo",
       status: "idle",
       archived: false,
@@ -279,8 +282,8 @@ const usage: UsageSummary = {
   week: { inputTokens: 98240, outputTokens: 18400, cacheTokens: 12400, costMicros: 210000, runs: 31 },
   month: { inputTokens: 402100, outputTokens: 72100, cacheTokens: 50200, costMicros: 880000, runs: 124 },
   byModel: [
-    { modelId: "local-demo", inputTokens: 302100, outputTokens: 52100, costMicros: 0, runs: 108 },
-    { modelId: "deepseek-chat", inputTokens: 100000, outputTokens: 20000, costMicros: 880000, runs: 16 },
+    { modelId: "openai/gpt-5.1", inputTokens: 302100, outputTokens: 52100, costMicros: 500000, runs: 108 },
+    { modelId: "openrouter/x-ai/grok-4.5", inputTokens: 100000, outputTokens: 20000, costMicros: 380000, runs: 16 },
   ],
   byDay: Array.from({ length: 14 }, (_, index) => ({
     day: new Date(now - (13 - index) * 86400000).toISOString().slice(0, 10),
@@ -300,45 +303,83 @@ const backups: Backup[] = [
 /** Mock 的 MCP 服务器列表，默认为空，添加后才有数据。 */
 const mcpServers: MCPServerView[] = [];
 
-/** Mock 提供商目录：一个无需密钥的本地演示提供商，以及四个常见云端提供商。 */
+/**
+ * Mock 提供商列表：默认只有一个已配置环境变量的 OpenAI。
+ *
+ * 产品里所有提供商都由用户添加，这里保留一个可用条目只是为了让纯 UI 预览
+ * 能直接走通对话；它不代表产品内置了任何提供商。
+ */
 const providers: ProviderView[] = [
   {
-    id: "local", name: "本地演示", kind: "mock", endpoint: "", keyRequired: false,
-    keySource: "", keyMasked: "", custom: false, overridden: false, available: true, note: "无需密钥，用于本地演示与端到端测试。",
-    models: [{ id: "local-demo", name: "Local Demo", provider: "local", providerName: "本地演示", contextK: 32, caps: { stream: true, tools: true, vision: false, reasoning: true, structured: false }, default: true, available: true }],
-  },
-  {
-    id: "deepseek", name: "DeepSeek", kind: "openai-compatible", endpoint: "https://api.deepseek.com/v1", keyRequired: true,
-    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
+    id: "openai", name: "OpenAI", kind: "openai", endpoint: "https://api.openai.com/v1",
+    keyRequired: true, keySource: "env", keyMasked: "OPENAI…_KEY", available: true,
     models: [
-      { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek", providerName: "DeepSeek", contextK: 64, caps: { stream: true, tools: true, vision: false, reasoning: false, structured: true }, default: false, available: false },
-      { id: "deepseek-reasoner", name: "DeepSeek Reasoner", provider: "deepseek", providerName: "DeepSeek", contextK: 64, caps: { stream: true, tools: true, vision: false, reasoning: true, structured: false }, default: false, available: false },
+      {
+        id: "gpt-5.1", ref: "openai/gpt-5.1", name: "GPT-5.1", provider: "openai", providerName: "OpenAI",
+        contextK: 400, maxTokens: 128000,
+        caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
+        cost: { inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125 },
+        status: "", canonicalId: "openai/gpt-5.1", releaseDate: "2025-11-13", available: true,
+      },
     ],
   },
   {
-    id: "openai", name: "OpenAI", kind: "openai", endpoint: "https://api.openai.com/v1", keyRequired: true,
-    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
+    id: "openrouter", name: "OpenRouter", kind: "openai-compatible", endpoint: "https://openrouter.ai/api/v1",
+    keyRequired: true, keySource: "", keyMasked: "", available: false,
     models: [
-      { id: "gpt-4o", name: "GPT-4o", provider: "openai", providerName: "OpenAI", contextK: 128, caps: { stream: true, tools: true, vision: true, reasoning: false, structured: true }, default: false, available: false },
-    ],
-  },
-  {
-    id: "anthropic", name: "Anthropic", kind: "anthropic", endpoint: "https://api.anthropic.com", keyRequired: true,
-    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
-    note: "原生 Messages 协议，支持流式输出、工具调用与图片输入。",
-    models: [
-      { id: "claude-sonnet-4", name: "Claude Sonnet 4", provider: "anthropic", providerName: "Anthropic", contextK: 200, caps: { stream: true, tools: true, vision: true, reasoning: false, structured: false }, default: false, available: false },
-    ],
-  },
-  {
-    id: "gemini", name: "Google Gemini", kind: "gemini", endpoint: "https://generativelanguage.googleapis.com", keyRequired: true,
-    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
-    note: "原生 generateContent 协议，支持流式输出、函数调用与图片输入。",
-    models: [
-      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "gemini", providerName: "Google Gemini", contextK: 1000, caps: { stream: true, tools: true, vision: true, reasoning: true, structured: false }, default: false, available: false },
+      {
+        id: "x-ai/grok-4.5", ref: "openrouter/x-ai/grok-4.5", name: "Grok 4.5", provider: "openrouter",
+        providerName: "OpenRouter", contextK: 500, maxTokens: 450000,
+        caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
+        cost: { inputPerMTok: 2, outputPerMTok: 6, cacheReadPerMTok: 0.3 },
+        status: "", canonicalId: "xai/grok-4.5", releaseDate: "2026-08-01", available: false,
+      },
     ],
   },
 ];
+
+/** Mock 目录元信息，字段与 Go 侧 CatalogMeta 对齐。 */
+const catalogMeta: CatalogMeta = {
+  schema: 1,
+  generatedAt: "2026-11-01T10:06:32Z",
+  version: "mock-catalog",
+  source: "https://models.dev/api.json",
+  license: "MIT",
+  providerCount: 2,
+  modelCount: 2,
+};
+
+/** Mock 目录提供商，仅用于纯 UI 预览“从模型目录添加”的流程。 */
+const catalogProviders: CatalogProviderView[] = [
+  {
+    id: "groq", name: "Groq", kind: "openai-compatible", endpoint: "https://api.groq.com/openai/v1",
+    doc: "https://console.groq.com/docs/models", env: ["GROQ_API_KEY"], modelCount: 1, added: false,
+  },
+  {
+    id: "openrouter", name: "OpenRouter", kind: "openai-compatible", endpoint: "https://openrouter.ai/api/v1",
+    doc: "https://openrouter.ai/models", env: ["OPENROUTER_API_KEY"], modelCount: 1, added: false,
+  },
+];
+
+/** Mock 目录模型，按提供商标识分组。 */
+const catalogModels: Record<string, CatalogModelView[]> = {
+  groq: [
+    {
+      id: "qwen/qwen3.8-27b", ref: "groq/qwen/qwen3.8-27b", name: "Qwen3.8 27B", provider: "groq",
+      providerName: "Groq", contextK: 132, maxTokens: 32768,
+      caps: { stream: true, tools: true, vision: false, reasoning: true, structured: true },
+      cost: { inputPerMTok: 0.8, outputPerMTok: 4 }, status: "", releaseDate: "2026-09-01",
+    },
+  ],
+  openrouter: [
+    {
+      id: "x-ai/grok-4.5", ref: "openrouter/x-ai/grok-4.5", name: "Grok 4.5", provider: "openrouter",
+      providerName: "OpenRouter", contextK: 500, maxTokens: 450000,
+      caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
+      cost: { inputPerMTok: 2, outputPerMTok: 6, cacheReadPerMTok: 0.3 }, status: "", releaseDate: "2026-08-01",
+    },
+  ],
+};
 
 /** Mock 终端会话列表。 */
 const terminalSessions: TerminalView[] = [];
@@ -346,6 +387,8 @@ const terminalSessions: TerminalView[] = [];
 let terminalCounter = 0;
 /** 已被用户取消运行的线程 ID 集合；`simulateRun` 在每个阶段之间检查它。 */
 const cancelled = new Set<string>();
+/** 仍允许首轮自动命名的线程 ID；用户改名或完成命名后移除。 */
+const autoTitleThreads = new Set<string>();
 /**
  * 待审批请求的放行函数：审批 ID 到 resolve 函数的映射。
  * `simulateRun` 在这里挂起等待，`decideApproval` 调用对应函数让流程继续。
@@ -401,6 +444,27 @@ function snapshot(threadID: string): ThreadSnapshot {
     hasMore: false,
     oldestSeq: 0,
   };
+}
+
+/** Mock 没有真实模型可调用，直接使用后端的降级提取规则模拟标题。 */
+function mockAutoTitle(text: string, attachments: string[]): string {
+  const line = text
+    .split("\n")
+    .map((item) => item.trim())
+    .find((item) => item && !item.startsWith("```")) ?? "";
+  let candidate = line.replace(/^[#>*\-`\s]+/, "").split("`").join("").trim();
+  if (!candidate && attachments[0]) {
+    candidate = basename(attachments[0]);
+  }
+  candidate = candidate.replace(/[\s，。！？；：、,.!?;:]+$/g, "");
+  if (!candidate) {
+    return "";
+  }
+  const runes = [...candidate];
+  if (runes.length > 20) {
+    candidate = `${runes.slice(0, 19).join("").replace(/[，。！？；：,.!?;:]+$/g, "")}…`;
+  }
+  return candidate;
 }
 
 /** 把事件数组包装成前端约定的批次结构，版本号固定为 1。 */
@@ -682,11 +746,14 @@ export const mockApi: Api = {
     create: async (mode, workspaceID, title) => {
       const thread: ThreadView = {
         id: uid("th"), mode, title: title || "新对话", modelId: settings.defaultModel,
-        modelName: "Local Demo", workspaceId: workspaceID, status: "idle", archived: false,
+        modelName: "GPT-5.1", workspaceId: workspaceID, status: "idle", archived: false,
         tokens: 0, createdAt: Date.now(), updatedAt: Date.now(),
       };
       threads[mode] = [thread, ...(threads[mode] ?? [])];
       messages[thread.id] = [];
+      if (!title) {
+        autoTitleThreads.add(thread.id);
+      }
       return { ...thread };
     },
     /** 重命名线程并刷新更新时间。 */
@@ -695,6 +762,7 @@ export const mockApi: Api = {
       if (thread) {
         thread.title = title;
         thread.updatedAt = Date.now();
+        autoTitleThreads.delete(threadID);
       }
     },
     /** 切换线程使用的模型。 */
@@ -716,6 +784,7 @@ export const mockApi: Api = {
       threads.code = threads.code.filter((thread) => thread.id !== threadID);
       threads.work = threads.work.filter((thread) => thread.id !== threadID);
       delete messages[threadID];
+      autoTitleThreads.delete(threadID);
     },
     /**
      * 分页快照：`beforeSeq` 大于 0 时只保留该序号之前的消息（用于向上翻页），
@@ -757,6 +826,23 @@ export const mockApi: Api = {
           parts: [{ id: uid("part"), kind: "text", seq: 0, data: { text, attachments } }],
         },
       ];
+      if (autoTitleThreads.has(threadID) && thread.title === "新对话") {
+        const title = mockAutoTitle(text, attachments);
+        if (title) {
+          thread.title = title;
+          thread.updatedAt = Date.now();
+          autoTitleThreads.delete(threadID);
+          dispatch(
+            batch(threadID, [
+              envelope(EVENT.threadUpdated, threadID, "", {
+                threadId: threadID,
+                status: thread.status,
+                thread: { ...thread },
+              }),
+            ]),
+          );
+        }
+      }
       const runID = uid("run");
       void simulateRun(thread, text);
       return runID;
@@ -847,28 +933,34 @@ export const mockApi: Api = {
     /** 返回全部 Git 状态映射的副本。 */
     gitStatuses: async () => ({ ...gitStatuses }),
   },
-  /** 提供商：列表、覆盖保存、删除、密钥设置与清除、连通性测试。 */
+  /** 提供商：列表、保存、删除、密钥维护、连通性测试与模型目录。 */
   providers: {
     /** 列出全部提供商副本；`warnings` 在 Mock 中没有真实检查结果，恒为空数组。 */
-    list: async () => providers.map((provider) => ({ ...provider })),    warnings: async () => [],
-    /**
-     * 保存提供商：已有则原地覆盖，没有则新增。
-     *
-     * 内置提供商被修改时会标记 `overridden`，后端据此提示「已覆盖内置配置」。
-     * 模型的可用性继承提供商的可用性，保证密钥未配置时模型不可选。
-     */
+    list: async () =>
+      providers.map((provider) => ({
+        ...provider,
+        models: (provider.models ?? []).map((model) => ({ ...model })),
+      })),
+    warnings: async () => [],
+    /** 保存提供商：已有则原地更新，没有则新增；没有密钥时不标记为可用。 */
     saveProvider: async (input) => {
       const existing = providers.find((provider) => provider.id === input.id);
       const id = input.id || uid("custom");
-      const available = existing?.available ?? !input.keyRequired;
+      const keySource = existing?.keySource ?? "";
+      const available = keySource !== "" || !input.keyRequired;
       const models = (input.models ?? []).map((model) => ({
         id: model.id,
+        ref: `${id}/${model.id}`,
         name: model.name,
         provider: id,
         providerName: input.name,
         contextK: model.contextK,
+        maxTokens: model.maxTokens ?? 0,
         caps: { ...model.caps, stream: true },
-        default: false,
+        cost: model.cost ?? null,
+        status: model.status ?? "",
+        canonicalId: model.canonicalId ?? "",
+        releaseDate: model.releaseDate ?? "",
         available,
       }));
       const view: ProviderView = {
@@ -877,12 +969,9 @@ export const mockApi: Api = {
         kind: input.kind,
         endpoint: input.endpoint,
         keyRequired: input.keyRequired,
-        keySource: existing?.keySource ?? "",
+        keySource,
         keyMasked: existing?.keyMasked ?? "",
         available,
-        custom: true,
-        overridden: Boolean(existing && !existing.custom),
-        note: existing ? "已覆盖内置提供商配置" : "自定义提供商",
         models,
       };
       if (existing) {
@@ -892,14 +981,20 @@ export const mockApi: Api = {
       }
       return { ...view, models: models.map((model) => ({ ...model })) };
     },
-    /** 删除提供商。 */
+    /** 删除提供商，并清理指向它的默认模型与失败转移模型。 */
     deleteProvider: async (providerID) => {
       const index = providers.findIndex((provider) => provider.id === providerID);
       if (index >= 0) {
         providers.splice(index, 1);
       }
+      if (settings.defaultModel.startsWith(`${providerID}/`)) {
+        settings.defaultModel = "";
+      }
+      if (settings.fallbackModel.startsWith(`${providerID}/`)) {
+        settings.fallbackModel = "";
+      }
     },
-    /** 设置密钥：记录掩码（只露前 5 位与后 4 位）并把提供商与模型标记为可用。 */
+    /** 设置密钥：记录掩码并把提供商与模型标记为可用。 */
     setKey: async (providerID, key) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {
@@ -909,20 +1004,114 @@ export const mockApi: Api = {
         provider.models = (provider.models ?? []).map((model) => ({ ...model, available: true }));
       }
     },
-    /** 清除密钥：只有 mock 类型的提供商在无密钥时仍可用，其余全部变为不可用。 */
+    /** 清除密钥：不需要密钥的提供商仍然可用，其余变为不可用。 */
     clearKey: async (providerID) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {
         provider.keySource = "";
         provider.keyMasked = "";
-        provider.available = provider.kind === "mock";
-        provider.models = (provider.models ?? []).map((model) => ({ ...model, available: provider.available }));
+        provider.available = !provider.keyRequired;
+        provider.models = (provider.models ?? []).map((model) => ({
+          ...model,
+          available: provider.available,
+        }));
       }
     },
-    /** 连通性测试：可用即视为连接正常，否则提示尚未配置密钥。 */
+    /** 连通性测试：已配置密钥或不需要密钥时视为正常。 */
     test: async (providerID) => {
       const provider = providers.find((item) => item.id === providerID);
-      return { ok: Boolean(provider?.available), message: provider?.available ? "连接正常" : "尚未配置密钥", latencyMs: 128 };
+      return {
+        ok: Boolean(provider?.available),
+        message: provider?.available ? "连接正常" : "尚未配置密钥",
+        latencyMs: 128,
+      };
+    },
+    /** 返回目录版本信息。 */
+    catalogMeta: async () => ({ ...catalogMeta }),
+    /** 返回目录提供商，Added 按当前用户配置计算。 */
+    catalogProviders: async (query) => {
+      const keyword = (query ?? "").trim().toLowerCase();
+      return catalogProviders
+        .filter(
+          (provider) =>
+            !keyword ||
+            provider.id.toLowerCase().includes(keyword) ||
+            provider.name.toLowerCase().includes(keyword),
+        )
+        .map((provider) => ({
+          ...provider,
+          env: [...(provider.env ?? [])],
+          added: providers.some((item) => item.id === provider.id),
+        }));
+    },
+    /** 返回指定提供商下的目录模型。 */
+    catalogModels: async (providerID) =>
+      (catalogModels[providerID] ?? []).map((model) => ({
+        ...model,
+        caps: { ...model.caps },
+        cost: model.cost ? { ...model.cost } : null,
+      })),
+    /** 按提供商与模型 ID 补全；提供商不匹配时在全目录中查找唯一匹配。 */
+    lookupCatalogModel: async (providerID, modelID) => {
+      const exact = (catalogModels[providerID] ?? []).find((model) => model.id === modelID);
+      if (exact) {
+        return { ...exact, caps: { ...exact.caps }, cost: exact.cost ? { ...exact.cost } : null };
+      }
+      const matches = Object.values(catalogModels)
+        .flat()
+        .filter((model) => model.id === modelID);
+      if (matches.length === 1) {
+        const found = matches[0];
+        return { ...found, caps: { ...found.caps }, cost: found.cost ? { ...found.cost } : null };
+      }
+      throw new Error(matches.length === 0 ? "模型目录中没有找到模型" : "模型存在于多个提供商");
+    },
+    /** 把目录提供商与选中的模型导入为普通用户配置。 */
+    importFromCatalog: async (input) => {
+      const provider = catalogProviders.find((item) => item.id === input.providerId);
+      if (!provider) {
+        throw new Error("模型目录中没有该提供商");
+      }
+      if (providers.some((item) => item.id === provider.id)) {
+        throw new Error("该提供商已经添加");
+      }
+      const all = catalogModels[provider.id] ?? [];
+      const selected = input.all
+        ? all
+        : (input.modelIds ?? [])
+            .map((id) => all.find((model) => model.id === id))
+            .filter((model): model is CatalogModelView => Boolean(model));
+      if (selected.length === 0) {
+        throw new Error("至少选择一个模型");
+      }
+      const keyRequired = input.keyRequired ?? true;
+      const view: ProviderView = {
+        id: provider.id,
+        name: input.name?.trim() || provider.name,
+        kind: input.kind?.trim() || provider.kind,
+        endpoint: input.endpoint?.trim() || provider.endpoint,
+        keyRequired,
+        keySource: "",
+        keyMasked: "",
+        available: !keyRequired,
+        models: selected.map((model) => ({
+          id: model.id,
+          ref: `${provider.id}/${model.id}`,
+          name: model.name,
+          provider: provider.id,
+          providerName: input.name?.trim() || provider.name,
+          contextK: model.contextK,
+          maxTokens: model.maxTokens ?? 0,
+          caps: { ...model.caps, stream: true },
+          cost: model.cost ?? null,
+          status: model.status ?? "",
+          canonicalId: model.canonicalId ?? "",
+          releaseDate: model.releaseDate ?? "",
+          available: !keyRequired,
+        })),
+      };
+      providers.push(view);
+      return { ...view, models: view.models.map((model) => ({ ...model })) };
     },
   },
   /** MCP 服务器：列表、添加、删除、连接与断开；连接成功后附带两个演示工具。 */

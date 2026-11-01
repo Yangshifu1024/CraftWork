@@ -54,7 +54,7 @@ docs/prototype/
 
 | 原型模块 | 正式实现 |
 | --- | --- |
-| `js/data.js` | Go 后端 SQLite；演示数据由 `CRAFTWORK_DEMO=1` 写入 |
+| `js/data.js` | Go 后端 SQLite；模型目录来自 models.dev 构建期快照，提供商由用户添加 |
 | `js/markdown.js` | `frontend/src/features/chat/Markdown.tsx`（react-markdown + remark-gfm + highlight.js） |
 | `js/core.js` | `stores/*`、`components/Popover`、`Toasts`、`ConfirmDialog` |
 | `js/chat.js` | `features/chat/*`（assistant-ui 运行时 + 自定义部件） |
@@ -156,7 +156,7 @@ docs/prototype/
 | 模式与工作区（F-MODE、F-WS） | 顶部 Code/Work 切换、线程按模式隔离、工作区独立于模式、信任/受限切换、文件树 Git 状态仅 Code 显示 |
 | 线程（F-TH） | 新建、切换、重命名、复制、分支、归档、软删除、全文搜索（标题与内容命中）、状态徽章 |
 | 对话（F-CHAT） | 流式文本、停止、重新生成（旧回复标记「已被替代」）、推理折叠、工具卡片、审批卡片、错误卡片、待办卡片、附件、拖放、回到底部、`path:line` 引用、Markdown、代码块（语言标签/行号/换行/复制）、表格、外链确认 |
-| 模型与密钥（F-MODEL） | 多提供商、连接测试、能力矩阵、密钥来源徽章、环境变量迁移、默认模型与线程内切换（输入框底部）、模型能力不足时禁用控件的说明 |
+| 模型与密钥（F-MODEL） | 三种协议、模型目录导入、连接测试、能力矩阵、密钥来源徽章、环境变量迁移、默认模型与线程内切换（输入框底部）、模型能力不足时禁用控件的说明 |
 | Code 工具（F-TOOL） | `fs_read`、`fs_list`、`fs_glob`、`fs_grep`、`fs_edit`、`fs_write`、`shell_exec`、`git_*` 等工具卡片与参数、输出、耗时；R0–R4 风险徽章 |
 | 文档（F-DOC） | Word 段落/表格、Excel 工作表/公式、PDF 只读、文本级差异、写入审批、写前备份、恢复、外部修改提示、宏不执行提示 |
 | 办公集成（F-OFFICE） | 邮件与日历只读 MCP、应用内草稿、复制草稿、不自动发送/不创建日程的边界提示 |

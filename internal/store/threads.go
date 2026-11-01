@@ -42,9 +42,9 @@ func (db *DB) CreateThread(thread *Thread) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 	_, err := db.sqlDB.Exec(
-		`INSERT INTO threads (id, mode, title, model_id, workspace_id, status, archived, tokens, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		thread.ID, thread.Mode, thread.Title, thread.ModelID, thread.WorkspaceID,
+		`INSERT INTO threads (id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		thread.ID, thread.Mode, thread.Title, boolToInt(thread.TitleAuto), thread.ModelID, thread.WorkspaceID,
 		thread.Status, boolToInt(thread.Archived), thread.Tokens, thread.CreatedAt, thread.UpdatedAt,
 	)
 	if err != nil {
@@ -56,7 +56,7 @@ func (db *DB) CreateThread(thread *Thread) error {
 // GetThread 读取单个线程。
 func (db *DB) GetThread(id string) (*Thread, error) {
 	row := db.sqlDB.QueryRow(
-		`SELECT id, mode, title, model_id, workspace_id, status, archived, tokens, created_at, updated_at
+		`SELECT id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at
 		 FROM threads WHERE id = ? AND deleted_at IS NULL`, id)
 	thread, err := scanThread(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -70,7 +70,7 @@ func (db *DB) GetThread(id string) (*Thread, error) {
 
 // ListThreads 按模式列出线程，默认不包含归档。
 func (db *DB) ListThreads(mode string, includeArchived bool) ([]Thread, error) {
-	query := `SELECT id, mode, title, model_id, workspace_id, status, archived, tokens, created_at, updated_at
+	query := `SELECT id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at
 	          FROM threads WHERE mode = ? AND deleted_at IS NULL`
 	if !includeArchived {
 		query += ` AND archived = 0`
@@ -100,7 +100,7 @@ func (db *DB) ListThreads(mode string, includeArchived bool) ([]Thread, error) {
 func (db *DB) SearchThreads(mode, query string) ([]Thread, error) {
 	like := "%" + strings.TrimSpace(query) + "%"
 	rows, err := db.sqlDB.Query(
-		`SELECT DISTINCT t.id, t.mode, t.title, t.model_id, t.workspace_id, t.status, t.archived, t.tokens, t.created_at, t.updated_at
+		`SELECT DISTINCT t.id, t.mode, t.title, t.title_auto, t.model_id, t.workspace_id, t.status, t.archived, t.tokens, t.created_at, t.updated_at
 		 FROM threads t
 		 LEFT JOIN events e ON e.thread_id = t.id
 		 WHERE t.mode = ? AND t.deleted_at IS NULL AND (t.title LIKE ? OR e.payload LIKE ?)
@@ -121,9 +121,29 @@ func (db *DB) SearchThreads(mode, query string) ([]Thread, error) {
 	return result, rows.Err()
 }
 
-// RenameThread 修改线程标题。
+// RenameThread 修改线程标题，并把标题标记为用户手动命名。
 func (db *DB) RenameThread(id, title string) error {
-	return db.updateThread(id, `UPDATE threads SET title = ?, updated_at = ? WHERE id = ?`, title, nowMillis(), id)
+	return db.updateThread(id,
+		`UPDATE threads SET title = ?, title_auto = 0, updated_at = ? WHERE id = ?`,
+		title, nowMillis(), id)
+}
+
+// AutoTitleThread 在标题仍允许自动命名时写入首轮短标题。
+//
+// 条件里同时检查 title_auto 与当前标题，避免用户手动改名、或另一条消息
+// 已经完成自动命名后再次覆盖。返回是否实际更新了标题。
+func (db *DB) AutoTitleThread(id, title, previousTitle string) (bool, error) {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+	result, err := db.sqlDB.Exec(
+		`UPDATE threads SET title = ?, title_auto = 0, updated_at = ?
+		 WHERE id = ? AND title_auto = 1 AND title = ?`,
+		title, nowMillis(), id, previousTitle)
+	if err != nil {
+		return false, fmt.Errorf("自动命名线程: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	return affected > 0, nil
 }
 
 // SetThreadStatus 更新线程运行状态。
@@ -326,11 +346,13 @@ type rowScanner interface {
 func scanThread(row rowScanner) (*Thread, error) {
 	var thread Thread
 	var archived int
-	if err := row.Scan(&thread.ID, &thread.Mode, &thread.Title, &thread.ModelID, &thread.WorkspaceID,
+	var titleAuto int
+	if err := row.Scan(&thread.ID, &thread.Mode, &thread.Title, &titleAuto, &thread.ModelID, &thread.WorkspaceID,
 		&thread.Status, &archived, &thread.Tokens, &thread.CreatedAt, &thread.UpdatedAt); err != nil {
 		return nil, err
 	}
 	thread.Archived = archived != 0
+	thread.TitleAuto = titleAuto != 0
 	return &thread, nil
 }
 

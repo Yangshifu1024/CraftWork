@@ -52,14 +52,16 @@ type Settings struct {
 }
 
 // DefaultSettings 返回首次启动的默认设置。
+//
+// 首次启动没有任何提供商，因此默认模型为空；用户添加提供商并选择模型后
+// 才会写入具体值。
 func DefaultSettings() Settings {
-	_, modelInfo := model.DefaultModel()
 	return Settings{
 		Theme:            "dark",
 		Mode:             "code",
 		PanelWidth:       440,
 		ApprovalLevel:    string(policy.LevelGraded),
-		DefaultModel:     modelInfo.ID,
+		DefaultModel:     "",
 		Language:         "zh-CN",
 		FontSize:         13,
 		CodeTheme:        "dark",
@@ -89,10 +91,48 @@ func NewSettingsService(db *store.DB, bus *events.Bus, engine *policy.Engine, re
 }
 
 // Get 返回当前设置。
+//
+// 存储里的模型可能是旧的原始 ID；读取时统一转换成“提供商/模型”引用。
+// 指向已删除提供商的模型会返回空，而不是回退到别的模型。
 func (s *SettingsService) Get() Settings {
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
+	normalizeModelSettings(&settings)
 	return settings
+}
+
+// normalizeModelSettings 把默认模型与失败转移模型转换成规范引用。
+//
+// 返回是否发生了修改。无法解析的模型会被清空，避免界面继续展示一个
+// 已经不可用的选择。
+func normalizeModelSettings(settings *Settings) bool {
+	changed := false
+	if settings.DefaultModel != "" {
+		if _, info, ok := model.Resolve(settings.DefaultModel); ok {
+			if ref := info.Ref(); ref != settings.DefaultModel {
+				settings.DefaultModel = ref
+				changed = true
+			}
+		} else {
+			settings.DefaultModel = ""
+			changed = true
+		}
+	}
+	if settings.FallbackModel != "" {
+		if settings.FallbackModel == settings.DefaultModel {
+			settings.FallbackModel = ""
+			changed = true
+		} else if _, info, ok := model.Resolve(settings.FallbackModel); ok {
+			if ref := info.Ref(); ref != settings.FallbackModel {
+				settings.FallbackModel = ref
+				changed = true
+			}
+		} else {
+			settings.FallbackModel = ""
+			changed = true
+		}
+	}
+	return changed
 }
 
 // Save 校验并保存设置，返回保存后的完整设置。
@@ -131,17 +171,9 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	if next.TerminalFontSize < 10 || next.TerminalFontSize > 20 {
 		next.TerminalFontSize = 12
 	}
-	if _, _, ok := model.FindModel(next.DefaultModel); !ok {
-		_, modelInfo := model.DefaultModel()
-		next.DefaultModel = modelInfo.ID
-	}
-	// 失败转移只接受真实提供商；空字符串表示关闭。
-	if next.FallbackModel != "" {
-		provider, _, ok := model.FindModel(next.FallbackModel)
-		if !ok || provider.Kind == "mock" || next.FallbackModel == next.DefaultModel {
-			next.FallbackModel = ""
-		}
-	}
+	// 默认模型允许为空；非空时必须是当前用户目录中的模型。
+	// 失效模型不静默回退，而是清空，让用户重新选择。
+	normalizeModelSettings(&next)
 
 	if next.ActiveWorkspace != "" {
 		// 切换活动工作区时要同时更新路径、信任状态与工具注册表，

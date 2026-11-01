@@ -11,3 +11,13 @@ export interface Capabilities {
     "reasoning": boolean;
     "structured": boolean;
 }
+
+/**
+ * Cost 是模型价格，单位为美元 / 百万 token。
+ */
+export interface Cost {
+    "inputPerMTok": number;
+    "outputPerMTok": number;
+    "cacheReadPerMTok"?: number;
+    "cacheWritePerMTok"?: number;
+}

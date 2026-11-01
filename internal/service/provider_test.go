@@ -28,21 +28,6 @@ func TestConnectionRequestUsesProtocolHeaders(t *testing.T) {
 		t.Fatalf("密钥不应出现在 URL 中: %q", got)
 	}
 
-	gemini := model.Provider{
-		ID: "gemini", Name: "Google Gemini", Kind: "gemini",
-		Endpoint: "https://generativelanguage.googleapis.com",
-	}
-	request, err = connectionRequest(gemini, "gemini-key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := request.URL.String(), "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1"; got != want {
-		t.Fatalf("Gemini 地址不符: got %s want %s", got, want)
-	}
-	if got := request.Header.Get("x-goog-api-key"); got != "gemini-key" {
-		t.Fatalf("Gemini 密钥头不符: %q", got)
-	}
-
 	openai := model.Provider{
 		ID: "openai", Name: "OpenAI", Kind: "openai",
 		Endpoint: "https://api.openai.com/v1",
@@ -64,7 +49,6 @@ func TestJoinServiceURLAvoidsDuplicateVersion(t *testing.T) {
 		{"https://api.anthropic.com", "/v1/models", "https://api.anthropic.com/v1/models"},
 		{"https://api.anthropic.com/", "/v1/models", "https://api.anthropic.com/v1/models"},
 		{"https://api.anthropic.com/v1", "/v1/models", "https://api.anthropic.com/v1/models"},
-		{"https://generativelanguage.googleapis.com/v1beta", "/v1beta/models", "https://generativelanguage.googleapis.com/v1beta/models"},
 	}
 	for _, tc := range cases {
 		if got := joinServiceURL(tc.base, tc.path); got != tc.want {

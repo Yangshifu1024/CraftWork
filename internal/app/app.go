@@ -155,11 +155,6 @@ func Run(frontend embed.FS, build version.Info) error {
 			registry.SetWorkspace(workspace.Path)
 		}
 	}
-	// 演示模式只在显式设置环境变量时写入示例数据，普通启动不受影响。
-	if os.Getenv("CRAFTWORK_DEMO") == "1" {
-		seedDemo(db, settingsService, settings)
-	}
-
 	// 批量事件通道需要在创建应用前注册，前端才能收到 cw:events。
 	application.RegisterEvent[events.Batch](events.BatchName)
 
@@ -234,47 +229,6 @@ func Run(frontend embed.FS, build version.Info) error {
 	go mcpService.Restore()
 
 	return wailsApp.Run()
-}
-
-// seedDemo 在演示模式下准备一个工作区与两条示例线程。
-//
-// 已有活动工作区时直接复用；否则把当前目录登记为一个受信任工作区，
-// 并写入设置，保证演示数据与界面展示一致。
-func seedDemo(db *store.DB, settingsService *service.SettingsService, settings service.Settings) {
-	workspacePath := ""
-	if settings.ActiveWorkspace != "" {
-		if workspace, err := db.GetWorkspace(settings.ActiveWorkspace); err == nil {
-			workspacePath = workspace.Path
-		}
-	}
-	// 没有可用工作区时，用启动目录兜底，避免演示数据没有归属。
-	if workspacePath == "" {
-		current, err := os.Getwd()
-		if err != nil {
-			return
-		}
-		workspace := &store.Workspace{
-			ID:           id.New("ws"),
-			Name:         filepath.Base(current),
-			Path:         current,
-			Trust:        "trusted",
-			CreatedAt:    store.NowMillis(),
-			LastOpenedAt: store.NowMillis(),
-		}
-		if err := db.UpsertWorkspace(workspace); err != nil {
-			slog.Warn("创建演示工作区失败", "err", err)
-			return
-		}
-		settings.ActiveWorkspace = workspace.ID
-		if _, err := settingsService.Save(settings); err != nil {
-			slog.Warn("保存演示设置失败", "err", err)
-			return
-		}
-		workspacePath = workspace.Path
-	}
-	if err := db.SeedDemo(workspacePath); err != nil {
-		slog.Warn("写入演示数据失败", "err", err)
-	}
 }
 
 // resolveDataDir 返回本地数据目录，默认 ~/.craftwork。

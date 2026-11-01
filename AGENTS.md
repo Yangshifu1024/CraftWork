@@ -14,7 +14,8 @@ CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成
 - 同一份代码支持 **server 模式**（`-tags server`）：不创建窗口，由 Go 提供 HTTP 服务，可在浏览器里运行完整应用（见第 2 节）。
 - Go 1.26 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
 - React 19 + TypeScript 前端：三栏界面、聊天、面板、浮层。
-- 已打通：多提供商（OpenAI 兼容、Anthropic、Gemini）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
+- 已打通：多提供商（OpenAI、Anthropic、OpenAI 兼容）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
+- 提供商与模型完全由用户添加；目录来自 models.dev 的构建期快照，应用不内置任何提供商。
 
 M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界面标注。M3 的文本级限制见第 10 节。
 
@@ -49,7 +50,6 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 
 - 默认 `~/.craftwork`：`craftwork.db`、`keys.json`、`backups/`。
 - `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录。
-- `CRAFTWORK_DEMO=1` 写入演示工作区与线程；普通启动不写演示数据。
 
 ### server 模式（用浏览器运行完整应用）
 
@@ -88,11 +88,13 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | Go 静态检查 | `go vet ./...` |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
 | 前端单元测试 | `cd frontend && npm run test` |
-| 浏览器端到端测试 | `cd frontend && npm run test:e2e`（首次需 `npx playwright install chromium`） |
+| 浏览器端到端测试 | `cd frontend && npm run test:e2e`（首次需 `npx playwright install chromium`；本机已有 Edge / Chrome 时可用 `PLAYWRIGHT_CHANNEL=msedge`） |
 | 截图回归 | `cd frontend && npm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
 | 前端构建 | `cd frontend && npm run build` |
 | 一键测试 | `wails3 task test` |
 | 一键检查 | `wails3 task check` |
+| 同步模型目录 | `wails3 task models:sync`（生成 `internal/model/catalogdata/catalog.json.gz`） |
+| 检查目录漂移 | `wails3 task models:check` |
 
 > 修改 Go 服务的导出方法签名后，必须重新生成绑定，否则前端类型会与后端不一致。
 
@@ -108,7 +110,9 @@ internal/record/         事件写入与广播（落库 + 推送的唯一出口�
 internal/platform/       原子写、哈希、环境清洗、子进程执行
 internal/tools/          fs_* / shell_exec / git_status / todo_write
 internal/policy/         风险分级、审批档位、路径解析、命令分类
-internal/model/          统一 Client、提供商目录、Mock、OpenAI 兼容 SSE
+internal/model/          统一 Client、用户提供商目录、模型引用、OpenAI / Anthropic 适配器
+internal/model/catalogdata/  models.dev 目录快照（构建期生成，运行时只读）
+cmd/modelsync/           从 models.dev 同步并生成目录快照
 internal/store/          SQLite、迁移、事件、审计、用量、设置、种子数据
 internal/secret/         keys.json 读写与权限
 internal/editor/         行级 diff
@@ -149,6 +153,14 @@ docs/                    需求、界面、技术方案、原型
 3. 在 `NewRegistry` 注册。
 4. 路径解析、输出截断与错误码由 `Registry.Execute` 统一处理；写前备份调用 `Call.Backup`。
 5. 补工具测试，走 `Registry.Assess` + `Registry.Execute` 接缝。
+
+### 模型目录与提供商
+
+1. 提供商与模型清单只来自 `internal/model/catalogdata/catalog.json.gz`，由 `cmd/modelsync` 从 models.dev 生成；**禁止在 Go 代码里新增内置提供商或模型清单**。
+2. 同步规则在 `internal/model/catalogdata/rules.json`，只允许 `openai`、`anthropic`、`openai-compatible` 三种协议；Google / Gemini 原生协议、Azure、Bedrock、Vertex 一律排除。
+3. 用户提供商保存在 `settings.model.custom_providers`；线程与设置保存 `providerID/modelID` 引用，不要只存原始模型 ID。
+4. 首次启动没有默认模型；发送消息前必须由用户添加提供商并选择模型。
+5. 修改目录后运行 `wails3 task models:sync`，并提交生成的 gzip 与 manifest。
 
 ### 新增一个前端面板或浮层
 
@@ -223,6 +235,10 @@ docs/                    需求、界面、技术方案、原型
 - server 模式生产构建的 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）；如果浏览器拦截同源 WebSocket 导致事件不刷新，显式放行 `ws://`。
 - `wails3 dev` / `wails3 build` 只产出桌面窗口；server 模式走 Taskfile 的 `build:server`（本质是 `go build -tags server`）。
 - `frontend/bindings` 不要手改；重新生成即可。
+- 应用没有任何内置提供商；不要写死 `openai`、`gemini` 等提供商分支，也不要提供“推荐模型”。
+- 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
+- `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。
+- `npm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
 
 ## 8. 验证清单
 
@@ -239,17 +255,17 @@ wails3 build
 
 - 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && npm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
 - 检查三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题。
-- 走一遍：发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
+- 走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 选择模型 → 发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
 - 桌面端启动冒烟（建议隔离目录）：
 
 ```bash
-CRAFTWORK_HOME=/tmp/cw-smoke CRAFTWORK_DEMO=1 ./bin/craftwork
+CRAFTWORK_HOME=/tmp/cw-smoke ./bin/craftwork
 ```
 
 - server 模式冒烟（建议隔离目录）：
 
 ```bash
-CRAFTWORK_HOME=/tmp/cw-server CRAFTWORK_DEMO=1 wails3 task run:server
+CRAFTWORK_HOME=/tmp/cw-server wails3 task run:server
 # 另开终端
 curl -fsS http://localhost:8080/health
 ```
@@ -273,7 +289,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 
 - M4：沙箱、更新下载/替换与回滚、Streamable HTTP MCP、MCP 信任列表；签名/公证/DMG 已接入 Wails 工具链，需要开发者证书与发布密钥。
 - M3 限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
-- 真实密钥验收：OpenAI / Anthropic / Gemini 需要本地配置密钥后各跑一次工具调用闭环。
+- 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。
 - 跨平台：Windows 系统通知、Linux 打包与 CI 兼容性需要实机验证。
 
 ## 11. 提交规范

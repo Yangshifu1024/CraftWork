@@ -252,6 +252,8 @@ func (d *anthropicDecoder) decode(payload []byte, emit emitFunc) (bool, error) {
 		if event.Message != nil {
 			d.usage.InputTokens = event.Message.Usage.InputTokens
 			d.usage.CacheTokens = event.Message.Usage.CacheCreationInputTokens + event.Message.Usage.CacheReadInputTokens
+			// 缓存写入单独记录，费用计算需要用写入价而不是读取价。
+			d.usage.CacheWriteTokens = event.Message.Usage.CacheCreationInputTokens
 			d.usageSeen = true
 		}
 	case "content_block_start":

@@ -8,6 +8,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -97,7 +98,10 @@ func planCompression(messages []model.Message, window int64) ([]model.Message, [
 // 摘要失败时保留原始历史，让本轮继续尝试；不会因为压缩失败直接中断运行。
 func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, messageID string,
 	history []model.Message) []model.Message {
-	_, info := model.Resolve(thread.ModelID)
+	_, info, ok := model.Resolve(thread.ModelID)
+	if !ok {
+		return history
+	}
 	window := int64(info.ContextK) * 1000
 	if window <= 0 {
 		return history
@@ -155,6 +159,10 @@ func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, 
 //
 // 摘要请求使用独立的超时上下文，失败时由调用方回退到未压缩的历史。
 func (r *Runner) summarizeHistory(ctx context.Context, thread store.Thread, messages []model.Message) (string, error) {
+	_, info, ok := model.Resolve(thread.ModelID)
+	if !ok {
+		return "", errors.New("当前模型不可用")
+	}
 	client, err := r.models.Client(thread.ModelID)
 	if err != nil {
 		return "", err
@@ -163,7 +171,7 @@ func (r *Runner) summarizeHistory(ctx context.Context, thread store.Thread, mess
 	defer cancel()
 
 	stream, err := client.Stream(streamCtx, model.Request{
-		Model:  thread.ModelID,
+		Model:  info.ID,
 		System: summarySystemPrompt,
 		Messages: []model.Message{{
 			Role:    "user",

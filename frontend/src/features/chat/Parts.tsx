@@ -314,9 +314,15 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
         </div>
         <div className="approval-facts">
           {(data.facts ?? []).map((fact) => (
-            <span key={`${fact.label}-${fact.value}`} className="approval-fact">
+            <span
+              key={`${fact.label}-${fact.value}`}
+              className="approval-fact"
+              title={`${fact.label}：${fact.value}`}
+            >
               <Icon name="info" />
-              {fact.label}：{fact.value}
+              <span className="approval-fact-text">
+                {fact.label}：{fact.value}
+              </span>
             </span>
           ))}
         </div>

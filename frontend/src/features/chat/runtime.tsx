@@ -119,7 +119,10 @@ export function useChatRuntime() {
     if (!thread) {
       return undefined;
     }
-    return providers.flatMap((provider) => provider.models).find((model) => model.id === thread.modelId);
+    // 新线程保存“提供商/模型”引用；旧线程可能仍保存原始模型 ID。
+    return providers
+      .flatMap((provider) => provider.models)
+      .find((model) => model.ref === thread.modelId || model.id === thread.modelId);
   }, [threads, activeID, providers]);
 
   const reasoningEnabled = currentModel?.caps.reasoning ?? false;
@@ -140,6 +143,14 @@ export function useChatRuntime() {
    */
   const handleNew = useCallback(
     async (message: any) => {
+      if (!currentModel) {
+        useUiStore.getState().toast({
+          title: "尚未选择模型",
+          description: "请先在设置中添加提供商并选择模型。",
+          tone: "warn",
+        });
+        return;
+      }
       const text = (message.content ?? [])
         .filter((part: any) => part?.type === "text")
         .map((part: any) => String(part.text ?? ""))
@@ -155,7 +166,7 @@ export function useChatRuntime() {
       }
       await send(text, attachments);
     },
-    [send, visionEnabled],
+    [send, visionEnabled, currentModel],
   );
 
   // 取消当前生成：后端收到后会终止 run，并把消息标记为 incomplete。

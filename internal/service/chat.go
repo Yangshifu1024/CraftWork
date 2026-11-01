@@ -10,6 +10,7 @@ import (
 
 	"craftwork/internal/agent"
 	"craftwork/internal/id"
+	"craftwork/internal/model"
 	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
@@ -43,6 +44,9 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 	if s.runner.IsRunning(threadID) {
 		return "", errors.New("线程正在运行，请先停止")
 	}
+	if err := ensureThreadModel(*thread); err != nil {
+		return "", err
+	}
 	text = strings.TrimSpace(text)
 	if text == "" && len(attachments) == 0 {
 		return "", errors.New("消息不能为空")
@@ -72,6 +76,9 @@ func (s *ChatService) Regenerate(threadID string) (string, error) {
 	}
 	if s.runner.IsRunning(threadID) {
 		return "", errors.New("线程正在运行，请先停止")
+	}
+	if err := ensureThreadModel(*thread); err != nil {
+		return "", err
 	}
 	snapshot, err := s.db.Snapshot(threadID)
 	if err != nil {
@@ -115,6 +122,9 @@ func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string
 
 // startRun 创建运行记录、更新线程状态并异步启动 Agent 循环，返回 runID。
 func (s *ChatService) startRun(thread store.Thread) (string, error) {
+	if err := ensureThreadModel(thread); err != nil {
+		return "", err
+	}
 	runID := id.New("run")
 	messageID := id.New("msg")
 	// 先创建运行记录并把线程置为运行中，再交给 Runner 异步执行。
@@ -133,4 +143,18 @@ func (s *ChatService) startRun(thread store.Thread) (string, error) {
 	}
 	s.runner.Start(thread, runID, messageID, thread.Mode)
 	return runID, nil
+}
+
+// ensureThreadModel 在写入用户消息前确认线程已经绑定可用模型。
+//
+// 首次启动没有任何提供商时，发送消息应该直接给出配置提示，而不是先写一条
+// 用户消息再让 run 异步失败。
+func ensureThreadModel(thread store.Thread) error {
+	if strings.TrimSpace(thread.ModelID) == "" {
+		return errors.New("尚未选择模型，请先在设置中添加提供商并选择模型")
+	}
+	if _, _, ok := model.Resolve(thread.ModelID); !ok {
+		return errors.New("当前模型不可用，请重新选择模型")
+	}
+	return nil
 }

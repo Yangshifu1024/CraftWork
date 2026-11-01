@@ -14,6 +14,7 @@ import (
 	"craftwork/internal/model"
 	"craftwork/internal/record"
 	"craftwork/internal/store"
+	threadtitle "craftwork/internal/title"
 )
 
 // ThreadView 是线程列表使用的扁平结构。
@@ -83,15 +84,21 @@ func (s *ThreadService) Search(mode, query string) ([]ThreadView, error) {
 func (s *ThreadService) Create(mode, workspaceID, title string) (ThreadView, error) {
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
+	// 默认模型可能是旧格式或已失效；创建线程时先规范化，避免把坏值写进新线程。
+	normalizeModelSettings(&settings)
 
-	if strings.TrimSpace(title) == "" {
-		title = "新对话"
+	trimmedTitle := strings.TrimSpace(title)
+	// 没有显式标题的新线程允许首轮自动命名；复制线程等显式标题视为手动命名。
+	titleAuto := trimmedTitle == ""
+	if titleAuto {
+		trimmedTitle = threadtitle.Default
 	}
 	now := store.NowMillis()
 	thread := &store.Thread{
 		ID:          id.New("th"),
 		Mode:        normalizeMode(mode),
-		Title:       strings.TrimSpace(title),
+		Title:       trimmedTitle,
+		TitleAuto:   titleAuto,
 		ModelID:     settings.DefaultModel,
 		WorkspaceID: workspaceID,
 		Status:      "idle",
@@ -122,11 +129,17 @@ func (s *ThreadService) Rename(threadID, title string) error {
 }
 
 // SetModel 切换线程使用的模型。
+//
+// 传入的可以是完整引用或旧的原始模型 ID；保存时统一写成引用。
 func (s *ThreadService) SetModel(threadID, modelID string) error {
-	if _, _, ok := model.FindModel(modelID); !ok {
+	if strings.TrimSpace(modelID) == "" {
+		return errors.New("请选择模型")
+	}
+	_, info, ok := model.Resolve(modelID)
+	if !ok {
 		return fmt.Errorf("未知模型: %s", modelID)
 	}
-	if err := s.db.SetThreadModel(threadID, modelID); err != nil {
+	if err := s.db.SetThreadModel(threadID, info.Ref()); err != nil {
 		return err
 	}
 	s.publishChanged(threadID, "")
@@ -246,14 +259,26 @@ func toViews(threads []store.Thread) []ThreadView {
 }
 
 // toView 把单个线程转换成前端视图，并补齐模型展示名称。
+//
+// ModelID 返回规范引用，前端用它匹配模型选择器；旧线程里的原始模型 ID
+// 会在读取时自动转换。模型为空或已失效时给出可读提示。
 func toView(thread store.Thread) ThreadView {
-	_, modelInfo := model.Resolve(thread.ModelID)
+	modelID := thread.ModelID
+	modelName := "未选择模型"
+	if modelID != "" {
+		if _, info, ok := model.Resolve(modelID); ok {
+			modelID = info.Ref()
+			modelName = info.Name
+		} else {
+			modelName = "模型不可用"
+		}
+	}
 	return ThreadView{
 		ID:          thread.ID,
 		Mode:        thread.Mode,
 		Title:       thread.Title,
-		ModelID:     thread.ModelID,
-		ModelName:   modelInfo.Name,
+		ModelID:     modelID,
+		ModelName:   modelName,
 		WorkspaceID: thread.WorkspaceID,
 		Status:      thread.Status,
 		Archived:    thread.Archived,

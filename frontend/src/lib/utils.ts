@@ -77,12 +77,14 @@ export function formatTokens(value: number): string {
   return `${Math.round(value / 1000)}k`;
 }
 
-/** 把以微美元（百万分之一美元）为单位的费用格式化为两位小数的美元。 */
+/** 把以微美元（百万分之一美元）为单位的费用格式化为美元；小额保留四位小数。 */
 export function formatCost(micros: number): string {
   if (!micros) {
     return "$0.00";
   }
-  return `$${(micros / 1_000_000).toFixed(2)}`;
+  const value = micros / 1_000_000;
+  // 单次调用通常远小于 1 美分，固定两位小数会全部显示成 $0.00。
+  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
 }
 
 /**

@@ -104,11 +104,24 @@ func (s *Store) Warnings() []string {
 // 环境变量回退让用户可以在不落盘的情况下临时使用密钥，方便开发与持续集成。
 // 文件里的空字符串视为未配置，继续查找环境变量。
 func (s *Store) Get(providerID string) string {
+	return s.GetFor(providerID, nil)
+}
+
+// GetFor 按目录给出的环境变量名读取密钥。
+//
+// envNames 来自 models.dev 的 provider.env；未设置时退回按提供商 ID 推导的
+// 环境变量名，兼容旧配置。
+func (s *Store) GetFor(providerID string, envNames []string) string {
 	s.mu.RLock()
 	value := s.data.Providers[providerID]
 	s.mu.RUnlock()
 	if value != "" {
 		return value
+	}
+	for _, name := range envNames {
+		if candidate := os.Getenv(name); candidate != "" {
+			return candidate
+		}
 	}
 	return os.Getenv(envName(providerID))
 }
@@ -117,11 +130,21 @@ func (s *Store) Get(providerID string) string {
 //
 // 前端只展示来源，不接触密钥本身。
 func (s *Store) Source(providerID string) string {
+	return s.SourceFor(providerID, nil)
+}
+
+// SourceFor 按目录环境变量名判断密钥来源。
+func (s *Store) SourceFor(providerID string, envNames []string) string {
 	s.mu.RLock()
 	value := s.data.Providers[providerID]
 	s.mu.RUnlock()
 	if value != "" {
 		return "file"
+	}
+	for _, name := range envNames {
+		if os.Getenv(name) != "" {
+			return "env"
+		}
 	}
 	if os.Getenv(envName(providerID)) != "" {
 		return "env"
@@ -133,7 +156,12 @@ func (s *Store) Source(providerID string) string {
 //
 // 只保留前 5 位与后 4 位；长度不超过 10 位时全部隐藏，避免短密钥被猜出。
 func (s *Store) Masked(providerID string) string {
-	value := s.Get(providerID)
+	return s.MaskedFor(providerID, nil)
+}
+
+// MaskedFor 按目录环境变量名读取密钥并生成遮罩。
+func (s *Store) MaskedFor(providerID string, envNames []string) string {
+	value := s.GetFor(providerID, envNames)
 	if value == "" {
 		return ""
 	}
@@ -213,8 +241,6 @@ func envName(providerID string) string {
 		return "DASHSCOPE_API_KEY"
 	case "anthropic":
 		return "ANTHROPIC_API_KEY"
-	case "gemini":
-		return "GEMINI_API_KEY"
 	default:
 		return strings.ToUpper(providerID) + "_API_KEY"
 	}

@@ -11,6 +11,10 @@
  */
 import type {
   AppInfo,
+  CatalogImportInput,
+  CatalogMeta,
+  CatalogModelView,
+  CatalogProviderView,
   ConnectionResult,
   DocumentPreview,
   FileContent,
@@ -46,6 +50,10 @@ export type {
   AppInfo,
   AuditEntry,
   Backup,
+  CatalogImportInput,
+  CatalogMeta,
+  CatalogModelView,
+  CatalogProviderView,
   ConnectionResult,
   DailyUsage,
   DocumentPreview,

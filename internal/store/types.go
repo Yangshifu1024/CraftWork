@@ -13,6 +13,8 @@ type Thread struct {
 	Mode string `json:"mode"`
 	// Title 是侧边栏展示的标题。
 	Title string `json:"title"`
+	// TitleAuto 表示标题尚未被用户改名，仍允许首轮自动命名。
+	TitleAuto bool `json:"-"`
 	// ModelID 是当前使用的模型标识。
 	ModelID string `json:"modelId"`
 	// WorkspaceID 是绑定的工作区标识，可为空。

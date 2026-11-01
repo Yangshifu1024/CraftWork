@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mode: "code",
   panelWidth: 440,
   approvalLevel: "graded",
-  defaultModel: "local-demo",
+  defaultModel: "",
   fallbackModel: "",
   activeWorkspace: "",
   language: "zh-CN",
@@ -126,6 +126,8 @@ interface AppState {
   pickAndAddWorkspace(): Promise<void>;
   /** 重新拉取提供商列表。 */
   refreshProviders(): Promise<void>;
+  /** 重新拉取设置，用于删除提供商或导入后同步默认模型。 */
+  refreshSettings(): Promise<void>;
 }
 
 /** 应用级 store：设置、模式、主题、工作区与提供商的唯一入口。 */
@@ -297,5 +299,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshProviders() {
     const providers = await api.providers.list();
     set({ providers });
+  },
+
+  /**
+   * 重新拉取设置。
+   *
+   * 删除提供商或从目录导入后，后端可能已经清理或自动填充默认模型；
+   * 这里重新读取，避免界面继续显示失效的模型引用。
+   */
+  async refreshSettings() {
+    const settings = await api.settings.get();
+    applyTheme(settings.theme as Theme);
+    applyMode(settings.mode as Mode);
+    set({
+      settings,
+      theme: (settings.theme as Theme) ?? "dark",
+      mode: (settings.mode as Mode) ?? "code",
+    });
   },
 }));

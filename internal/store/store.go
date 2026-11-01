@@ -70,10 +70,10 @@ func NowMillis() int64 {
 	return nowMillis()
 }
 
-// migrate 按 PRAGMA user_version 判断是否需要建表。
+// migrate 按 PRAGMA user_version 逐版执行迁移。
 //
-// 当前只有第 1 版结构；后续修改表结构时应新增迁移版本，而不是修改已有的建表语句。
-// 建表与版本号写入在同一个事务里完成，避免中途失败留下半成品。
+// 已有结构通过新增迁移版本演进，不修改历史迁移；所有步骤与版本号写入在
+// 同一个事务里完成，避免中途失败留下半成品。
 func (db *DB) migrate() error {
 	var version int
 	if err := db.sqlDB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -89,8 +89,15 @@ func (db *DB) migrate() error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(schemaV1); err != nil {
-		return fmt.Errorf("执行数据库迁移: %w", err)
+	if version < 1 {
+		if _, err := tx.Exec(schemaV1); err != nil {
+			return fmt.Errorf("执行数据库迁移 v1: %w", err)
+		}
+	}
+	if version < 2 {
+		if _, err := tx.Exec(schemaV2); err != nil {
+			return fmt.Errorf("执行数据库迁移 v2: %w", err)
+		}
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("写入数据库版本: %w", err)
@@ -102,7 +109,7 @@ func (db *DB) migrate() error {
 }
 
 // schemaVersion 是当前数据库结构版本，对应 PRAGMA user_version。
-const schemaVersion = 1
+const schemaVersion = 2
 
 // schemaV1 是第 1 版数据库结构：线程、工作区、事件、运行、审批、审计、
 // 用量、设置与备份九张表，以及配套索引。
@@ -216,4 +223,13 @@ CREATE TABLE IF NOT EXISTS backups (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS backups_created ON backups(created_at DESC);
+`
+
+// schemaV2 增加线程标题来源标记。
+//
+// title_auto = 1 表示线程刚创建、标题仍为“新对话”，首轮消息可以自动命名；
+// 用户手动改名或自动命名完成后置为 0，后续不再覆盖。
+const schemaV2 = `
+ALTER TABLE threads ADD COLUMN title_auto INTEGER NOT NULL DEFAULT 0;
+UPDATE threads SET title_auto = 1 WHERE title = '新对话';
 `

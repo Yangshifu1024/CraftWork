@@ -26,6 +26,10 @@ export {
 
 export type {
     AppInfo,
+    CatalogImportInput,
+    CatalogMeta,
+    CatalogModelView,
+    CatalogProviderView,
     ConnectionResult,
     DocumentPreview,
     FileContent,

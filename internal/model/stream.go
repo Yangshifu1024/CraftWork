@@ -216,7 +216,7 @@ func (b *toolCallBuilder) add(index int, id, name, args string) {
 // flush 按 index 升序交付已经完整的工具调用。
 //
 // 先按序号排序，保证同一条消息里的工具调用顺序稳定；缺少 ID 的调用
-// （例如 Gemini 本身不返回调用 ID）会生成本地标识。构造完成后先释放锁，
+// （例如部分兼容服务本身不返回调用 ID）会生成本地标识。构造完成后先释放锁，
 // 再逐条交付，避免回调阻塞其它增量写入。
 func (b *toolCallBuilder) flush(emit emitFunc) {
 	b.mu.Lock()

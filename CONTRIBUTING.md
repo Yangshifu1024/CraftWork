@@ -43,8 +43,8 @@ wails3 dev
 cd frontend && npm run dev
 # http://127.0.0.1:9245/
 
-# 带演示数据启动
-CRAFTWORK_DEMO=1 wails3 dev
+# 重新同步 models.dev 模型目录（生成文件需要提交）
+wails3 task models:sync
 
 # 使用隔离的数据目录，避免污染 ~/.craftwork
 CRAFTWORK_HOME=/tmp/craftwork-dev wails3 dev
@@ -92,7 +92,7 @@ wails3 task check   # go vet ./... + 前端类型检查
 - 在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
 - 三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题都正常。
 - 完整走一遍：发送消息 → 工具调用 → 审批允许 / 拒绝 → 差异面板 → 审计记录。
-- 桌面端冒烟启动：`CRAFTWORK_HOME=/tmp/cw-smoke CRAFTWORK_DEMO=1 ./bin/craftwork`。
+- 桌面端冒烟启动：`CRAFTWORK_HOME=/tmp/cw-smoke ./bin/craftwork`；首次启动应显示“尚未添加提供商”的空状态。
 
 ## CI 检查内容
 

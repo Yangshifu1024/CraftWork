@@ -65,6 +65,8 @@ export function Search(mode: string, query: string): $CancellablePromise<$models
 
 /**
  * SetModel 切换线程使用的模型。
+ * 
+ * 传入的可以是完整引用或旧的原始模型 ID；保存时统一写成引用。
  */
 export function SetModel(threadID: string, modelID: string): $CancellablePromise<void> {
     return $Call.ByID(3968477436, threadID, modelID);

@@ -15,6 +15,29 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * CatalogMeta 返回嵌入目录的版本、来源与规模。
+ */
+export function CatalogMeta(): $CancellablePromise<$models.CatalogMeta> {
+    return $Call.ByID(2637557910);
+}
+
+/**
+ * CatalogModels 返回指定提供商下的全部对话模型。
+ */
+export function CatalogModels(providerID: string): $CancellablePromise<$models.CatalogModelView[] | null> {
+    return $Call.ByID(2343350625, providerID);
+}
+
+/**
+ * CatalogProviders 返回可浏览的提供商列表，支持按名称或标识搜索。
+ * 
+ * 列表只描述“可以添加什么”，不会自动创建提供商；Added 用于界面提示。
+ */
+export function CatalogProviders(query: string): $CancellablePromise<$models.CatalogProviderView[] | null> {
+    return $Call.ByID(3879434027, query);
+}
+
+/**
  * ClearKey 删除提供商密钥。
  */
 export function ClearKey(providerID: string): $CancellablePromise<void> {
@@ -22,21 +45,38 @@ export function ClearKey(providerID: string): $CancellablePromise<void> {
 }
 
 /**
- * DeleteProvider 删除自定义配置；内置提供商删除自定义配置后恢复默认。
+ * DeleteProvider 删除用户配置并同时删除密钥。
  */
 export function DeleteProvider(providerID: string): $CancellablePromise<void> {
     return $Call.ByID(3565237198, providerID);
 }
 
 /**
- * List 返回所有提供商与模型。密钥只返回来源与遮罩。
+ * ImportFromCatalog 把选中的目录提供商与模型保存为普通的用户配置。
+ */
+export function ImportFromCatalog(input: $models.CatalogImportInput): $CancellablePromise<$models.ProviderView> {
+    return $Call.ByID(4201916636, input);
+}
+
+/**
+ * List 返回用户添加的提供商与模型。密钥只返回来源与遮罩。
  */
 export function List(): $CancellablePromise<$models.ProviderView[] | null> {
     return $Call.ByID(2902708572);
 }
 
 /**
- * SaveProvider 新增或覆盖一个提供商配置，并持久化到本地设置。
+ * LookupCatalogModel 按提供商与模型标识查找目录条目，用于手工添加模型时补全。
+ * 
+ * providerID 不匹配时会在整个目录中查找同名模型；只有唯一匹配才返回，
+ * 多个提供商都有该模型时要求调用方明确提供商，避免静默补错元数据。
+ */
+export function LookupCatalogModel(providerID: string, modelID: string): $CancellablePromise<$models.CatalogModelView | null> {
+    return $Call.ByID(1059670542, providerID, modelID);
+}
+
+/**
+ * SaveProvider 新增或更新一个提供商配置，并持久化到本地设置。
  */
 export function SaveProvider(input: $models.ProviderInput): $CancellablePromise<$models.ProviderView> {
     return $Call.ByID(2189567672, input);

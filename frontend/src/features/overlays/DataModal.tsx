@@ -220,10 +220,13 @@ export function DataModal() {
                 <UsageCard label="近 7 天" totals={usage.week} />
                 <UsageCard label="近 30 天" totals={usage.month} />
                 <div className="usage-card">
-                  <div className="usage-label">本地模型</div>
+                  <div className="usage-label">模型数量</div>
                   <div className="usage-value">{usage.byModel.length}</div>
-                  <div className="usage-sub">按提供商聚合</div>
+                  <div className="usage-sub">已产生用量的模型</div>
                 </div>
+              </div>
+              <div className="sec-desc" style={{ marginTop: 6 }}>
+                费用按 models.dev 目录价格估算，单位为美元，不是提供商账单。
               </div>
 
               <div className="settings-section-title" style={{ marginBottom: 8 }}>

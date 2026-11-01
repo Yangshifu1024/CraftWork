@@ -75,6 +75,8 @@ type Runner struct {
 	mu sync.Mutex
 	// cancels 记录每个线程当前运行的取消函数，以线程 ID 为键。
 	cancels map[string]context.CancelFunc
+	// titlePending 标记正在进行自动命名的线程，避免并发消息重复请求模型。
+	titlePending map[string]bool
 	// notify 是系统通知回调，未设置时为 nil。
 	notify func(title, message string)
 }
@@ -93,6 +95,7 @@ func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 		models:        models,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
+		titlePending:  map[string]bool{},
 	}
 }
 
@@ -206,6 +209,12 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			}
 			r.failWithError(thread, runID, messageID, "model_error", err)
 			return
+		}
+
+		// 第一轮请求建立后立即并行生成标题，与正文流式消费同时进行。
+		// 标题只依赖首条用户消息，不等待助手回复。
+		if iteration == 0 && thread.TitleAuto {
+			go r.autoTitle(thread, session.modelID)
 		}
 
 		// 逐片段消费模型输出：文本与推理立即以增量事件推给前端，
@@ -340,10 +349,19 @@ func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, me
 			return nil, err
 		}
 
-		_, modelInfo := model.Resolve(candidate)
+		_, modelInfo, found := model.Resolve(candidate)
+		if !found {
+			lastErr = model.NewError(model.CodeProviderUnavailable, "模型服务",
+				"模型不存在或已被删除，请重新选择模型")
+			if index < len(candidates)-1 && model.Retryable(lastErr) {
+				r.switchNotice(thread, runID, messageID, candidate, candidates[index+1], lastErr)
+				continue
+			}
+			return nil, lastErr
+		}
 		streamCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
 		chunks, err := client.Stream(streamCtx, model.Request{
-			Model:     candidate,
+			Model:     modelInfo.ID,
 			Mode:      mode,
 			System:    system,
 			Messages:  history,
@@ -361,8 +379,11 @@ func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, me
 		cancel()
 		lastErr = err
 		if ctx.Err() != nil {
-			provider, _ := model.Resolve(candidate)
-			return nil, model.TransportError(provider.Name, ctx.Err())
+			providerName := "模型服务"
+			if provider, _, ok := model.Resolve(candidate); ok {
+				providerName = provider.Name
+			}
+			return nil, model.TransportError(providerName, ctx.Err())
 		}
 		if index < len(candidates)-1 && model.Retryable(err) {
 			r.switchNotice(thread, runID, messageID, candidate, candidates[index+1], err)
@@ -378,10 +399,16 @@ func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, me
 
 // switchNotice 把失败转移记录成可见提示，便于用户知道本轮换了模型。
 func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to string, cause error) {
-	fromProvider, fromInfo := model.Resolve(from)
-	toProvider, toInfo := model.Resolve(to)
-	text := fmt.Sprintf("主模型 %s · %s 暂时不可用（%s），已切换到 %s · %s。",
-		fromProvider.Name, fromInfo.Name, cause.Error(), toProvider.Name, toInfo.Name)
+	fromLabel := from
+	if provider, info, ok := model.Resolve(from); ok {
+		fromLabel = provider.Name + " · " + info.Name
+	}
+	toLabel := to
+	if provider, info, ok := model.Resolve(to); ok {
+		toLabel = provider.Name + " · " + info.Name
+	}
+	text := fmt.Sprintf("主模型 %s 暂时不可用（%s），已切换到 %s。",
+		fromLabel, cause.Error(), toLabel)
 	partID := id.New("part")
 	payload := map[string]any{"partId": partID, "text": text}
 	r.persist(thread.ID, messageID, runID, partID, "notice", payload)
@@ -513,10 +540,6 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"durationMs": duration.Milliseconds(),
 		"summary":    summary,
 	}
-	if call.Signature != "" {
-		// 部分提供商的工具调用带签名，回放历史时需要原样带回。
-		payload["signature"] = call.Signature
-	}
 	r.persist(thread.ID, messageID, runID, partID, "tool_call", payload)
 
 	// 审计记录不区分“拦截”与“执行失败”：denied 记 deny，其余按是否审批记 auto / allow。
@@ -605,6 +628,9 @@ func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCo
 }
 
 // recordUsage 写入一次模型调用的用量，并累加到线程的 token 总数。
+//
+// 费用按目录价格估算：价格单位是“美元 / 百万 token”，所以 token 数乘以
+// 单价正好得到微美元。没有价格信息的模型记 0。
 func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *model.Usage) {
 	row := &store.UsageRow{
 		ThreadID:        thread.ID,
@@ -614,6 +640,7 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 		CacheTokens:     usage.CacheTokens,
 		ReasoningTokens: usage.ReasoningTokens,
 	}
+	row.CostMicros = estimateCostMicros(modelID, usage)
 	if err := r.db.AddUsage(row); err != nil {
 		// 用量统计失败不影响对话本身，只记录日志。
 		slog.Warn("记录用量失败", "err", err)
@@ -622,7 +649,59 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 	r.records.Emit(events.TypeUsageUpdated, thread.ID, runID, map[string]any{
 		"inputTokens":  usage.InputTokens,
 		"outputTokens": usage.OutputTokens,
+		"costMicros":   row.CostMicros,
 	})
+}
+
+// estimateCostMicros 按模型价格估算一次调用的费用。
+//
+// OpenAI 兼容接口的输入 token 已包含缓存 token；Anthropic 的
+// input_tokens 不包含缓存，因此需要分别计算未缓存输入。缓存写入使用写入价，
+// 缓存读取使用读取价，缺失时退回普通输入价。
+func estimateCostMicros(modelID string, usage *model.Usage) int64 {
+	if usage == nil {
+		return 0
+	}
+	provider, info, ok := model.Resolve(modelID)
+	if !ok || info.Cost == nil {
+		return 0
+	}
+	cacheWrite := usage.CacheWriteTokens
+	if cacheWrite < 0 {
+		cacheWrite = 0
+	}
+	if cacheWrite > usage.CacheTokens {
+		cacheWrite = usage.CacheTokens
+	}
+	cacheRead := usage.CacheTokens - cacheWrite
+	if cacheRead < 0 {
+		cacheRead = 0
+	}
+	uncached := usage.InputTokens - usage.CacheTokens
+	if provider.Kind == "anthropic" {
+		// Anthropic 的 input_tokens 不包含缓存读写 token。
+		uncached = usage.InputTokens
+	}
+	if uncached < 0 {
+		uncached = 0
+	}
+	inputPrice := info.Cost.InputPerMTok
+	cacheReadPrice := info.Cost.CacheReadPerMTok
+	if cacheReadPrice == 0 {
+		cacheReadPrice = inputPrice
+	}
+	cacheWritePrice := info.Cost.CacheWritePerMTok
+	if cacheWritePrice == 0 {
+		cacheWritePrice = inputPrice
+	}
+	total := float64(uncached)*inputPrice +
+		float64(cacheRead)*cacheReadPrice +
+		float64(cacheWrite)*cacheWritePrice +
+		float64(usage.OutputTokens)*info.Cost.OutputPerMTok
+	if total <= 0 {
+		return 0
+	}
+	return int64(total + 0.5)
 }
 
 // persist 把一个部件作为事件写入事件表；写入失败只记录警告，不中断运行。
@@ -647,7 +726,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, modelInfo := model.Resolve(thread.ModelID)
+	_, modelInfo, _ := model.Resolve(thread.ModelID)
 	workspace := r.tools.Workspace()
 
 	var messages []model.Message
@@ -677,10 +756,9 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 					// 之前累积的文本与调用切成一条 assistant 消息。
 					data, _ := part.Data.(map[string]any)
 					call := model.ToolCall{
-						ID:        stringValue(data["toolCallId"]),
-						Name:      stringValue(data["name"]),
-						Args:      objectValue(data["args"]),
-						Signature: stringValue(data["signature"]),
+						ID:   stringValue(data["toolCallId"]),
+						Name: stringValue(data["name"]),
+						Args: objectValue(data["args"]),
 					}
 					if call.ID == "" || call.Name == "" {
 						continue

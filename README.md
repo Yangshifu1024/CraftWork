@@ -46,9 +46,10 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 - 流式文本、推理折叠、工具卡片、任务清单、错误卡片。
 - 停止生成、重新生成、线程内切换模型。
 - 附件、拖放、`path:line` 引用、Markdown 表格与代码块高亮。
-- 多提供商：本地演示、OpenAI 与 OpenAI 兼容服务、Anthropic Messages、Google Gemini。
-- 自定义提供商与模型：协议、端点、API Key 要求、模型 ID / 名称 / 上下文窗口 / 最大输出与能力；可覆盖内置提供商并一键恢复默认。
-- 错误分类（限流、认证、超时、上下文溢出等）、有限重试与失败转移。
+- 多提供商：OpenAI、Anthropic 与 OpenAI 兼容服务；应用不内置任何提供商，全部由你在设置里手动添加。
+- 模型目录：从 models.dev 快照浏览并导入提供商与模型，自动带出上下文、最大输出、能力与价格；目录随二进制离线可用。
+- 自定义提供商与模型：协议、端点、API Key 要求、模型 ID / 名称 / 上下文窗口 / 最大输出与能力。
+- 错误分类（限流、认证、超时、上下文溢出等）、有限重试与失败转移；用量面板按目录价格估算费用。
 
 ### 审批与安全
 
@@ -157,13 +158,16 @@ cd frontend && npm run dev
 # http://127.0.0.1:9245/
 ```
 
-### 演示数据
+### 模型目录
+
+模型目录来自 [models.dev](https://models.dev)，在构建期同步并嵌入二进制，运行时不需要联网。更新目录后提交生成文件：
 
 ```bash
-CRAFTWORK_DEMO=1 wails3 dev
+wails3 task models:sync   # 重新生成 internal/model/catalogdata/catalog.json.gz
+wails3 task models:check  # 只检查是否与上游一致
 ```
 
-首次启动创建 `~/.craftwork`；使用 `CRAFTWORK_HOME=/tmp/craftwork-dev` 可以隔离数据目录。
+首次启动没有任何提供商；在「设置 → 模型与提供商」里从目录添加，或手动配置 Ollama、公司网关等端点。使用 `CRAFTWORK_HOME=/tmp/craftwork-dev` 可以隔离数据目录。
 
 > 全部开发命令、目录约定、实现约束与常见坑见 [AGENTS.md](AGENTS.md)。
 
@@ -199,7 +203,7 @@ CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂�
 
 - M3：Word / Excel / PDF 的结构化解析与写入。
 - M4：MCP 客户端、沙箱、自动更新、签名与公证。
-- 真实密钥验收：配置 OpenAI / Anthropic / Gemini 密钥后跑通工具调用闭环。
+- 真实密钥验收：配置 OpenAI、Anthropic 或任意 OpenAI 兼容网关的密钥后跑通工具调用闭环。
 - 跨平台：Windows 通知、Linux 打包与 CI 兼容性。
 
 ## 路线图
@@ -224,3 +228,5 @@ CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂�
 ## 许可证
 
 Apache-2.0，见 [LICENSE](LICENSE)；贡献流程使用 DCO（`git commit -s`）。
+
+内置的模型目录数据来自 [models.dev](https://models.dev)，使用 MIT 许可；完整声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

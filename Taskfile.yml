@@ -48,6 +48,16 @@ tasks:
     cmds:
       - wails3 generate bindings -clean=true -ts -i
 
+  models:sync:
+    summary: Syncs the embedded model catalog from models.dev
+    cmds:
+      - go run ./cmd/modelsync
+
+  models:check:
+    summary: Checks whether the embedded model catalog matches models.dev
+    cmds:
+      - go run ./cmd/modelsync -check
+
   test:
     summary: Runs Go tests and the frontend tests and type check
     cmds:

@@ -25,8 +25,10 @@ const customProvidersKey = "model.custom_providers"
 
 // ModelView 是模型目录的展示结构。
 type ModelView struct {
-	// ID 是模型标识。
+	// ID 是调用提供商接口时使用的原始模型 ID。
 	ID string `json:"id"`
+	// Ref 是“提供商/模型”的稳定引用，线程与设置使用它区分同名模型。
+	Ref string `json:"ref"`
 	// Name 是模型展示名称。
 	Name string `json:"name"`
 	// Provider 是所属提供商标识。
@@ -39,8 +41,14 @@ type ModelView struct {
 	MaxTokens int `json:"maxTokens,omitempty"`
 	// Caps 声明模型支持的能力，例如流式输出与工具调用。
 	Caps model.Capabilities `json:"caps"`
-	// Default 表示这是默认模型。
-	Default bool `json:"default"`
+	// Cost 是模型价格；nil 表示未知。
+	Cost *model.Cost `json:"cost,omitempty"`
+	// Status 是模型状态：alpha、beta 或 deprecated。
+	Status string `json:"status,omitempty"`
+	// CanonicalID 是跨托管方的原始模型标识。
+	CanonicalID string `json:"canonicalId,omitempty"`
+	// ReleaseDate 是发布日期。
+	ReleaseDate string `json:"releaseDate,omitempty"`
 	// Available 表示模型当前可用（提供商可用且密钥已配置）。
 	Available bool `json:"available"`
 }
@@ -51,12 +59,10 @@ type ProviderView struct {
 	ID string `json:"id"`
 	// Name 是提供商展示名称。
 	Name string `json:"name"`
-	// Kind 是协议类型，例如 openai、anthropic、gemini。
+	// Kind 是协议类型：openai、anthropic 或 openai-compatible。
 	Kind string `json:"kind"`
 	// Endpoint 是接口端点。
 	Endpoint string `json:"endpoint"`
-	// Note 是配置说明，例如“自定义提供商”。
-	Note string `json:"note,omitempty"`
 	// KeyRequired 表示调用该提供商必须配置密钥。
 	KeyRequired bool `json:"keyRequired"`
 	// KeySource 是密钥来源，例如环境变量或本地文件。
@@ -65,23 +71,19 @@ type ProviderView struct {
 	KeyMasked string `json:"keyMasked"`
 	// Available 表示提供商当前是否可用。
 	Available bool `json:"available"`
-	// Custom 表示该提供商来自自定义配置。
-	Custom bool `json:"custom"`
-	// Overridden 表示内置提供商被自定义配置覆盖。
-	Overridden bool `json:"overridden"`
 	// Models 是该提供商下的模型列表。
 	Models []ModelView `json:"models"`
 }
 
 // ProviderInput 是新增或编辑提供商的输入。
 type ProviderInput struct {
-	// ID 为空时自动生成；非空时必须是内置或已存在的提供商。
+	// ID 为空时自动生成；非空时表示更新已有提供商。
 	ID string `json:"id"`
 	// Name 是提供商名称，不能为空。
 	Name string `json:"name"`
 	// Kind 是协议类型，为空时按 openai-compatible 处理。
 	Kind string `json:"kind"`
-	// Endpoint 是接口地址，为空时尝试使用内置默认值。
+	// Endpoint 是接口地址，不能为空。
 	Endpoint string `json:"endpoint"`
 	// KeyRequired 表示是否必须配置密钥。
 	KeyRequired bool `json:"keyRequired"`
@@ -101,6 +103,14 @@ type ModelInput struct {
 	MaxTokens int `json:"maxTokens,omitempty"`
 	// Caps 是模型能力声明。
 	Caps model.Capabilities `json:"caps"`
+	// Cost 是价格信息，可为空。
+	Cost *model.Cost `json:"cost,omitempty"`
+	// Status 是模型状态。
+	Status string `json:"status,omitempty"`
+	// CanonicalID 是跨托管方的原始模型标识。
+	CanonicalID string `json:"canonicalId,omitempty"`
+	// ReleaseDate 是发布日期。
+	ReleaseDate string `json:"releaseDate,omitempty"`
 }
 
 // ConnectionResult 是连接测试结果。
@@ -142,60 +152,54 @@ func NewProviderService(db *store.DB, secrets *secret.Store) *ProviderService {
 	return service
 }
 
-// List 返回所有提供商与模型。密钥只返回来源与遮罩。
+// List 返回用户添加的提供商与模型。密钥只返回来源与遮罩。
 func (s *ProviderService) List() []ProviderView {
 	s.mu.RLock()
-	custom := cloneProviders(s.custom)
+	providers := cloneProviders(s.custom)
 	s.mu.RUnlock()
 
-	customSet := map[string]bool{}
-	for _, provider := range custom {
-		customSet[provider.ID] = true
-	}
-	providers := model.Providers()
 	result := make([]ProviderView, 0, len(providers))
 	for _, provider := range providers {
-		result = append(result, s.viewFor(provider, customSet))
+		result = append(result, s.viewFor(provider))
 	}
 	return result
 }
 
 // viewFor 把内部提供商结构转换成展示视图，并计算可用性与密钥掩码。
-func (s *ProviderService) viewFor(provider model.Provider, customSet map[string]bool) ProviderView {
-	keySource := s.secrets.Source(provider.ID)
-	available := provider.Kind != "unsupported" && (!provider.KeyRequired || keySource != "")
-	custom := customSet[provider.ID]
-	overridden := custom && isBuiltinProvider(provider.ID)
+func (s *ProviderService) viewFor(provider model.Provider) ProviderView {
+	keySource := s.secrets.SourceFor(provider.ID, provider.EnvVars)
+	available := !provider.KeyRequired || keySource != ""
 	view := ProviderView{
 		ID:          provider.ID,
 		Name:        provider.Name,
 		Kind:        provider.Kind,
 		Endpoint:    provider.Endpoint,
-		Note:        provider.Note,
 		KeyRequired: provider.KeyRequired,
 		KeySource:   keySource,
-		KeyMasked:   s.secrets.Masked(provider.ID),
+		KeyMasked:   s.secrets.MaskedFor(provider.ID, provider.EnvVars),
 		Available:   available,
-		Custom:      custom,
-		Overridden:  overridden,
 	}
 	for _, item := range provider.Models {
 		view.Models = append(view.Models, ModelView{
 			ID:           item.ID,
+			Ref:          item.Ref(),
 			Name:         item.Name,
 			Provider:     item.Provider,
 			ProviderName: provider.Name,
 			ContextK:     item.ContextK,
 			MaxTokens:    item.MaxTokens,
 			Caps:         item.Caps,
-			Default:      item.Default,
+			Cost:         item.Cost,
+			Status:       item.Status,
+			CanonicalID:  item.CanonicalID,
+			ReleaseDate:  item.ReleaseDate,
 			Available:    available,
 		})
 	}
 	return view
 }
 
-// SaveProvider 新增或覆盖一个提供商配置，并持久化到本地设置。
+// SaveProvider 新增或更新一个提供商配置，并持久化到本地设置。
 func (s *ProviderService) SaveProvider(input ProviderInput) (ProviderView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -217,20 +221,13 @@ func (s *ProviderService) SaveProvider(input ProviderInput) (ProviderView, error
 	if !replaced {
 		next = append(next, provider)
 	}
-	if err := s.db.SetSetting(customProvidersKey, next); err != nil {
-		return ProviderView{}, fmt.Errorf("保存提供商配置: %w", err)
+	if err := s.persist(next); err != nil {
+		return ProviderView{}, err
 	}
-	s.custom = next
-	model.SetCustomProviders(next)
-
-	customSet := map[string]bool{}
-	for _, item := range next {
-		customSet[item.ID] = true
-	}
-	return s.viewFor(provider, customSet), nil
+	return s.viewFor(provider), nil
 }
 
-// DeleteProvider 删除自定义配置；内置提供商删除自定义配置后恢复默认。
+// DeleteProvider 删除用户配置并同时删除密钥。
 func (s *ProviderService) DeleteProvider(providerID string) error {
 	s.mu.Lock()
 	current := cloneProviders(s.custom)
@@ -243,31 +240,31 @@ func (s *ProviderService) DeleteProvider(providerID string) error {
 	}
 	if index < 0 {
 		s.mu.Unlock()
-		if isBuiltinProvider(providerID) {
-			return errors.New("内置提供商没有自定义配置")
-		}
 		return errors.New("未知提供商")
 	}
-	builtin := isBuiltinProvider(providerID)
 	next := append(current[:index], current[index+1:]...)
-	if err := s.db.SetSetting(customProvidersKey, next); err != nil {
+	if err := s.persist(next); err != nil {
 		s.mu.Unlock()
-		return fmt.Errorf("删除提供商配置: %w", err)
+		return err
 	}
-	s.custom = next
-	model.SetCustomProviders(next)
 	s.mu.Unlock()
 
-	if !builtin {
-		_ = s.secrets.Delete(providerID)
+	_ = s.secrets.Delete(providerID)
+	s.clearModelSettings(providerID)
+	return nil
+}
+
+// persist 保存提供商列表并同步到进程内目录。调用方必须持有 s.mu 写锁。
+func (s *ProviderService) persist(providers []model.Provider) error {
+	if err := s.db.SetSetting(customProvidersKey, providers); err != nil {
+		return fmt.Errorf("保存提供商配置: %w", err)
 	}
+	s.custom = providers
+	model.SetCustomProviders(providers)
 	return nil
 }
 
 // buildProvider 校验输入并构造提供商配置。
-//
-// 校验顺序为：名称、协议、标识、端点、模型列表。模型 ID 不允许重复，
-// 也不允许与其它提供商的模型同名，避免选择模型时产生歧义。
 func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Provider) (model.Provider, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -277,33 +274,18 @@ func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Prov
 	if kind == "" {
 		kind = "openai-compatible"
 	}
-	switch kind {
-	case "openai", "openai-compatible", "anthropic", "gemini":
-	default:
+	if !supportedProviderKind(kind) {
 		return model.Provider{}, errors.New("不支持的提供商协议")
 	}
 
 	providerID := strings.TrimSpace(input.ID)
 	if providerID == "" {
 		providerID = id.New("custom")
-	} else {
-		if providerID == "local" {
-			return model.Provider{}, errors.New("本地演示提供商不能修改")
-		}
-		if !isBuiltinProvider(providerID) && !containsProvider(custom, providerID) {
-			return model.Provider{}, errors.New("未知提供商")
-		}
+	} else if !validProviderID(providerID) {
+		return model.Provider{}, errors.New("提供商 ID 只能包含小写字母、数字、点、下划线和短横线")
 	}
 
 	endpoint := strings.TrimSpace(input.Endpoint)
-	if endpoint == "" {
-		for _, builtin := range model.BuiltinProviders() {
-			if builtin.ID == providerID {
-				endpoint = builtin.Endpoint
-				break
-			}
-		}
-	}
 	if endpoint == "" {
 		return model.Provider{}, errors.New("端点不能为空")
 	}
@@ -313,15 +295,6 @@ func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Prov
 
 	if len(input.Models) == 0 {
 		return model.Provider{}, errors.New("至少需要配置一个模型")
-	}
-	reserved := map[string]bool{}
-	for _, provider := range append(model.BuiltinProviders(), custom...) {
-		if provider.ID == providerID {
-			continue
-		}
-		for _, item := range provider.Models {
-			reserved[item.ID] = true
-		}
 	}
 	models := make([]model.ModelInfo, 0, len(input.Models))
 	seen := map[string]bool{}
@@ -333,7 +306,9 @@ func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Prov
 		if strings.ContainsAny(modelID, " \t\n") {
 			return model.Provider{}, fmt.Errorf("模型 ID 不能包含空白：%s", modelID)
 		}
-		if seen[modelID] || reserved[modelID] {
+		// 只限制同一提供商内部重复；不同提供商可以出现同名模型，
+		// 由“提供商/模型”引用区分。
+		if seen[modelID] {
 			return model.Provider{}, fmt.Errorf("模型 ID 重复：%s", modelID)
 		}
 		seen[modelID] = true
@@ -345,39 +320,133 @@ func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Prov
 		if contextK <= 0 {
 			contextK = 32
 		}
-		if contextK > 10000 {
+		if contextK > maxContextK {
 			return model.Provider{}, fmt.Errorf("模型 %s 的上下文窗口过大", modelName)
 		}
 		maxTokens := item.MaxTokens
-		if maxTokens < 0 || maxTokens > 200000 {
+		if maxTokens < 0 || maxTokens > maxOutputTokens {
 			return model.Provider{}, fmt.Errorf("模型 %s 的最大输出 token 不合法", modelName)
 		}
 		caps := item.Caps
 		caps.Stream = true
 		models = append(models, model.ModelInfo{
-			ID:        modelID,
-			Name:      modelName,
-			Provider:  providerID,
-			ContextK:  contextK,
-			MaxTokens: maxTokens,
-			Caps:      caps,
+			ID:          modelID,
+			Name:        modelName,
+			Provider:    providerID,
+			ContextK:    contextK,
+			MaxTokens:   maxTokens,
+			Caps:        caps,
+			Cost:        item.Cost,
+			Status:      strings.TrimSpace(item.Status),
+			CanonicalID: strings.TrimSpace(item.CanonicalID),
+			ReleaseDate: strings.TrimSpace(item.ReleaseDate),
+			Source:      "manual",
 		})
 	}
 
-	note := "自定义提供商"
-	if isBuiltinProvider(providerID) {
-		note = "已覆盖内置提供商配置"
+	// 更新已有提供商时继承目录来源信息，避免编辑一次就丢掉导入时的元数据。
+	source := "manual"
+	catalogID := ""
+	catalogVersion := ""
+	envVars := []string(nil)
+	if existing, found := findCustomProvider(custom, providerID); found {
+		source = existing.Source
+		catalogID = existing.CatalogID
+		catalogVersion = existing.CatalogVersion
+		envVars = append([]string(nil), existing.EnvVars...)
 	}
+
 	return model.Provider{
-		ID:          providerID,
-		Name:        name,
-		Kind:        kind,
-		Endpoint:    endpoint,
-		KeyRequired: input.KeyRequired,
-		Note:        note,
-		Models:      models,
+		ID:             providerID,
+		Name:           name,
+		Kind:           kind,
+		Endpoint:       endpoint,
+		KeyRequired:    input.KeyRequired,
+		Source:         source,
+		CatalogID:      catalogID,
+		CatalogVersion: catalogVersion,
+		EnvVars:        envVars,
+		Models:         models,
 	}, nil
 }
+
+// clearModelSettings 在删除提供商后清理指向它的默认模型与失败转移模型。
+func (s *ProviderService) clearModelSettings(providerID string) {
+	var settings Settings
+	if err := s.db.GetSetting(settingsKey, &settings); err != nil {
+		return
+	}
+	changed := false
+	if refersToProvider(settings.DefaultModel, providerID) {
+		settings.DefaultModel = ""
+		changed = true
+	}
+	if refersToProvider(settings.FallbackModel, providerID) {
+		settings.FallbackModel = ""
+		changed = true
+	}
+	if changed {
+		_ = s.db.SetSetting(settingsKey, settings)
+	}
+}
+
+// refersToProvider 判断模型引用是否属于指定提供商。
+func refersToProvider(refOrID, providerID string) bool {
+	if refOrID == "" {
+		return false
+	}
+	if strings.HasPrefix(refOrID, providerID+"/") {
+		return true
+	}
+	provider, _, ok := model.Resolve(refOrID)
+	return ok && provider.ID == providerID
+}
+
+// validProviderID 校验提供商标识，保证它能安全地用作密钥键与环境变量名。
+func validProviderID(providerID string) bool {
+	if len(providerID) < 2 || len(providerID) > 64 {
+		return false
+	}
+	for index, char := range providerID {
+		switch {
+		case char >= 'a' && char <= 'z':
+		case char >= '0' && char <= '9':
+		case char == '_' || char == '-' || char == '.':
+			if index == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// supportedProviderKind 判断协议是否在当前支持范围内。
+func supportedProviderKind(kind string) bool {
+	switch kind {
+	case "openai", "anthropic", "openai-compatible":
+		return true
+	default:
+		return false
+	}
+}
+
+// findCustomProvider 在给定列表中查找提供商。
+func findCustomProvider(providers []model.Provider, providerID string) (model.Provider, bool) {
+	for _, provider := range providers {
+		if provider.ID == providerID {
+			return provider, true
+		}
+	}
+	return model.Provider{}, false
+}
+
+// 上下文与输出上限需要覆盖 models.dev 中的大模型；超出范围视为配置错误。
+const (
+	maxContextK     = 100000
+	maxOutputTokens = 4000000
+)
 
 // validateEndpoint 校验端点必须是 HTTP(S) 地址。
 //
@@ -399,31 +468,12 @@ func validateEndpoint(endpoint string) error {
 	return nil
 }
 
-// isBuiltinProvider 判断标识是否属于内置提供商。
-func isBuiltinProvider(providerID string) bool {
-	for _, provider := range model.BuiltinProviders() {
-		if provider.ID == providerID {
-			return true
-		}
-	}
-	return false
-}
-
-// containsProvider 判断自定义列表里是否已有指定标识的提供商。
-func containsProvider(providers []model.Provider, providerID string) bool {
-	for _, provider := range providers {
-		if provider.ID == providerID {
-			return true
-		}
-	}
-	return false
-}
-
 // cloneProviders 复制提供商列表与其模型切片，避免调用方修改共享配置。
 func cloneProviders(providers []model.Provider) []model.Provider {
 	result := make([]model.Provider, 0, len(providers))
 	for _, provider := range providers {
 		cloned := provider
+		cloned.EnvVars = append([]string(nil), provider.EnvVars...)
 		cloned.Models = append([]model.ModelInfo(nil), provider.Models...)
 		result = append(result, cloned)
 	}
@@ -457,14 +507,8 @@ func (s *ProviderService) Test(providerID string) (ConnectionResult, error) {
 	if !found {
 		return ConnectionResult{}, errors.New("未知提供商")
 	}
-	switch provider.Kind {
-	case "mock":
-		return ConnectionResult{OK: true, Message: "本地演示模型可用"}, nil
-	case "unsupported":
-		return ConnectionResult{}, errors.New("该提供商的适配器尚未接入")
-	}
 
-	key := strings.TrimSpace(s.secrets.Get(provider.ID))
+	key := strings.TrimSpace(s.secrets.GetFor(provider.ID, provider.EnvVars))
 	if provider.KeyRequired && key == "" {
 		return ConnectionResult{}, fmt.Errorf("%s 尚未配置密钥，请先在设置 → 模型 中保存 API Key", provider.Name)
 	}
@@ -506,8 +550,6 @@ func connectionRequest(provider model.Provider, key string) (*http.Request, erro
 	switch provider.Kind {
 	case "anthropic":
 		target = joinServiceURL(provider.Endpoint, "/v1/models") + "?limit=1"
-	case "gemini":
-		target = joinServiceURL(provider.Endpoint, "/v1beta/models") + "?pageSize=1"
 	default:
 		target = strings.TrimRight(provider.Endpoint, "/") + "/models"
 	}
@@ -520,8 +562,6 @@ func connectionRequest(provider model.Provider, key string) (*http.Request, erro
 	case "anthropic":
 		request.Header.Set("x-api-key", key)
 		request.Header.Set("anthropic-version", "2023-06-01")
-	case "gemini":
-		request.Header.Set("x-goog-api-key", key)
 	default:
 		if key != "" {
 			request.Header.Set("Authorization", "Bearer "+key)

@@ -46,6 +46,196 @@ export interface AppInfo {
 }
 
 /**
+ * CatalogImportInput 是从目录导入提供商的输入。
+ */
+export interface CatalogImportInput {
+    /**
+     * ProviderID 是目录中的提供商标识。
+     */
+    "providerId": string;
+
+    /**
+     * ModelIDs 是要导入的模型；All 为 true 时忽略。
+     */
+    "modelIds": string[] | null;
+
+    /**
+     * All 表示导入该提供商下的全部对话模型。
+     */
+    "all": boolean;
+
+    /**
+     * Name 可选，覆盖提供商展示名称。
+     */
+    "name"?: string;
+
+    /**
+     * Endpoint 可选，覆盖端点。
+     */
+    "endpoint"?: string;
+
+    /**
+     * Kind 可选，覆盖协议。
+     */
+    "kind"?: string;
+
+    /**
+     * KeyRequired 可选，覆盖是否需要密钥；空值按需要密钥处理。
+     */
+    "keyRequired"?: boolean | null;
+}
+
+/**
+ * CatalogMeta 是目录版本与来源信息。
+ */
+export interface CatalogMeta {
+    /**
+     * Schema 是目录文件格式版本。
+     */
+    "schema": number;
+
+    /**
+     * GeneratedAt 是目录生成时间。
+     */
+    "generatedAt": string;
+
+    /**
+     * Version 是目录内容版本。
+     */
+    "version": string;
+
+    /**
+     * Source 是数据来源地址。
+     */
+    "source": string;
+
+    /**
+     * License 是数据许可证。
+     */
+    "license": string;
+
+    /**
+     * ProviderCount 是提供商数量。
+     */
+    "providerCount": number;
+
+    /**
+     * ModelCount 是模型数量。
+     */
+    "modelCount": number;
+}
+
+/**
+ * CatalogModelView 是目录中的一个模型。
+ */
+export interface CatalogModelView {
+    /**
+     * ID 是原始模型 ID。
+     */
+    "id": string;
+
+    /**
+     * Ref 是“提供商/模型”的稳定引用。
+     */
+    "ref": string;
+
+    /**
+     * Name 是展示名称。
+     */
+    "name": string;
+
+    /**
+     * Provider 是提供商标识。
+     */
+    "provider": string;
+
+    /**
+     * ProviderName 是提供商展示名称。
+     */
+    "providerName": string;
+
+    /**
+     * ContextK 是上下文窗口，单位千 token。
+     */
+    "contextK": number;
+
+    /**
+     * MaxTokens 是最大输出 token 数。
+     */
+    "maxTokens"?: number;
+
+    /**
+     * Caps 是模型能力。
+     */
+    "caps": model$0.Capabilities;
+
+    /**
+     * Cost 是价格信息。
+     */
+    "cost"?: model$0.Cost | null;
+
+    /**
+     * Status 是模型状态。
+     */
+    "status"?: string;
+
+    /**
+     * CanonicalID 是跨托管方的原始模型标识。
+     */
+    "canonicalId"?: string;
+
+    /**
+     * ReleaseDate 是发布日期。
+     */
+    "releaseDate"?: string;
+}
+
+/**
+ * CatalogProviderView 是目录中可供选择的提供商。
+ */
+export interface CatalogProviderView {
+    /**
+     * ID 是 models.dev 提供商标识，导入后沿用为本地提供商 ID。
+     */
+    "id": string;
+
+    /**
+     * Name 是展示名称。
+     */
+    "name": string;
+
+    /**
+     * Kind 是映射后的协议。
+     */
+    "kind": string;
+
+    /**
+     * Endpoint 是目录给出的端点。
+     */
+    "endpoint": string;
+
+    /**
+     * Doc 是提供商文档地址。
+     */
+    "doc"?: string;
+
+    /**
+     * Env 是密钥可使用的环境变量名。
+     */
+    "env"?: string[] | null;
+
+    /**
+     * ModelCount 是该提供商下的对话模型数量。
+     */
+    "modelCount": number;
+
+    /**
+     * Added 表示用户已经添加了同 ID 的提供商。
+     */
+    "added": boolean;
+}
+
+/**
  * ConnectionResult 是连接测试结果。
  */
 export interface ConnectionResult {
@@ -283,6 +473,26 @@ export interface ModelInput {
      * Caps 是模型能力声明。
      */
     "caps": model$0.Capabilities;
+
+    /**
+     * Cost 是价格信息，可为空。
+     */
+    "cost"?: model$0.Cost | null;
+
+    /**
+     * Status 是模型状态。
+     */
+    "status"?: string;
+
+    /**
+     * CanonicalID 是跨托管方的原始模型标识。
+     */
+    "canonicalId"?: string;
+
+    /**
+     * ReleaseDate 是发布日期。
+     */
+    "releaseDate"?: string;
 }
 
 /**
@@ -290,9 +500,14 @@ export interface ModelInput {
  */
 export interface ModelView {
     /**
-     * ID 是模型标识。
+     * ID 是调用提供商接口时使用的原始模型 ID。
      */
     "id": string;
+
+    /**
+     * Ref 是“提供商/模型”的稳定引用，线程与设置使用它区分同名模型。
+     */
+    "ref": string;
 
     /**
      * Name 是模型展示名称。
@@ -325,9 +540,24 @@ export interface ModelView {
     "caps": model$0.Capabilities;
 
     /**
-     * Default 表示这是默认模型。
+     * Cost 是模型价格；nil 表示未知。
      */
-    "default": boolean;
+    "cost"?: model$0.Cost | null;
+
+    /**
+     * Status 是模型状态：alpha、beta 或 deprecated。
+     */
+    "status"?: string;
+
+    /**
+     * CanonicalID 是跨托管方的原始模型标识。
+     */
+    "canonicalId"?: string;
+
+    /**
+     * ReleaseDate 是发布日期。
+     */
+    "releaseDate"?: string;
 
     /**
      * Available 表示模型当前可用（提供商可用且密钥已配置）。
@@ -340,7 +570,7 @@ export interface ModelView {
  */
 export interface ProviderInput {
     /**
-     * ID 为空时自动生成；非空时必须是内置或已存在的提供商。
+     * ID 为空时自动生成；非空时表示更新已有提供商。
      */
     "id": string;
 
@@ -355,7 +585,7 @@ export interface ProviderInput {
     "kind": string;
 
     /**
-     * Endpoint 是接口地址，为空时尝试使用内置默认值。
+     * Endpoint 是接口地址，不能为空。
      */
     "endpoint": string;
 
@@ -385,7 +615,7 @@ export interface ProviderView {
     "name": string;
 
     /**
-     * Kind 是协议类型，例如 openai、anthropic、gemini。
+     * Kind 是协议类型：openai、anthropic 或 openai-compatible。
      */
     "kind": string;
 
@@ -393,11 +623,6 @@ export interface ProviderView {
      * Endpoint 是接口端点。
      */
     "endpoint": string;
-
-    /**
-     * Note 是配置说明，例如“自定义提供商”。
-     */
-    "note"?: string;
 
     /**
      * KeyRequired 表示调用该提供商必须配置密钥。
@@ -418,16 +643,6 @@ export interface ProviderView {
      * Available 表示提供商当前是否可用。
      */
     "available": boolean;
-
-    /**
-     * Custom 表示该提供商来自自定义配置。
-     */
-    "custom": boolean;
-
-    /**
-     * Overridden 表示内置提供商被自定义配置覆盖。
-     */
-    "overridden": boolean;
 
     /**
      * Models 是该提供商下的模型列表。

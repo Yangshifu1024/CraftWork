@@ -10,10 +10,11 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
 import { api } from "../../lib/api";
-import type { ApprovalLevel, MCPServerView, ProviderView, Settings } from "../../lib/types";
+import type { ApprovalLevel, CatalogMeta, MCPServerView, ProviderView, Settings } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
 import { useUiStore, type SettingsTab } from "../../stores/ui";
+import { CatalogBrowser } from "./CatalogBrowser";
 import { ProviderEditor } from "./ProviderEditor";
 
 /** 左侧导航的分组定义；id 与 settingsTab 对应，图标取自 Icon 组件。 */
@@ -79,6 +80,7 @@ export function SettingsModal() {
   const providers = useAppStore((state) => state.providers);
   const saveSettings = useAppStore((state) => state.saveSettings);
   const refreshProviders = useAppStore((state) => state.refreshProviders);
+  const refreshSettings = useAppStore((state) => state.refreshSettings);
 
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -86,6 +88,8 @@ export function SettingsModal() {
   const [mcpServers, setMcpServers] = useState<MCPServerView[]>([]);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
   const [providerEditor, setProviderEditor] = useState<{ provider: ProviderView | null } | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogMeta, setCatalogMeta] = useState<CatalogMeta | null>(null);
 
   useEffect(() => {
     // 只有打开弹窗并停留在 MCP 分组时才读取服务器列表，其他分组不做请求。
@@ -97,11 +101,22 @@ export function SettingsModal() {
   }, [open, tab]);
 
   useEffect(() => {
-    // 关闭时收起提供商编辑器，避免下次打开残留上一次的编辑状态。
+    // 关闭时收起提供商编辑器与目录浏览器，避免下次打开残留上一次的状态。
     if (!open) {
       setProviderEditor(null);
+      setCatalogOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    // 进入模型分组时读取目录版本，页脚用它展示数据来源。
+    if (open && tab === "models" && !catalogMeta) {
+      api.providers
+        .catalogMeta()
+        .then(setCatalogMeta)
+        .catch(() => setCatalogMeta(null));
+    }
+  }, [open, tab, catalogMeta]);
 
   useEffect(() => {
     // 每次打开都刷新提供商列表，保证密钥状态与可用性是最新的。
@@ -292,18 +307,44 @@ export function SettingsModal() {
   }
 
   /**
-   * 删除提供商或恢复内置配置。
-   * 对内置提供商的覆盖配置，删除等价于恢复默认（API Key 保留）；
-   * 对自定义提供商，则删除配置并同时删除密钥。
+   * 添加提供商后刷新列表；如果还没有默认模型，自动选中新添加的第一个模型。
+   *
+   * 后端不会自动替用户选模型，这里只在默认值为空时补一次，已有选择保持不变。
+   */
+  async function afterProviderAdded(provider: ProviderView) {
+    await refreshProviders();
+    if (!useAppStore.getState().settings.defaultModel && provider.models[0]) {
+      await saveSettings({ defaultModel: provider.models[0].ref });
+    } else {
+      await refreshSettings();
+    }
+  }
+
+  /** 目录导入完成后的收尾：关闭浏览器、刷新列表并按需设置默认模型。 */
+  async function handleCatalogImported(provider: ProviderView) {
+    setCatalogOpen(false);
+    await afterProviderAdded(provider);
+    const needsKey = provider.keyRequired && !provider.keySource;
+    toast({
+      title: needsKey ? "还需配置 API Key" : "提供商已添加",
+      description: needsKey
+        ? `${provider.name} · ${provider.models.length} 个模型；展开提供商卡片即可设置密钥`
+        : `${provider.name} · ${provider.models.length} 个模型`,
+      tone: needsKey ? "warn" : "ok",
+    });
+  }
+
+  /**
+   * 删除提供商。
+   *
+   * 所有提供商都是用户添加的，删除即移除配置并删除密钥；如果默认模型或
+   * 失败转移模型指向它，后端会一并清空。
    */
   async function deleteProvider(provider: ProviderView) {
-    const overridden = provider.overridden;
     const confirmed = await askConfirm({
-      title: overridden ? `恢复 ${provider.name} 的内置配置？` : `删除 ${provider.name}？`,
-      description: overridden
-        ? "自定义端点与模型会被移除，API Key 保留。"
-        : "该提供商的模型会立即从列表中移除，API Key 同时删除。",
-      confirmText: overridden ? "恢复默认" : "删除",
+      title: `删除 ${provider.name}？`,
+      description: "该提供商的模型会立即从列表中移除，API Key 同时删除。",
+      confirmText: "删除",
       danger: true,
     });
     if (!confirmed) {
@@ -312,7 +353,8 @@ export function SettingsModal() {
     try {
       await api.providers.deleteProvider(provider.id);
       await refreshProviders();
-      toast({ title: overridden ? "已恢复内置配置" : "提供商已删除", tone: "ok" });
+      await refreshSettings();
+      toast({ title: "提供商已删除", tone: "ok" });
     } catch (error) {
       toast({ title: "删除提供商失败", description: String(error), tone: "danger" });
     }
@@ -454,18 +496,22 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "models" ? (
-              /* 模型与提供商分组：默认模型、失败转移模型，以及提供商列表或编辑器 */
-              <SettingsSection title="模型与提供商" desc="密钥只保存在本地；切换模型只影响后续 run。">
-                <Row label="默认模型" desc="新线程使用的模型。">
+              /* 模型与提供商分组：所有提供商都由用户添加，没有任何内置或推荐条目 */
+              <SettingsSection title="模型与提供商" desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。">
+                {catalogOpen || providerEditor ? null : (
+                  <>
+                <Row label="默认模型" desc="新线程使用的模型；没有添加提供商时保持为空。">
                   <select
                     className="select"
                     value={settings.defaultModel}
                     onChange={(event) => update({ defaultModel: event.target.value })}
                   >
+                    <option value="">未选择模型</option>
                     {providers.flatMap((provider) =>
                       provider.models.map((model) => (
-                        <option key={model.id} value={model.id}>
+                        <option key={model.ref} value={model.ref}>
                           {provider.name} · {model.name}
+                          {model.available ? "" : "（未配置密钥）"}
                         </option>
                       )),
                     )}
@@ -482,29 +528,37 @@ export function SettingsModal() {
                     onChange={(event) => update({ fallbackModel: event.target.value })}
                   >
                     <option value="">不自动转移</option>
-                    {providers
-                      .filter((provider) => provider.kind !== "mock")
-                      .flatMap((provider) =>
-                        provider.models
-                          .filter((model) => model.id !== settings.defaultModel)
-                          .map((model) => (
-                            <option key={model.id} value={model.id}>
-                              {provider.name} · {model.name}
-                              {model.available ? "" : "（未配置密钥）"}
-                            </option>
-                          )),
-                      )}
+                    {providers.flatMap((provider) =>
+                      provider.models
+                        .filter((model) => model.ref !== settings.defaultModel)
+                        .map((model) => (
+                          <option key={model.ref} value={model.ref}>
+                            {provider.name} · {model.name}
+                            {model.available ? "" : "（未配置密钥）"}
+                          </option>
+                        )),
+                    )}
                   </select>
                 </Row>
 
-                {providerEditor ? (
+                  </>
+                )}
+
+                {catalogOpen ? (
+                  /* 目录浏览器：从 models.dev 快照里选择提供商与模型 */
+                  <CatalogBrowser
+                    meta={catalogMeta}
+                    onCancel={() => setCatalogOpen(false)}
+                    onImported={(provider) => void handleCatalogImported(provider)}
+                  />
+                ) : providerEditor ? (
                   /* 编辑器打开时替换整个提供商列表，聚焦单个提供商的配置 */
                   <ProviderEditor
                     provider={providerEditor.provider}
                     onCancel={() => setProviderEditor(null)}
                     onSaved={(saved) => {
                       setProviderEditor(null);
-                      void refreshProviders();
+                      void afterProviderAdded(saved);
                       if (saved.keyRequired && !saved.keySource) {
                         toast({
                           title: "还需配置 API Key",
@@ -517,118 +571,150 @@ export function SettingsModal() {
                 ) : (
                   <>
                     <div className="provider-toolbar">
-                      <button type="button" className="btn sm" onClick={() => setProviderEditor({ provider: null })}>
+                      <button type="button" className="btn sm" onClick={() => setCatalogOpen(true)}>
+                        <Icon name="globe" className="ico" />
+                        从模型目录添加
+                      </button>
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        onClick={() => setProviderEditor({ provider: null })}
+                      >
                         <Icon name="plus" className="ico" />
-                        添加提供商
+                        手动添加
                       </button>
                     </div>
-                    {providers.map((provider) => (
-                  <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
-                    <div className="provider-head">
-                      {/* 提供商摘要：名称、可用状态、自定义 / 覆盖标记与操作按钮 */}
-                      <div className="provider-logo">{provider.name.slice(0, 2)}</div>
-                      <div className="provider-main">
-                        <div className="provider-name">
-                          {provider.name}
-                          <span className={cn("badge", provider.available ? "ok" : "neutral")}>
-                            {provider.available ? "可用" : "未配置"}
-                          </span>
-                          {provider.custom ? (
-                            <span className="badge accent">{provider.overridden ? "已覆盖" : "自定义"}</span>
-                          ) : null}
+
+                    {providers.length === 0 ? (
+                      /* 首次启动：没有任何提供商，给出明确的下一步 */
+                      <div className="panel-empty">
+                        <Icon name="cpu" size={20} />
+                        <div>尚未添加提供商</div>
+                        <div className="panel-empty-hint">
+                          从模型目录选择提供商，或手动配置 Ollama、公司网关等本地端点。
                         </div>
-                        <div className="provider-sub">{provider.endpoint || provider.note || provider.kind}</div>
-                      </div>
-                      <div className="provider-actions">
-                        {provider.kind !== "mock" ? (
-                          <button
-                            type="button"
-                            className="icon-btn sm"
-                            title="编辑提供商"
-                            aria-label={`编辑 ${provider.name}`}
-                            onClick={() => setProviderEditor({ provider })}
-                          >
-                            <Icon name="edit" />
-                          </button>
-                        ) : null}
-                        {provider.custom ? (
-                          <button
-                            type="button"
-                            className="icon-btn sm"
-                            title={provider.overridden ? "恢复内置配置" : "删除提供商"}
-                            aria-label={provider.overridden ? `恢复 ${provider.name} 的内置配置` : `删除 ${provider.name}`}
-                            onClick={() => void deleteProvider(provider)}
-                          >
-                            <Icon name={provider.overridden ? "refresh" : "trash"} />
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="btn sm ghost"
-                          disabled={testing === provider.id}
-                          onClick={() => void testProvider(provider)}
-                        >
-                          {testing === provider.id ? <Icon name="loader" className="spin" /> : <Icon name="zap" />}
-                          测试连接
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn sm"
-                          aria-label="展开提供商"
-                          onClick={() => setExpanded(expanded === provider.id ? null : provider.id)}
-                        >
-                          <Icon name={expanded === provider.id ? "chevron-up" : "chevron-down"} />
-                        </button>
-                      </div>
-                    </div>
-                    {expanded === provider.id ? (
-                      /* 展开内容：密钥来源与设置入口，以及该提供商下各模型的能力表 */
-                      <div className="provider-body">
-                        <div className="key-line">
-                          <Icon name="key" className="ico" />
-                          <span>密钥来源：{provider.keySource === "file" ? "keys.json" : provider.keySource === "env" ? "环境变量" : "未配置"}</span>
-                          <span className="spacer" />
-                          <span className="mono">{provider.keyMasked || "—"}</span>
-                          <button type="button" onClick={() => void setProviderKey(provider)}>
-                            设置
-                          </button>
-                          {provider.keySource ? (
-                            <button type="button" onClick={() => void clearProviderKey(provider)}>
-                              清除
-                            </button>
-                          ) : null}
-                        </div>
-                        <table className="cap-table" style={{ marginTop: 8 }}>
-                          <thead>
-                            <tr>
-                              <th>模型</th>
-                              <th>上下文</th>
-                              <th>最大输出</th>
-                              <th>流式</th>
-                              <th>工具</th>
-                              <th>推理</th>
-                              <th>图片</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {provider.models.map((model) => (
-                              <tr key={model.id}>
-                                <td>{model.name}</td>
-                                <td>{model.contextK}k</td>
-                                <td>{model.maxTokens ? model.maxTokens : "默认"}</td>
-                                <Cap yes={model.caps.stream} />
-                                <Cap yes={model.caps.tools} />
-                                <Cap yes={model.caps.reasoning} />
-                                <Cap yes={model.caps.vision} />
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {provider.note ? <div className="sec-desc" style={{ marginTop: 8 }}>{provider.note}</div> : null}
                       </div>
                     ) : null}
-                  </div>
+
+                    {providers.map((provider) => (
+                      <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
+                        <div className="provider-head">
+                          {/* 提供商摘要：名称、可用状态与操作按钮 */}
+                          <div className="provider-logo">{provider.name.slice(0, 2)}</div>
+                          <div className="provider-main">
+                            <div className="provider-name">
+                              {provider.name}
+                              <span className={cn("badge", provider.available ? "ok" : "neutral")}>
+                                {provider.available ? "可用" : "未配置"}
+                              </span>
+                            </div>
+                            <div className="provider-sub">{provider.endpoint || provider.kind}</div>
+                          </div>
+                          <div className="provider-actions">
+                            <button
+                              type="button"
+                              className="icon-btn sm"
+                              title="编辑提供商"
+                              aria-label={`编辑 ${provider.name}`}
+                              onClick={() => setProviderEditor({ provider })}
+                            >
+                              <Icon name="edit" />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn sm"
+                              title="删除提供商"
+                              aria-label={`删除 ${provider.name}`}
+                              onClick={() => void deleteProvider(provider)}
+                            >
+                              <Icon name="trash" />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn sm ghost"
+                              disabled={testing === provider.id}
+                              onClick={() => void testProvider(provider)}
+                            >
+                              {testing === provider.id ? <Icon name="loader" className="spin" /> : <Icon name="zap" />}
+                              测试连接
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn sm"
+                              aria-label="展开提供商"
+                              onClick={() => setExpanded(expanded === provider.id ? null : provider.id)}
+                            >
+                              <Icon name={expanded === provider.id ? "chevron-up" : "chevron-down"} />
+                            </button>
+                          </div>
+                        </div>
+                        {expanded === provider.id ? (
+                          /* 展开内容：密钥来源与设置入口，以及该提供商下各模型的能力表 */
+                          <div className="provider-body">
+                            <div className="key-line">
+                              <Icon name="key" className="ico" />
+                              <span>
+                                密钥来源：
+                                {provider.keySource === "file"
+                                  ? "keys.json"
+                                  : provider.keySource === "env"
+                                    ? "环境变量"
+                                    : "未配置"}
+                              </span>
+                              <span className="spacer" />
+                              <span className="mono">{provider.keyMasked || "—"}</span>
+                              <button type="button" onClick={() => void setProviderKey(provider)}>
+                                设置
+                              </button>
+                              {provider.keySource ? (
+                                <button type="button" onClick={() => void clearProviderKey(provider)}>
+                                  清除
+                                </button>
+                              ) : null}
+                            </div>
+                            <table className="cap-table" style={{ marginTop: 8 }}>
+                              <thead>
+                                <tr>
+                                  <th>模型</th>
+                                  <th>上下文</th>
+                                  <th>最大输出</th>
+                                  <th>价格（输入/输出）</th>
+                                  <th>工具</th>
+                                  <th>推理</th>
+                                  <th>图片</th>
+                                  <th>状态</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {provider.models.map((model) => (
+                                  <tr key={model.ref}>
+                                    <td>{model.name}</td>
+                                    <td>{model.contextK}k</td>
+                                    <td>{model.maxTokens ? model.maxTokens : "默认"}</td>
+                                    <td>
+                                      {model.cost
+                                        ? `$${model.cost.inputPerMTok} / $${model.cost.outputPerMTok}`
+                                        : "—"}
+                                    </td>
+                                    <Cap yes={model.caps.tools} />
+                                    <Cap yes={model.caps.reasoning} />
+                                    <Cap yes={model.caps.vision} />
+                                    <td>{model.status || "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : null}
+                      </div>
                     ))}
+
+                    {catalogMeta ? (
+                      <div className="sec-desc provider-catalog-foot">
+                        模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount} 个提供商 ·{" "}
+                        {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
+                      </div>
+                    ) : null}
                   </>
                 )}
               </SettingsSection>

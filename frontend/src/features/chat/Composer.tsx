@@ -73,14 +73,30 @@ export function Composer() {
     kind: null,
     anchor: null,
   });
+  // 模型列表可能包含上百个条目，用关键字快速缩小范围。
+  const [modelQuery, setModelQuery] = useState("");
 
   const thread = threads.find((item) => item.id === activeID);
-  // 只保留可用模型；线程未绑定模型时退回列表第一个。
+  // 只保留可用模型；线程的模型引用可能来自旧格式，需要同时兼容原始 ID。
   const models = useMemo(
     () => providers.flatMap((provider) => provider.models).filter((model) => model.available),
     [providers],
   );
-  const currentModel = models.find((model) => model.id === thread?.modelId) ?? models[0];
+  const currentModel = models.find(
+    (model) => model.ref === thread?.modelId || model.id === thread?.modelId,
+  );
+  const visibleModels = useMemo(() => {
+    const query = modelQuery.trim().toLowerCase();
+    if (!query) {
+      return models;
+    }
+    return models.filter(
+      (model) =>
+        model.name.toLowerCase().includes(query) ||
+        model.id.toLowerCase().includes(query) ||
+        model.providerName.toLowerCase().includes(query),
+    );
+  }, [models, modelQuery]);
   // contextK 缺省按 32k 处理，保证没有模型信息时界面仍有合理的分母。
   const contextK = currentModel?.contextK ?? 32;
   const supportsVision = currentModel?.caps.vision ?? false;
@@ -182,9 +198,11 @@ export function Composer() {
 
           <div className="composer-send">
             {/* 上下文用量只是估算提示，悬停可看到具体数值与模型上限。 */}
-            <span className="ctx-hint" title={`上下文约 ${formatTokens(estimate)} / ${contextK}k`}>
-              ≈ {formatTokens(estimate)} / {contextK}k
-            </span>
+            {currentModel ? (
+              <span className="ctx-hint" title={`上下文约 ${formatTokens(estimate)} / ${contextK}k`}>
+                ≈ {formatTokens(estimate)} / {contextK}k
+              </span>
+            ) : null}
             <button
               type="button"
               className="composer-model"
@@ -193,19 +211,31 @@ export function Composer() {
               onClick={(event) => setPopover({ kind: "model", anchor: event.currentTarget })}
             >
               <span className="model-dot" />
-              <span className="composer-model-name">{currentModel?.name ?? "Local Demo"}</span>
+              <span className="composer-model-name">
+                {currentModel?.name ?? (models.length === 0 ? "未配置模型" : "选择模型")}
+              </span>
               <Icon name="chevron-down" className="ico chev" />
             </button>
 
-            {/* 运行中显示停止按钮，空闲时显示发送按钮，两者占同一位置。 */}
+            {/* 运行中显示停止按钮；没有可用模型时显示禁用发送按钮，避免无效提交。 */}
             {running ? (
               <button type="button" className="stop-btn" title="停止生成 Esc" aria-label="停止生成" onClick={() => void cancel()}>
                 <Icon name="stop" className="ico" />
               </button>
-            ) : (
+            ) : currentModel ? (
               <ComposerPrimitive.Send className="send-btn" title="发送 ⌘↵" aria-label="发送">
                 <Icon name="arrow-up" className="ico" />
               </ComposerPrimitive.Send>
+            ) : (
+              <button
+                type="button"
+                className="send-btn"
+                disabled
+                title="请先在设置中添加提供商并选择模型"
+                aria-label="发送"
+              >
+                <Icon name="arrow-up" className="ico" />
+              </button>
             )}
           </div>
         </div>
@@ -213,11 +243,16 @@ export function Composer() {
 
       {/* 输入区下方的快捷键与安全提示，文案随模式变化。 */}
       <div className="composer-foot">
-        <span className="kbd">⌘↵</span> 发送
-        <span className="foot-sep" />
-        <span className="kbd">Esc</span> 停止
-        <span className="foot-sep" />
-        <span>
+        <div className="hints">
+          <span>
+            <span className="kbd">⌘↵</span> 发送
+          </span>
+          <span className="foot-sep" aria-hidden="true" />
+          <span>
+            <span className="kbd">Esc</span> 停止
+          </span>
+        </div>
+        <span className="mode-note">
           <Icon name="shield" className="ico" />
           {mode === "work" ? "文档写入需要审批并自动备份" : "写操作与命令执行需要审批"}
         </span>
@@ -254,15 +289,31 @@ export function Composer() {
       {/* 模型切换浮层：选择只写入当前线程，下一轮 run 生效。 */}
       <Popover anchor={popover.anchor} open={popover.kind === "model"} onClose={closePopover} align="right">
         <div className="popover-label">切换模型</div>
-        {models.length === 0 ? <div className="popover-note">没有可用模型，请先在设置中配置密钥。</div> : null}
-        {models.map((model) => (
+        {models.length > 0 ? (
+          <div className="model-search">
+            <Icon name="search" className="ico" />
+            <input
+              value={modelQuery}
+              placeholder="搜索模型或提供商"
+              aria-label="搜索模型"
+              onChange={(event) => setModelQuery(event.target.value)}
+            />
+          </div>
+        ) : null}
+        {models.length === 0 ? (
+          <div className="popover-note">没有可用模型，请先在设置中添加提供商并配置密钥。</div>
+        ) : null}
+        {models.length > 0 && visibleModels.length === 0 ? (
+          <div className="popover-note">没有匹配的模型。</div>
+        ) : null}
+        {visibleModels.map((model) => (
           <ModelItem
-            key={model.id}
+            key={model.ref}
             model={model}
-            active={model.id === thread?.modelId}
+            active={model.ref === thread?.modelId || model.id === thread?.modelId}
             onSelect={() => {
               if (thread) {
-                void setModel(thread.id, model.id);
+                void setModel(thread.id, model.ref);
               }
               closePopover();
             }}

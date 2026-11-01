@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -13,7 +14,7 @@ func TestThreadAndSnapshot(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_1", Mode: "code", Title: "测试线程", ModelID: "local-demo",
+	thread := &Thread{ID: "th_1", Mode: "code", Title: "测试线程", ModelID: "openai/gpt-5.1",
 		Status: "idle", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
@@ -40,7 +41,7 @@ func TestThreadAndSnapshot(t *testing.T) {
 	}
 	if err := db.CreateRun(&Run{
 		ID: "run_1", ThreadID: "th_1", MessageID: "msg_assistant",
-		Status: "done", ModelID: "local-demo", StartedAt: now,
+		Status: "done", ModelID: "openai/gpt-5.1", StartedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +72,14 @@ func TestInterruptStaleRuns(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_stale", Mode: "code", Title: "中断", ModelID: "local-demo",
+	thread := &Thread{ID: "th_stale", Mode: "code", Title: "中断", ModelID: "openai/gpt-5.1",
 		Status: "running", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.CreateRun(&Run{
 		ID: "run_stale", ThreadID: "th_stale", MessageID: "msg_stale",
-		Status: "running", ModelID: "local-demo", StartedAt: now,
+		Status: "running", ModelID: "openai/gpt-5.1", StartedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestSettingsAndUsage(t *testing.T) {
 		t.Fatalf("设置读写失败: %v %+v", err, settings)
 	}
 
-	if err := db.AddUsage(&UsageRow{ModelID: "local-demo", InputTokens: 100, OutputTokens: 20}); err != nil {
+	if err := db.AddUsage(&UsageRow{ModelID: "openai/gpt-5.1", InputTokens: 100, OutputTokens: 20}); err != nil {
 		t.Fatal(err)
 	}
 	summary, err := db.UsageSummary()
@@ -199,5 +200,91 @@ func TestSettingsAndUsage(t *testing.T) {
 	}
 	if summary.Today.InputTokens != 100 || summary.Today.OutputTokens != 20 {
 		t.Fatalf("用量聚合不符: %+v", summary.Today)
+	}
+}
+
+func TestAutoTitleThreadOnlyOnce(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	thread := &Thread{
+		ID: "th_title", Mode: "code", Title: "新对话", TitleAuto: true,
+		ModelID: "openai/gpt-5.1", Status: "idle",
+		CreatedAt: NowMillis(), UpdatedAt: NowMillis(),
+	}
+	if err := db.CreateThread(thread); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := db.AutoTitleThread(thread.ID, "修复登录刷新超时", "新对话")
+	if err != nil || !changed {
+		t.Fatalf("首次自动命名应成功: changed=%v err=%v", changed, err)
+	}
+	stored, err := db.GetThread(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "修复登录刷新超时" || stored.TitleAuto {
+		t.Fatalf("自动命名结果不符: %+v", stored)
+	}
+
+	// 同一线程再次自动命名不应覆盖。
+	if changed, err := db.AutoTitleThread(thread.ID, "第二个标题", "新对话"); err != nil || changed {
+		t.Fatalf("重复自动命名应被忽略: changed=%v err=%v", changed, err)
+	}
+
+	// 用户手动改名后，即使把 title_auto 恢复也不能被自动覆盖。
+	if err := db.RenameThread(thread.ID, "我的标题"); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := db.AutoTitleThread(thread.ID, "自动标题", "我的标题"); err != nil || changed {
+		t.Fatalf("手动改名后不应自动覆盖: changed=%v err=%v", changed, err)
+	}
+}
+
+func TestMigrateV1AddsTitleAuto(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(schemaV1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(
+		`INSERT INTO threads (id, mode, title, model_id, workspace_id, status, archived, tokens, created_at, updated_at)
+		 VALUES ('th_legacy', 'code', '新对话', 'openai/gpt-5.1', '', 'idle', 0, 0, 1, 1)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec("PRAGMA user_version = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.sqlDB.QueryRow(
+		"SELECT COUNT(*) FROM pragma_table_info('threads') WHERE name = 'title_auto'",
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("v1 数据库迁移后应存在 title_auto 列")
+	}
+	legacyThread, err := db.GetThread("th_legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !legacyThread.TitleAuto {
+		t.Fatal("旧的“新对话”线程应允许首轮自动命名")
 	}
 }

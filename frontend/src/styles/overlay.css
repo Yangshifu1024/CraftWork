@@ -427,6 +427,7 @@ html[data-theme="light"] .overlay-backdrop { background: rgba(22, 28, 38, 0.3); 
   margin: 10px 0;
 }
 .provider-editor-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.provider-editor-head .spacer { flex: 1; }
 .provider-editor-head h3 { margin: 0; font-size: 12.5px; }
 .provider-editor-head .ico { width: 14px; height: 14px; color: var(--text-2); }
 .provider-form {
@@ -436,16 +437,23 @@ html[data-theme="light"] .overlay-backdrop { background: rgba(22, 28, 38, 0.3); 
   margin: 8px 0 12px;
 }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--text-3); }
-.field.span-2 { grid-column: span 2; }
-.checkbox-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-2);
-  flex-wrap: wrap;
+.provider-form .span-2 { grid-column: span 2; }
+
+/* 密钥设置：复选框与说明按两列对齐，说明自动缩进到标题文字下方 */
+.key-settings { display: flex; flex-direction: column; gap: 8px; }
+.checkbox-box {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 7px;
 }
-.checkbox-line .sec-desc { margin: 0; }
+.checkbox-box input[type="checkbox"] { margin: 2px 0 0; }
+.checkbox-title { display: block; font-size: 11px; color: var(--text-2); cursor: pointer; }
+.checkbox-desc { font-size: 10.5px; line-height: 1.55; color: var(--text-3); }
+.key-input { display: flex; align-items: center; gap: 6px; }
+.key-input .text-input { flex: 1; }
+.key-input .icon-btn { flex: none; color: var(--text-3); }
+
 .provider-models { border-top: 1px solid var(--border-soft); padding-top: 10px; }
 .provider-models-head {
   display: flex;
@@ -455,26 +463,42 @@ html[data-theme="light"] .overlay-backdrop { background: rgba(22, 28, 38, 0.3); 
   font-weight: 600;
   margin-bottom: 8px;
 }
+/* 说明文字与标题同字号同字重，并清掉 settings-section 的底部外边距，避免基线错位 */
+.provider-models-head .sec-desc { margin: 0; font-size: 10.5px; font-weight: 400; }
 .provider-models-head .spacer { flex: 1; }
 .provider-model-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
+  gap: 8px;
+  padding: 8px 10px 10px;
   border: 1px solid var(--border);
   border-radius: 7px;
   margin-bottom: 6px;
   background: var(--bg);
 }
+.pmr-head { display: flex; align-items: center; gap: 6px; }
+.pmr-head .spacer { flex: 1; }
+.pmr-title { font-size: 10.5px; font-weight: 600; color: var(--text-3); }
+.pmr-remove { color: var(--text-3); }
+.pmr-remove:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
 .pmr-main {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) 72px 12px 86px;
-  gap: 6px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) 104px 104px;
+  gap: 8px;
+  align-items: start;
 }
-.pmr-main .text-input { height: 24px; font-size: 10.5px; }
-.pmr-ctx { text-align: right; }
-.pmr-unit { font-size: 10px; color: var(--text-4); }
+.pmr-main .field { min-width: 0; }
+/* 数值列比输入框的全局 min-width 窄，必须允许收缩，否则会压盖相邻列并溢出卡片 */
+.pmr-main .text-input { height: 24px; font-size: 10.5px; min-width: 0; }
+.pmr-ctx {
+  text-align: right;
+  padding: 0 7px;
+  /* 原生步进器会挤占窄列，隐藏后用键盘上下键与直接输入 */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.pmr-ctx::-webkit-outer-spin-button,
+.pmr-ctx::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .pmr-caps { display: flex; flex-wrap: wrap; gap: 10px; }
 .cap-check { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-2); }
 .cap-check.is-fixed { color: var(--text-4); }
@@ -974,3 +998,148 @@ html[data-theme="light"] .overlay-backdrop { background: rgba(22, 28, 38, 0.3); 
   animation: toast-in 180ms var(--ease);
 }
 .hint-bar .ico { width: 12px; height: 12px; color: var(--mode-accent); }
+
+/* 模型目录浏览器：左侧提供商列表，右侧模型选择与导入表单 */
+.catalog-browser { padding-bottom: 10px; }
+.catalog-panes {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 330px;
+}
+.catalog-provider-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border-right: 1px solid var(--border-soft);
+  padding-right: 10px;
+}
+.catalog-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 480px;
+  overflow: auto;
+}
+.catalog-provider-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.catalog-provider-item:hover { background: var(--bg-hover); }
+.catalog-provider-item.is-active { background: var(--bg-active); color: var(--text); }
+.catalog-provider-logo {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--bg-active);
+  font-size: 9px;
+  color: var(--text-3);
+}
+.catalog-provider-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.catalog-provider-name {
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.catalog-provider-meta {
+  font-size: 9.5px;
+  color: var(--text-4);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.catalog-model-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.catalog-model-head { display: flex; align-items: flex-start; gap: 8px; }
+.catalog-model-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.catalog-import-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 10px;
+  color: var(--text-3);
+}
+.catalog-import-summary .mono { color: var(--text-2); word-break: break-all; }
+.catalog-key-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-2);
+}
+.catalog-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.catalog-search { flex: 1; min-width: 170px; }
+.catalog-model-table-wrap {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}
+.catalog-model-table { font-size: 10.5px; }
+.catalog-model-table tbody tr { cursor: pointer; }
+.catalog-model-table tbody tr:hover { background: var(--bg-hover); }
+.catalog-model-name { font-size: 11px; color: var(--text); }
+.catalog-caps { font-size: 9.5px; color: var(--text-3); }
+.catalog-foot { margin-top: 8px; }
+.provider-catalog-foot { margin-top: 10px; }
+.pmr-hint { font-size: 10px; color: var(--text-3); }
+.pmr-hint.is-error { color: var(--danger); }
+.model-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 6px 6px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+.model-search .ico { width: 13px; height: 13px; flex: none; color: var(--text-4); }
+.model-search input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }

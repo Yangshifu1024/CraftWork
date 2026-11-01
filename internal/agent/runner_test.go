@@ -65,6 +65,28 @@ func newHarness(t *testing.T) *harness {
 
 func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 	t.Helper()
+	// 应用没有内置提供商，测试同样通过用户目录注册一个假模型；
+	// 这样 Resolve、上下文窗口与失败转移都走真实路径。
+	// 个别测试会在调用 harness 前自行注册模型（例如验证 MaxTokens），
+	// 此时保留测试自己的配置。
+	if len(model.Providers()) == 0 {
+		model.SetCustomProviders([]model.Provider{{
+			ID:          "test",
+			Name:        "测试提供商",
+			Kind:        "openai-compatible",
+			Endpoint:    "https://example.com/v1",
+			KeyRequired: false,
+			Models: []model.ModelInfo{{
+				ID: "fake", Name: "Fake", Provider: "test", ContextK: 32,
+				Caps: model.Capabilities{Stream: true, Tools: true},
+			}, {
+				ID: "backup", Name: "Backup", Provider: "test", ContextK: 32,
+				Caps: model.Capabilities{Stream: true, Tools: true},
+			}},
+		}})
+	}
+	t.Cleanup(func() { model.SetCustomProviders(nil) })
+
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -92,7 +114,7 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 	runner := NewRunner(db, recorder, registry, engine, approvals, factory)
 
 	thread := store.Thread{
-		ID: "th_1", Mode: "code", Title: "测试", ModelID: "fake",
+		ID: "th_1", Mode: "code", Title: "测试", ModelID: "test/fake",
 		Status: "idle", CreatedAt: store.NowMillis(), UpdatedAt: store.NowMillis(),
 	}
 	if err := db.CreateThread(&thread); err != nil {
@@ -112,7 +134,7 @@ func (h *harness) start(t *testing.T) {
 	t.Helper()
 	if err := h.db.CreateRun(&store.Run{
 		ID: "run_1", ThreadID: "th_1", MessageID: "msg_assistant",
-		Status: "running", ModelID: "fake", StartedAt: store.NowMillis(),
+		Status: "running", ModelID: "test/fake", StartedAt: store.NowMillis(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,10 +213,10 @@ func (c textClient) Stream(context.Context, model.Request) (<-chan model.Chunk, 
 func TestRunnerFailsOverOnRetryableError(t *testing.T) {
 	factory := failoverFactory{
 		clients: map[string]model.Client{
-			"fake":   failingClient{err: model.NewError(model.CodeRateLimit, "主模型", "请求过于频繁")},
-			"backup": textClient{text: "已切换模型"},
+			"test/fake":   failingClient{err: model.NewError(model.CodeRateLimit, "主模型", "请求过于频繁")},
+			"test/backup": textClient{text: "已切换模型"},
 		},
-		fallback: "backup",
+		fallback: "test/backup",
 	}
 	h := newHarnessWithFactory(t, factory)
 	h.start(t)
@@ -228,10 +250,10 @@ func TestRunnerFailsOverOnRetryableError(t *testing.T) {
 func TestRunnerDoesNotFailoverOnAuthError(t *testing.T) {
 	factory := failoverFactory{
 		clients: map[string]model.Client{
-			"fake":   failingClient{err: model.NewError(model.CodeAuth, "主模型", "密钥无效")},
-			"backup": textClient{text: "不应出现"},
+			"test/fake":   failingClient{err: model.NewError(model.CodeAuth, "主模型", "密钥无效")},
+			"test/backup": textClient{text: "不应出现"},
 		},
-		fallback: "backup",
+		fallback: "test/backup",
 	}
 	h := newHarnessWithFactory(t, factory)
 	h.start(t)
@@ -364,73 +386,6 @@ func TestRunnerAnthropicToolLoop(t *testing.T) {
 	}
 }
 
-// TestRunnerGeminiToolLoop 验证 Gemini 适配器与 Agent 循环的完整链路，
-// 包括 functionCall / functionResponse 与 thoughtSignature 回填。
-func TestRunnerGeminiToolLoop(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestNumber := calls.Add(1)
-		if requestNumber == 2 {
-			if !strings.Contains(string(body), `"functionResponse"`) {
-				t.Errorf("第二次请求应包含 functionResponse: %s", string(body))
-			}
-			if !strings.Contains(string(body), `"thoughtSignature":"sig-1"`) {
-				t.Errorf("第二次请求应回填 thoughtSignature: %s", string(body))
-			}
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		if requestNumber == 1 {
-			fmt.Fprint(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"读取文件"},{"functionCall":{"name":"fs_read","args":{"path":"note.txt"}},"thoughtSignature":"sig-1"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":5}}`+"\n\n")
-			return
-		}
-		fmt.Fprint(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"文件内容是 hello"}]}}],"usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":6}}`+"\n\n")
-	}))
-	defer server.Close()
-
-	h := newHarnessWithFactory(t, fakeFactory{client: model.NewGemini(
-		model.Provider{ID: "gemini", Name: "Google Gemini", Kind: "gemini", Endpoint: server.URL},
-		server.URL,
-		"test-key",
-	)})
-	if err := os.WriteFile(filepath.Join(h.workspace, "note.txt"), []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	h.start(t)
-	waitStatus(t, h.db, "th_1", "idle")
-
-	snapshot, err := h.db.Snapshot("th_1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var finalText, toolOutput string
-	for _, message := range snapshot.Messages {
-		if message.Role != "assistant" {
-			continue
-		}
-		for _, part := range message.Parts {
-			data, _ := part.Data.(map[string]any)
-			switch part.Kind {
-			case "text":
-				if text, _ := data["text"].(string); text != "" {
-					finalText = text
-				}
-			case "tool":
-				toolOutput, _ = data["output"].(string)
-			}
-		}
-	}
-	if !strings.Contains(finalText, "文件内容是 hello") {
-		t.Fatalf("收尾文本不符: %q", finalText)
-	}
-	if !strings.Contains(toolOutput, "hello") {
-		t.Fatalf("工具输出不符: %q", toolOutput)
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("模型请求次数不符: %d", calls.Load())
-	}
-}
-
 func TestHistoryLoadsAttachmentContents(t *testing.T) {
 	h := newHarness(t)
 	path := filepath.Join(h.workspace, "note.txt")
@@ -536,4 +491,52 @@ func waitStatus(t *testing.T, db *store.DB, threadID, want string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("等待线程状态 %s 超时，当前 %s", want, current)
+}
+
+func TestEstimateCostMicros(t *testing.T) {
+	t.Cleanup(func() { model.SetCustomProviders(nil) })
+	model.SetCustomProviders([]model.Provider{
+		{
+			ID: "compat", Name: "兼容", Kind: "openai-compatible", Endpoint: "https://example.com/v1",
+			Models: []model.ModelInfo{{
+				ID: "model", Name: "Model", Provider: "compat", ContextK: 32,
+				Cost: &model.Cost{InputPerMTok: 1, OutputPerMTok: 2, CacheReadPerMTok: 0.1},
+			}},
+		},
+		{
+			ID: "anthropic", Name: "Anthropic", Kind: "anthropic", Endpoint: "https://api.anthropic.com",
+			Models: []model.ModelInfo{{
+				ID: "claude", Name: "Claude", Provider: "anthropic", ContextK: 200,
+				Cost: &model.Cost{InputPerMTok: 1, OutputPerMTok: 2, CacheReadPerMTok: 0.1, CacheWritePerMTok: 1.25},
+			}},
+		},
+		{
+			ID: "manual", Name: "手动", Kind: "openai-compatible", Endpoint: "https://example.com/v1",
+			Models: []model.ModelInfo{{
+				ID: "plain", Name: "Plain", Provider: "manual", ContextK: 32,
+			}},
+		},
+	})
+
+	// OpenAI 兼容接口：输入已包含缓存，未缓存输入按输入价，缓存读取按缓存价。
+	compat := estimateCostMicros("compat/model", &model.Usage{
+		InputTokens: 1_000_000, OutputTokens: 100_000, CacheTokens: 200_000,
+	})
+	if compat != 1_020_000 {
+		t.Fatalf("OpenAI 兼容费用不符: %d", compat)
+	}
+
+	// Anthropic：input_tokens 不包含缓存，缓存写入与读取分别计价。
+	anthropic := estimateCostMicros("anthropic/claude", &model.Usage{
+		InputTokens: 800_000, OutputTokens: 100_000,
+		CacheTokens: 300_000, CacheWriteTokens: 100_000,
+	})
+	if anthropic != 1_145_000 {
+		t.Fatalf("Anthropic 费用不符: %d", anthropic)
+	}
+
+	// 没有价格信息的模型记 0，而不是猜测默认价格。
+	if cost := estimateCostMicros("manual/plain", &model.Usage{InputTokens: 1000, OutputTokens: 1000}); cost != 0 {
+		t.Fatalf("未知价格应为 0: %d", cost)
+	}
 }

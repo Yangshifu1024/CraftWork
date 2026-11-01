@@ -18,7 +18,7 @@ func TestSnapshotPagePagination(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	thread := store.Thread{
-		ID: "th_page", Mode: "code", Title: "分页", ModelID: "local-demo",
+		ID: "th_page", Mode: "code", Title: "分页", ModelID: "openai/gpt-5.1",
 		Status: "idle", CreatedAt: store.NowMillis(), UpdatedAt: store.NowMillis(),
 	}
 	if err := db.CreateThread(&thread); err != nil {

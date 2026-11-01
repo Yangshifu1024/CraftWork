@@ -1,15 +1,16 @@
 /**
  * 提供商编辑器。
  *
- * 负责：新增或修改一个模型提供商（名称、协议、端点、是否需要密钥），
+ * 负责：新增或修改一个模型提供商（名称、协议、端点、是否需要密钥、密钥），
  * 维护它下面的模型列表，在提交前做本地校验，保存成功后把结果回传给调用方。
  *
- * 密钥不在这里填写：保存提供商后，由设置页的提供商卡片单独设置。
+ * 密钥不会回显：编辑已有提供商时输入框始终为空，留空表示保留原密钥；
+ * 填写后与提供商配置一起保存，明文只写入 Go 侧的 keys.json。
  */
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
-import type { Capabilities } from "../../../bindings/craftwork/internal/model";
+import type { Capabilities, Cost } from "../../../bindings/craftwork/internal/model";
 import type { ModelView, ProviderInput, ProviderView } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { useUiStore } from "../../stores/ui";
@@ -21,14 +22,17 @@ type ModelDraft = {
   contextK: number;
   maxTokens: number;
   caps: Capabilities;
+  cost: Cost | null;
+  status: string;
+  canonicalId: string;
+  releaseDate: string;
 };
 
-/** 协议选项：OpenAI 兼容、OpenAI、Anthropic 与 Google Gemini。 */
+/** 协议选项：只保留 OpenAI、Anthropic 与 OpenAI 兼容三种。 */
 const kindOptions = [
   { id: "openai-compatible", label: "OpenAI 兼容" },
   { id: "openai", label: "OpenAI" },
   { id: "anthropic", label: "Anthropic" },
-  { id: "gemini", label: "Google Gemini" },
 ];
 
 /** 模型能力开关；流式能力固定开启，因此不在此列表中。 */
@@ -47,6 +51,10 @@ function draftFromModel(model: ModelView): ModelDraft {
     contextK: model.contextK,
     maxTokens: model.maxTokens ?? 0,
     caps: { ...model.caps, stream: true },
+    cost: model.cost ?? null,
+    status: model.status ?? "",
+    canonicalId: model.canonicalId ?? "",
+    releaseDate: model.releaseDate ?? "",
   };
 }
 
@@ -58,6 +66,10 @@ function blankModel(): ModelDraft {
     contextK: 32,
     maxTokens: 0,
     caps: { stream: true, tools: true, vision: false, reasoning: false, structured: false },
+    cost: null,
+    status: "",
+    canonicalId: "",
+    releaseDate: "",
   };
 }
 
@@ -85,11 +97,63 @@ export function ProviderEditor({
   const [kind, setKind] = useState(provider?.kind ?? "openai-compatible");
   const [endpoint, setEndpoint] = useState(provider?.endpoint ?? "");
   const [keyRequired, setKeyRequired] = useState(provider?.keyRequired ?? true);
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  // 保存成功后记住后端生成的 ID：密钥写入失败时用户可以重试，
+  // 重试会覆盖同一个提供商，而不是再新增一份配置。
+  const [providerId, setProviderId] = useState(provider?.id ?? "");
   const [models, setModels] = useState<ModelDraft[]>(
     provider && provider.models.length > 0 ? provider.models.map(draftFromModel) : [blankModel()],
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // lookup 记录“从目录补全”的进度与结果，按模型行号展示。
+  const [lookup, setLookup] = useState<{ index: number; text: string; error: boolean } | null>(null);
+
+  // 已有密钥时只给出掩码提示，输入框保持为空，避免把密钥回填到页面。
+  const keyConfigured = Boolean(provider?.keySource);
+
+  /**
+   * 按模型 ID 从 models.dev 目录补全上下文、输出上限、能力与价格。
+   *
+   * 提供商 ID 为空时后端会在整个目录中查找；只有唯一匹配才返回，
+   * 多个提供商都有同名模型时会提示用户先填写提供商 ID。
+   */
+  async function fillFromCatalog(index: number) {
+    const modelID = models[index]?.id.trim() ?? "";
+    if (!modelID) {
+      return;
+    }
+    setLookup({ index, text: "正在查找目录…", error: false });
+    try {
+      const found = await api.providers.lookupCatalogModel(providerId, modelID);
+      if (!found) {
+        setLookup({ index, text: "目录中没有这个模型", error: true });
+        return;
+      }
+      setModels((current) =>
+        current.map((item, itemIndex) =>
+          itemIndex === index
+            ? {
+                ...item,
+                // 名称只在用户没填时补全，避免覆盖自定义展示名称。
+                name: item.name.trim() || found.name,
+                contextK: found.contextK,
+                maxTokens: found.maxTokens ?? 0,
+                caps: { ...found.caps, stream: true },
+                cost: found.cost ?? null,
+                status: found.status ?? "",
+                canonicalId: found.canonicalId ?? "",
+                releaseDate: found.releaseDate ?? "",
+              }
+            : item,
+        ),
+      );
+      setLookup({ index, text: `已从 ${found.providerName} 目录补全`, error: false });
+    } catch (caught) {
+      setLookup({ index, text: String(caught), error: true });
+    }
+  }
 
   /** 更新第 index 个模型的部分字段。 */
   function updateModel(index: number, patch: Partial<ModelDraft>) {
@@ -113,7 +177,8 @@ export function ProviderEditor({
    * 校验并提交表单。
    *
    * 校验顺序：名称 → 端点 → 至少一个模型 → 每个模型的 ID 与上下文窗口。
-   * 全部通过后组装 ProviderInput 调用后端；保存失败把错误显示在表单底部。
+   * 全部通过后组装 ProviderInput 调用后端；如果填了密钥，紧接着写入 keys.json。
+   * 保存失败把错误显示在表单底部。
    */
   async function save() {
     const trimmedName = name.trim();
@@ -142,8 +207,8 @@ export function ProviderEditor({
     }
 
     const input: ProviderInput = {
-      // 新增时 id 为空，由后端生成；编辑时沿用原 id 覆盖配置。
-      id: provider?.id ?? "",
+      // 新增时 id 为空，由后端生成；编辑或重试时沿用已保存的 id 覆盖配置。
+      id: providerId,
       name: trimmedName,
       kind,
       endpoint: trimmedEndpoint,
@@ -155,19 +220,35 @@ export function ProviderEditor({
         contextK: model.contextK,
         maxTokens: model.maxTokens,
         caps: { ...model.caps, stream: true },
+        cost: model.cost,
+        status: model.status,
+        canonicalId: model.canonicalId,
+        releaseDate: model.releaseDate,
       })),
     };
+
+    const trimmedKey = apiKey.trim();
+    const writeKey = keyRequired && trimmedKey !== "";
 
     setSaving(true);
     setError("");
     try {
       const saved = await api.providers.saveProvider(input);
+      setProviderId(saved.id);
+      let result = saved;
+      if (writeKey) {
+        await api.providers.setKey(saved.id, trimmedKey);
+        // 重新拉取列表，拿到最新的密钥来源与掩码后再回传给调用方，
+        // 这样设置页不会误报「还需配置 API Key」。
+        const providers = await api.providers.list();
+        result = providers.find((item) => item.id === saved.id) ?? saved;
+      }
       toast({
         title: provider ? "提供商已更新" : "提供商已添加",
-        description: `${saved.name} · ${saved.models.length} 个模型`,
+        description: `${result.name} · ${result.models.length} 个模型${writeKey ? " · 密钥已保存" : ""}`,
         tone: "ok",
       });
-      onSaved(saved);
+      onSaved(result);
     } catch (caught) {
       setError(String(caught));
     } finally {
@@ -190,16 +271,11 @@ export function ProviderEditor({
       {provider ? (
         <div className="sec-desc">
           提供商 ID：<span className="mono">{provider.id}</span>
-          {provider.overridden
-            ? " · 保存后覆盖内置配置，可在卡片上恢复默认"
-            : provider.custom
-              ? " · 自定义提供商"
-              : " · 保存后创建内置覆盖配置"}
         </div>
       ) : null}
 
       <div className="provider-form">
-        {/* 基本信息：名称、协议、端点与是否需要密钥 */}
+        {/* 基本信息：名称、协议、端点与密钥设置 */}
         <label className="field">
           <span>名称</span>
           <input
@@ -228,22 +304,57 @@ export function ProviderEditor({
             onChange={(event) => setEndpoint(event.target.value)}
           />
         </label>
-        <label className="checkbox-line span-2">
-          <input
-            type="checkbox"
-            checked={keyRequired}
-            onChange={(event) => setKeyRequired(event.target.checked)}
-          />
-          需要 API Key
-          <span className="sec-desc">本地服务（Ollama 等）可以关闭；密钥仍按提供商保存在 keys.json。</span>
-        </label>
+
+        <div className="key-settings span-2">
+          <div className="checkbox-box">
+            <input
+              id="provider-key-required"
+              type="checkbox"
+              checked={keyRequired}
+              onChange={(event) => setKeyRequired(event.target.checked)}
+            />
+            <div className="checkbox-text">
+              <label className="checkbox-title" htmlFor="provider-key-required">
+                需要 API Key
+              </label>
+              <div className="checkbox-desc">本地服务（Ollama 等）可以关闭；密钥只写入本机 keys.json。</div>
+            </div>
+          </div>
+
+          {keyRequired ? (
+            <div className="field">
+              <span>API Key</span>
+              <div className="key-input">
+                <input
+                  className="text-input wide mono"
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={keyConfigured ? `已配置 ${provider?.keyMasked || "密钥"}；留空则保持不变` : "粘贴 API Key"}
+                  aria-label="API Key"
+                  onChange={(event) => setApiKey(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="icon-btn sm"
+                  aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}
+                  title={showKey ? "隐藏密钥" : "显示密钥"}
+                  onClick={() => setShowKey((current) => !current)}
+                >
+                  <Icon name={showKey ? "eye-off" : "eye"} />
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="provider-models">
         <div className="provider-models-head">
-          {/* 模型区表头：说明上下文单位，并提供「添加模型」按钮 */}
+          {/* 模型区表头：流式固定开启，并提供「添加模型」按钮 */}
           <span>模型</span>
-          <span className="sec-desc">上下文以千 token 计；流式固定开启。</span>
+          <span className="sec-desc">流式固定开启。</span>
           <span className="spacer" />
           <button type="button" className="btn sm ghost" onClick={() => setModels((current) => [...current, blankModel()])}>
             <Icon name="plus" className="ico" />
@@ -253,42 +364,83 @@ export function ProviderEditor({
 
         {models.map((model, index) => (
           <div className="provider-model-row" key={index}>
-            <div className="pmr-main">
-              <input
-                className="text-input"
-                value={model.id}
-                placeholder="模型 ID"
-                aria-label={`模型 ${index + 1} ID`}
-                onChange={(event) => updateModel(index, { id: event.target.value })}
-              />
-              <input
-                className="text-input"
-                value={model.name}
-                placeholder="显示名称"
-                aria-label={`模型 ${index + 1} 名称`}
-                onChange={(event) => updateModel(index, { name: event.target.value })}
-              />
-              <input
-                className="text-input pmr-ctx"
-                type="number"
-                min={1}
-                max={10000}
-                value={model.contextK}
-                aria-label={`模型 ${index + 1} 上下文窗口`}
-                onChange={(event) => updateModel(index, { contextK: Number(event.target.value) || 0 })}
-              />
-              <span className="pmr-unit">k</span>
-              <input
-                className="text-input pmr-ctx"
-                type="number"
-                min={0}
-                max={200000}
-                value={model.maxTokens === 0 ? "" : model.maxTokens}
-                placeholder="最大输出"
-                aria-label={`模型 ${index + 1} 最大输出 token`}
-                onChange={(event) => updateModel(index, { maxTokens: Number(event.target.value) || 0 })}
-              />
+            <div className="pmr-head">
+              <span className="pmr-title">模型 {index + 1}</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="icon-btn sm pmr-remove"
+                aria-label={`移除模型 ${index + 1}`}
+                title={models.length <= 1 ? "至少保留一个模型" : "移除模型"}
+                disabled={models.length <= 1}
+                onClick={() => setModels((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+              >
+                <Icon name="trash" />
+              </button>
             </div>
+
+            {/* 模型字段：每个输入都有可见标签，单位写在标签里 */}
+            <div className="pmr-main">
+              <label className="field">
+                <span>模型 ID</span>
+                <div className="key-input">
+                  <input
+                    className="text-input"
+                    value={model.id}
+                    placeholder="例如 gpt-4.1"
+                    aria-label={`模型 ${index + 1} ID`}
+                    onChange={(event) => updateModel(index, { id: event.target.value })}
+                    onBlur={() => void fillFromCatalog(index)}
+                  />
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    title="从 models.dev 目录补全上下文、能力与价格"
+                    onClick={() => void fillFromCatalog(index)}
+                  >
+                    <Icon name="search" className="ico" />
+                    目录补全
+                  </button>
+                </div>
+              </label>
+              <label className="field">
+                <span>显示名称</span>
+                <input
+                  className="text-input"
+                  value={model.name}
+                  placeholder="例如 GPT-4.1"
+                  aria-label={`模型 ${index + 1} 名称`}
+                  onChange={(event) => updateModel(index, { name: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>上下文（千 token）</span>
+                <input
+                  className="text-input pmr-ctx"
+                  type="number"
+                  min={1}
+                  max={100000}
+                  value={model.contextK}
+                  placeholder="32"
+                  aria-label={`模型 ${index + 1} 上下文窗口`}
+                  onChange={(event) => updateModel(index, { contextK: Number(event.target.value) || 0 })}
+                />
+              </label>
+              <label className="field">
+                <span>最大输出（token）</span>
+                <input
+                  className="text-input pmr-ctx"
+                  type="number"
+                  min={0}
+                  max={4000000}
+                  value={model.maxTokens === 0 ? "" : model.maxTokens}
+                  placeholder="默认"
+                  aria-label={`模型 ${index + 1} 最大输出 token`}
+                  onChange={(event) => updateModel(index, { maxTokens: Number(event.target.value) || 0 })}
+                />
+              </label>
+            </div>
+
             <div className="pmr-caps">
               {/* 流式固定开启，用只读勾选框展示；其余能力可自由勾选 */}
               <label className={cn("cap-check", "is-fixed")}>
@@ -306,15 +458,9 @@ export function ProviderEditor({
                 </label>
               ))}
             </div>
-            <button
-              type="button"
-              className="icon-btn sm"
-              aria-label={`移除模型 ${index + 1}`}
-              disabled={models.length <= 1}
-              onClick={() => setModels((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-            >
-              <Icon name="trash" />
-            </button>
+            {lookup?.index === index ? (
+              <div className={cn("pmr-hint", lookup.error && "is-error")}>{lookup.text}</div>
+            ) : null}
           </div>
         ))}
       </div>

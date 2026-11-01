@@ -127,6 +127,15 @@ export const desktopApi = {
     setKey: (providerID, key) => ProviderService.SetKey(providerID, key),
     clearKey: (providerID) => ProviderService.ClearKey(providerID),
     test: (providerID) => ProviderService.Test(providerID),
+    catalogMeta: () => ProviderService.CatalogMeta(),
+    catalogProviders: async (query = "") => (await ProviderService.CatalogProviders(query)) ?? [],
+    catalogModels: async (providerID) => (await ProviderService.CatalogModels(providerID)) ?? [],
+    lookupCatalogModel: (providerID, modelID) =>
+      ProviderService.LookupCatalogModel(providerID, modelID),
+    importFromCatalog: async (input) => {
+      const raw = await ProviderService.ImportFromCatalog(input);
+      return { ...raw, models: raw.models ?? [] } as ProviderView;
+    },
   },
   /** MCP 服务器管理（当前为 M4 留桩阶段）。 */
   mcp: {

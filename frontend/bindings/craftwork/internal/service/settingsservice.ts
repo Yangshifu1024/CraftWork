@@ -16,6 +16,9 @@ import * as $models from "./models.js";
 
 /**
  * Get 返回当前设置。
+ * 
+ * 存储里的模型可能是旧的原始 ID；读取时统一转换成“提供商/模型”引用。
+ * 指向已删除提供商的模型会返回空，而不是回退到别的模型。
  */
 export function Get(): $CancellablePromise<$models.Settings> {
     return $Call.ByID(3874722568);
