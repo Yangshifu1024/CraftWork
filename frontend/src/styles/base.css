@@ -367,6 +367,9 @@ ul, ol { padding: 0; }
 .chat-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  /* 单列也显式用 minmax(0, 1fr)：默认的 auto 列跟随子元素的 min-content，
+     会话标题超长时整列会被撑破，头部溢出到右侧面板下方。 */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   background: var(--chat-bg);

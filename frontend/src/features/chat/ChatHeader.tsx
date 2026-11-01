@@ -100,7 +100,10 @@ export function ChatHeader() {
   return (
     <div className="chat-head">
       <div className="chat-head-main">
-        <span className="chat-title">{thread.title}</span>
+        {/* 手动重命名可能给出很长的标题：超长时省略，悬停显示全文 */}
+        <span className="chat-title" title={thread.title}>
+          {thread.title}
+        </span>
         <span className={cn("badge", thread.mode === "work" ? "work" : "accent")}>
           {thread.mode === "work" ? "Work" : "Code"}
         </span>

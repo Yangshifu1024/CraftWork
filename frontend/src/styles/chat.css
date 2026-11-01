@@ -22,6 +22,9 @@
   backdrop-filter: blur(8px);
   position: relative;
   z-index: 5;
+  /* 定高头部内部不再换行，超长标题只能被裁切，不能把头部撑高或撑宽。 */
+  min-width: 0;
+  overflow: hidden;
 }
 .chat-head-main {
   display: flex;
@@ -29,6 +32,8 @@
   gap: 8px;
   min-width: 0;
   flex: 1;
+  /* 徽章比标题优先：标题先被压缩，徽章保持完整可见。 */
+  overflow: hidden;
 }
 .chat-title {
   font-size: var(--text-ui-base);
@@ -36,6 +41,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* flex 项默认 min-width: auto 会取 min-content（整串标题宽度），
+     导致 ellipsis 失效并把头部撑破，这里必须显式归零。 */
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .chat-head .badge { flex: none; }
 .chat-head-actions { display: flex; align-items: center; gap: 2px; flex: none; }

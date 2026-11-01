@@ -334,7 +334,14 @@ export function Sidebar() {
             autoComplete="off"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
+              // 输入法组合期间按 Esc 只取消候选，不关闭搜索框。
+              if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                return;
+              }
               if (event.key === "Escape") {
+                // 阻止冒泡：全局 Esc 会逐层关闭浮层乃至取消运行中的会话，
+                // 关闭搜索框不应连带触发这些副作用。
+                event.stopPropagation();
                 closeSearch();
               }
             }}

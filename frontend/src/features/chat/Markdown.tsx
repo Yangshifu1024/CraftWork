@@ -37,6 +37,7 @@ import { api } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
+import { matchPathLineRef, pathLinePattern } from "./markdownRef";
 
 // 只注册需要的高亮语言，避免把 highlight.js 的全量语言包打进首屏包体。
 hljs.registerLanguage("go", go);
@@ -178,11 +179,27 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
  *
  * 带 `language-xxx` class 的视为围栏代码，交给 CodeBlock；
  * 其余视为行内代码，只加样式不参与高亮。
+ *
+ * 行内代码整体恰好是 `path:line` 形式时按文件引用渲染：模型常把引用
+ * 包进反引号，preprocess 不会进入 code span，这里兜底让它与裸文本
+ * 引用一样可以点击跳转到工作区面板的对应行。
  */
 function MarkdownCode({ className, children }: { className?: string; children?: ReactNode }) {
   const match = /language-([\w-]+)/.exec(className ?? "");
   if (match) {
     return <CodeBlock code={String(children ?? "").replace(/\n$/, "")} language={match[1]} />;
+  }
+  const ref = matchPathLineRef(plainText(children));
+  if (ref) {
+    return (
+      <button
+        type="button"
+        className="ref-link"
+        onClick={() => void useWorkspaceStore.getState().openFileAt(ref.path, ref.line || null)}
+      >
+        {children}
+      </button>
+    );
   }
   return <code className={cn("md-code", className)}>{children}</code>;
 }
@@ -266,15 +283,13 @@ function MarkdownLink({ href, children, ...rest }: any) {
     );
   }
   // 空目标（无 href、空字符串或纯 #）且文本是 path:line 形式时按内部引用兜底。
-  const text = plainText(children);
-  const refMatch =
-    (!href || href === "#") ? text.match(/^((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z0-9]{1,8}):(\d{1,5})$/) : null;
-  if (refMatch) {
+  const ref = !href || href === "#" ? matchPathLineRef(plainText(children)) : null;
+  if (ref) {
     return (
       <button
         type="button"
         className="ref-link"
-        onClick={() => void useWorkspaceStore.getState().openFileAt(refMatch[1], Number(refMatch[2]) || null)}
+        onClick={() => void useWorkspaceStore.getState().openFileAt(ref.path, ref.line || null)}
       >
         {children}
       </button>
@@ -317,7 +332,10 @@ const components: Components = {
  *
  * 实现方式：逐行扫描，遇到 ``` 切换围栏状态；围栏外的行用正则匹配
  * “带扩展名的路径:行号”，替换为 `[path:line](craftwork://path:line)`。
+ * 核心匹配规则与 markdownRef 同源，保证三种写法判定一致。
  */
+const bareRefPattern = new RegExp(`(^|[\\s(（「“])${pathLinePattern}(?=\\b)`, "g");
+
 function preprocess(text: string): string {
   const lines = text.split("\n");
   let inFence = false;
@@ -330,11 +348,9 @@ function preprocess(text: string): string {
       if (inFence) {
         return line;
       }
-      return line.replace(
-        /(^|[\s(（「“])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z0-9]{1,8}):(\d{1,5})(?=\b)/g,
-        (whole, prefix, path, lineNumber) =>
-          `${prefix}[${path}:${lineNumber}](craftwork://${path}:${lineNumber})`,
-      );
+      return line.replace(bareRefPattern, (whole, prefix, path, lineNumber) => {
+        return `${prefix}[${path}:${lineNumber}](craftwork://${path}:${lineNumber})`;
+      });
     })
     .join("\n");
 }

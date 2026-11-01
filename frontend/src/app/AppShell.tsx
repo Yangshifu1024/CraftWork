@@ -75,6 +75,11 @@ export function AppShell() {
   //   一次只处理最上层的那件事，避免一次按键关掉所有东西。
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
+      // 输入法组合期间（如按 Esc 取消拼音候选）派发的按键不是普通快捷键，
+      // 这里必须整体忽略，否则会误触发停止生成等副作用。
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
       const meta = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
       if (meta && key === "k") {
