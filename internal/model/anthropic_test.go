@@ -14,7 +14,10 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 	type requestBody struct {
 		Model     string `json:"model"`
 		MaxTokens int    `json:"max_tokens"`
-		System    string `json:"system"`
+		System    []struct {
+			Text         string         `json:"text"`
+			CacheControl map[string]any `json:"cache_control"`
+		} `json:"system"`
 		Messages  []struct {
 			Role    string `json:"role"`
 			Content []struct {
@@ -93,7 +96,7 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 
 	stream, err := client.Stream(context.Background(), Request{
 		Model:     "claude-sonnet-4",
-		System:    "你是助手",
+		System:    []SystemBlock{{Content: "你是助手"}, {Content: "行为规则", CacheControl: true}},
 		MaxTokens: 256,
 		Messages: []Message{
 			{Role: "user", Content: "列出文件", Attachments: []Attachment{
@@ -129,8 +132,18 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 	}
 
 	body := <-requests
-	if body.Model != "claude-sonnet-4" || body.MaxTokens != 256 || body.System != "你是助手" {
+	if body.Model != "claude-sonnet-4" || body.MaxTokens != 256 {
 		t.Fatalf("请求基础字段不符: %+v", body)
+	}
+	// system 应为数组：第一块不带缓存标记，第二块带 ephemeral。
+	if len(body.System) != 2 || body.System[0].Text != "你是助手" || body.System[1].Text != "行为规则" {
+		t.Fatalf("system 块不符: %+v", body.System)
+	}
+	if body.System[0].CacheControl != nil {
+		t.Fatalf("未标记的块不应携带 cache_control: %+v", body.System[0])
+	}
+	if body.System[1].CacheControl["type"] != "ephemeral" {
+		t.Fatalf("标记块应携带 ephemeral 缓存标记: %+v", body.System[1])
 	}
 	if len(body.Messages) != 3 {
 		t.Fatalf("消息数量不符: %d", len(body.Messages))
@@ -161,6 +174,79 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 	}
 	if len(body.Tools) != 1 || body.Tools[0].Name != "fs_list" {
 		t.Fatalf("工具定义不符: %+v", body.Tools)
+	}
+}
+
+// TestAnthropicSystemBlocksAndOmission 验证请求体转换的边界：空白块跳过、
+// 全空 system 不写入顶层字段、消息序列里的 system 消息作为不带标记的块汇入。
+func TestAnthropicSystemBlocksAndOmission(t *testing.T) {
+	type requestBody struct {
+		System []struct {
+			Text         string         `json:"text"`
+			CacheControl map[string]any `json:"cache_control"`
+		} `json:"system"`
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+
+	newBody := func(req Request) requestBody {
+		requests := make(chan requestBody, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body requestBody
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("解析请求失败: %v", err)
+			}
+			requests <- body
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, strings.Join([]string{
+				`event: message_start`,
+				`data: {"type":"message_start","message":{}}`,
+				``,
+				`event: message_stop`,
+				`data: {"type":"message_stop"}`,
+				``,
+			}, "\n"))
+		}))
+		defer server.Close()
+
+		provider := Provider{ID: "anthropic", Name: "Anthropic", Kind: "anthropic", Endpoint: server.URL}
+		client := NewAnthropic(provider, server.URL, "test-key")
+		stream, err := client.Stream(context.Background(), req)
+		if err != nil {
+			t.Fatalf("建立流失败: %v", err)
+		}
+		collectStream(t, stream)
+		return <-requests
+	}
+
+	// 空白块跳过；消息序列里的 system 消息作为不带缓存标记的块汇入数组末尾。
+	body := newBody(Request{
+		Model:  "claude-sonnet-4",
+		System: []SystemBlock{{Content: "你是助手。"}, {Content: " "}, {Content: "行为规则", CacheControl: true}},
+		Messages: []Message{
+			{Role: "system", Content: "补充说明"},
+			{Role: "user", Content: "列出文件"},
+		},
+	})
+	if len(body.System) != 3 {
+		t.Fatalf("system 块数量不符: %+v", body.System)
+	}
+	if body.System[0].Text != "你是助手。" || body.System[1].Text != "行为规则" || body.System[2].Text != "补充说明" {
+		t.Fatalf("system 块内容不符: %+v", body.System)
+	}
+	if body.System[2].CacheControl != nil {
+		t.Fatalf("消息汇入的 system 块不应携带 cache_control: %+v", body.System[2])
+	}
+
+	// 全空白的系统提示词不应产生顶层 system 字段。
+	empty := newBody(Request{
+		Model:    "claude-sonnet-4",
+		System:   []SystemBlock{{Content: "  "}},
+		Messages: []Message{{Role: "user", Content: "列出文件"}},
+	})
+	if len(empty.System) != 0 {
+		t.Fatalf("全空 system 不应写入请求体: %+v", empty.System)
 	}
 }
 

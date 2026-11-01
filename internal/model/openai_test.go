@@ -62,3 +62,48 @@ func TestOpenAIUserContentWithoutImageReturnsText(t *testing.T) {
 		t.Fatalf("纯文本附件应使用字符串内容: %+v", messages[0]["content"])
 	}
 }
+
+// TestOpenAISystemBlocksJoined 验证系统分块的拼接规则：空白块跳过，
+// 其余块用空行拼成第一条 system 消息；CacheControl 在该协议下没有输出。
+func TestOpenAISystemBlocksJoined(t *testing.T) {
+	client := NewOpenAICompat(Provider{ID: "openai", Name: "OpenAI", Kind: "openai"}, "http://example.com", "key")
+	body, err := client.requestBody(Request{
+		Model:  "gpt-4o",
+		System: []SystemBlock{{Content: "你是助手。"}, {Content: "  "}, {Content: "行为规则", CacheControl: true}},
+		Messages: []Message{{
+			Role:    "user",
+			Content: "列出文件",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]map[string]any)
+	if len(messages) != 2 {
+		t.Fatalf("消息数量不符: %+v", messages)
+	}
+	if messages[0]["role"] != "system" {
+		t.Fatalf("第一条应是 system 消息: %+v", messages[0])
+	}
+	text, _ := messages[0]["content"].(string)
+	if text != "你是助手。\n\n行为规则" {
+		t.Fatalf("system 拼接不符: %q", text)
+	}
+}
+
+// TestOpenAIEmptySystemOmitted 验证全空白的系统提示词不会产生 system 消息。
+func TestOpenAIEmptySystemOmitted(t *testing.T) {
+	client := NewOpenAICompat(Provider{ID: "openai", Name: "OpenAI", Kind: "openai"}, "http://example.com", "key")
+	body, err := client.requestBody(Request{
+		Model:    "gpt-4o",
+		System:   []SystemBlock{{Content: "  "}},
+		Messages: []Message{{Role: "user", Content: "列出文件"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]map[string]any)
+	if len(messages) != 1 || messages[0]["role"] != "user" {
+		t.Fatalf("不应产生 system 消息: %+v", messages)
+	}
+}

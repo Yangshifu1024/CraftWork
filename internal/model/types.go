@@ -112,11 +112,33 @@ type ToolSpec struct {
 	Schema      map[string]any `json:"schema"`
 }
 
+// SystemBlock 是系统提示词的一个分块。
+//
+// 系统提示词按「变化频率」分成多个块：几乎不变的稳定内容（身份与行为契约）
+// 在前，偶尔变化的动态内容（模式规则、环境信息）在后。变化频率越高的块越靠后，
+// 提供商的前缀缓存就能在动态块变化时继续命中前面的稳定块。
+type SystemBlock struct {
+	// Content 是块的正文；调用方负责保证内容干净（无多余首尾空白）。
+	Content string
+	// CacheControl 表示该块携带提示缓存标记。Anthropic 协议会写入
+	// cache_control: ephemeral；OpenAI 兼容协议依赖自动前缀缓存，忽略该字段。
+	CacheControl bool
+}
+
+// SingleSystem 把一段系统提示词包装成单块、不带缓存标记的形式，
+// 供摘要、标题等辅助请求使用。
+func SingleSystem(text string) []SystemBlock {
+	if text == "" {
+		return nil
+	}
+	return []SystemBlock{{Content: text}}
+}
+
 // Request 是一次模型调用。
 type Request struct {
 	Model     string
 	Mode      string
-	System    string
+	System    []SystemBlock
 	Messages  []Message
 	Tools     []ToolSpec
 	MaxTokens int

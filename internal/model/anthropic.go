@@ -61,11 +61,27 @@ func (c *Anthropic) Stream(ctx context.Context, req Request) (<-chan Chunk, erro
 
 // requestBody 把内部请求翻译成 Messages API 的 JSON 结构。
 //
-// system 不是普通消息角色，而是顶层字段，所以这里会把 system 消息
-// 合并进 req.System。工具结果必须以 user 身份、tool_result 内容块回填。
+// system 不是普通消息角色，而是顶层字段，所以这里会把 req.System 的分块与
+// 消息序列里的 system 消息都汇入顶层 system 数组：req.System 的块按原序排列，
+// 带 CacheControl 的块写入 cache_control: ephemeral，让提供商缓存该前缀。
+// 工具结果必须以 user 身份、tool_result 内容块回填。
 // 连续同角色的消息会被合并，满足 API 对 user / assistant 交替的要求。
 func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
-	system := strings.TrimSpace(req.System)
+	var system []map[string]any
+	// appendSystemBlock 追加一个系统块；全空白的块直接跳过，避免发送空内容。
+	appendSystemBlock := func(text string, cache bool) {
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		block := map[string]any{"type": "text", "text": text}
+		if cache {
+			block["cache_control"] = map[string]any{"type": "ephemeral"}
+		}
+		system = append(system, block)
+	}
+	for _, block := range req.System {
+		appendSystemBlock(block.Content, block.CacheControl)
+	}
 	messages := make([]map[string]any, 0, len(req.Messages)+1)
 
 	// appendMessage 追加一条消息；若上一条角色相同则把内容块拼在一起。
@@ -84,11 +100,8 @@ func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
 	for _, message := range req.Messages {
 		switch message.Role {
 		case "system":
-			// 多个 system 消息用空行拼接，最终写入顶层 system 字段。
-			if system != "" {
-				system += "\n\n"
-			}
-			system += message.Content
+			// 消息序列里的 system 消息作为不带缓存标记的块汇入顶层 system 数组。
+			appendSystemBlock(message.Content, false)
 		case "assistant":
 			var blocks []map[string]any
 			if message.Content != "" {
@@ -153,7 +166,7 @@ func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
 		"messages":   messages,
 		"stream":     true,
 	}
-	if system != "" {
+	if len(system) > 0 {
 		body["system"] = system
 	}
 	if len(req.Tools) > 0 {

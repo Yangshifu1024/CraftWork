@@ -172,7 +172,7 @@ func (r *Runner) summarizeHistory(ctx context.Context, thread store.Thread, mess
 
 	stream, err := client.Stream(streamCtx, model.Request{
 		Model:  info.ID,
-		System: summarySystemPrompt,
+		System: model.SingleSystem(summarySystemPrompt),
 		Messages: []model.Message{{
 			Role:    "user",
 			Content: "请压缩以下早期对话：\n\n" + buildTranscript(messages),

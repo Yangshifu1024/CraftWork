@@ -228,7 +228,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		return
 	}
 
-	system := systemPrompt(mode, r.tools.Workspace())
+	system := model.SingleSystem(systemPrompt(mode, r.tools.Workspace()))
 	specs := toModelSpecs(r.tools.SpecsForMode(mode))
 	// 压缩只在本轮开头做一次，避免每次迭代都去估算并重复摘要。
 	compressionChecked := false
@@ -393,7 +393,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 //
 // 只有在请求尚未建立时遇到可重试错误（429、5xx、超时、连接失败）才会切换
 // 到失败转移模型；一旦收到任何片段，后续错误不再转移，避免上下文混乱。
-func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, messageID, mode, system string,
+func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, messageID, mode string, system []model.SystemBlock,
 	history []model.Message, specs []model.ToolSpec) (*streamSession, error) {
 	candidates := []string{thread.ModelID}
 	if fallback := r.models.FallbackModel(thread.ModelID); fallback != "" && fallback != thread.ModelID {

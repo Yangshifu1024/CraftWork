@@ -57,13 +57,25 @@ func (c *OpenAICompat) Stream(ctx context.Context, req Request) (<-chan Chunk, e
 
 // requestBody 把内部请求翻译成 Chat Completions 的 JSON 结构。
 //
-// 系统提示词放在第一条 system 消息；assistant 的工具调用使用 tool_calls
-// 数组；工具结果使用独立的 tool 消息并通过 tool_call_id 关联。用户消息
-// 带附件时会改写成多段 content（文本 + 图片）。
+// 系统提示词的各个分块用空行拼成第一条 system 消息；该协议没有显式的
+// 缓存标记，提供商的自动前缀缓存依赖请求前缀字节稳定，因此拼接规则
+// 固定、不增减空白。CacheControl 字段在此协议下忽略。
+// assistant 的工具调用使用 tool_calls 数组；工具结果使用独立的 tool 消息
+// 并通过 tool_call_id 关联。用户消息带附件时会改写成多段 content（文本 + 图片）。
 func (c *OpenAICompat) requestBody(req Request) (map[string]any, error) {
 	messages := make([]map[string]any, 0, len(req.Messages)+1)
-	if req.System != "" {
-		messages = append(messages, map[string]any{"role": "system", "content": req.System})
+	var system strings.Builder
+	for _, block := range req.System {
+		if strings.TrimSpace(block.Content) == "" {
+			continue
+		}
+		if system.Len() > 0 {
+			system.WriteString("\n\n")
+		}
+		system.WriteString(block.Content)
+	}
+	if system.Len() > 0 {
+		messages = append(messages, map[string]any{"role": "system", "content": system.String()})
 	}
 	for _, message := range req.Messages {
 		switch message.Role {

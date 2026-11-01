@@ -117,7 +117,7 @@ func (r *Runner) generateTitle(ctx context.Context, modelRef, userText string) (
 	}
 	stream, err := client.Stream(ctx, model.Request{
 		Model:     info.ID,
-		System:    titleSystemPrompt,
+		System:    model.SingleSystem(titleSystemPrompt),
 		Messages:  []model.Message{{Role: "user", Content: titleTranscript(userText)}},
 		MaxTokens: titleMaxTokens,
 	})
