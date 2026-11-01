@@ -2,7 +2,7 @@
 //
 // 用途：不启动 Wails3 时用 `npm run dev` 直接预览界面，便于视觉走查与
 // 后续 Playwright 回归。它不读写磁盘，所有数据都在内存中。
-import type { Api } from "./api-types";
+import type { Api } from "./desktop";
 import { dispatch, envelope } from "./bus";
 import type {
   AuditEntry,
@@ -341,6 +341,8 @@ function snapshot(threadID: string): ThreadSnapshot {
         risk: part.data.risk as string,
         decision: "",
         scope: "",
+        requestedAt: 0,
+        decidedAt: 0,
       })),
   );
   return {
@@ -355,6 +357,8 @@ function snapshot(threadID: string): ThreadSnapshot {
     })),
     lastSeq: list.reduce((total, message) => total + message.parts.length, 0),
     approvals,
+    hasMore: false,
+    oldestSeq: 0,
   };
 }
 
@@ -555,7 +559,6 @@ export const mockApi: Api = {
       await navigator.clipboard?.writeText(text);
       return true;
     },
-    readClipboard: async () => navigator.clipboard?.readText() ?? "",
   },
   settings: {
     get: async () => ({ ...settings }),
@@ -612,7 +615,6 @@ export const mockApi: Api = {
       threads.work = threads.work.filter((thread) => thread.id !== threadID);
       delete messages[threadID];
     },
-    snapshot: async (threadID) => snapshot(threadID),
     snapshotPage: async (threadID, limit, beforeSeq) => {
       const full = snapshot(threadID);
       let messages = full.messages ?? [];
@@ -629,7 +631,7 @@ export const mockApi: Api = {
     },
   },
   chat: {
-    send: async (threadID, text, attachments = []) => {
+    send: async (threadID, text, attachments: string[] = []) => {
       const thread = findThread(threadID);
       if (!thread) {
         throw new Error("线程不存在");
@@ -696,12 +698,6 @@ export const mockApi: Api = {
       const workspace = workspaces.find((item) => item.id === workspaceID);
       if (workspace) {
         workspace.trust = trust;
-      }
-    },
-    remove: async (workspaceID) => {
-      const index = workspaces.findIndex((item) => item.id === workspaceID);
-      if (index >= 0) {
-        workspaces.splice(index, 1);
       }
     },
     listDir: async (_workspaceID, path) => (tree[path || "."] ?? []).map((node) => ({ ...node })),

@@ -56,7 +56,7 @@ function normalizeMessages(threadID: string, snapshot: ThreadSnapshot): ChatMess
   return (snapshot.messages ?? []).map((message) => ({
     id: message.id,
     threadId: threadID,
-    role: message.role,
+    role: message.role as ChatMessage["role"],
     status: (message.status as ChatMessage["status"]) ?? "complete",
     createdAt: message.createdAt,
     parts: (message.parts ?? []).map((part) => ({

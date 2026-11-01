@@ -119,7 +119,7 @@ docs/                    需求、界面、技术方案、原型
 1. 在 `internal/service/` 新建具体类型与构造函数。
 2. 在 `internal/app/app.go` 的 `application.Options.Services` 注册。
 3. `wails3 generate bindings`。
-4. 在 `frontend/src/lib/api-types.ts`、`desktop.ts`、`mock.ts` 同步实现。
+4. 在 `frontend/src/lib/desktop.ts` 与 `mock.ts` 实现；`Api` 类型从 `desktopApi` 推导，不再手写接口文件。
 5. 补 Go 单测与前端类型。
 
 ### 新增一个工具
@@ -196,7 +196,7 @@ docs/                    需求、界面、技术方案、原型
 - macOS 图标使用 `icons.icns`；不要重新引入 `Assets.car` 或 `CFBundleIconName`，否则会覆盖新图标。
 - `wails3 build` 需要 `frontend/dist`；正常流程会自动构建前端。
 - Vite HMR 与 Zustand 同时存在时，模式切换可能出现旧 store 实例；验证时整页重载。
-- 浏览器预览与桌面端的桥接通过 `isDesktop` 判断；新增 API 时三个实现（`desktop.ts`、`mock.ts`、`api-types.ts`）都要改。
+- 浏览器预览与桌面端的桥接通过 `isDesktop` 判断；新增 API 时两个实现（`desktop.ts`、`mock.ts`）都要改；端口类型由 `desktopApi` 推导。
 - `frontend/bindings` 不要手改；重新生成即可。
 
 ## 8. 验证清单

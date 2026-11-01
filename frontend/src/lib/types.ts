@@ -20,6 +20,7 @@ import type {
   Backup,
   DailyUsage,
   ModelUsage,
+  Snapshot,
   UsageSummary as ApiUsageSummary,
   UsageTotals,
 } from "../../bindings/craftwork/internal/store";
@@ -214,41 +215,8 @@ export interface AttachmentInfo {
   size?: number;
 }
 
-export interface ThreadSnapshot {
-  thread: {
-    id: string;
-    mode: Mode;
-    title: string;
-    modelId: string;
-    workspaceId: string;
-    status: string;
-    archived: boolean;
-    tokens: number;
-    createdAt: number;
-    updatedAt: number;
-  };
-  messages: Array<{
-    id: string;
-    threadId: string;
-    role: MessageRole;
-    status: string;
-    createdAt: number;
-    parts: Array<{ id: string; kind: string; seq: number; data: any }> | null;
-  }> | null;
-  lastSeq: number;
-  hasMore?: boolean;
-  oldestSeq?: number;
-  approvals: Array<{
-    id: string;
-    threadId: string;
-    runId: string;
-    toolCallId: string;
-    tool: string;
-    risk: string;
-    decision: string;
-    scope: string;
-  }> | null;
-}
+/** 线程快照直接使用 Go 生成的类型，避免前端手写镜像。 */
+export type ThreadSnapshot = Snapshot;
 
 export const EVENT = {
   runStarted: "run.started",

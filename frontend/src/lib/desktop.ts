@@ -8,7 +8,6 @@ import * as SettingsService from "../../bindings/craftwork/internal/service/sett
 import * as TerminalService from "../../bindings/craftwork/internal/service/terminalservice";
 import * as ThreadService from "../../bindings/craftwork/internal/service/threadservice";
 import * as WorkspaceService from "../../bindings/craftwork/internal/service/workspaceservice";
-import type { Api } from "./api-types";
 import type { DiffResult, ProviderView, ThreadSnapshot, UsageSummary } from "./types";
 
 const emptyTotals = { inputTokens: 0, outputTokens: 0, cacheTokens: 0, costMicros: 0, runs: 0 };
@@ -22,13 +21,12 @@ const emptyUsage: UsageSummary = {
 };
 
 /** 桌面实现：所有调用都通过 Wails3 生成的绑定进入 Go。 */
-export const desktopApi: Api = {
+export const desktopApi = {
   app: {
     info: () => AppService.Info(),
     openExternal: (url) => AppService.OpenExternal(url),
     pickFiles: async () => (await AppService.PickFiles()) ?? [],
     writeClipboard: async (text) => AppService.WriteClipboard(text),
-    readClipboard: async () => AppService.ReadClipboard(),
   },
   settings: {
     get: () => SettingsService.Get(),
@@ -43,13 +41,12 @@ export const desktopApi: Api = {
     setModel: (threadID, modelID) => ThreadService.SetModel(threadID, modelID),
     archive: (threadID, archived) => ThreadService.Archive(threadID, archived),
     remove: (threadID) => ThreadService.Delete(threadID),
-    snapshot: async (threadID) =>
-      (await ThreadService.Snapshot(threadID)) as unknown as ThreadSnapshot,
     snapshotPage: async (threadID, limit, beforeSeq) =>
-      (await ThreadService.SnapshotPage(threadID, limit, beforeSeq)) as unknown as ThreadSnapshot,
+      // 已有线程的分页快照在后端保证非空；这里把 Wails 的可空返回收敛掉。
+      (await ThreadService.SnapshotPage(threadID, limit, beforeSeq)) as ThreadSnapshot,
   },
   chat: {
-    send: (threadID, text, attachments = []) => ChatService.Send(threadID, text, attachments),
+    send: (threadID, text, attachments: string[] = []) => ChatService.Send(threadID, text, attachments),
     regenerate: (threadID) => ChatService.Regenerate(threadID),
     cancel: (threadID) => ChatService.Cancel(threadID),
     decideApproval: (approvalID, allow, scope) =>
@@ -62,7 +59,6 @@ export const desktopApi: Api = {
     setActive: (workspaceID) => WorkspaceService.SetActive(workspaceID),
     active: () => WorkspaceService.Active(),
     setTrust: (workspaceID, trust) => WorkspaceService.SetTrust(workspaceID, trust),
-    remove: (workspaceID) => WorkspaceService.Remove(workspaceID),
     listDir: async (workspaceID, path) =>
       (await WorkspaceService.ListDir(workspaceID, path)) ?? [],
     readFile: (workspaceID, path) => WorkspaceService.ReadFile(workspaceID, path),
@@ -136,4 +132,16 @@ export const desktopApi: Api = {
     resize: (sessionID, cols, rows) => TerminalService.Resize(sessionID, cols, rows),
     close: (sessionID) => TerminalService.Close(sessionID),
   },
+};
+
+/** 把 Wails 的 CancellablePromise 归一成普通 Promise。 */
+type PortMethod<T> = T extends (...args: infer A) => infer R
+  ? (...args: A) => Promise<Awaited<R>>
+  : never;
+
+/** 前端使用的后端端口：由桌面适配器推导，不再手写第二份签名。 */
+export type Api = {
+  [N in keyof typeof desktopApi]: {
+    [M in keyof (typeof desktopApi)[N]]: PortMethod<(typeof desktopApi)[N][M]>;
+  };
 };
