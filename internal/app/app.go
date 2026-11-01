@@ -81,6 +81,12 @@ func Run(frontend embed.FS, build version.Info) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("创建数据目录 %s: %w", dataDir, err)
 	}
+	// 粘贴附件统一放在数据目录，避免写进用户工作区；Agent 读取附件时也会
+	// 接受该目录，因此这里先建好，保证路径解析时目录真实存在。
+	attachmentDir := service.AttachmentDir(dataDir)
+	if err := os.MkdirAll(attachmentDir, 0o700); err != nil {
+		return fmt.Errorf("创建附件目录 %s: %w", attachmentDir, err)
+	}
 
 	db, err := store.Open(filepath.Join(dataDir, "craftwork.db"))
 	if err != nil {
@@ -132,7 +138,7 @@ func Run(frontend embed.FS, build version.Info) error {
 	})
 	recorder := record.New(db, bus)
 	approvals := agent.NewApprovals(db, recorder)
-	runner := agent.NewRunner(db, recorder, registry, engine, approvals, modelFactory)
+	runner := agent.NewRunner(db, recorder, registry, engine, approvals, modelFactory, attachmentDir)
 
 	appService := service.NewAppService(dataDir, build)
 	threadService := service.NewThreadService(db, recorder)

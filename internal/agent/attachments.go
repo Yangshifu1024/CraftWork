@@ -1,6 +1,10 @@
 // 本文件负责读取用户选中的附件并转换成发送给模型的附件结构：校验路径必须
-// 位于工作区内，拒绝密钥与环境文件，限制单个与总大小，按模型能力决定是否
-// 发送图片，无法发送的附件以说明文字代替。
+// 位于工作区或应用附件目录内，拒绝密钥与环境文件，限制单个与总大小，按模型
+// 能力决定是否发送图片，无法发送的附件以说明文字代替。
+//
+// 附件有两个来源：系统文件选择框返回的工作区路径，以及输入区粘贴后由
+// AppService 写入数据目录 attachments/ 的文件。后者不在工作区内，读取时
+// 只接受绝对路径并经过同样的越界与符号链接检查。
 
 package agent
 
@@ -47,13 +51,14 @@ var imageAttachmentMIME = map[string]string{
 	".gif": "image/gif", ".webp": "image/webp",
 }
 
-// loadAttachments 读取用户选中的附件。路径必须位于当前工作区内；密钥、
-// 环境文件与不支持的二进制类型不会发送给模型，而是以说明文本代替。
+// loadAttachments 读取用户选中的附件。路径必须位于当前工作区或应用附件
+// 目录内；密钥、环境文件与不支持的二进制类型不会发送给模型，而是以说明
+// 文本代替。
 //
 // 处理顺序：数量截断 -> 敏感文件名拦截 -> 路径解析 -> 文件信息检查 ->
 // 图片或文本分支。被跳过的附件仍保留在结果里，并带上 Skipped 说明，让界面
 // 能告诉用户为什么没发送。只有真正读取的附件才计入总大小。
-func loadAttachments(workspace string, paths []string, caps model.Capabilities) []model.Attachment {
+func loadAttachments(workspace, attachmentDir string, paths []string, caps model.Capabilities) []model.Attachment {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -68,14 +73,14 @@ func loadAttachments(workspace string, paths []string, caps model.Capabilities) 
 		name := filepath.Base(rawPath)
 		attachment := model.Attachment{Name: name}
 		// 先按文件名拦截敏感文件，这类文件既不会读取内容，也不会被解析路径。
-		if blockedAttachment(name) {
+		if policy.IsSensitiveAttachment(name) {
 			attachment.Skipped = "密钥或环境文件不会发送给模型"
 			result = append(result, attachment)
 			continue
 		}
 
 		// 路径解析包含工作区越界与符号链接逃逸检查。
-		resolved, err := policy.Resolve(workspace, rawPath)
+		resolved, err := resolveAttachmentPath(workspace, attachmentDir, rawPath)
 		if err != nil {
 			attachment.Skipped = "附件不在当前工作区"
 			result = append(result, attachment)
@@ -148,22 +153,18 @@ func loadAttachments(workspace string, paths []string, caps model.Capabilities) 
 	return result
 }
 
-// blockedAttachment 判断文件名是否属于不应发送给模型的敏感文件。
+// resolveAttachmentPath 把附件路径解析成经过符号链接检查的真实路径。
 //
-// 覆盖环境变量文件（.env 及其变体）、SSH 私钥，以及常见证书与私钥扩展名。
-// 文件名比较统一转小写，避免大小写绕过。
-func blockedAttachment(name string) bool {
-	lower := strings.ToLower(name)
-	if lower == ".env" || strings.HasPrefix(lower, ".env.") ||
-		lower == "id_rsa" || lower == "id_ed25519" {
-		return true
-	}
-	for _, suffix := range []string{".pem", ".key", ".p12", ".pfx", ".jks"} {
-		if strings.HasSuffix(lower, suffix) {
-			return true
+// 允许两种来源：工作区内的文件，以及应用附件目录中的粘贴文件。附件目录
+// 只接受绝对路径，避免把工作区的相对路径误判成附件目录里的同名文件。两个
+// 分支都经过 policy.Resolve，因此同样会拒绝越界与符号链接逃逸。
+func resolveAttachmentPath(workspace, attachmentDir, rawPath string) (string, error) {
+	if attachmentDir != "" && filepath.IsAbs(rawPath) {
+		if resolved, err := policy.Resolve(attachmentDir, rawPath); err == nil {
+			return resolved, nil
 		}
 	}
-	return false
+	return policy.Resolve(workspace, rawPath)
 }
 
 // userAttachmentPaths 从用户消息部件中收集附件路径。

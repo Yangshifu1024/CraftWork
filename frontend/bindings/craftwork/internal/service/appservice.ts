@@ -60,6 +60,20 @@ export function ReadClipboard(): $CancellablePromise<string> {
 }
 
 /**
+ * SavePastedAttachment 把剪贴板里的文件内容写入附件目录，返回绝对路径。
+ * 
+ * WebView 无法把剪贴板中的文件暴露成本地路径，只能把字节传给 Go，因此前端
+ * 先转成 base64 再调用这里。返回的路径随后作为 ChatService.Send 的附件参数。
+ * 
+ * 校验顺序：base64 解码 -> 大小上限 -> 敏感文件名 -> 目录创建 -> 唯一路径
+ * 写入。文件名只取最后一段并清洗，最终路径固定在附件目录内，调用方无法借
+ * 文件名跳出目录。
+ */
+export function SavePastedAttachment(name: string, content: string): $CancellablePromise<string> {
+    return $Call.ByID(96209703, name, content);
+}
+
+/**
  * ToggleMaximiseWindow 在最大化与还原之间切换主窗口。
  */
 export function ToggleMaximiseWindow(): $CancellablePromise<void> {

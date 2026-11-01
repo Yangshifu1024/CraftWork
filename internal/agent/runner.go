@@ -68,6 +68,9 @@ type Runner struct {
 	approvals *Approvals
 	// models 按模型标识创建模型客户端。
 	models ModelFactory
+	// attachmentDir 是粘贴附件的落盘目录。该目录由应用管理，读取时不受
+	// 工作区边界限制；系统文件选择框仍然只能选工作区内的文件。
+	attachmentDir string
 	// maxIterations 是一次运行的模型往返上限，创建时取 defaultMaxIterations。
 	maxIterations int
 
@@ -85,7 +88,7 @@ type Runner struct {
 //
 // 参数都是已经装配好的依赖，构造函数只保存引用，不产生新的连接或副作用。
 func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
-	engine *policy.Engine, approvals *Approvals, models ModelFactory) *Runner {
+	engine *policy.Engine, approvals *Approvals, models ModelFactory, attachmentDir string) *Runner {
 	return &Runner{
 		db:            db,
 		records:       records,
@@ -93,6 +96,7 @@ func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 		policy:        engine,
 		approvals:     approvals,
 		models:        models,
+		attachmentDir: attachmentDir,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
 		titlePending:  map[string]bool{},
@@ -742,7 +746,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 			messages = append(messages, model.Message{
 				Role:        "user",
 				Content:     text,
-				Attachments: loadAttachments(workspace, paths, modelInfo.Caps),
+				Attachments: loadAttachments(workspace, r.attachmentDir, paths, modelInfo.Caps),
 			})
 		case "assistant":
 			current := model.Message{Role: "assistant"}

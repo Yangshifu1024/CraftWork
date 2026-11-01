@@ -8,16 +8,38 @@
 package service
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"craftwork/internal/id"
+	"craftwork/internal/policy"
 	"craftwork/internal/version"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// attachmentDirName 是数据目录下保存粘贴附件的子目录名。
+const attachmentDirName = "attachments"
+
+// maxPastedAttachmentBytes 是单个粘贴附件的最大字节数。
+// 与 Agent 侧一条消息的附件总上限一致，超过后直接拒绝，避免无意义落盘。
+const maxPastedAttachmentBytes = 12 << 20 // 12MB
+
+// AttachmentDir 返回保存粘贴附件的绝对目录。
+//
+// 附件目录与工作区分离，避免把用户复制的内容写进项目；Agent 读取附件时
+// 会同时接受这个目录。装配 Runner 与 AppService 时必须使用同一个路径。
+func AttachmentDir(dataDir string) string {
+	return filepath.Join(dataDir, attachmentDirName)
+}
 
 // AppInfo 是前端启动时读取的构建与运行环境信息。
 type AppInfo struct {
@@ -41,13 +63,15 @@ type AppInfo struct {
 type AppService struct {
 	// dataDir 是数据目录路径。
 	dataDir string
+	// attachmentDir 是粘贴附件的落盘目录。
+	attachmentDir string
 	// build 是编译期注入的版本信息。
 	build version.Info
 }
 
 // NewAppService 创建应用服务。
 func NewAppService(dataDir string, build version.Info) *AppService {
-	return &AppService{dataDir: dataDir, build: build}
+	return &AppService{dataDir: dataDir, attachmentDir: AttachmentDir(dataDir), build: build}
 }
 
 // Info 返回构建与运行环境信息。
@@ -128,6 +152,95 @@ func (s *AppService) PickFiles() ([]string, error) {
 		CanChooseFiles(true).
 		CanChooseDirectories(false).
 		PromptForMultipleSelection()
+}
+
+// SavePastedAttachment 把剪贴板里的文件内容写入附件目录，返回绝对路径。
+//
+// WebView 无法把剪贴板中的文件暴露成本地路径，只能把字节传给 Go，因此前端
+// 先转成 base64 再调用这里。返回的路径随后作为 ChatService.Send 的附件参数。
+//
+// 校验顺序：base64 解码 -> 大小上限 -> 敏感文件名 -> 目录创建 -> 唯一路径
+// 写入。文件名只取最后一段并清洗，最终路径固定在附件目录内，调用方无法借
+// 文件名跳出目录。
+func (s *AppService) SavePastedAttachment(name, content string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(content))
+	if err != nil {
+		return "", errors.New("附件内容不是有效的 base64 编码")
+	}
+	if len(data) == 0 {
+		return "", errors.New("附件内容为空")
+	}
+	if len(data) > maxPastedAttachmentBytes {
+		return "", fmt.Errorf("附件超过 %dMB", maxPastedAttachmentBytes>>20)
+	}
+	// 敏感文件名要在清洗前判断：清洗会去掉开头的点，.env 之类的名字会失去
+	// 原本的语义，必须在原始名字上拦截。
+	baseName := filepath.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	if policy.IsSensitiveAttachment(baseName) {
+		return "", errors.New("密钥或环境文件不会作为附件发送")
+	}
+	if err := os.MkdirAll(s.attachmentDir, 0o700); err != nil {
+		return "", fmt.Errorf("创建附件目录: %w", err)
+	}
+	// 随机前缀既避免同名覆盖，也避免用用户提供的名字直接拼出路径。
+	path := filepath.Join(s.attachmentDir, id.New("att")+"_"+sanitizeAttachmentName(name))
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("写入附件: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("写入附件: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("写入附件: %w", err)
+	}
+	return path, nil
+}
+
+// sanitizeAttachmentName 把用户提供的文件名清洗成可安全落盘的片段。
+//
+// 只保留字母、数字、点、下划线、连字符与空格，其余字符（路径分隔符、控制
+// 字符、引号等）替换为下划线；去掉开头的点避免生成隐藏文件；空名字回退为
+// pasted-file；过长时按字符截断主体并整体保留扩展名。
+func sanitizeAttachmentName(name string) string {
+	// 先按两种路径分隔符取最后一段：粘贴过来的名字可能带 Windows 风格路径。
+	name = filepath.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	var cleaned strings.Builder
+	for _, r := range name {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			cleaned.WriteRune(r)
+		case r == '.' || r == '_' || r == '-' || r == ' ':
+			cleaned.WriteRune(r)
+		default:
+			cleaned.WriteRune('_')
+		}
+	}
+	result := strings.TrimLeft(strings.TrimSpace(cleaned.String()), ".")
+	if result == "" {
+		result = "pasted-file"
+	}
+	// 按字符截断，避免切断中文等多字节字符。
+	const maxNameRunes = 96
+	if utf8.RuneCountInString(result) > maxNameRunes {
+		extension := filepath.Ext(result)
+		if utf8.RuneCountInString(extension) > 16 {
+			extension = ""
+		}
+		body := []rune(strings.TrimSuffix(result, extension))
+		limit := maxNameRunes - utf8.RuneCountInString(extension)
+		if limit < 1 {
+			limit = 1
+		}
+		if len(body) > limit {
+			body = body[:limit]
+		}
+		result = string(body) + extension
+	}
+	return result
 }
 
 // WriteClipboard 写入系统剪贴板，返回是否成功。

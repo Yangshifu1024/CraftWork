@@ -709,6 +709,9 @@ export const mockApi: Api = {
     },
     /** 模拟系统文件选择器，固定返回一个演示文件。 */
     pickFiles: async () => ["internal/auth/session.go"],
+    /** 模拟粘贴附件落盘：返回附件目录中的假路径，纯 UI 预览不会真正读取。 */
+    savePastedAttachment: async (name) =>
+      `~/.craftwork/attachments/${name || "pasted-file"}`,
     /** 写入剪贴板；浏览器不支持时静默忽略，仍返回 true 表示调用已完成。 */
     writeClipboard: async (text) => {
       await navigator.clipboard?.writeText(text);

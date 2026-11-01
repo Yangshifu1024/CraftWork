@@ -10,10 +10,18 @@
  * 说明：这里只负责输入与选择，真正的发送、取消由 runtime 转给线程 store。
  */
 import { useMemo, useState } from "react";
+import type { ClipboardEvent } from "react";
 import { ComposerPrimitive } from "@assistant-ui/react";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { api } from "../../lib/api";
+import {
+  MAX_PASTED_ATTACHMENT_BYTES,
+  collectPastedFiles,
+  isSupportedImage,
+  pastedFileName,
+  readFileAsBase64,
+} from "../../lib/paste";
 import type { ApprovalLevel, ModelView } from "../../lib/types";
 import { cn, formatTokens } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
@@ -127,13 +135,66 @@ export function Composer() {
     }
   }
 
+  /**
+   * 处理输入区的粘贴：剪贴板里有文件时转成附件，纯文本粘贴保持原样。
+   *
+   * WebView 不提供剪贴板文件的本地路径，所以先读成 base64 交给 Go 写入
+   * 附件目录，再复用现有的待发送附件列表。图片需要当前模型支持视觉，
+   * 否则直接跳过并提示，避免添加后才发现无法发送。
+   */
+  async function handlePaste(event: ClipboardEvent<HTMLDivElement>) {
+    const files = collectPastedFiles(event.clipboardData);
+    if (files.length === 0) {
+      return;
+    }
+    // 阻止默认行为，避免图片或文件名被插进输入框。
+    event.preventDefault();
+
+    const accepted = files.filter((file) => {
+      if (!isSupportedImage(file) || supportsVision) {
+        return true;
+      }
+      toast({
+        title: "当前模型不支持图片输入",
+        description: "图片未加入附件，切换到支持视觉的模型后再试。",
+        tone: "warn",
+      });
+      return false;
+    });
+    if (accepted.length === 0) {
+      return;
+    }
+
+    const paths: string[] = [];
+    for (const file of accepted) {
+      if (file.size > MAX_PASTED_ATTACHMENT_BYTES) {
+        toast({
+          title: "附件过大",
+          description: `${pastedFileName(file)} 超过 12MB，未加入附件。`,
+          tone: "danger",
+        });
+        continue;
+      }
+      try {
+        const content = await readFileAsBase64(file);
+        const path = await api.app.savePastedAttachment(pastedFileName(file), content);
+        paths.push(path);
+      } catch (error) {
+        toast({ title: "粘贴附件失败", description: String(error), tone: "danger" });
+      }
+    }
+    if (paths.length > 0) {
+      addAttachments(paths);
+    }
+  }
+
   /** 关闭当前浮层并清空锚点。 */
   function closePopover() {
     setPopover({ kind: null, anchor: null });
   }
 
   return (
-    <div className="composer-wrap">
+    <div className="composer-wrap" onPaste={handlePaste}>
       <ComposerPrimitive.Root className="composer">
         {/* 待发送附件条：点击叉号只从列表移除，不会删除磁盘文件。 */}
         {attachments.length > 0 ? (

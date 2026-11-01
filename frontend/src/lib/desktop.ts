@@ -38,12 +38,15 @@ const emptyUsage: UsageSummary = {
  * 的返回值收敛成前端可直接消费的值，避免调用方到处判空。
  */
 export const desktopApi = {
-  /** 应用级：版本信息、打开外链、选择文件、写系统剪贴板。 */
+  /** 应用级：版本信息、打开外链、选择文件、粘贴附件、写系统剪贴板。 */
   app: {
     info: () => AppService.Info(),
     openExternal: (url) => AppService.OpenExternal(url),
     // 用户取消选择时后端返回空值，这里统一成空数组。
     pickFiles: async () => (await AppService.PickFiles()) ?? [],
+    // 粘贴附件：内容以 base64 交给 Go 落盘，返回附件目录中的绝对路径。
+    savePastedAttachment: (name: string, content: string) =>
+      AppService.SavePastedAttachment(name, content),
     writeClipboard: async (text) => AppService.WriteClipboard(text),
   },
   /** 设置读写。 */

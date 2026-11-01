@@ -48,7 +48,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 
 ### 数据目录
 
-- 默认 `~/.craftwork`：`craftwork.db`、`keys.json`、`backups/`。
+- 默认 `~/.craftwork`：`craftwork.db`、`keys.json`、`backups/`、`attachments/`（粘贴附件）。
 - `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录。
 
 ### server 模式（用浏览器运行完整应用）
