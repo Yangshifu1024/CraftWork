@@ -1,7 +1,7 @@
 /**
  * 命令面板（⌘K）。
  *
- * 负责：集中提供常用命令、线程跳转与文件打开三类入口，
+ * 负责：集中提供常用命令、会话跳转与文件打开三类入口，
  * 支持按关键字过滤、上下键选择、回车执行，并可通过遮罩或 Esc 关闭。
  *
  * 面板通过 Portal 挂到 body 上，避免被父级布局的溢出裁剪。
@@ -19,7 +19,7 @@ import { useWorkspaceStore } from "../../stores/workspace";
 /** 命令面板里的一行结果：分组、标题、副标题、图标与点击后执行的动作。 */
 interface PaletteItem {
   id: string;
-  group: "命令" | "线程" | "文件";
+  group: "命令" | "会话" | "文件";
   title: string;
   sub?: string;
   icon: IconName;
@@ -34,7 +34,7 @@ interface PaletteItem {
  * - index：当前选中的结果下标，上下键与鼠标悬停都会更新。
  *
  * 结果由 useMemo 计算：命令始终参与；
- * 线程与文件只在有关键字时按标题 / 路径过滤，各取前 8 条。
+ * 会话与文件只在有关键字时按标题 / 路径过滤，各取前 8 条。
  */
 export function CommandPalette() {
   const open = useUiStore((state) => state.paletteOpen);
@@ -51,6 +51,9 @@ export function CommandPalette() {
   const createThread = useThreadStore((state) => state.create);
   const togglePanel = usePanelStore((state) => state.toggle);
   const toggleMaximized = usePanelStore((state) => state.toggleMaximized);
+  // 面板当前状态：命令标题据此显示动作方向，而不是固定文案。
+  const panelOpen = usePanelStore((state) => state.open);
+  const panelMaximized = usePanelStore((state) => state.maximized);
   const tree = useWorkspaceStore((state) => state.tree);
   const openFile = useWorkspaceStore((state) => state.openFile);
 
@@ -68,20 +71,33 @@ export function CommandPalette() {
   }, [open]);
 
   // 计算当前可用的结果列表。
-  // 命令是固定项，线程与文件需要有关键字才出现，避免空查询时刷屏。
+  // 命令是固定项，会话与文件需要有关键字才出现，避免空查询时刷屏。
   const items = useMemo<PaletteItem[]>(() => {
     const commands: PaletteItem[] = [
-      { id: "new-thread", group: "命令", title: "新建线程", sub: "⌘N", icon: "plus", run: () => void createThread() },
+      { id: "new-thread", group: "命令", title: "新建会话", sub: "⌘N", icon: "plus", run: () => void createThread() },
       { id: "settings", group: "命令", title: "打开设置", sub: "⌘,", icon: "settings", run: () => openSettings() },
       {
         id: "toggle-theme",
         group: "命令",
         title: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
         icon: "sun",
-        run: () => void setTheme(theme === "dark" ? "light" : "dark"),
+        // 跟随系统时 settings.theme 是 system，按根元素上解析后的实际值取反。
+        run: () => void setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"),
       },
-      { id: "toggle-panel", group: "命令", title: "收起 / 展开右侧面板", icon: "panel", run: togglePanel },
-      { id: "maximize-panel", group: "命令", title: "全屏 / 还原右侧面板", icon: "maximize", run: toggleMaximized },
+      {
+        id: "toggle-panel",
+        group: "命令",
+        title: panelOpen ? "收起右侧面板" : "展开右侧面板",
+        icon: panelOpen ? "panel-close" : "panel-open",
+        run: togglePanel,
+      },
+      {
+        id: "maximize-panel",
+        group: "命令",
+        title: panelMaximized ? "还原右侧面板" : "全屏右侧面板",
+        icon: panelMaximized ? "minimize" : "maximize",
+        run: toggleMaximized,
+      },
       { id: "usage", group: "命令", title: "打开用量统计", icon: "zap", run: () => openData("usage") },
       { id: "audit", group: "命令", title: "打开审计记录", icon: "shield-check", run: () => openData("audit") },
       { id: "backup", group: "命令", title: "打开备份列表", icon: "archive", run: () => openData("backup") },
@@ -102,12 +118,12 @@ export function CommandPalette() {
     ];
 
     const threadItems: PaletteItem[] = (threads ?? [])
-      // 线程按标题匹配关键字，最多显示 8 条，避免列表过长。
+      // 会话按标题匹配关键字，最多显示 8 条，避免列表过长。
       .filter((thread) => !query || thread.title.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 8)
       .map((thread) => ({
         id: `thread-${thread.id}`,
-        group: "线程",
+        group: "会话",
         title: thread.title,
         sub: thread.modelName || thread.modelId,
         icon: "message",
@@ -139,7 +155,7 @@ export function CommandPalette() {
         (item.sub ?? "").toLowerCase().includes(keyword)
       );
     });
-  }, [theme, threads, query, tree, createThread, openSettings, setTheme, togglePanel, toggleMaximized, openData, setMode, selectThread, openFile]);
+  }, [theme, threads, query, tree, createThread, openSettings, setTheme, togglePanel, toggleMaximized, panelOpen, panelMaximized, openData, setMode, selectThread, openFile]);
 
   useEffect(() => {
     // 关键字变化后选中项回到第一行，避免索引越界或指向不相关的结果。
@@ -174,7 +190,7 @@ export function CommandPalette() {
             ref={inputRef}
             className="cp-input"
             value={query}
-            placeholder="搜索命令、线程或文件…"
+            placeholder="搜索命令、会话或文件…"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               // 键盘操作：上下循环选择、回车执行、Esc 关闭。
@@ -235,7 +251,7 @@ export function CommandPalette() {
           <span>↵ 执行</span>
           <span>Esc 关闭</span>
           <span className="spacer" />
-          <span>命令 / 线程 / 文件</span>
+          <span>命令 / 会话 / 文件</span>
         </div>
       </div>
     </div>,

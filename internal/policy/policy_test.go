@@ -102,6 +102,23 @@ func TestActionByLevel(t *testing.T) {
 	if restricted.AllowsPermanent(R1) {
 		t.Fatal("受限工作区不应提供永久授权")
 	}
+
+	// 自由档位放行一切，包括 R4 与受限工作区的 R3；
+	// 审批卡不会出现，因此也不需要永久授权。
+	free := New(LevelFree, "/tmp")
+	for _, risk := range []Risk{R0, R1, R2, R3, R4} {
+		if free.Action(risk) != ActionAllow {
+			t.Fatalf("自由档位应放行 %s", risk)
+		}
+	}
+	freeRestricted := New(LevelFree, "/tmp")
+	freeRestricted.SetRestricted(true)
+	if freeRestricted.Action(R3) != ActionAllow || freeRestricted.Action(R4) != ActionAllow {
+		t.Fatal("自由档位在受限工作区也应放行（用户已显式确认）")
+	}
+	if free.AllowsPermanent(R1) || free.AllowsPermanent(R2) {
+		t.Fatal("自由档位不应提供永久授权：审批卡不会出现")
+	}
 }
 
 func TestClassifyCommand(t *testing.T) {

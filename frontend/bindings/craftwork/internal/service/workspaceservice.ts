@@ -64,6 +64,19 @@ export function ListDir(workspaceID: string, rel: string): $CancellablePromise<$
 }
 
 /**
+ * LocateFile 把正文引用里可能不完整的相对路径解析成工作区内的真实文件。
+ * 
+ * 模型输出引用时常写短路径（如 policy.go 指代 internal/policy/policy.go），
+ * 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历工作区查找
+ * 「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
+ * 零个或多个命中都返回错误，宁可打不开也不打开错误的文件。
+ * .git、node_modules 等依赖与产物目录不参与匹配。
+ */
+export function LocateFile(workspaceID: string, rel: string): $CancellablePromise<string> {
+    return $Call.ByID(3985118508, workspaceID, rel);
+}
+
+/**
  * PickFolder 打开系统文件夹选择对话框。
  */
 export function PickFolder(): $CancellablePromise<string> {

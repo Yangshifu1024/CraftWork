@@ -19,7 +19,7 @@ import { useUiStore } from "./ui";
  * 字段与 Go 侧的 Settings 结构一一对应。
  */
 export const DEFAULT_SETTINGS: Settings = {
-  theme: "dark",
+  theme: "system",
   mode: "code",
   panelWidth: 320,
   approvalLevel: "graded",
@@ -36,9 +36,40 @@ export const DEFAULT_SETTINGS: Settings = {
   telemetry: false,
 };
 
-/** 把主题写到根元素的数据属性上，CSS 变量据此切换深浅色。 */
+/** 系统主题查询与监听器；仅在跟随系统时保持注册，切换到固定主题后移除。 */
+let systemThemeMedia: MediaQueryList | null = null;
+let systemThemeListener: (() => void) | null = null;
+
+/** 解析实际生效的主题：跟随系统时查系统偏好，其余原样返回。 */
+function resolveTheme(theme: Theme): "dark" | "light" {
+  if (theme !== "system") {
+    return theme;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+/**
+ * 把主题写到根元素的数据属性上，CSS 变量据此切换深浅色。
+ *
+ * 跟随系统时写入的是解析后的实际值（根元素上永远只有 dark / light），
+ * 并注册系统偏好的变更监听，用户切换系统外观时界面实时跟随；
+ * 切到固定主题时移除监听，避免无谓的重绘。
+ */
 function applyTheme(theme: Theme): void {
-  document.documentElement.dataset.theme = theme;
+  if (systemThemeMedia && systemThemeListener) {
+    systemThemeMedia.removeEventListener("change", systemThemeListener);
+  }
+  systemThemeMedia = null;
+  systemThemeListener = null;
+  if (theme === "system") {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    systemThemeListener = () => {
+      document.documentElement.dataset.theme = media.matches ? "dark" : "light";
+    };
+    systemThemeMedia = media;
+    media.addEventListener("change", systemThemeListener);
+  }
+  document.documentElement.dataset.theme = resolveTheme(theme);
 }
 
 /** 把工作模式写到根元素的数据属性上，样式与布局据此区分 code / work。 */
@@ -66,11 +97,11 @@ function connectEvents(): void {
       if (event.type === EVENT.settingsUpdated && event.data) {
         const settings = event.data as Settings;
         // 事件里可能缺少主题或模式字段，缺失时退回默认值，保证根元素属性始终有值。
-        applyTheme((settings.theme as Theme) ?? "dark");
+        applyTheme((settings.theme as Theme) ?? "system");
         applyMode((settings.mode as Mode) ?? "code");
         useAppStore.setState({
           settings,
-          theme: (settings.theme as Theme) ?? "dark",
+          theme: (settings.theme as Theme) ?? "system",
           mode: (settings.mode as Mode) ?? "code",
         });
       }
@@ -100,7 +131,7 @@ interface AppState {
   settings: Settings;
   /** 当前工作模式，code 为编码模式，work 为办公模式。 */
   mode: Mode;
-  /** 当前主题，深色或浅色。 */
+  /** 当前主题：跟随系统、深色或浅色；界面实际配色取其解析结果。 */
   theme: Theme;
   /** 工作区列表。 */
   workspaces: WorkspaceView[];
@@ -136,7 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   info: null,
   settings: DEFAULT_SETTINGS,
   mode: "code",
-  theme: "dark",
+  theme: "system",
   workspaces: [],
   activeWorkspace: null,
   providers: [],

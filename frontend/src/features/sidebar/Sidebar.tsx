@@ -2,9 +2,9 @@
  * 左侧边栏。
  *
  * 职责：
- * - 品牌区与 Code / Work 模式切换；切换模式会同步线程列表与工作区视图。
+ * - 品牌区与 Code / Work 模式切换；切换模式会同步会话列表与工作区视图。
  * - 工作区卡片：显示当前工作区、信任状态，并提供信任切换与工作区切换浮层。
- * - 线程列表：支持标题搜索（带防抖）、标题命中高亮、状态与 token 展示。
+ * - 会话列表：支持标题搜索（带防抖）、标题命中高亮、状态与 token 展示。
  * - 底部入口：用量、审计、命令面板与设置，并显示今日用量与审计条数。
  *
  * 说明：搜索只按标题高亮；“内容命中”标记表示标题没匹配但正文命中了查询词。
@@ -14,6 +14,7 @@ import { BrandMark } from "../../components/BrandMark";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { api } from "../../lib/api";
+import { copySessionID, deleteSessionViaConfirm, renameSessionViaPrompt } from "../../lib/sessionActions";
 import type { ThreadView } from "../../lib/types";
 import { cn, formatTime, formatTokens } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
@@ -22,21 +23,21 @@ import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
 
 /** 侧栏当前打开的浮层类型；null 表示没有浮层。 */
-type PopoverKind = "trust" | "switch" | null;
+type PopoverKind = "trust" | "switch" | "session" | null;
 
 /**
  * 左侧边栏组件。
  *
- * props：无，模式、工作区、线程与界面状态都来自全局 store。
+ * props：无，模式、工作区、会话与界面状态都来自全局 store。
  *
  * 关键状态：
  * - `searchOpen` / `query`：搜索框是否展开与当前关键词。
  * - `popover`：信任或工作区切换浮层的类型与锚点。
- * - `counts`：底部展示的今日 token 用量与审计条数，随模式或活动线程变化重新拉取。
+ * - `counts`：底部展示的今日 token 用量与审计条数，随模式或活动会话变化重新拉取。
  *
  * 交互说明：
  * - 切换到受限工作区前必须确认，因为写入与执行都会被严格限制。
- * - 切换工作区后会重置工作区视图、重新加载文件树并刷新线程列表。
+ * - 切换工作区后会重置工作区视图、重新加载文件树并刷新会话列表。
  */
 export function Sidebar() {
   const mode = useAppStore((state) => state.mode);
@@ -66,6 +67,8 @@ export function Sidebar() {
     kind: null,
     anchor: null,
   });
+  // 会话右键菜单的目标会话与锚点元素；非空时渲染菜单浮层。
+  const [menu, setMenu] = useState<{ thread: ThreadView; anchor: HTMLElement } | null>(null);
   const [counts, setCounts] = useState({ usage: 0, audit: 0 });
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,7 +112,7 @@ export function Sidebar() {
     return () => window.removeEventListener("cw:focus-thread-search", focusSearch);
   }, []);
 
-  // 搜索中显示搜索结果；没有搜索时显示当前模式的线程列表。
+  // 搜索中显示搜索结果；没有搜索时显示当前模式的会话列表。
   const list = searchResults ?? threads ?? [];
   // 信任状态：未选择工作区时按 unknown 处理，徽标与图标都走“未选择”分支。
   const trust = activeWorkspace?.trust ?? "unknown";
@@ -119,6 +122,11 @@ export function Sidebar() {
   /** 关闭当前浮层并清空锚点。 */
   function closePopover() {
     setPopover({ kind: null, anchor: null });
+  }
+
+  /** 关闭会话右键菜单。 */
+  function closeSessionMenu() {
+    setMenu(null);
   }
 
   /**
@@ -156,8 +164,8 @@ export function Sidebar() {
 
   /**
    * 切换活动工作区。
-   * 工作区变化会影响文件树与线程归属，因此依次重置工作区视图、
-   * 重新加载根目录，并刷新当前模式的线程列表。
+   * 工作区变化会影响文件树与会话归属，因此依次重置工作区视图、
+   * 重新加载根目录，并刷新当前模式的会话列表。
    */
   async function handleSwitchWorkspace(workspaceID: string) {
     await setActiveWorkspace(workspaceID);
@@ -167,7 +175,7 @@ export function Sidebar() {
     closePopover();
   }
 
-  /** 通过系统文件夹对话框添加工作区；成功后加载文件树并刷新线程列表。 */
+  /** 通过系统文件夹对话框添加工作区；成功后加载文件树并刷新会话列表。 */
   async function handleAddWorkspace() {
     closePopover();
     try {
@@ -180,7 +188,7 @@ export function Sidebar() {
     }
   }
 
-  /** 关闭搜索：清空关键词并让线程 store 丢弃搜索结果，列表恢复为普通线程列表。 */
+  /** 关闭搜索：清空关键词并让会话 store 丢弃搜索结果，列表恢复为普通会话列表。 */
   function closeSearch() {
     setSearchOpen(false);
     setQuery("");
@@ -283,15 +291,15 @@ export function Sidebar() {
 
       <div className="thread-head">
         <div className="thread-head-title">
-          <span>{mode === "work" ? "Work 线程" : "Code 线程"}</span>
+          <span>{mode === "work" ? "Work 会话" : "Code 会话"}</span>
           <span className="count-chip">{threads?.length ?? 0}</span>
         </div>
         <div className="thread-head-actions">
           <button
             type="button"
             className="icon-btn sm"
-            title="搜索线程"
-            aria-label="搜索线程"
+            title="搜索会话"
+            aria-label="搜索会话"
             onClick={() => {
               if (searchOpen) {
                 closeSearch();
@@ -306,8 +314,8 @@ export function Sidebar() {
           <button
             type="button"
             className="icon-btn sm"
-            title="新建线程 ⌘N"
-            aria-label="新建线程"
+            title="新建会话 ⌘N"
+            aria-label="新建会话"
             onClick={() => void createThread()}
           >
             <Icon name="plus" className="ico" />
@@ -322,7 +330,7 @@ export function Sidebar() {
             ref={searchInputRef}
             type="text"
             value={query}
-            placeholder="搜索线程标题与内容…"
+            placeholder="搜索会话标题与内容…"
             autoComplete="off"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -338,18 +346,18 @@ export function Sidebar() {
       ) : null}
 
       <div className="thread-list">
-        {/* 列表为空时区分两种情况：搜索无结果，或确实还没有线程。 */}
+        {/* 列表为空时区分两种情况：搜索无结果，或确实还没有会话。 */}
         {list.length === 0 ? (
           <div className="thread-empty">
             {query ? (
               <>
-                没有匹配的线程
+                没有匹配的会话
                 <br />
                 <span style={{ fontSize: 10, color: "var(--text-4)" }}>试试更短的关键词</span>
               </>
             ) : (
               <>
-                还没有线程
+                还没有会话
                 <br />
                 点击右上角 + 新建一个
               </>
@@ -363,6 +371,7 @@ export function Sidebar() {
               active={thread.id === activeID}
               query={query}
               onClick={() => void selectThread(thread.id)}
+              onContextMenu={(anchor) => setMenu({ thread, anchor })}
             />
           ))
         )}
@@ -478,17 +487,66 @@ export function Sidebar() {
           </span>
         </button>
       </Popover>
+
+      {/* 会话右键菜单：复制 Id、重命名与删除；重命名与删除与顶部工具栏共用同一流程。 */}
+      {menu ? (
+        <Popover anchor={menu.anchor} open onClose={closeSessionMenu} align="left">
+          <button
+            type="button"
+            className="popover-item"
+            onClick={() => {
+              closeSessionMenu();
+              void copySessionID(menu.thread);
+            }}
+          >
+            <Icon name="copy" />
+            <span className="pi-main">
+              <div className="pi-title">复制会话 Id</div>
+              <div className="pi-desc">用于日志排查与问题反馈</div>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="popover-item"
+            onClick={() => {
+              closeSessionMenu();
+              void renameSessionViaPrompt(menu.thread);
+            }}
+          >
+            <Icon name="edit" />
+            <span className="pi-main">
+              <div className="pi-title">重命名</div>
+              <div className="pi-desc">修改标题，立即保存</div>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="popover-item danger"
+            onClick={() => {
+              closeSessionMenu();
+              void deleteSessionViaConfirm(menu.thread);
+            }}
+          >
+            <Icon name="trash" />
+            <span className="pi-main">
+              <div className="pi-title">删除</div>
+              <div className="pi-desc">彻底删除消息与事件，无法恢复</div>
+            </span>
+          </button>
+        </Popover>
+      ) : null}
     </aside>
   );
 }
 
 /**
- * 线程列表中的一行。
+ * 会话列表中的一行。
  *
- * @param thread 线程视图数据：标题、更新时间、模型、token 与运行状态。
- * @param active 是否为当前选中线程，用于高亮。
+ * @param thread 会话视图数据：标题、更新时间、模型、token 与运行状态。
+ * @param active 是否为当前选中会话，用于高亮。
  * @param query 当前搜索关键词，用于标题命中高亮与“内容命中”判断。
- * @param onClick 点击后选中该线程。
+ * @param onClick 点击后选中该会话。
+ * @param onContextMenu 右键标题时通知侧栏打开该会话的操作菜单，参数是条目元素，用作菜单锚点。
  *
  * 状态徽标：运行中、等待审批、错误分别用不同颜色；其余一律显示“已完成”。
  * 当标题没有命中查询词时，说明这条结果是正文命中，副标题改为“内容命中”。
@@ -498,11 +556,13 @@ function ThreadItem({
   active,
   query,
   onClick,
+  onContextMenu,
 }: {
   thread: ThreadView;
   active: boolean;
   query: string;
   onClick: () => void;
+  onContextMenu: (anchor: HTMLElement) => void;
 }) {
   const status = thread.status;
   const statusNode =
@@ -525,7 +585,7 @@ function ThreadItem({
       <span className="thread-status idle">已完成</span>
     );
 
-  /** 线程标题是否未命中查询词；未命中但出现在搜索结果里，说明是正文命中。 */
+  /** 会话标题是否未命中查询词；未命中但出现在搜索结果里，说明是正文命中。 */
   const hit =
     Boolean(query) && !thread.title.toLowerCase().includes(query.toLowerCase());
 
@@ -534,6 +594,11 @@ function ThreadItem({
       type="button"
       className={cn("thread-item", active && "is-active")}
       onClick={onClick}
+      onContextMenu={(event) => {
+        // 阻止系统默认菜单，改由应用内会话菜单接管。
+        event.preventDefault();
+        onContextMenu(event.currentTarget);
+      }}
     >
       <span className="thread-title">{highlight(thread.title, query)}</span>
       <span className="thread-time">{formatTime(thread.updatedAt)}</span>

@@ -17,11 +17,11 @@ import (
 
 // ChatService 处理发送、取消、重新生成与审批决定。
 type ChatService struct {
-	// db 用于读取线程并写入运行记录。
+	// db 用于读取会话并写入运行记录。
 	db *store.DB
-	// records 负责写入消息事件与线程状态。
+	// records 负责写入消息事件与会话状态。
 	records *record.Recorder
-	// runner 执行 Agent 循环，一个线程同一时间只允许一个 run。
+	// runner 执行 Agent 循环，一个会话同一时间只允许一个 run。
 	runner *agent.Runner
 	// approvals 保存待审批请求，并按用户决定放行或拒绝。
 	approvals *agent.Approvals
@@ -42,7 +42,7 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 		return "", err
 	}
 	if s.runner.IsRunning(threadID) {
-		return "", errors.New("线程正在运行，请先停止")
+		return "", errors.New("会话正在运行，请先停止")
 	}
 	if err := ensureThreadModel(*thread); err != nil {
 		return "", err
@@ -75,7 +75,7 @@ func (s *ChatService) Regenerate(threadID string) (string, error) {
 		return "", err
 	}
 	if s.runner.IsRunning(threadID) {
-		return "", errors.New("线程正在运行，请先停止")
+		return "", errors.New("会话正在运行，请先停止")
 	}
 	if err := ensureThreadModel(*thread); err != nil {
 		return "", err
@@ -97,7 +97,7 @@ func (s *ChatService) Regenerate(threadID string) (string, error) {
 	return s.startRun(*thread)
 }
 
-// Cancel 停止线程上的 run，并取消等待中的审批。
+// Cancel 停止会话上的 run，并取消等待中的审批。
 func (s *ChatService) Cancel(threadID string) (bool, error) {
 	canceled := s.runner.Cancel(threadID)
 	if err := s.db.CancelThreadApprovals(threadID); err != nil {
@@ -120,14 +120,14 @@ func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string
 	return s.approvals.Resolve(approvalID, agent.Decision{Allow: allow, Scope: scope})
 }
 
-// startRun 创建运行记录、更新线程状态并异步启动 Agent 循环，返回 runID。
+// startRun 创建运行记录、更新会话状态并异步启动 Agent 循环，返回 runID。
 func (s *ChatService) startRun(thread store.Thread) (string, error) {
 	if err := ensureThreadModel(thread); err != nil {
 		return "", err
 	}
 	runID := id.New("run")
 	messageID := id.New("msg")
-	// 先创建运行记录并把线程置为运行中，再交给 Runner 异步执行。
+	// 先创建运行记录并把会话置为运行中，再交给 Runner 异步执行。
 	if err := s.db.CreateRun(&store.Run{
 		ID:        runID,
 		ThreadID:  thread.ID,
@@ -145,7 +145,7 @@ func (s *ChatService) startRun(thread store.Thread) (string, error) {
 	return runID, nil
 }
 
-// ensureThreadModel 在写入用户消息前确认线程已经绑定可用模型。
+// ensureThreadModel 在写入用户消息前确认会话已经绑定可用模型。
 //
 // 首次启动没有任何提供商时，发送消息应该直接给出配置提示，而不是先写一条
 // 用户消息再让 run 异步失败。

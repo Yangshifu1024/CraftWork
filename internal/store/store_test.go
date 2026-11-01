@@ -14,7 +14,7 @@ func TestThreadAndSnapshot(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_1", Mode: "code", Title: "测试线程", ModelID: "openai/gpt-5.1",
+	thread := &Thread{ID: "th_1", Mode: "code", Title: "测试会话", ModelID: "openai/gpt-5.1",
 		Status: "idle", CreatedAt: now, UpdatedAt: now}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestThreadAndSnapshot(t *testing.T) {
 	}
 	list, err := db.ListThreads("code", false)
 	if err != nil || len(list) != 1 || list[0].Title != "改名后" {
-		t.Fatalf("线程列表不符: %v %+v", err, list)
+		t.Fatalf("会话列表不符: %v %+v", err, list)
 	}
 
 	if _, err := db.AppendEvent(&EventRecord{
@@ -103,7 +103,7 @@ func TestInterruptStaleRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	if recovered.Status != "error" {
-		t.Fatalf("线程状态应为 error，实际 %s", recovered.Status)
+		t.Fatalf("会话状态应为 error，实际 %s", recovered.Status)
 	}
 	runs, err := db.threadRuns("th_stale")
 	if err != nil || len(runs) != 1 {
@@ -203,6 +203,45 @@ func TestSettingsAndUsage(t *testing.T) {
 	}
 }
 
+func TestLatestUsageByThreads(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// 同一会话写入两次用量，最新一次应覆盖早先一次；另一会话无记录。
+	first := NowMillis() - 1000
+	if err := db.AddUsage(&UsageRow{TS: first, ThreadID: "th_a", ModelID: "m",
+		InputTokens: 10, OutputTokens: 2, CacheTokens: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddUsage(&UsageRow{TS: first + 500, ThreadID: "th_a", ModelID: "m",
+		InputTokens: 200, OutputTokens: 40, CacheTokens: 180, DurationMs: 2000}); err != nil {
+		t.Fatal(err)
+	}
+
+	latest, err := db.LatestUsageByThreads([]string{"th_a", "th_b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := latest["th_a"]
+	if !ok {
+		t.Fatal("应返回 th_a 的最近用量")
+	}
+	if row.InputTokens != 200 || row.OutputTokens != 40 || row.CacheTokens != 180 || row.DurationMs != 2000 {
+		t.Fatalf("应取最新一条用量（含耗时）: %+v", row)
+	}
+	if _, ok := latest["th_b"]; ok {
+		t.Fatal("无用量记录的会话不应出现在结果里")
+	}
+
+	// 空入参应安全返回而不是拼出坏 SQL。
+	if _, err := db.LatestUsageByThreads(nil); err != nil {
+		t.Fatalf("空入参不应报错: %v", err)
+	}
+}
+
 func TestAutoTitleThreadOnlyOnce(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -230,7 +269,7 @@ func TestAutoTitleThreadOnlyOnce(t *testing.T) {
 		t.Fatalf("自动命名结果不符: %+v", stored)
 	}
 
-	// 同一线程再次自动命名不应覆盖。
+	// 同一会话再次自动命名不应覆盖。
 	if changed, err := db.AutoTitleThread(thread.ID, "第二个标题", "新对话"); err != nil || changed {
 		t.Fatalf("重复自动命名应被忽略: changed=%v err=%v", changed, err)
 	}
@@ -285,6 +324,54 @@ func TestMigrateV1AddsTitleAuto(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !legacyThread.TitleAuto {
-		t.Fatal("旧的“新对话”线程应允许首轮自动命名")
+		t.Fatal("旧的“新对话”会话应允许首轮自动命名")
+	}
+}
+
+func TestMigrateV2ToV3AddsUsageThreadIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v2.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(schemaV1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(schemaV2); err != nil {
+		t.Fatal(err)
+	}
+	// 预置一条用量记录，验证迁移后按会话取最新用量直接可用。
+	if _, err := legacy.Exec(
+		`INSERT INTO usage (ts, thread_id, model_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens, cost_micros)
+		 VALUES (100, 'th_v2', 'openai/gpt-5.1', 500, 80, 400, 0, 0)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec("PRAGMA user_version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.sqlDB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("迁移后版本应为 %d，实际 %d", schemaVersion, version)
+	}
+	latest, err := db.LatestUsageByThreads([]string{"th_v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := latest["th_v2"]
+	if !ok || row.InputTokens != 500 || row.OutputTokens != 80 {
+		t.Fatalf("v2 数据库迁移后应能查询会话最近用量: %+v", row)
 	}
 }

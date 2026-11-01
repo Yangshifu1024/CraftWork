@@ -220,11 +220,34 @@ async function openExternal(href: string): Promise<void> {
 }
 
 /**
+ * 提取 React 子节点的纯文本，用于识别模型输出的引用样式链接。
+ * 嵌套结构（加粗、行内代码包裹的引用）也能取到完整文字。
+ */
+function plainText(node: any): string {
+  if (typeof node === "string") {
+    return node;
+  }
+  if (typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(plainText).join("");
+  }
+  if (node?.props?.children !== undefined) {
+    return plainText(node.props.children);
+  }
+  return "";
+}
+
+/**
  * Markdown 链接渲染器。
  *
- * 两类链接：
+ * 三类链接：
  * - `craftwork://path:line`：由 preprocess 生成的内部引用，渲染成按钮，
  *   点击后让工作区面板打开对应文件并定位到行号。
+ * - 没有目标地址、但文本形如 `path:line` 的链接：模型有时把引用输出成
+ *   空目标（`[policy.go:176]()`）的 Markdown 链接，preprocess 不会二次
+ *   包裹已有链接，这里兜底按内部引用处理，避免弹出“用系统浏览器打开”。
  * - 其他链接：渲染成普通链接，但会阻止默认跳转；页内锚点（# 开头）不处理，
  *   其余一律走 openExternal 的确认流程。
  */
@@ -237,6 +260,21 @@ function MarkdownLink({ href, children, ...rest }: any) {
         type="button"
         className="ref-link"
         onClick={() => void useWorkspaceStore.getState().openFileAt(path, line || null)}
+      >
+        {children}
+      </button>
+    );
+  }
+  // 空目标（无 href、空字符串或纯 #）且文本是 path:line 形式时按内部引用兜底。
+  const text = plainText(children);
+  const refMatch =
+    (!href || href === "#") ? text.match(/^((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z0-9]{1,8}):(\d{1,5})$/) : null;
+  if (refMatch) {
+    return (
+      <button
+        type="button"
+        className="ref-link"
+        onClick={() => void useWorkspaceStore.getState().openFileAt(refMatch[1], Number(refMatch[2]) || null)}
       >
         {children}
       </button>

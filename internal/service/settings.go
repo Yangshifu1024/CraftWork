@@ -19,13 +19,13 @@ const settingsKey = "app"
 
 // Settings 是前端可读写的应用设置。
 type Settings struct {
-	// Theme 是界面主题：dark 或 light。
+	// Theme 是界面主题：system（跟随系统）、dark 或 light。
 	Theme string `json:"theme"`
 	// Mode 是默认对话模式：code 或 work。
 	Mode string `json:"mode"`
 	// PanelWidth 是右侧面板宽度（像素）。
 	PanelWidth int `json:"panelWidth"`
-	// ApprovalLevel 是审批档位：graded、strict 或 readonly。
+	// ApprovalLevel 是审批档位：graded、strict、readonly 或 free。
 	ApprovalLevel string `json:"approvalLevel"`
 	// DefaultModel 是默认模型标识。
 	DefaultModel string `json:"defaultModel"`
@@ -57,7 +57,7 @@ type Settings struct {
 // 才会写入具体值。
 func DefaultSettings() Settings {
 	return Settings{
-		Theme:            "dark",
+		Theme:            "system",
 		Mode:             "code",
 		PanelWidth:       320,
 		ApprovalLevel:    string(policy.LevelGraded),
@@ -143,7 +143,7 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	current := s.Get()
 
 	// 主题与模式只接受已知枚举，其余值保持原样。
-	if next.Theme != "dark" && next.Theme != "light" {
+	if next.Theme != "system" && next.Theme != "dark" && next.Theme != "light" {
 		next.Theme = current.Theme
 	}
 	if next.Mode != "code" && next.Mode != "work" {
@@ -155,6 +155,8 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 		next.ApprovalLevel = string(policy.LevelStrict)
 	case policy.LevelReadonly:
 		next.ApprovalLevel = string(policy.LevelReadonly)
+	case policy.LevelFree:
+		next.ApprovalLevel = string(policy.LevelFree)
 	default:
 		next.ApprovalLevel = string(policy.LevelGraded)
 	}

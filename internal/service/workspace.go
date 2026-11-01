@@ -343,6 +343,70 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 	return result, nil
 }
 
+// LocateFile 把正文引用里可能不完整的相对路径解析成工作区内的真实文件。
+//
+// 模型输出引用时常写短路径（如 policy.go 指代 internal/policy/policy.go），
+// 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历工作区查找
+// 「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
+// 零个或多个命中都返回错误，宁可打不开也不打开错误的文件。
+// .git、node_modules 等依赖与产物目录不参与匹配。
+func (s *WorkspaceService) LocateFile(workspaceID, rel string) (string, error) {
+	workspace, err := s.db.GetWorkspace(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(rel), "./"), "/")
+	if clean == "" {
+		return "", errors.New("路径为空")
+	}
+	// 原样路径已存在（且是文件）时无需查找。
+	if abs, err := policy.Resolve(workspace.Path, clean); err == nil {
+		if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
+			return clean, nil
+		}
+	}
+
+	var byName, bySuffix []string
+	root := workspace.Path
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // 单个目录不可读不中断整体查找。
+		}
+		if entry.IsDir() {
+			name := entry.Name()
+			if path != root && (name == ".git" || name == "node_modules" || name == "dist" || name == "bin" || name == ".task") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		relPath = filepath.ToSlash(relPath)
+		if entry.Name() == filepath.Base(clean) {
+			byName = append(byName, relPath)
+		}
+		if strings.HasSuffix(relPath, "/"+clean) || relPath == clean {
+			bySuffix = append(bySuffix, relPath)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("查找文件: %w", err)
+	}
+	// 后缀匹配更精确，优先；两类都要求唯一命中。
+	for _, candidates := range [][]string{bySuffix, byName} {
+		if len(candidates) == 1 {
+			return candidates[0], nil
+		}
+	}
+	if len(bySuffix) > 1 || len(byName) > 1 {
+		return "", fmt.Errorf("路径 %s 在工作区内匹配到多个文件，请使用更完整的路径", rel)
+	}
+	return "", fmt.Errorf("工作区内找不到 %s", rel)
+}
+
 // WriteFile 保存编辑器内容。写入前备份，并在外部修改时拒绝覆盖。
 //
 // expectedHash 是前端打开文件时拿到的哈希；非空且与磁盘内容不一致，

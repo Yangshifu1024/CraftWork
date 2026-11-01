@@ -4,14 +4,15 @@
  * 职责：
  * - 使用 assistant-ui 的 ComposerPrimitive 管理输入框、提交与发送按钮。
  * - 展示并管理待发送附件：添加、移除；图片入口在不支持视觉的模型上禁用。
- * - 提供审批档位切换与模型切换两个浮层，改动即时保存到设置或线程。
+ * - 提供审批档位切换与模型切换两个浮层，改动即时保存到设置或会话。
  * - 显示上下文用量估算，以及运行中把发送按钮替换成停止按钮。
  *
- * 说明：这里只负责输入与选择，真正的发送、取消由 runtime 转给线程 store。
+ * 说明：这里只负责输入与选择，真正的发送、取消由 runtime 转给会话 store。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { ComposerPrimitive } from "@assistant-ui/react";
+import { ContextRing } from "../../components/ContextRing";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { api } from "../../lib/api";
@@ -22,6 +23,7 @@ import {
   pastedFileName,
   readFileAsBase64,
 } from "../../lib/paste";
+import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, ModelView } from "../../lib/types";
 import { cn, formatTokens } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
@@ -29,13 +31,23 @@ import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 
 /** 当前打开的浮层类型；null 表示没有浮层。 */
-type PopoverKind = "approval" | "model" | null;
+type PopoverKind = "approval" | "model" | "risk" | "context" | null;
+
+/** 风险等级说明表：与设置页「工具与权限」及策略引擎的定义保持一致。 */
+const riskLevels = [
+  { level: "R0", name: "读", desc: "只读操作：自动允许，记录审计" },
+  { level: "R1", name: "写工作区", desc: "写文件、应用补丁、git commit：每次询问" },
+  { level: "R2", name: "执行", desc: "运行测试、构建、格式化：每次询问，可按命令前缀授权" },
+  { level: "R3", name: "网络或越界", desc: "curl、npm install、访问工作区外：每次询问，不提供永久允许" },
+  { level: "R4", name: "破坏性", desc: "rm -rf、sudo、chmod 777：阻止，双重确认也不放行" },
+];
 
 /** 审批档位选项：标签、说明与最终写入设置的档位 ID。 */
 const approvalOptions: Array<{ id: ApprovalLevel; label: string; description: string }> = [
   { id: "graded", label: "分级", description: "R0 自动；R1–R3 询问；R4 阻止" },
   { id: "strict", label: "严格", description: "写入与执行逐次询问，不提供永久允许" },
   { id: "readonly", label: "只读", description: "只允许只读操作，写入与执行直接拒绝" },
+  { id: "free", label: "自由", description: "放行所有操作包括 R4；切换前需要确认" },
 ];
 
 /** 审批档位的中文短标签，用于输入区工具条上的当前档位显示。 */
@@ -43,12 +55,13 @@ const levelLabel: Record<string, string> = {
   graded: "分级",
   strict: "严格",
   readonly: "只读",
+  free: "自由",
 };
 
 /**
  * 消息输入区组件。
  *
- * props：无，模式、设置、线程与附件都来自全局 store。
+ * props：无，模式、设置、会话与附件都来自全局 store。
  *
  * 关键状态：
  * - `popover`：当前浮层类型与锚点元素，同一时间只开一个浮层。
@@ -58,7 +71,7 @@ const levelLabel: Record<string, string> = {
  *
  * 说明：
  * - 图片按钮在模型不支持视觉时禁用，避免选完附件才被拒绝。
- * - 审批档位写入设置，影响后续所有 run；模型只写入当前线程，影响后续 run。
+ * - 审批档位写入设置，影响后续所有 run；模型只写入当前会话，影响后续 run。
  */
 export function Composer() {
   const mode = useAppStore((state) => state.mode);
@@ -85,7 +98,7 @@ export function Composer() {
   const [modelQuery, setModelQuery] = useState("");
 
   const thread = threads.find((item) => item.id === activeID);
-  // 只保留可用模型；线程的模型引用可能来自旧格式，需要同时兼容原始 ID。
+  // 只保留可用模型；会话的模型引用可能来自旧格式，需要同时兼容原始 ID。
   const models = useMemo(
     () => providers.flatMap((provider) => provider.models).filter((model) => model.available),
     [providers],
@@ -122,6 +135,47 @@ export function Composer() {
     }, 0);
     return (thread?.tokens ?? 0) + Math.round(characters / 4);
   }, [messages, thread?.tokens]);
+
+  // 上下文占用优先用最近一轮模型请求的实测值（后端每轮覆盖更新）；
+  // 会话还没有调用记录时回退到上面的字符估算。
+  const maxContextTokens = contextK * 1000;
+  const reportedContext = thread?.contextTokens ?? 0;
+  const contextUsed = reportedContext > 0 ? reportedContext : estimate;
+  const contextPercent = maxContextTokens > 0 ? Math.round((contextUsed / maxContextTokens) * 100) : 0;
+
+  // 运行中的输出速度实时估算：统计当前流式回复的字符数，按每 4 个字符
+  // 约 1 个 token 折算，再除以自首个增量起的秒数。流式结束后清零，
+  // 由最近一轮的真实速度（thread.contextSpeed）接管显示。
+  const streamStartRef = useRef(0);
+  const liveSpeed = useMemo(() => {
+    const streaming = messages.find((message) => message.role === "assistant" && message.status === "streaming");
+    if (!streaming) {
+      streamStartRef.current = 0;
+      return 0;
+    }
+    let characters = 0;
+    for (const part of streaming.parts) {
+      const text = part.data?.text;
+      if (typeof text === "string") {
+        characters += text.length;
+      }
+    }
+    if (characters === 0) {
+      streamStartRef.current = 0;
+      return 0;
+    }
+    if (streamStartRef.current === 0) {
+      streamStartRef.current = Date.now();
+    }
+    const elapsedSeconds = (Date.now() - streamStartRef.current) / 1000;
+    if (elapsedSeconds <= 0) {
+      return 0;
+    }
+    return characters / 4 / elapsedSeconds;
+  }, [messages]);
+  // 显示速度：生成中优先实时值，空闲时显示最近一轮的真实值，都没有则显示占位符。
+  const shownSpeed = running && liveSpeed > 0 ? liveSpeed : (thread?.contextSpeed ?? 0);
+  const speedLabel = shownSpeed > 0 ? `${Math.round(shownSpeed)} tok/s` : "—";
 
   /** 打开系统文件选择框，把选中的文件加入待发送附件；失败时提示原因。 */
   async function pickFiles() {
@@ -243,10 +297,10 @@ export function Composer() {
               <Icon name="image" className="ico" />
             </button>
             <span className="composer-sep" aria-hidden="true" />
-            {/* 审批档位入口：点击打开浮层，选择后立即保存到设置。 */}
+            {/* 审批档位入口：点击打开浮层，选择后立即保存到设置；自由档位用危险色提醒。 */}
             <button
               type="button"
-              className="composer-approval"
+              className={cn("composer-approval", settings.approvalLevel === "free" && "is-free")}
               aria-haspopup="menu"
               title="审批档位"
               onClick={(event) => setPopover({ kind: "approval", anchor: event.currentTarget })}
@@ -255,14 +309,34 @@ export function Composer() {
               <span>{levelLabel[settings.approvalLevel] ?? "分级"}</span>
               <Icon name="chevron-down" className="ico chev" />
             </button>
+            {/* 风险等级提示：hover 显示一句概要，点击展开 R0–R4 对照表。 */}
+            <button
+              type="button"
+              className="composer-risk-hint"
+              title="风险等级：R0 只读自动放行，R1–R3 询问，R4 破坏性阻止；点击查看详情"
+              aria-haspopup="dialog"
+              aria-label="风险等级说明"
+              onClick={(event) => setPopover({ kind: "risk", anchor: event.currentTarget })}
+            >
+              <Icon name="info" className="ico" />
+            </button>
           </div>
 
           <div className="composer-send">
-            {/* 上下文用量只是估算提示，悬停可看到具体数值与模型上限。 */}
+            {/* 上下文占用：圆环 + 输出速度 + 占用百分比；点击展开详情面板。 */}
             {currentModel ? (
-              <span className="ctx-hint" title={`上下文约 ${formatTokens(estimate)} / ${contextK}k`}>
-                ≈ {formatTokens(estimate)} / {contextK}k
-              </span>
+              <button
+                type="button"
+                className="ctx-hint"
+                title={`上下文占用 ${contextPercent}%`}
+                aria-haspopup="dialog"
+                aria-label={`上下文占用 ${contextPercent}%`}
+                onClick={(event) => setPopover({ kind: "context", anchor: event.currentTarget })}
+              >
+                <ContextRing used={contextUsed} max={maxContextTokens} />
+                <span className="ctx-speed">{speedLabel}</span>
+                <span className="ctx-usage">{contextPercent}%</span>
+              </button>
             ) : null}
             <button
               type="button"
@@ -313,10 +387,6 @@ export function Composer() {
             <span className="kbd">Esc</span> 停止
           </span>
         </div>
-        <span className="mode-note">
-          <Icon name="shield" className="ico" />
-          {mode === "work" ? "文档写入需要审批并自动备份" : "写操作与命令执行需要审批"}
-        </span>
       </div>
 
       {/* 审批档位浮层：与设置页共用同一份设置，改动双向同步。 */}
@@ -328,11 +398,18 @@ export function Composer() {
             type="button"
             className="popover-item"
             onClick={() => {
-              void saveSettings({ approvalLevel: option.id });
+              // 自由档位先弹风险确认；取消时不保存，浮层照常关闭，档位保持不变。
+              void guardFreeLevel(option.id, settings.approvalLevel).then((allowed) => {
+                if (allowed) {
+                  void saveSettings({ approvalLevel: option.id });
+                }
+              });
               closePopover();
             }}
           >
-            <Icon name={option.id === "readonly" ? "lock" : option.id === "strict" ? "alert" : "shield"} />
+            <Icon
+              name={option.id === "readonly" ? "lock" : option.id === "strict" ? "alert" : option.id === "free" ? "zap" : "shield"}
+            />
             <span className="pi-main">
               <div className="pi-title">{option.label}</div>
               <div className="pi-desc">{option.description}</div>
@@ -347,7 +424,51 @@ export function Composer() {
         <div className="popover-note">档位与设置 · 工具与权限双向同步。</div>
       </Popover>
 
-      {/* 模型切换浮层：选择只写入当前线程，下一轮 run 生效。 */}
+      {/* 风险等级浮层：说明 R0–R4 的判定与默认处置，实际行为随当前档位变化。 */}
+      <Popover anchor={popover.anchor} open={popover.kind === "risk"} onClose={closePopover} align="left">
+        <div className="popover-label">风险等级</div>
+        <div className="risk-rows">
+          {riskLevels.map((row) => (
+            <div key={row.level} className="risk-row">
+              <span className={cn("risk-badge", `risk-${row.level}`)}>{row.level}</span>
+              <span className="risk-row-main">
+                <div className="risk-row-name">{row.name}</div>
+                <div className="risk-row-desc">{row.desc}</div>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="popover-note">实际处置随审批档位变化：只读只放行 R0，严格逐次询问，自由全部放行。</div>
+      </Popover>
+
+      {/* 上下文详情浮层：占用口径、会话累计、缓存命中与最近一轮速度。 */}
+      <Popover anchor={popover.anchor} open={popover.kind === "context"} onClose={closePopover} align="left">
+        <div className="popover-label">上下文</div>
+        <div className="ctx-stats">
+          <div className="ctx-row">
+            <span className="ctx-key">当前上下文</span>
+            <span className="ctx-val">
+              {formatTokens(contextUsed)} / {contextK}k（{contextPercent}%）
+            </span>
+          </div>
+          <div className="ctx-row">
+            <span className="ctx-key">本会话累计</span>
+            <span className="ctx-val">{formatTokens(thread?.tokens ?? 0)}</span>
+          </div>
+          <div className="ctx-row">
+            <span className="ctx-key">最近一轮缓存命中</span>
+            <span className="ctx-val">
+              {(thread?.contextCacheTokens ?? 0) > 0 ? formatTokens(thread?.contextCacheTokens ?? 0) : "—"}
+            </span>
+          </div>
+          <div className="ctx-row">
+            <span className="ctx-key">最近一轮速度</span>
+            <span className="ctx-val">{(thread?.contextSpeed ?? 0) > 0 ? `${Math.round(thread?.contextSpeed ?? 0)} tok/s` : "—"}</span>
+          </div>
+        </div>
+      </Popover>
+
+      {/* 模型切换浮层：选择只写入当前会话，下一轮 run 生效。 */}
       <Popover anchor={popover.anchor} open={popover.kind === "model"} onClose={closePopover} align="right">
         <div className="popover-label">切换模型</div>
         {models.length > 0 ? (
@@ -391,7 +512,7 @@ export function Composer() {
  * 模型切换浮层里的一行。
  *
  * @param model 模型视图数据：名称、提供商、上下文长度与能力标记。
- * @param active 是否为当前线程正在使用的模型，用于显示勾选与高亮圆点。
+ * @param active 是否为当前会话正在使用的模型，用于显示勾选与高亮圆点。
  * @param onSelect 点击后切换模型并关闭浮层。
  *
  * 能力标记只把已支持项拼成一行中文说明，全部不支持时省略该段。

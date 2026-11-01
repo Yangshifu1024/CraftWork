@@ -419,6 +419,63 @@ func TestHistoryLoadsAttachmentContents(t *testing.T) {
 	}
 }
 
+// 运行环境必须跟随会话绑定的工作区，而不是全局激活工作区：
+// 激活状态漂移（切换、新建或移除工作区）曾导致运行中的会话拿到空路径，
+// 所有文件与 Shell 工具报「工作区未设置」。
+func TestExecuteUsesThreadWorkspace(t *testing.T) {
+	h := newHarness(t)
+
+	// 工作区 B：会话真正绑定的工作区；写入目标落在 B 才算正确。
+	workspaceB := filepath.Join(filepath.Dir(h.workspace), "workspace-b")
+	if err := os.MkdirAll(workspaceB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.UpsertWorkspace(&store.Workspace{
+		ID: "ws_b", Name: "B", Path: workspaceB, Trust: "trusted",
+		CreatedAt: store.NowMillis(), LastOpenedAt: store.NowMillis(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 会话绑定 B；全局注册表仍指向 harness 默认的工作区 A，模拟激活状态漂移。
+	threadB := store.Thread{
+		ID: "th_b", Mode: "code", Title: "B 会话", ModelID: "test/fake",
+		WorkspaceID: "ws_b", Status: "idle",
+		CreatedAt: store.NowMillis(), UpdatedAt: store.NowMillis(),
+	}
+	if err := h.db.CreateThread(&threadB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.AppendEvent(&store.EventRecord{
+		ID: "p_user_b", ThreadID: "th_b", MessageID: "msg_user_b",
+		Kind: "user_message", Payload: map[string]any{"text": "写一个文件"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.CreateRun(&store.Run{
+		ID: "run_b", ThreadID: "th_b", MessageID: "msg_assistant",
+		Status: "running", ModelID: "test/fake", StartedAt: store.NowMillis(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.runner.Start(threadB, "run_b", "msg_assistant", "code")
+
+	approval := waitApproval(t, h.db, "th_b")
+	if err := h.approvals.Resolve(approval.ID, Decision{Allow: true, Scope: "once"}); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, h.db, "th_b", "idle")
+
+	// 脚本模型请求写入 note.txt；修复后它必须落在会话绑定的 B，而不是 A。
+	data, err := os.ReadFile(filepath.Join(workspaceB, "note.txt"))
+	if err != nil || string(data) != "hello" {
+		t.Fatalf("工具应写入会话绑定的工作区 B: %v %q", err, string(data))
+	}
+	if _, err := os.Stat(filepath.Join(h.workspace, "note.txt")); !os.IsNotExist(err) {
+		t.Fatal("不应写入全局激活的工作区 A")
+	}
+}
+
 func TestRunnerUsesModelMaxTokens(t *testing.T) {
 	requests := make(chan model.Request, 1)
 	capture := &captureClient{requests: requests}
@@ -490,7 +547,7 @@ func waitStatus(t *testing.T, db *store.DB, threadID, want string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("等待线程状态 %s 超时，当前 %s", want, current)
+	t.Fatalf("等待会话状态 %s 超时，当前 %s", want, current)
 }
 
 func TestEstimateCostMicros(t *testing.T) {

@@ -5,7 +5,6 @@
    3. 应用外壳与三栏布局
    4. 顶部栏
    5. 侧栏（工作区卡片、线程列表）
-   6. 状态栏
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
@@ -64,7 +63,6 @@
     "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
 
   --topbar-h: 48px;
-  --status-h: 27px;
   --sidebar-w: 268px;
   /* 面板默认取最小宽度，把更多空间留给对话区；首次渲染与 store 的初始值保持一致。 */
   --panel-w: 320px;
@@ -74,6 +72,11 @@
 
   --code-bg: #0c0f14;
   --scroll-thumb: #2b323e;
+
+  /* 侧栏与聊天区专用底色，两套主题各自成体系 */
+  --sidebar-bg: #101318;
+  --sidebar-hover: #1a1f28;
+  --chat-bg: #0b0d11;
 }
 
 html[data-theme="light"] {
@@ -124,6 +127,11 @@ html[data-theme="light"] {
 
   --code-bg: #f7f9fc;
   --scroll-thumb: #c3ccdb;
+
+  /* 侧栏与聊天区专用底色 */
+  --sidebar-bg: #f3f3f2;
+  --sidebar-hover: #e8e8e8;
+  --chat-bg: #f8f8f8;
 }
 
 /* Work 模式使用琥珀色强调，与 Code 模式的蓝色形成清晰区分 */
@@ -326,7 +334,7 @@ ul, ol { padding: 0; }
   height: 100vh;
   width: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) var(--status-h);
+  grid-template-rows: minmax(0, 1fr);
   background: var(--bg);
   overflow: hidden;
 }
@@ -350,21 +358,47 @@ ul, ol { padding: 0; }
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
-  border-left: 1px solid var(--border);
+  background: var(--chat-bg);
+  /* 与两侧栏的分界各只有一条线：左边界由 .sidebar 的 border-right 提供，
+     右边界由 .panel 的 border-left 提供；这里不再画线，避免叠加成 2px。 */
   position: relative;
 }
 
 .panel {
+  /* 宽度下限由 store 钳制（PANEL_MIN_WIDTH），这里不再设 min-width：
+     收起动画时 min-width 瞬间回弹会顶掉 width 的过渡，导致展开瞬变 */
   width: var(--panel-w);
-  min-width: 320px;
   max-width: 760px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
   border-left: 1px solid var(--border);
   min-height: 0;
   position: relative;
+  /* 收起 / 展开时宽度与透明度过渡，内容保持自身宽度被边缘裁切，形成滑入滑出感 */
+  overflow: hidden;
+  transition:
+    width 260ms var(--ease),
+    opacity 200ms var(--ease);
+}
+
+/* 浮层与全屏态有外投影，裁切会剪掉阴影，恢复可见溢出 */
+.panel.is-overlay,
+.panel.is-maximized {
+  overflow: visible;
+}
+
+/* 拖拽调整宽度需要完全跟手，按住拖拽条期间关闭宽度过渡 */
+.panel:has(.panel-resize:active) {
+  transition: none;
+}
+
+/* 收起态：宽度归零并淡出，同时去掉边界线与交互，避免残留一条竖线 */
+.panel.is-closed {
+  width: 0;
+  opacity: 0;
+  border-left-color: transparent;
+  pointer-events: none;
 }
 
 /* 窄窗口下的浮层面板：覆盖聊天区右侧，不挤压中间内容 */
@@ -388,7 +422,8 @@ ul, ol { padding: 0; }
   top: 0;
   right: 0;
   bottom: 0;
-  left: var(--sidebar-w);
+  /* 左缘压住侧栏边框 1px：分割线只显示面板自己的强色线，不与侧栏线叠加 */
+  left: calc(var(--sidebar-w) - 1px);
   width: auto;
   min-width: 0;
   max-width: none;
@@ -609,7 +644,7 @@ html[data-mode="work"] .ws-branch { display: none; }
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   position: relative;
   z-index: 10;
@@ -624,7 +659,7 @@ html[data-mode="work"] .ws-branch { display: none; }
   flex: none;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
 }
 
 .ws-card {
@@ -718,7 +753,7 @@ html[data-mode="work"] .ws-branch { display: none; }
   font-weight: 500;
   background: var(--bg-panel);
 }
-.ws-mini-btn:hover { background: var(--bg-hover); color: var(--text); }
+.ws-mini-btn:hover { background: var(--sidebar-hover); color: var(--text); }
 .ws-mini-btn .ico { width: 11px; height: 11px; }
 
 .thread-head {
@@ -819,9 +854,9 @@ html[data-mode="work"] .ws-branch { display: none; }
   transform: scaleY(0.4);
   transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
-.thread-item:hover { background: var(--bg-hover); }
+.thread-item:hover { background: var(--sidebar-hover); }
 .thread-item.is-active {
-  background: var(--bg-active);
+  background: var(--sidebar-hover);
   color: var(--text);
   border-color: var(--border);
 }
@@ -905,7 +940,7 @@ html[data-mode="work"] .ws-branch { display: none; }
   margin-top: auto;
   padding: 6px 8px 8px;
   border-top: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
 }
 .side-row {
   display: flex;
@@ -931,7 +966,7 @@ html[data-mode="work"] .ws-branch { display: none; }
   font-size: 11px;
   min-width: 0;
 }
-.side-link:hover { background: var(--bg-hover); color: var(--text-2); }
+.side-link:hover { background: var(--sidebar-hover); color: var(--text-2); }
 .side-link .ico { width: 13px; height: 13px; }
 .side-link span:nth-child(2) { flex: 1; text-align: left; }
 .side-value {
@@ -939,54 +974,3 @@ html[data-mode="work"] .ws-branch { display: none; }
   font-size: 10px;
   color: var(--text-4);
 }
-
-/* --------------------------------------------------------------------------
-   6. 状态栏
-   -------------------------------------------------------------------------- */
-.statusbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border);
-  font-size: 10.5px;
-  color: var(--text-3);
-  overflow: hidden;
-  position: relative;
-  z-index: 20;
-}
-.status-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 19px;
-  padding: 0 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-  color: var(--text-3);
-}
-button.status-item:hover { background: var(--bg-hover); color: var(--text-2); }
-.status-item .ico { width: 12px; height: 12px; }
-.status-item .mono { font-size: 10px; }
-.status-item.warn { color: var(--warn); }
-.status-item.danger { color: var(--danger); }
-.status-item.ok { color: var(--ok); }
-.status-spacer { flex: 1; }
-.status-item .mini-bar {
-  width: 52px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--bg-active);
-  overflow: hidden;
-}
-.status-item .mini-bar > i {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--ok);
-  transition: width 300ms var(--ease);
-}
-.status-item .mini-bar > i.warn { background: var(--warn); }
-.status-item .mini-bar > i.danger { background: var(--danger); }
-.status-sep { width: 1px; height: 12px; background: var(--border); margin: 0 4px; flex: none; }

@@ -18,7 +18,7 @@
   height: 48px;
   padding: 0 12px 0 18px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 72%, var(--bg-panel));
+  background: color-mix(in srgb, var(--chat-bg) 72%, var(--bg-panel));
   backdrop-filter: blur(8px);
   position: relative;
   z-index: 5;
@@ -84,7 +84,7 @@
   gap: 5px;
   height: 26px;
   padding: 0 11px;
-  margin: -38px 20px 0 auto;
+  margin: -38px auto 0;
   border-radius: 20px;
   border: 1px solid var(--border-strong);
   background: var(--bg-float);
@@ -99,45 +99,16 @@
 /* --------------------------------------------------------------------------
    2. 消息布局
    -------------------------------------------------------------------------- */
+/* 聊天软件式布局：无头像列；用户消息靠右气泡，助手消息全宽靠左。 */
 .msg {
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
   position: relative;
 }
 .msg + .msg { margin-top: 0; }
+.msg.user { align-items: flex-end; }
 
-.msg-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  flex: none;
-  margin-top: 1px;
-}
-.msg-avatar .ico { width: 14px; height: 14px; }
-.msg-avatar svg { width: 15px; height: 15px; }
-.msg.assistant .msg-avatar {
-  background: var(--mode-accent-soft);
-  color: var(--mode-accent);
-  box-shadow: inset 0 0 0 1px var(--mode-accent-line);
-}
-.msg.user .msg-avatar {
-  background: var(--bg-active);
-  color: var(--text-2);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-
-.msg-body { min-width: 0; }
-.msg-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  margin-bottom: 4px;
-}
-.msg-author { font-size: 11.5px; font-weight: 600; color: var(--text); }
+.msg-body { min-width: 0; max-width: 100%; }
 .msg-time { font-size: 10px; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .msg-tag {
   font-size: 9.5px;
@@ -161,16 +132,19 @@
   width: fit-content;
 }
 
+/* 用户消息：强调色柔和底色的右侧气泡，时间随元信息行贴在气泡下方 */
 .msg.user .msg-body {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  border-top-left-radius: 3px;
-  padding: 10px 13px;
-  max-width: 100%;
+  max-width: min(78%, 640px);
+  background: var(--mode-accent-soft);
+  border: 1px solid var(--mode-accent-line);
+  border-radius: 12px;
+  border-bottom-right-radius: 4px;
+  padding: 9px 12px;
 }
-.msg.user .msg-head { margin-bottom: 2px; }
 .msg.user .md p:last-child { margin-bottom: 0; }
+
+/* 用户消息的元信息行贴在气泡外侧右下，不占气泡宽度 */
+.msg.user .msg-foot { margin-top: 3px; justify-content: flex-end; }
 
 /* 消息内容块间距 */
 .msg-body > .blk + .blk { margin-top: 10px; }
@@ -953,16 +927,15 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
 .callout .callout-title { font-weight: 600; color: var(--text); margin-bottom: 1px; }
 
 /* 消息操作条 */
-.msg-actions {
+/* 消息末尾元信息行：时间常显；操作按钮悬停消息时浮现 */
+.msg-foot {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-top: 6px;
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
 }
-.msg:hover .msg-actions { opacity: 1; }
-.msg-actions button {
+.msg-foot .foot-spacer { flex: 1; }
+.msg-foot button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -971,9 +944,12 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
   border-radius: 4px;
   color: var(--text-4);
   font-size: 10px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
 }
-.msg-actions button:hover { background: var(--bg-hover); color: var(--text-2); }
-.msg-actions .ico { width: 11px; height: 11px; }
+.msg:hover .msg-foot button { opacity: 1; }
+.msg-foot button:hover { background: var(--bg-hover); color: var(--text-2); }
+.msg-foot .ico { width: 11px; height: 11px; }
 
 /* --------------------------------------------------------------------------
    6. 输入区
@@ -1106,6 +1082,36 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
 .composer-approval.is-strict .chev { color: var(--warn); }
 .composer-approval.is-readonly { color: var(--text-3); }
 .composer-approval.is-readonly .ico:first-child { color: var(--text-3); }
+/* 自由档位放行一切操作，按钮整体转为危险色，让当前的高危状态一眼可见 */
+.composer-approval.is-free { color: var(--danger); }
+.composer-approval.is-free .ico:first-child,
+.composer-approval.is-free .chev { color: var(--danger); }
+/* 风险等级提示按钮：紧随档位选择器，hover 变色，点击展开 R0–R4 说明浮层 */
+.composer-risk-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--text-4);
+  flex: none;
+}
+.composer-risk-hint:hover { background: var(--bg-hover); color: var(--text-2); }
+.composer-risk-hint .ico { width: 12px; height: 12px; }
+/* 风险等级浮层的行布局：左侧等级徽章，右侧名称与说明 */
+.risk-rows { display: flex; flex-direction: column; }
+.risk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px;
+}
+.risk-row + .risk-row { border-top: 1px solid var(--border-soft); }
+.risk-row .risk-badge { margin-top: 1px; flex: none; }
+.risk-row-main { flex: 1; min-width: 0; }
+.risk-row-name { font-size: 11px; font-weight: 500; color: var(--text); }
+.risk-row-desc { font-size: 10px; color: var(--text-3); margin-top: 1px; line-height: 1.5; }
 
 /* 模型切换：位于输入框右下角，上下文右侧、发送按钮左侧 */
 .composer-model {
@@ -1142,13 +1148,35 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
 .composer-model .chev { width: 11px; height: 11px; color: var(--text-4); flex: none; }
 .composer-model:hover .chev { color: var(--text-3); }
 
+/* 上下文占用指示：圆环 + 输出速度 + 实测用量，点击展开详情面板 */
 .ctx-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 9.5px;
   color: var(--text-4);
   margin-right: 4px;
   white-space: nowrap;
 }
+.ctx-hint:hover { background: var(--bg-hover); color: var(--text-2); }
+.ctx-hint .ctx-speed { color: inherit; }
+/* 详情面板的统计行：左侧标签、右侧数值，与风险等级浮层的行结构一致 */
+.ctx-stats { display: flex; flex-direction: column; padding: 2px 0 4px; }
+.ctx-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px;
+  font-size: 10.5px;
+}
+.ctx-row + .ctx-row { border-top: 1px solid var(--border-soft); }
+.ctx-key { color: var(--text-3); flex: none; }
+.ctx-val { font-family: var(--font-mono); color: var(--text-2); text-align: right; }
 
 .send-btn, .stop-btn {
   display: grid;
@@ -1181,8 +1209,6 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
 .composer-foot .hints span { display: inline-flex; align-items: center; gap: 3px; }
 .composer-foot .foot-sep { width: 1px; height: 10px; flex: none; background: var(--border); }
 .composer-foot .kbd { height: 14px; min-width: 14px; font-size: 8.5px; border-bottom-width: 1px; }
-.composer-foot .mode-note { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
-.composer-foot .mode-note .ico { width: 10px; height: 10px; flex: none; }
 
 /* 拖放遮罩 */
 .drop-overlay {

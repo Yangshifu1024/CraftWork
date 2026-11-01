@@ -60,7 +60,7 @@ interface WorkspaceState {
   /** 设置文件树过滤关键字。 */
   setFilter(value: string): void;
   /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容。 */
-  openFile(path: string): Promise<void>;
+  openFile(path: string, options?: { quiet?: boolean }): Promise<boolean>;
   /** 打开文件并定位到指定行。 */
   openFileAt(path: string, line: number | null): Promise<void>;
   /** 关闭当前文件并清空草稿。 */
@@ -146,10 +146,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   // 打开文件：Office 与 PDF 不在编辑器里显示文本，而是走文档预览；
   // 文档预览目前只在 Work 模式提供，Code 模式下给出提示而不是静默失败。
-  async openFile(path) {
+  // 返回是否成功打开，供带行号定位的入口决定是否走短路径解析兜底。
+  async openFile(path, options) {
     const id = workspaceID();
     if (!id) {
-      return;
+      return false;
     }
     const lower = path.toLowerCase();
     if (lower.endsWith(".docx") || lower.endsWith(".xlsx") || lower.endsWith(".pdf")) {
@@ -157,18 +158,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (mode === "work") {
         await get().openDocument(path);
         usePanelStore.getState().setTab("work", "document");
-      } else {
-        useUiStore.getState().toast({
-          title: "Office / PDF 预览在 Work 模式",
-          description: "切换到 Work 模式后可以在右侧面板查看文档。",
-          tone: "info",
-        });
+        return true;
       }
-      return;
+      useUiStore.getState().toast({
+        title: "Office / PDF 预览在 Work 模式",
+        description: "切换到 Work 模式后可以在右侧面板查看文档。",
+        tone: "info",
+      });
+      return false;
     }
     try {
       const content = await api.workspace.readFile(id, path);
       // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑。
+      // targetLine 在这里复位：正常打开文件不需要定位；带行号的入口
+      // （openFileAt）会在内容就绪后重新设置。
       set({
         selected: path,
         content,
@@ -176,15 +179,52 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         editorMode: "read",
         targetLine: null,
       });
+      // 从正文链接等入口打开时，确保右侧面板切到文件页签并展开；
+      // setTab 自带 open: true，面板关闭时会被同时唤起。
+      usePanelStore.getState().setTab(useAppStore.getState().mode, "files");
+      return true;
     } catch (error) {
-      useUiStore.getState().toast({ title: "读取文件失败", description: String(error), tone: "danger" });
+      // 静默模式用于短路径兜底的第一跳：失败后还有解析重试，不打扰用户。
+      if (!options?.quiet) {
+        useUiStore.getState().toast({ title: "读取文件失败", description: String(error), tone: "danger" });
+      }
+      return false;
     }
   },
 
-  // 先记下目标行号再打开文件，编辑器挂载后据此滚动定位。
+  // 打开文件并定位到指定行。
+  //
+  // 顺序很重要：先等 openFile 把内容读进来（它会复位 targetLine），
+  // 再设置目标行。这样编辑器的定位 effect 触发时内容与行号都已就绪；
+  // 反过来先设行号会被 openFile 的复位清掉，滚动从不发生。
+  //
+  // 模型输出的引用常是短路径（policy.go 指代 internal/policy/policy.go），
+  // 直接读取失败时调用后端的 locateFile 按文件名或路径后缀解析唯一匹配，
+  // 解析结果唯一才重试打开；仍失败则保持第一次的错误提示。
   async openFileAt(path, line) {
+    let opened = await get().openFile(path, { quiet: true });
+    if (!opened) {
+      const id = workspaceID();
+      if (id) {
+        try {
+          const resolved = await api.workspace.locateFile(id, path);
+          if (resolved && resolved !== path) {
+            opened = await get().openFile(resolved);
+          }
+        } catch {
+          // 解析失败：沿用第一次尝试的错误路径，由下方统一提示。
+        }
+      }
+    }
+    if (!opened) {
+      useUiStore.getState().toast({
+        title: "无法打开引用的文件",
+        description: `在工作区内找不到 ${path}，请确认路径是否正确`,
+        tone: "warn",
+      });
+      return;
+    }
     set({ targetLine: line });
-    await get().openFile(path);
   },
 
   // 关闭文件时把草稿、模式、定位行一起复位，避免残留到下一个文件。

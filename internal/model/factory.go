@@ -91,7 +91,7 @@ func (f *Factory) FallbackModel(modelID string) string {
 	if ref == modelID {
 		return ""
 	}
-	// 旧线程可能保存原始模型 ID；解析成引用后再比较，避免把同一个模型当成失败转移目标。
+	// 旧会话可能保存原始模型 ID；解析成引用后再比较，避免把同一个模型当成失败转移目标。
 	if _, current, ok := Resolve(modelID); ok && current.Ref() == ref {
 		return ""
 	}

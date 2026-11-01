@@ -1,5 +1,5 @@
 /**
- * 应用外壳：搭出「侧边栏 + 对话区 + 右侧面板 + 状态栏」的三栏布局，
+ * 应用外壳：搭出「侧边栏 + 对话区 + 右侧面板」的三栏布局，
  * 并统一挂载全局浮层（通知、命令面板、设置、数据面板、确认框、输入框）。
  *
  * 这里承担三类跨组件的职责：
@@ -9,7 +9,6 @@
  */
 import { lazy, Suspense, useEffect } from "react";
 import { Sidebar } from "../features/sidebar/Sidebar";
-import { Statusbar } from "../features/statusbar/Statusbar";
 import { ChatPane } from "../features/chat/ChatPane";
 import { useNotifications } from "../features/chat/useNotifications";
 import { Panel } from "../features/panel/Panel";
@@ -39,10 +38,10 @@ const DataModal = lazy(() =>
  * 关键状态：
  * - 面板状态来自 `usePanelStore`：宽度、是否展开、是否最大化、是否处于窄窗口；
  * - 浮层开关来自 `useUiStore`：命令面板、设置、数据面板；
- * - 线程运行与待审批状态来自 `useThreadStore`，供 Esc 键逐层退出时使用。
+ * - 会话运行与待审批状态来自 `useThreadStore`，供 Esc 键逐层退出时使用。
  */
 export function AppShell() {
-  // 接入系统通知：线程在后台完成或出错时提醒用户。
+  // 接入系统通知：会话在后台完成或出错时提醒用户。
   useNotifications();
   const width = usePanelStore((state) => state.width);
   const open = usePanelStore((state) => state.open);
@@ -71,8 +70,8 @@ export function AppShell() {
 
   // 全局快捷键：
   // - Cmd/Ctrl + K 打开命令面板，Cmd/Ctrl + N 新建对话；
-  // - Cmd/Ctrl + , 打开设置，Cmd/Ctrl + F 聚焦线程搜索；
-  // - Esc 按「浮层 → 最大化面板 → 运行中的线程 → 待审批」的优先级逐层退出，
+  // - Cmd/Ctrl + , 打开设置，Cmd/Ctrl + F 聚焦会话搜索；
+  // - Esc 按「浮层 → 最大化面板 → 运行中的会话 → 待审批」的优先级逐层退出，
   //   一次只处理最上层的那件事，避免一次按键关掉所有东西。
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -135,27 +134,27 @@ export function AppShell() {
 
   // 面板的三种形态：常规停靠、窄窗口浮层、最大化铺满对话区。
   // 互斥关系由这里统一计算，样式层只按 class 渲染。
+  // 收起时面板仍保留在 DOM 中（is-closed），宽度与透明度过渡产生滑出动画。
   const panelClass = cn(
     "panel",
     narrow && open && !maximized && "is-overlay",
     maximized && "is-maximized",
+    !open && "is-closed",
   );
 
   return (
     <>
       <div className="app">
         <div className="body">
-          {/* 左侧：工作区与线程列表 */}
+          {/* 左侧：工作区与会话列表 */}
           <Sidebar />
           {/* 中间：对话主区域 */}
           <ChatPane />
-          {/* 右侧：文件 / 文档 / 差异 / 终端面板，隐藏时仍保留 DOM 以维持内部状态 */}
-          <aside className={panelClass} hidden={!open}>
+          {/* 右侧：文件 / 文档 / 差异 / 终端面板；收起时保留 DOM 以维持内部状态并播放滑出动画 */}
+          <aside className={panelClass} aria-hidden={!open}>
             <Panel />
           </aside>
         </div>
-        {/* 底部：模式、上下文占用、审批与安全状态 */}
-        <Statusbar />
       </div>
       {/* 全局通知层 */}
       <Toasts />

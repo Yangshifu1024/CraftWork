@@ -1,8 +1,8 @@
 /**
- * 线程事件合并。
+ * 会话事件合并。
  *
- * 这里把事件批量通道推送的事件批次（Batch）换算成聊天界面需要的线程状态：
- * 消息列表、流式文本增量、工具与审批部件、运行标记，以及线程列表里的状态字段。
+ * 这里把事件批量通道推送的事件批次（Batch）换算成聊天界面需要的会话状态：
+ * 消息列表、流式文本增量、工具与审批部件、运行标记，以及会话列表里的状态字段。
  *
  * 本文件只做纯计算：不读写 store，也不调用后端命令，因此可以脱离界面单独测试。
  */
@@ -18,9 +18,9 @@ import type {
 import { EVENT } from "../lib/types";
 
 /**
- * 线程事件合并处理涉及的 store 字段。
+ * 会话事件合并处理涉及的 store 字段。
  *
- * 合并入口只接收这些字段，不依赖完整的线程 store，方便测试时按需构造。
+ * 合并入口只接收这些字段，不依赖完整的会话 store，方便测试时按需构造。
  */
 export interface ThreadSlice {
   messages: ChatMessage[];
@@ -33,7 +33,7 @@ export interface ThreadSlice {
 /**
  * 合并结果：在 {@link ThreadSlice} 基础上多出一个刷新标记。
  *
- * `refreshNeeded` 为真表示批次里出现了其他线程的变更，调用方需要重新拉取线程列表。
+ * `refreshNeeded` 为真表示批次里出现了其他会话的变更，调用方需要重新拉取会话列表。
  */
 export interface ReducedThread extends ThreadSlice {
   refreshNeeded: boolean;
@@ -45,7 +45,7 @@ type EventType = (typeof EVENT)[keyof typeof EVENT];
 /**
  * 合并过程中使用的可变草稿。
  *
- * 在 store 字段之外补充「当前线程 id」与「是否需要刷新列表」，
+ * 在 store 字段之外补充「当前会话 id」与「是否需要刷新列表」，
  * 处理函数直接修改草稿，最后由 {@link reduceThread} 一次性返回结果。
  */
 interface Draft extends ThreadSlice {
@@ -222,10 +222,10 @@ function updateApprovalPart(
 }
 
 /**
- * 在线程列表中就地合并某个线程的字段。
+ * 在会话列表中就地合并某个会话的字段。
  *
  * code 与 work 两个模式各有一份列表，这里同时扫描，只替换 id 命中的那一条，
- * 其他线程保持原引用。返回新的 `Record`，不改动传入的对象。
+ * 其他会话保持原引用。返回新的 `Record`，不改动传入的对象。
  */
 export function updateThread(
   threads: Record<Mode, ThreadView[]>,
@@ -239,9 +239,9 @@ export function updateThread(
 }
 
 /**
- * 用自定义函数改写某个线程。
+ * 用自定义函数改写某个会话。
  *
- * 与 {@link updateThread} 的区别是需要读取原线程再做增量计算，
+ * 与 {@link updateThread} 的区别是需要读取原会话再做增量计算，
  * 例如用量事件要在已有的 token 计数上累加。
  */
 function updateThreadWith(
@@ -300,7 +300,7 @@ function appendFromEvent(
 /**
  * 收尾一次运行。
  *
- * 依次做三件事：给当前消息写入终态、清空运行标记、把线程状态改成终态；
+ * 依次做三件事：给当前消息写入终态、清空运行标记、把会话状态改成终态；
  * 最后标记需要刷新列表，让侧边栏的排序与统计跟上数据库里的最新结果。
  */
 function finishRun(
@@ -323,7 +323,7 @@ function finishRun(
  * 每种事件一个处理函数；新增 EVENT 时类型检查会强制补表，避免漏处理。
  */
 const handlers: Record<EventType, Handler> = {
-  // 运行开始：记录正在流式输出的消息 id，并把线程标记为运行中。
+  // 运行开始：记录正在流式输出的消息 id，并把会话标记为运行中。
   [EVENT.runStarted]: (draft, event) => {
     const messageID = event.data?.messageId as string | undefined;
     if (!messageID) {
@@ -390,7 +390,7 @@ const handlers: Record<EventType, Handler> = {
   [EVENT.runCanceled]: (draft) => finishRun(draft, "incomplete", "idle"),
   [EVENT.runFailed]: (draft) => finishRun(draft, "error", "error"),
   [EVENT.threadUpdated]: (draft, event) => {
-    // 事件带整条线程时直接合并；只带状态时更新当前线程的状态字段。
+    // 事件带整条会话时直接合并；只带状态时更新当前会话的状态字段。
     if (event.data?.thread) {
       draft.threads = updateThread(draft.threads, event.data.thread.id, event.data.thread);
     } else if (draft.activeThreadID && event.data?.status) {
@@ -402,7 +402,7 @@ const handlers: Record<EventType, Handler> = {
   [EVENT.usageUpdated]: (draft, event) => {
     const input = Number(event.data?.inputTokens ?? 0);
     const output = Number(event.data?.outputTokens ?? 0);
-    // 令牌数为 0 或没有当前线程时不必改动列表。
+    // 令牌数为 0 或没有当前会话时不必改动列表。
     if (!draft.activeThreadID || input + output <= 0) {
       return;
     }
@@ -411,10 +411,22 @@ const handlers: Record<EventType, Handler> = {
       ...thread,
       tokens: (thread.tokens ?? 0) + input + output,
     }));
+    // 上下文占用、缓存命中与输出速度是覆盖语义：每轮直接替换为最新值。
+    // 只有主对话请求才携带这些字段（自动命名等 sidecar 请求不带），
+    // 字段缺失时保持原值，避免 sidecar 小请求压低水位。
+    const contextTokens = Number(event.data?.contextTokens ?? 0);
+    if (contextTokens > 0) {
+      draft.threads = updateThreadWith(draft.threads, draft.activeThreadID, (thread) => ({
+        ...thread,
+        contextTokens,
+        contextCacheTokens: Number(event.data?.cacheTokens ?? 0),
+        contextSpeed: Number(event.data?.tokensPerSecond ?? 0),
+      }));
+    }
   },
   // 上下文压缩的可见文案由后端同时写入的 notice 部件承载。
   [EVENT.contextCompressed]: noop,
-  // 设置与工作区事件由 app store 订阅，线程处理只负责线程内状态。
+  // 设置与工作区事件由 app store 订阅，会话处理只负责会话内状态。
   [EVENT.settingsUpdated]: noop,
   [EVENT.workspaceUpdated]: noop,
   // 终端事件由 terminal store 订阅。
@@ -423,7 +435,7 @@ const handlers: Record<EventType, Handler> = {
 };
 
 /**
- * reduceThread 是线程事件的唯一合并入口。
+ * reduceThread 是会话事件的唯一合并入口。
  *
  * 纯函数：给定状态与批次返回新状态，便于直接测试，不需要 mock api 或总线。
  * 处理顺序严格按批次里的事件顺序进行，因此同一批次内的增量不会乱序。
@@ -444,12 +456,12 @@ export function reduceThread(
   };
 
   for (const event of batch.events) {
-    // 事件批次过滤：终端事件挂在 "terminal:" 伪线程下，与聊天消息无关，直接跳过。
+    // 事件批次过滤：终端事件挂在 "terminal:" 伪会话下，与聊天消息无关，直接跳过。
     if (event.threadId?.startsWith("terminal:")) {
       continue;
     }
-    // 当前线程判定：明确属于其他线程的事件不进入本线程的消息与运行状态。
-    // 但线程列表仍要跟上，因此遇到其他线程的更新事件只打刷新标记，稍后重新拉取列表。
+    // 当前会话判定：明确属于其他会话的事件不进入本会话的消息与运行状态。
+    // 但会话列表仍要跟上，因此遇到其他会话的更新事件只打刷新标记，稍后重新拉取列表。
     if (activeThreadID && event.threadId && event.threadId !== activeThreadID) {
       if (event.type === EVENT.threadUpdated) {
         draft.refreshNeeded = true;

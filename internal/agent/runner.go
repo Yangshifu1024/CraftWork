@@ -44,7 +44,7 @@ type ModelFactory interface {
 
 // streamSession 是一次已经建立的模型流及其超时上下文。
 type streamSession struct {
-	// modelID 是本次实际使用的模型标识；发生失败转移时会与线程配置的模型不同。
+	// modelID 是本次实际使用的模型标识；发生失败转移时会与会话配置的模型不同。
 	modelID string
 	// ctx 带单次请求的超时，用来把“用户取消”和“模型超时”区分开。
 	ctx context.Context
@@ -56,7 +56,7 @@ type streamSession struct {
 
 // Runner 负责一次 Agent 执行的完整循环。
 type Runner struct {
-	// db 负责运行记录、线程 token 累计、用量与审计的持久化。
+	// db 负责运行记录、会话 token 累计、用量与审计的持久化。
 	db *store.DB
 	// records 是事件写入与前端广播的唯一出口。
 	records *record.Recorder
@@ -76,9 +76,9 @@ type Runner struct {
 
 	// mu 保护 cancels 与 notify，保证启动、取消与读取通知回调时不发生竞争。
 	mu sync.Mutex
-	// cancels 记录每个线程当前运行的取消函数，以线程 ID 为键。
+	// cancels 记录每个会话当前运行的取消函数，以会话 ID 为键。
 	cancels map[string]context.CancelFunc
-	// titlePending 标记正在进行自动命名的线程，避免并发消息重复请求模型。
+	// titlePending 标记正在进行自动命名的会话，避免并发消息重复请求模型。
 	titlePending map[string]bool
 	// notify 是系统通知回调，未设置时为 nil。
 	notify func(title, message string)
@@ -122,7 +122,7 @@ func (r *Runner) sendNotification(title, message string) {
 
 // Start 异步启动一次 run。调用前服务层已经写入用户消息与运行记录。
 //
-// 同一个线程同时只允许一次运行：如果线程上已有运行，会先取消旧的，
+// 同一个会话同时只允许一次运行：如果会话上已有运行，会先取消旧的，
 // 再用新的取消函数覆盖，保证“新消息总是接管”而不是并行跑两份。
 func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -146,9 +146,9 @@ func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	}()
 }
 
-// Cancel 取消线程上正在进行的 run。
+// Cancel 取消会话上正在进行的 run。
 //
-// 返回 false 表示该线程当前没有运行，调用方可以据此决定是否提示用户。
+// 返回 false 表示该会话当前没有运行，调用方可以据此决定是否提示用户。
 func (r *Runner) Cancel(threadID string) bool {
 	r.mu.Lock()
 	cancel, ok := r.cancels[threadID]
@@ -159,7 +159,7 @@ func (r *Runner) Cancel(threadID string) bool {
 	return ok
 }
 
-// IsRunning 判断线程是否有正在进行的 run。
+// IsRunning 判断会话是否有正在进行的 run。
 func (r *Runner) IsRunning(threadID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -169,6 +169,25 @@ func (r *Runner) IsRunning(threadID string) bool {
 
 // execute 是运行的主循环：重建历史、反复请求模型、执行工具，直到结束。
 func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messageID, mode string) {
+	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
+	// 激活状态会随用户切换、新建或移除工作区而漂移，一旦与运行中的会话
+	// 错位，工具就会拿到空路径或错误路径（表现为所有文件工具报「工作区未设置」，
+	// 只有 git 命令因目录为空时回退到进程工作目录而碰巧可用）。
+	// 会话没有绑定工作区（旧数据）时保持现状，不覆盖全局值。
+	// 已知限制：registry 是全局单例，不同工作区的会话并行运行时仍会相互覆盖；
+	// 当前单机串行使用不受影响。
+	if thread.WorkspaceID != "" {
+		workspace, err := r.db.GetWorkspace(thread.WorkspaceID)
+		if err != nil {
+			r.fail(thread, runID, messageID, "workspace_missing",
+				"会话绑定的工作区不存在或已被移除，请在侧栏重新选择工作区后重试", false)
+			return
+		}
+		r.tools.SetWorkspace(workspace.Path)
+		r.policy.SetWorkspace(workspace.Path)
+		r.policy.SetRestricted(workspace.Trust != "trusted")
+	}
+
 	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
@@ -204,6 +223,8 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		var toolCalls []model.ToolCall
 		var usage *model.Usage
 
+		// 模型调用计时：从建立流到消费完所有片段，用于计算输出速度。
+		callStart := time.Now()
 		session, err := r.openSession(ctx, thread, runID, messageID, mode, system, history, specs)
 		if err != nil {
 			// 建立流之前就被取消，按取消处理；否则是真正的模型错误。
@@ -290,7 +311,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			r.persist(thread.ID, messageID, runID, textPartID, "text", map[string]any{"text": text})
 		}
 		if usage != nil {
-			r.recordUsage(thread, runID, session.modelID, usage)
+			r.recordUsage(thread, runID, session.modelID, usage, time.Since(callStart).Milliseconds(), false)
 		}
 
 		// 没有工具调用说明模型已经给出最终回答，本轮运行正常结束。
@@ -575,7 +596,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 	return model.Message{Role: "tool", ToolCallID: call.ID, Content: result.Output}, aborted
 }
 
-// complete 结束一次成功运行：标记运行完成、线程回到空闲并广播完成事件。
+// complete 结束一次成功运行：标记运行完成、会话回到空闲并广播完成事件。
 func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "done", "", "")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
@@ -584,7 +605,7 @@ func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
-// canceled 结束一次被取消的运行：记录取消原因，并把线程状态恢复为空闲。
+// canceled 结束一次被取消的运行：记录取消原因，并把会话状态恢复为空闲。
 func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "canceled", "canceled", "用户取消")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
@@ -631,11 +652,18 @@ func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCo
 	r.fail(thread, runID, messageID, code, err.Error(), model.Retryable(err))
 }
 
-// recordUsage 写入一次模型调用的用量，并累加到线程的 token 总数。
+// recordUsage 写入一次模型调用的用量，并累加到会话的 token 总数。
+//
+// durationMs 是本次模型调用从建立流到消费完片段的墙钟时间，用于给前端
+// 计算输出速度；为 0 或未知时不计算速度。
+//
+// sidecar 标记非主对话的调用（如自动命名标题）：这类请求照常计入用量
+// 与费用，但不携带 contextTokens 等字段，避免 sidecar 小请求覆盖前端
+// 的“当前上下文占用”水位。
 //
 // 费用按目录价格估算：价格单位是“美元 / 百万 token”，所以 token 数乘以
 // 单价正好得到微美元。没有价格信息的模型记 0。
-func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *model.Usage) {
+func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *model.Usage, durationMs int64, sidecar bool) {
 	row := &store.UsageRow{
 		ThreadID:        thread.ID,
 		ModelID:         modelID,
@@ -643,6 +671,7 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 		OutputTokens:    usage.OutputTokens,
 		CacheTokens:     usage.CacheTokens,
 		ReasoningTokens: usage.ReasoningTokens,
+		DurationMs:      durationMs,
 	}
 	row.CostMicros = estimateCostMicros(modelID, usage)
 	if err := r.db.AddUsage(row); err != nil {
@@ -650,11 +679,24 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 		slog.Warn("记录用量失败", "err", err)
 	}
 	_ = r.db.AddThreadTokens(thread.ID, usage.InputTokens+usage.OutputTokens)
-	r.records.Emit(events.TypeUsageUpdated, thread.ID, runID, map[string]any{
+	payload := map[string]any{
 		"inputTokens":  usage.InputTokens,
 		"outputTokens": usage.OutputTokens,
 		"costMicros":   row.CostMicros,
-	})
+	}
+	if !sidecar {
+		// contextTokens 是“当前上下文占用”口径（本次输入 + 本次输出），每轮
+		// 覆盖而非累加；输出速度仅在耗时可计时给出。
+		speed := 0.0
+		if durationMs > 0 {
+			speed = float64(usage.OutputTokens) / (float64(durationMs) / 1000)
+		}
+		payload["contextTokens"] = usage.InputTokens + usage.OutputTokens
+		payload["cacheTokens"] = usage.CacheTokens
+		payload["durationMs"] = durationMs
+		payload["tokensPerSecond"] = speed
+	}
+	r.records.Emit(events.TypeUsageUpdated, thread.ID, runID, payload)
 }
 
 // estimateCostMicros 按模型价格估算一次调用的费用。

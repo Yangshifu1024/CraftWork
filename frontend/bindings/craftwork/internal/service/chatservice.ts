@@ -11,7 +11,7 @@
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 /**
- * Cancel 停止线程上的 run，并取消等待中的审批。
+ * Cancel 停止会话上的 run，并取消等待中的审批。
  */
 export function Cancel(threadID: string): $CancellablePromise<boolean> {
     return $Call.ByID(2214885029, threadID);

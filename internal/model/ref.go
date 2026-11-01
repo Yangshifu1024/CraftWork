@@ -1,7 +1,7 @@
 // 本文件提供“提供商限定”的模型引用。
 //
 // 模型 ID 只在单个提供商内唯一：两个 OpenAI 兼容网关可能都提供 gpt-5.5。
-// 因此线程、设置与失败转移统一保存 providerID/modelID 形式的引用；适配器
+// 因此会话、设置与失败转移统一保存 providerID/modelID 形式的引用；适配器
 // 请求仍然使用 ModelInfo.ID 这个原始模型 ID。
 
 package model

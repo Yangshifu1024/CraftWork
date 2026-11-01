@@ -27,7 +27,7 @@ const customProvidersKey = "model.custom_providers"
 type ModelView struct {
 	// ID 是调用提供商接口时使用的原始模型 ID。
 	ID string `json:"id"`
-	// Ref 是“提供商/模型”的稳定引用，线程与设置使用它区分同名模型。
+	// Ref 是“提供商/模型”的稳定引用，会话与设置使用它区分同名模型。
 	Ref string `json:"ref"`
 	// Name 是模型展示名称。
 	Name string `json:"name"`

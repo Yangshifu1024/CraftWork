@@ -1,4 +1,4 @@
-// 本文件负责事件表的读写：为线程内事件分配单调递增的序号，把事件重建为
+// 本文件负责事件表的读写：为会话内事件分配单调递增的序号，把事件重建为
 // 前端直接可用的消息快照，并维护运行记录（runs）的生命周期。
 //
 // 事件表是对话的唯一事实源：消息与部件都是从事件行重建出来的，而不是另外存一份。
@@ -12,10 +12,10 @@ import (
 	"craftwork/internal/id"
 )
 
-// AppendEvent 在事务内分配线程内单调递增的 seq 并写入事件。
+// AppendEvent 在事务内分配会话内单调递增的 seq 并写入事件。
 //
 // 序号分配与插入必须在同一个事务里完成，否则并发写入会拿到相同的 seq。
-// 事务同时更新线程的最近活动时间，让侧边栏排序反映新消息。
+// 事务同时更新会话的最近活动时间，让侧边栏排序反映新消息。
 func (db *DB) AppendEvent(event *EventRecord) (int64, error) {
 	if event.CreatedAt == 0 {
 		event.CreatedAt = nowMillis()
@@ -36,7 +36,7 @@ func (db *DB) AppendEvent(event *EventRecord) (int64, error) {
 		return 0, err
 	}
 	if _, err := tx.Exec(`UPDATE threads SET updated_at = ? WHERE id = ?`, event.CreatedAt, event.ThreadID); err != nil {
-		return 0, fmt.Errorf("更新线程时间: %w", err)
+		return 0, fmt.Errorf("更新会话时间: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("提交事件: %w", err)
@@ -54,7 +54,7 @@ func appendEventTx(tx *sql.Tx, event EventRecord) (int64, error) {
 		return 0, err
 	}
 
-	// 取当前线程最大序号加一。事务内的读写在 SQLite 中是串行的，
+	// 取当前会话最大序号加一。事务内的读写在 SQLite 中是串行的，
 	// 因此不会出现两个事务拿到同一个 seq 的情况。
 	var seq int64
 	if err := tx.QueryRow(
@@ -70,7 +70,7 @@ func appendEventTx(tx *sql.Tx, event EventRecord) (int64, error) {
 	return seq, nil
 }
 
-// Snapshot 读取线程、消息、待审批与最后事件序号。
+// Snapshot 读取会话、消息、待审批与最后事件序号。
 //
 // 重建过程只有一次顺序扫描：按 seq 升序读事件，用 message_id 归组，把每个
 // 事件转成消息里的一个部件；审批决定事件不单独成为部件，而是回填到对应卡片上。
@@ -85,7 +85,7 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 		`SELECT id, message_id, seq, kind, payload, created_at
 		 FROM events WHERE thread_id = ? ORDER BY seq`, threadID)
 	if err != nil {
-		return nil, fmt.Errorf("读取线程事件: %w", err)
+		return nil, fmt.Errorf("读取会话事件: %w", err)
 	}
 
 	// messageIndex 按消息 ID 聚合部件；order 记录消息首次出现的顺序。
@@ -192,7 +192,7 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 			messageIndex[run.MessageID] = message
 			order = append(order, run.MessageID)
 		}
-		// 线程未完成的运行要显示为流式中，异常结束则显示为错误或不完整。
+		// 会话未完成的运行要显示为流式中，异常结束则显示为错误或不完整。
 		switch run.Status {
 		case "running":
 			message.Status = "streaming"
@@ -291,7 +291,7 @@ func (db *DB) FinishRun(id, status, code, message string) error {
 	return nil
 }
 
-// InterruptStaleRuns 在启动时把未完成的运行与线程标记为中断。
+// InterruptStaleRuns 在启动时把未完成的运行与会话标记为中断。
 //
 // 返回被中断的运行数量。除了更新 runs / threads / approvals，还会为每个
 // 中断的 run 写入一条 error 事件，让界面显示可重试的错误卡片。
@@ -311,7 +311,7 @@ func (db *DB) InterruptStaleRuns() (int, error) {
 	}
 	// staleRun 是启动时发现的、状态仍为 running 的历史运行。
 	type staleRun struct {
-		// id、threadID、messageID 分别对应运行、线程与消息标识。
+		// id、threadID、messageID 分别对应运行、会话与消息标识。
 		id, threadID, messageID string
 	}
 	var stale []staleRun
@@ -344,11 +344,11 @@ func (db *DB) InterruptStaleRuns() (int, error) {
 		 WHERE decision IS NULL`, now); err != nil {
 		return 0, fmt.Errorf("取消挂起审批: %w", err)
 	}
-	// 线程状态先统一恢复为空闲，随后再按每个中断的运行标记为错误。
+	// 会话状态先统一恢复为空闲，随后再按每个中断的运行标记为错误。
 	if _, err := tx.Exec(
 		`UPDATE threads SET status = 'idle', updated_at = ?
 		 WHERE status IN ('running', 'awaiting')`, now); err != nil {
-		return 0, fmt.Errorf("重置线程状态: %w", err)
+		return 0, fmt.Errorf("重置会话状态: %w", err)
 	}
 
 	// 为每个被中断的运行写一条 error 事件，界面据此显示可重试的错误卡片。
@@ -356,7 +356,7 @@ func (db *DB) InterruptStaleRuns() (int, error) {
 		if _, err := tx.Exec(
 			`UPDATE threads SET status = 'error', updated_at = ? WHERE id = ?`,
 			now, run.threadID); err != nil {
-			return 0, fmt.Errorf("标记中断线程: %w", err)
+			return 0, fmt.Errorf("标记中断会话: %w", err)
 		}
 		partID := id.New("part")
 		if _, err := appendEventTx(tx, EventRecord{
@@ -383,7 +383,7 @@ func (db *DB) InterruptStaleRuns() (int, error) {
 	return len(stale), nil
 }
 
-// threadRuns 按开始时间读取线程的全部运行记录。
+// threadRuns 按开始时间读取会话的全部运行记录。
 //
 // 空值字段用 COALESCE 转成零值，扫描时就不需要额外的可空类型。
 func (db *DB) threadRuns(threadID string) ([]Run, error) {

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -70,13 +71,47 @@ func (db *DB) AddUsage(row *UsageRow) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 	if _, err := db.sqlDB.Exec(
-		`INSERT INTO usage (ts, thread_id, model_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens, cost_micros)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO usage (ts, thread_id, model_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens, cost_micros, duration_ms)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.TS, row.ThreadID, row.ModelID, row.InputTokens, row.OutputTokens,
-		row.CacheTokens, row.ReasoningTokens, row.CostMicros); err != nil {
+		row.CacheTokens, row.ReasoningTokens, row.CostMicros, row.DurationMs); err != nil {
 		return fmt.Errorf("写入用量: %w", err)
 	}
 	return nil
+}
+
+// LatestUsageByThreads 返回每个会话最近一次模型调用的用量。
+//
+// 会话没有用量记录时不出现在结果里，调用方按零值处理。
+// 查询利用 SQLite 的聚合特性：SELECT 里出现 MAX(列) 时，其余裸列
+// 取自命中 MAX 的那一行，因此一条分组查询就能拿到“最新一条”的明细。
+func (db *DB) LatestUsageByThreads(threadIDs []string) (map[string]UsageRow, error) {
+	result := make(map[string]UsageRow, len(threadIDs))
+	if len(threadIDs) == 0 {
+		return result, nil
+	}
+	placeholders := strings.Repeat("?,", len(threadIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(threadIDs))
+	for i, id := range threadIDs {
+		args[i] = id
+	}
+	rows, err := db.sqlDB.Query(
+		`SELECT thread_id, MAX(ts), model_id, input_tokens, output_tokens, cache_tokens, duration_ms
+		 FROM usage WHERE thread_id IN (`+placeholders+`) GROUP BY thread_id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询会话最近用量: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row UsageRow
+		if err := rows.Scan(&row.ThreadID, &row.TS, &row.ModelID, &row.InputTokens,
+			&row.OutputTokens, &row.CacheTokens, &row.DurationMs); err != nil {
+			return nil, fmt.Errorf("扫描会话最近用量: %w", err)
+		}
+		result[row.ThreadID] = row
+	}
+	return result, rows.Err()
 }
 
 // UsageSummary 聚合今天、近 7 天、近 30 天的用量。

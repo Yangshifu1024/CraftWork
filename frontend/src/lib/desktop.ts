@@ -54,7 +54,7 @@ export const desktopApi = {
     get: () => SettingsService.Get(),
     save: (settings) => SettingsService.Save(settings),
   },
-  /** 线程列表、搜索、增删改与分页快照。 */
+  /** 会话列表、搜索、增删改与分页快照。 */
   threads: {
     list: async (mode, includeArchived = false) =>
       (await ThreadService.List(mode, includeArchived)) ?? [],
@@ -65,7 +65,7 @@ export const desktopApi = {
     archive: (threadID, archived) => ThreadService.Archive(threadID, archived),
     remove: (threadID) => ThreadService.Delete(threadID),
     snapshotPage: async (threadID, limit, beforeSeq) =>
-      // 已有线程的分页快照在后端保证非空；这里把 Wails 的可空返回收敛掉。
+      // 已有会话的分页快照在后端保证非空；这里把 Wails 的可空返回收敛掉。
       (await ThreadService.SnapshotPage(threadID, limit, beforeSeq)) as ThreadSnapshot,
   },
   /** 对话：发送、重新生成、取消、提交审批决定。 */
@@ -87,6 +87,7 @@ export const desktopApi = {
     listDir: async (workspaceID, path) =>
       (await WorkspaceService.ListDir(workspaceID, path)) ?? [],
     readFile: (workspaceID, path) => WorkspaceService.ReadFile(workspaceID, path),
+    locateFile: (workspaceID, path) => WorkspaceService.LocateFile(workspaceID, path),
     writeFile: (workspaceID, path, content, expectedHash) =>
       WorkspaceService.WriteFile(workspaceID, path, content, expectedHash),
     computeDiff: async (oldText, newText) => {

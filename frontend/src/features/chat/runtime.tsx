@@ -1,7 +1,7 @@
 /**
  * 聊天运行时适配层。
  *
- * 作用：把应用自己的线程 store（消息、发送、取消、重新生成、加载更早消息）
+ * 作用：把应用自己的会话 store（消息、发送、取消、重新生成、加载更早消息）
  * 适配成 assistant-ui 需要的外部存储运行时，并提供
  * `ChatMessage -> ThreadMessageLike` 的消息格式转换。
  *
@@ -91,12 +91,12 @@ export function convertMessage(message: ChatMessage, reasoningEnabled: boolean):
 }
 
 /**
- * 把线程 store 接入 assistant-ui 的外部存储运行时。
+ * 把会话 store 接入 assistant-ui 的外部存储运行时。
  *
  * 负责：
  * - 提供消息列表与运行状态，assistant-ui 据此渲染消息、显示“生成中”与停止按钮。
- * - 把发送、取消、重新生成、加载更早消息转发给线程 store。
- * - 根据当前线程选中的模型读取能力标记，决定推理块是否渲染、是否允许图片附件。
+ * - 把发送、取消、重新生成、加载更早消息转发给会话 store。
+ * - 根据当前会话选中的模型读取能力标记，决定推理块是否渲染、是否允许图片附件。
  *
  * @returns assistant-ui 的运行时对象，需要放进 `AssistantRuntimeProvider`。
  */
@@ -113,13 +113,13 @@ export function useChatRuntime() {
   const providers = useAppStore((state) => state.providers);
   const threads = useThreadStore((state) => state.threads[mode]);
   const activeID = useThreadStore((state) => state.activeID[mode]);
-  // 当前线程选中的模型决定能力矩阵；找不到模型时按“不支持推理、不支持图片”处理。
+  // 当前会话选中的模型决定能力矩阵；找不到模型时按“不支持推理、不支持图片”处理。
   const currentModel = useMemo(() => {
     const thread = threads.find((item) => item.id === activeID);
     if (!thread) {
       return undefined;
     }
-    // 新线程保存“提供商/模型”引用；旧线程可能仍保存原始模型 ID。
+    // 新会话保存“提供商/模型”引用；旧会话可能仍保存原始模型 ID。
     return providers
       .flatMap((provider) => provider.models)
       .find((model) => model.ref === thread.modelId || model.id === thread.modelId);
@@ -139,7 +139,7 @@ export function useChatRuntime() {
    *
    * 从消息内容里拼出纯文本，并读取 store 中已选好的附件路径；
    * 如果模型不支持图片，而附件里含图片文件，就弹出警告并放弃发送，
-   * 避免把图片交给不认识它的模型。校验通过后交给线程 store 的 send。
+   * 避免把图片交给不认识它的模型。校验通过后交给会话 store 的 send。
    */
   const handleNew = useCallback(
     async (message: any) => {
@@ -174,7 +174,7 @@ export function useChatRuntime() {
     await cancel();
   }, [cancel]);
 
-  // 重新生成：由线程 store 删除最后一条 assistant 消息并发起新的 run。
+  // 重新生成：由会话 store 删除最后一条 assistant 消息并发起新的 run。
   const handleReload = useCallback(async () => {
     await regenerate();
   }, [regenerate]);

@@ -2,7 +2,7 @@
  * 前后端事件总线：判断当前是否运行在真实宿主里，并统一处理 Wails 事件订阅与分发。
  *
  * 数据流：Go 侧把同一批事件打包成 `Batch`，通过 `cw:events` 通道推送 →
- * 这里收到后交给所有订阅者（线程 store、终端 store 等）→ 各订阅者按事件类型更新状态。
+ * 这里收到后交给所有订阅者（会话 store、终端 store 等）→ 各订阅者按事件类型更新状态。
  * Mock 预览没有真实后端，由 mock.ts 直接调用 `dispatch` 投递同样的批次。
  */
 import { Events } from "@wailsio/runtime";

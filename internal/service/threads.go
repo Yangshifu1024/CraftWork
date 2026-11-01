@@ -1,5 +1,5 @@
-// 本文件是线程相关的前端绑定：列表、搜索、创建、重命名、切换模型、
-// 归档、删除与分页快照。服务层负责把存储层的线程结构转换成前端
+// 本文件是会话相关的前端绑定：列表、搜索、创建、重命名、切换模型、
+// 归档、删除与分页快照。服务层负责把存储层的会话结构转换成前端
 // 可直接使用的扁平视图，并在变更后推送 thread.updated 事件。
 
 package service
@@ -17,55 +17,64 @@ import (
 	threadtitle "craftwork/internal/title"
 )
 
-// ThreadView 是线程列表使用的扁平结构。
+// ThreadView 是会话列表使用的扁平结构。
 type ThreadView struct {
-	// ID 是线程标识。
+	// ID 是会话标识。
 	ID string `json:"id"`
 	// Mode 是 code 或 work。
 	Mode string `json:"mode"`
 	// Title 是展示标题。
 	Title string `json:"title"`
-	// ModelID 是线程当前使用的模型标识。
+	// ModelID 是会话当前使用的模型标识。
 	ModelID string `json:"modelId"`
 	// ModelName 是模型展示名称。
 	ModelName string `json:"modelName"`
-	// WorkspaceID 是线程绑定的工作区。
+	// WorkspaceID 是会话绑定的工作区。
 	WorkspaceID string `json:"workspaceId"`
 	// Status 是 idle、running 或 awaiting。
 	Status string `json:"status"`
-	// Archived 表示线程是否已归档。
+	// Archived 表示会话是否已归档。
 	Archived bool `json:"archived"`
-	// Tokens 是该线程累计使用的 token 数。
+	// Tokens 是该会话累计使用的 token 数。
 	Tokens int64 `json:"tokens"`
+	// ContextTokens 是最近一次模型调用的输入加输出 token，即当前上下文
+	// 占用；每轮调用后覆盖更新，与累计的 Tokens 口径不同。
+	ContextTokens int64 `json:"contextTokens"`
+	// ContextCacheTokens 是最近一次模型调用命中的缓存 token，用于展示
+	// 缓存收益；没有调用记录时为 0。
+	ContextCacheTokens int64 `json:"contextCacheTokens"`
+	// ContextSpeed 是最近一次模型调用的输出速度（tok/s），由输出 token
+	// 除以调用耗时得出；耗时未知或没有调用记录时为 0。
+	ContextSpeed float64 `json:"contextSpeed"`
 	// CreatedAt 是创建时间（毫秒时间戳）。
 	CreatedAt int64 `json:"createdAt"`
 	// UpdatedAt 是最后更新时间（毫秒时间戳）。
 	UpdatedAt int64 `json:"updatedAt"`
 }
 
-// ThreadService 管理线程的创建、列表、搜索与快照。
+// ThreadService 管理会话的创建、列表、搜索与快照。
 type ThreadService struct {
-	// db 是线程与事件的存储入口。
+	// db 是会话与事件的存储入口。
 	db *store.DB
-	// records 用于推送线程变更事件。
+	// records 用于推送会话变更事件。
 	records *record.Recorder
 }
 
-// NewThreadService 创建线程服务。
+// NewThreadService 创建会话服务。
 func NewThreadService(db *store.DB, records *record.Recorder) *ThreadService {
 	return &ThreadService{db: db, records: records}
 }
 
-// List 列出指定模式的线程。
+// List 列出指定模式的会话。
 func (s *ThreadService) List(mode string, includeArchived bool) ([]ThreadView, error) {
 	threads, err := s.db.ListThreads(normalizeMode(mode), includeArchived)
 	if err != nil {
 		return nil, err
 	}
-	return toViews(threads), nil
+	return toViews(threads, s.latestUsage(threads)), nil
 }
 
-// Search 按标题与内容搜索线程。
+// Search 按标题与内容搜索会话。
 func (s *ThreadService) Search(mode, query string) ([]ThreadView, error) {
 	if strings.TrimSpace(query) == "" {
 		return s.List(mode, false)
@@ -74,21 +83,21 @@ func (s *ThreadService) Search(mode, query string) ([]ThreadView, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toViews(threads), nil
+	return toViews(threads, s.latestUsage(threads)), nil
 }
 
-// Create 新建线程。
+// Create 新建会话。
 //
 // 标题为空时使用“新对话”；模型取自当前设置的默认模型，
 // 读取失败时保留 DefaultSettings 给出的默认值。
 func (s *ThreadService) Create(mode, workspaceID, title string) (ThreadView, error) {
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
-	// 默认模型可能是旧格式或已失效；创建线程时先规范化，避免把坏值写进新线程。
+	// 默认模型可能是旧格式或已失效；创建会话时先规范化，避免把坏值写进新会话。
 	normalizeModelSettings(&settings)
 
 	trimmedTitle := strings.TrimSpace(title)
-	// 没有显式标题的新线程允许首轮自动命名；复制线程等显式标题视为手动命名。
+	// 没有显式标题的新会话允许首轮自动命名；复制会话等显式标题视为手动命名。
 	titleAuto := trimmedTitle == ""
 	if titleAuto {
 		trimmedTitle = threadtitle.Default
@@ -109,10 +118,10 @@ func (s *ThreadService) Create(mode, workspaceID, title string) (ThreadView, err
 		return ThreadView{}, err
 	}
 	s.publishChanged(thread.ID, thread.Mode)
-	return toView(*thread), nil
+	return toView(*thread, nil), nil
 }
 
-// Rename 修改线程标题。
+// Rename 修改会话标题。
 func (s *ThreadService) Rename(threadID, title string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
@@ -128,7 +137,7 @@ func (s *ThreadService) Rename(threadID, title string) error {
 	return nil
 }
 
-// SetModel 切换线程使用的模型。
+// SetModel 切换会话使用的模型。
 //
 // 传入的可以是完整引用或旧的原始模型 ID；保存时统一写成引用。
 func (s *ThreadService) SetModel(threadID, modelID string) error {
@@ -146,14 +155,14 @@ func (s *ThreadService) SetModel(threadID, modelID string) error {
 	return nil
 }
 
-// Archive 归档或取消归档线程。
+// Archive 归档或取消归档会话。
 func (s *ThreadService) Archive(threadID string, archived bool) error {
 	thread, err := s.db.GetThread(threadID)
 	if err != nil {
 		return err
 	}
 	if archived && (thread.Status == "running" || thread.Status == "awaiting") {
-		return errors.New("线程正在运行，不能归档")
+		return errors.New("会话正在运行，不能归档")
 	}
 	if err := s.db.SetThreadArchived(threadID, archived); err != nil {
 		return err
@@ -162,14 +171,14 @@ func (s *ThreadService) Archive(threadID string, archived bool) error {
 	return nil
 }
 
-// Delete 删除线程及其事件。运行中的线程必须先取消。
+// Delete 删除会话及其事件。运行中的会话必须先取消。
 func (s *ThreadService) Delete(threadID string) error {
 	thread, err := s.db.GetThread(threadID)
 	if err != nil {
 		return err
 	}
 	if thread.Status == "running" || thread.Status == "awaiting" {
-		return errors.New("线程正在运行，请先取消")
+		return errors.New("会话正在运行，请先取消")
 	}
 	if err := s.db.DeleteThread(threadID); err != nil {
 		return err
@@ -182,7 +191,7 @@ func (s *ThreadService) Delete(threadID string) error {
 	return nil
 }
 
-// Snapshot 返回线程消息、待审批与最后事件序号。
+// Snapshot 返回会话消息、待审批与最后事件序号。
 func (s *ThreadService) Snapshot(threadID string) (*store.Snapshot, error) {
 	return s.db.Snapshot(threadID)
 }
@@ -249,20 +258,39 @@ func oldestPartSeq(messages []store.Message) int64 {
 	return 0
 }
 
-// toViews 批量把存储层的线程转换成前端视图，保持输入顺序。
-func toViews(threads []store.Thread) []ThreadView {
+// latestUsage 批量查询会话的最近一次模型用量。
+//
+// 上下文占用属于展示性数据，读取失败时返回空映射而不是让整个列表
+// 接口失败；前端按零值显示。
+func (s *ThreadService) latestUsage(threads []store.Thread) map[string]store.UsageRow {
+	ids := make([]string, len(threads))
+	for i, thread := range threads {
+		ids[i] = thread.ID
+	}
+	latest, err := s.db.LatestUsageByThreads(ids)
+	if err != nil {
+		return map[string]store.UsageRow{}
+	}
+	return latest
+}
+
+// toViews 批量把存储层的会话转换成前端视图，保持输入顺序。
+//
+// latest 是每个会话最近一次模型调用的用量，用于填充上下文占用；
+// 允许传 nil，此时相关字段为零值。
+func toViews(threads []store.Thread, latest map[string]store.UsageRow) []ThreadView {
 	result := make([]ThreadView, 0, len(threads))
 	for _, thread := range threads {
-		result = append(result, toView(thread))
+		result = append(result, toView(thread, latest))
 	}
 	return result
 }
 
-// toView 把单个线程转换成前端视图，并补齐模型展示名称。
+// toView 把单个会话转换成前端视图，并补齐模型展示名称。
 //
-// ModelID 返回规范引用，前端用它匹配模型选择器；旧线程里的原始模型 ID
+// ModelID 返回规范引用，前端用它匹配模型选择器；旧会话里的原始模型 ID
 // 会在读取时自动转换。模型为空或已失效时给出可读提示。
-func toView(thread store.Thread) ThreadView {
+func toView(thread store.Thread, latest map[string]store.UsageRow) ThreadView {
 	modelID := thread.ModelID
 	modelName := "未选择模型"
 	if modelID != "" {
@@ -273,23 +301,37 @@ func toView(thread store.Thread) ThreadView {
 			modelName = "模型不可用"
 		}
 	}
+	// 上下文占用 = 最近一次调用的输入加输出；没有调用记录时保持零值，
+	// 前端据此回退到本地估算。速度由输出 token 除以调用耗时得出。
+	var contextTokens, contextCache int64
+	contextSpeed := 0.0
+	if row, ok := latest[thread.ID]; ok {
+		contextTokens = row.InputTokens + row.OutputTokens
+		contextCache = row.CacheTokens
+		if row.DurationMs > 0 {
+			contextSpeed = float64(row.OutputTokens) / (float64(row.DurationMs) / 1000)
+		}
+	}
 	return ThreadView{
-		ID:          thread.ID,
-		Mode:        thread.Mode,
-		Title:       thread.Title,
-		ModelID:     modelID,
-		ModelName:   modelName,
-		WorkspaceID: thread.WorkspaceID,
-		Status:      thread.Status,
-		Archived:    thread.Archived,
-		Tokens:      thread.Tokens,
-		CreatedAt:   thread.CreatedAt,
-		UpdatedAt:   thread.UpdatedAt,
+		ID:                 thread.ID,
+		Mode:               thread.Mode,
+		Title:              thread.Title,
+		ModelID:            modelID,
+		ModelName:          modelName,
+		WorkspaceID:        thread.WorkspaceID,
+		Status:             thread.Status,
+		Archived:           thread.Archived,
+		Tokens:             thread.Tokens,
+		ContextTokens:      contextTokens,
+		ContextCacheTokens: contextCache,
+		ContextSpeed:       contextSpeed,
+		CreatedAt:          thread.CreatedAt,
+		UpdatedAt:          thread.UpdatedAt,
 	}
 }
 
-// publishChanged 重新读取线程并推送 thread.updated 事件。
-// 线程已被删除或读取失败时静默返回，不影响主流程。
+// publishChanged 重新读取会话并推送 thread.updated 事件。
+// 会话已被删除或读取失败时静默返回，不影响主流程。
 func (s *ThreadService) publishChanged(threadID, mode string) {
 	thread, err := s.db.GetThread(threadID)
 	if err != nil {
@@ -298,11 +340,11 @@ func (s *ThreadService) publishChanged(threadID, mode string) {
 	s.records.Emit(events.TypeThreadUpdated, threadID, "", map[string]any{
 		"threadId": threadID,
 		"mode":     mode,
-		"thread":   toView(*thread),
+		"thread":   toView(*thread, s.latestUsage([]store.Thread{*thread})),
 	})
 }
 
-// normalizeMode 归一化线程模式，未知值一律按 code 处理。
+// normalizeMode 归一化会话模式，未知值一律按 code 处理。
 func normalizeMode(mode string) string {
 	if mode == "work" {
 		return "work"

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
 import { api } from "../../lib/api";
+import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, CatalogMeta, MCPServerView, ProviderView, Settings } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
@@ -28,11 +29,12 @@ const groups: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
   { id: "advanced", label: "高级", icon: "sliders" },
 ];
 
-/** 三种审批档位的展示信息；实际策略由后端按档位与风险等级计算。 */
+/** 四种审批档位的展示信息；实际策略由后端按档位与风险等级计算。 */
 const approvalOptions: Array<{ id: ApprovalLevel; label: string; description: string; icon: IconName }> = [
   { id: "graded", label: "分级", description: "R0 自动；R1–R3 询问；R4 阻止", icon: "shield" },
   { id: "strict", label: "严格", description: "写入与执行逐次询问，不提供永久允许", icon: "alert" },
   { id: "readonly", label: "只读", description: "只允许只读操作", icon: "lock" },
+  { id: "free", label: "自由", description: "放行所有操作包括 R4；切换前需要确认", icon: "zap" },
 ];
 
 /** 风险等级说明表，用于在「工具与权限」里解释每一级的默认策略。 */
@@ -140,6 +142,18 @@ export function SettingsModal() {
    */
   function update(patch: Partial<Settings>) {
     void saveSettings(patch);
+  }
+
+  /**
+   * 切换审批档位。
+   * 自由档位会放行包括 R4 在内的所有操作，切换前弹出风险确认框；
+   * 用户取消时什么都不保存，界面停留在原档位。
+   */
+  async function changeApprovalLevel(level: ApprovalLevel) {
+    if (!(await guardFreeLevel(level, settings.approvalLevel))) {
+      return;
+    }
+    update({ approvalLevel: level });
   }
 
   /**
@@ -455,7 +469,7 @@ export function SettingsModal() {
                 </Row>
                 <Row
                   label="系统通知"
-                  desc="审批等待、回复完成或运行失败时发送系统通知；窗口聚焦时不打扰，应用内提示可点击回到对应线程。"
+                  desc="审批等待、回复完成或运行失败时发送系统通知；窗口聚焦时不打扰，应用内提示可点击回到对应会话。"
                 >
                   <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} />
                 </Row>
@@ -471,7 +485,7 @@ export function SettingsModal() {
             {tab === "mode" ? (
               /* 模式分组：默认模式，以及两种模式各自的能力范围说明 */
               <SettingsSection title="模式" desc="Code 与 Work 共用同一套工作区与审批策略，只改变界面和可用工具。">
-                <Row label="默认模式" desc="新建窗口与新建线程时使用。">
+                <Row label="默认模式" desc="新建窗口与新建会话时使用。">
                   <div className="radio-cards">
                     {(["code", "work"] as const).map((mode) => (
                       <button
@@ -500,7 +514,7 @@ export function SettingsModal() {
               <SettingsSection title="模型与提供商" desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。">
                 {catalogOpen || providerEditor ? null : (
                   <>
-                <Row label="默认模型" desc="新线程使用的模型；没有添加提供商时保持为空。">
+                <Row label="默认模型" desc="新会话使用的模型；没有添加提供商时保持为空。">
                   <select
                     className="select"
                     value={settings.defaultModel}
@@ -724,14 +738,14 @@ export function SettingsModal() {
               /* 工具与权限分组：审批档位、风险等级说明与当前限制 */
               <SettingsSection title="工具与权限" desc="审批档位与风险分级共同决定一次工具调用是否执行。">
                 <Row label="审批档位" desc="与输入框底部的盾牌按钮双向同步。">
-                  {/* 三个档位单选：分级、严格、只读，选中项立即保存 */}
+                  {/* 四个档位单选：分级、严格、只读、自由；自由档位切换前需确认 */}
                   <div className="radio-cards">
                     {approvalOptions.map((option) => (
                       <button
                         key={option.id}
                         type="button"
                         className={cn("radio-card", settings.approvalLevel === option.id && "is-on")}
-                        onClick={() => update({ approvalLevel: option.id })}
+                        onClick={() => void changeApprovalLevel(option.id)}
                         title={option.description}
                       >
                         <Icon name={option.icon} className="ico" />
@@ -889,10 +903,10 @@ export function SettingsModal() {
             {tab === "appearance" ? (
               /* 外观分组：主题与字号；未接线的控件保持禁用并标注里程碑 */
               <SettingsSection title="外观" desc="主题与字体只影响本地界面。">
-                <Row label="主题" desc="深色 / 浅色两套 token；代码主题独立。">
-                  {/* 主题卡片：用缩略块预览侧栏、主区与强调色的比例 */}
+                <Row label="主题" desc="跟随系统、深色或浅色；代码主题独立。">
+                  {/* 主题卡片：用缩略块预览侧栏、主区与强调色的比例；跟随系统时左右各示一半 */}
                   <div className="theme-cards">
-                    {(["dark", "light"] as const).map((theme) => (
+                    {(["system", "dark", "light"] as const).map((theme) => (
                       <button
                         key={theme}
                         type="button"
@@ -905,8 +919,8 @@ export function SettingsModal() {
                           <i className="a" />
                         </div>
                         <div className="theme-label">
-                          {theme === "dark" ? "深色" : "浅色"}
-                          <Icon name={theme === "dark" ? "moon" : "sun"} />
+                          {theme === "system" ? "跟随系统" : theme === "dark" ? "深色" : "浅色"}
+                          <Icon name={theme === "system" ? "monitor" : theme === "dark" ? "moon" : "sun"} />
                         </div>
                       </button>
                     ))}

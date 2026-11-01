@@ -5,13 +5,13 @@
  * 1. `useAppStore.boot()`：读取设置、当前工作区与模式，这是后续所有请求的前提；
  * 2. `useThreadStore.connect()` 与 `useTerminalStore.connect()`：先订阅后端事件，
  *    保证后续拉取数据期间产生的事件不会丢；
- * 3. `useThreadStore.boot()`：加载当前模式下的线程列表；
+ * 3. `useThreadStore.boot()`：加载当前模式下的会话列表；
  * 4. `useWorkspaceStore.loadRoot()`：加载工作区根目录文件树与 Git 状态；
- * 5. `useAppStore.refreshProviders()`：刷新提供商与模型列表，状态栏据此显示上下文占用；
+ * 5. `useAppStore.refreshProviders()`：刷新提供商与模型列表，输入区的上下文估算据此计算；
  * 6. `useTerminalStore.boot()`：恢复已有的终端会话。
  *
  * 启动完成后记录当时的模式。之后只要模式在 Code 与 Work 之间切换，
- * 就清空工作区缓存并重新加载线程与文件树，避免两个模式的数据互相串台。
+ * 就清空工作区缓存并重新加载会话与文件树，避免两个模式的数据互相串台。
  */
 import { useEffect, useRef } from "react";
 import { AppShell } from "./app/AppShell";
@@ -54,7 +54,7 @@ export default function App() {
   }, []);
 
   // 模式切换后的联动：旧模式的文件树、选中文件、草稿都属于旧工作区，必须整体重置，
-  // 再按新模式重新拉取线程列表与文件树。启动尚未完成时直接跳过。
+  // 再按新模式重新拉取会话列表与文件树。启动尚未完成时直接跳过。
   useEffect(() => {
     if (!bootedModeRef.current) {
       return;

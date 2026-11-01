@@ -139,7 +139,7 @@ func TestAutoTitleDoesNotOverwriteManualRename(t *testing.T) {
 	}
 }
 
-// createTitleThread 创建一个仍允许自动命名的线程，并写入首条用户消息。
+// createTitleThread 创建一个仍允许自动命名的会话，并写入首条用户消息。
 func (h *harness) createTitleThread(t *testing.T, text string) store.Thread {
 	t.Helper()
 	thread := store.Thread{

@@ -36,7 +36,7 @@ type ApprovalRequest struct {
 	ID string
 	// PartID 是审批卡片在消息中的部件标识。
 	PartID string
-	// ThreadID 是所属线程，用于事件归属与审计。
+	// ThreadID 是所属会话，用于事件归属与审计。
 	ThreadID string
 	// RunID 是触发审批的那次运行。
 	RunID string
@@ -162,7 +162,7 @@ func (a *Approvals) Allowed(tool, target string) bool {
 
 // Request 写入审批卡、挂起当前 run，直到前端回传决定或上下文取消。
 //
-// 流程固定为四步：登记内存等待表 → 写审批行 → 写 waiting 事件并切线程状态 →
+// 流程固定为四步：登记内存等待表 → 写审批行 → 写 waiting 事件并切会话状态 →
 // 阻塞等待 channel 或 ctx。任何一步失败都会清理已写入的状态，避免留下孤儿审批。
 func (a *Approvals) Request(ctx context.Context, request ApprovalRequest) (Outcome, error) {
 	// 容量为 1，保证 Resolve 即使先于 select 到达也不会永久阻塞。
@@ -210,12 +210,12 @@ func (a *Approvals) Request(ctx context.Context, request ApprovalRequest) (Outco
 		_ = a.db.ResolveApproval(request.ID, "canceled", "")
 		return Outcome{}, err
 	}
-	// 线程状态切到 awaiting，界面据此显示“等待确认”。
+	// 会话状态切到 awaiting，界面据此显示“等待确认”。
 	_ = a.records.SetThreadStatus(request.ThreadID, request.RunID, "awaiting")
 
 	select {
 	case decision := <-channel:
-		// 正常路径：Resolve 已经写好数据库与审计，这里只负责恢复线程状态并补一条决定事件。
+		// 正常路径：Resolve 已经写好数据库与审计，这里只负责恢复会话状态并补一条决定事件。
 		scope := decision.Scope
 		if scope == "" {
 			scope = "once"

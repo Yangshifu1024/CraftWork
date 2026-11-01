@@ -1,8 +1,8 @@
-// Package record 是线程事件写入与广播的唯一出口。
+// Package record 是会话事件写入与广播的唯一出口。
 //
 // 调用方不再分别调用 store.AppendEvent 与 events.Bus.Publish：
 // 一次 Append 同时完成序号分配、写入数据库与推送，部件类型到事件类型的
-// 映射也只存在于这里。本文件实现这个出口，并负责线程状态更新的
+// 映射也只存在于这里。本文件实现这个出口，并负责会话状态更新的
 // 写入数据库与广播。
 package record
 
@@ -65,7 +65,7 @@ func (r *Recorder) Emit(eventType, threadID, runID string, payload any) {
 	r.bus.Publish(eventType, threadID, runID, payload)
 }
 
-// SetThreadStatus 更新线程状态并广播 thread.updated。
+// SetThreadStatus 更新会话状态并广播 thread.updated。
 //
 // 先更新数据库，成功后才广播，保证前端看到的状态与持久化一致。
 func (r *Recorder) SetThreadStatus(threadID, runID, status string) error {
@@ -79,7 +79,7 @@ func (r *Recorder) SetThreadStatus(threadID, runID, status string) error {
 	return nil
 }
 
-// Flush 把线程内合并中的增量事件立即推送。
+// Flush 把会话内合并中的增量事件立即推送。
 //
 // 正常收尾时调用，避免最后的增量还停留在合并窗口里没有发出。
 func (r *Recorder) Flush(threadID string) {

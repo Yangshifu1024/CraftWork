@@ -6,7 +6,7 @@
 //   - 文本与推理增量在服务端按 33ms 合并且同一部件内合并，避免逐 token 通过进程间通信（IPC）传输；
 //   - 非增量事件（工具、审批、生命周期）立即推送，保证顺序语义。
 //
-// 本文件负责定义事件类型常量、事件信封与批量载荷，以及按线程缓冲、合并、
+// 本文件负责定义事件类型常量、事件信封与批量载荷，以及按会话缓冲、合并、
 // 节流推送的事件总线（Bus）。事件类型字符串与前端 src/lib/types.ts 必须
 // 保持一致，改动即视为协议变更。
 package events
@@ -50,7 +50,7 @@ const (
 	TypeContextCompressed = "context.compressed"
 	// TypeError 表示后台错误，前端以提示条或 toast 展示。
 	TypeError = "error"
-	// TypeThreadUpdated 表示线程元信息变化（标题、状态等）。
+	// TypeThreadUpdated 表示会话元信息变化（标题、状态等）。
 	TypeThreadUpdated = "thread.updated"
 	// TypeUsageUpdated 表示用量统计变化。
 	TypeUsageUpdated = "usage.updated"
@@ -70,11 +70,11 @@ const BatchName = "cw:events"
 
 // Envelope 是单个事件的公共字段。
 type Envelope struct {
-	// Seq 是线程内单调递增的序号，前端可据此发现丢失或乱序。
+	// Seq 是会话内单调递增的序号，前端可据此发现丢失或乱序。
 	Seq int64 `json:"seq"`
 	// Type 是事件类型，取值为本文件定义的 Type 常量。
 	Type string `json:"type"`
-	// ThreadID 是所属线程；全局事件可以为空。
+	// ThreadID 是所属会话；全局事件可以为空。
 	ThreadID string `json:"threadId,omitempty"`
 	// RunID 是所属运行；非运行期事件可以为空。
 	RunID string `json:"runId,omitempty"`
@@ -88,7 +88,7 @@ type Envelope struct {
 type Batch struct {
 	// V 是协议版本，当前固定为 1。
 	V int `json:"v"`
-	// ThreadID 是这批事件所属线程；批量推送按线程分组。
+	// ThreadID 是这批事件所属会话；批量推送按会话分组。
 	ThreadID string `json:"threadId,omitempty"`
 	// Events 是按产生顺序排列的事件。
 	Events []*Envelope `json:"events"`
@@ -114,9 +114,9 @@ type TerminalDelta struct {
 // Emitter 由调用方提供，通常是 Wails 的 app.Event.Emit 包装。
 type Emitter func(name string, data any)
 
-// Bus 按线程缓冲事件，并以固定节拍合并推送。
+// Bus 按会话缓冲事件，并以固定节拍合并推送。
 //
-// 线程缓冲保证同一线程内事件有序；合并只发生在相邻且属于同一部件的增量上，
+// 会话缓冲保证同一会话内事件有序；合并只发生在相邻且属于同一部件的增量上，
 // 其他事件到达时会把积压的增量一起冲刷，维持先后顺序。
 type Bus struct {
 	// emit 是实际推送函数，可为空（此时只缓冲不推送）。
@@ -124,9 +124,9 @@ type Bus struct {
 	// clock 是后台冲刷节拍，默认 33 毫秒。
 	clock time.Duration
 
-	// mu 保护 buffers、closed 与各线程缓冲。
+	// mu 保护 buffers、closed 与各会话缓冲。
 	mu sync.Mutex
-	// buffers 按线程保存待推送事件；没有缓冲的线程不会出现在这里。
+	// buffers 按会话保存待推送事件；没有缓冲的会话不会出现在这里。
 	buffers map[string]*threadBuffer
 	// closed 表示总线已关闭，关闭后的写入会被丢弃。
 	closed bool
@@ -134,9 +134,9 @@ type Bus struct {
 	done chan struct{}
 }
 
-// threadBuffer 是单个线程的待推送事件。
+// threadBuffer 是单个会话的待推送事件。
 type threadBuffer struct {
-	// seq 是该线程已分配的最大事件序号。
+	// seq 是该会话已分配的最大事件序号。
 	seq int64
 	// events 是尚未推送的事件，按产生顺序排列。
 	events []*Envelope
@@ -211,7 +211,7 @@ func (b *Bus) Publish(eventType, threadID, runID string, data any) {
 	}
 	isDelta = isDelta || isTerminal
 
-	// 分配线程内序号并入队。序号在锁内递增，保证同一线程严格单调。
+	// 分配会话内序号并入队。序号在锁内递增，保证同一会话严格单调。
 	buffer.seq++
 	envelope := &Envelope{
 		Seq:      buffer.seq,
@@ -240,7 +240,7 @@ func (b *Bus) Publish(eventType, threadID, runID string, data any) {
 	}
 }
 
-// Flush 立即推送指定线程的缓冲。没有缓冲时什么也不做。
+// Flush 立即推送指定会话的缓冲。没有缓冲时什么也不做。
 func (b *Bus) Flush(threadID string) {
 	b.mu.Lock()
 	buffer := b.buffers[threadID]
@@ -254,12 +254,12 @@ func (b *Bus) Flush(threadID string) {
 	b.emitBatch(threadID, pending)
 }
 
-// FlushAll 推送所有线程的缓冲。先在锁内把各线程缓冲摘下来，再在锁外逐个
-// 推送，避免推送过程阻塞其他线程写入。
+// FlushAll 推送所有会话的缓冲。先在锁内把各会话缓冲摘下来，再在锁外逐个
+// 推送，避免推送过程阻塞其他会话写入。
 func (b *Bus) FlushAll() {
 	b.mu.Lock()
 	type item struct {
-		// threadID 是这批事件所属线程。
+		// threadID 是这批事件所属会话。
 		threadID string
 		// events 是摘下来的待推送事件。
 		events []*Envelope
@@ -291,7 +291,7 @@ func (b *Bus) Close() {
 	b.FlushAll()
 }
 
-// loop 是后台冲刷协程：按固定节拍推送所有线程的缓冲，收到退出信号后结束。
+// loop 是后台冲刷协程：按固定节拍推送所有会话的缓冲，收到退出信号后结束。
 func (b *Bus) loop() {
 	ticker := time.NewTicker(b.clock)
 	defer ticker.Stop()

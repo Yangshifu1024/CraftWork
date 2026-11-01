@@ -5,7 +5,7 @@
  * Playwright 回归；需要真实后端时用 server 模式（`task run:server`）或桌面端。
  * 它不读写磁盘，所有数据都在内存中。
  *
- * 启动流程：模块加载时就把下列内存数据（设置、工作区、线程、文件、消息、审计、用量等）
+ * 启动流程：模块加载时就把下列内存数据（设置、工作区、会话、文件、消息、审计、用量等）
  * 准备好；界面调用 `api.*` 时直接读写这些对象。
  * 事件模拟：发送消息后 `simulateRun` 按「推理 → 正文 → 工具 → 审批 → 收尾」的顺序
  * 逐个派发事件批次，让前端走和真实后端完全相同的处理路径。
@@ -41,7 +41,7 @@ const now = Date.now();
 
 /** Mock 的设置对象：界面保存设置时直接合并到这里，刷新页面后恢复初始值。 */
 const settings: Settings = {
-  theme: "dark",
+  theme: "system",
   mode: "code",
   panelWidth: 320,
   approvalLevel: "graded",
@@ -70,7 +70,7 @@ const workspaces: WorkspaceView[] = [
   },
 ];
 
-/** Mock 线程：按模式分组，Code 与 Work 各两条，用于展示列表、搜索与模式切换联动。 */
+/** Mock 会话：按模式分组，Code 与 Work 各两条，用于展示列表、搜索与模式切换联动。 */
 const threads: Record<string, ThreadView[]> = {
   code: [
     {
@@ -83,6 +83,9 @@ const threads: Record<string, ThreadView[]> = {
       status: "idle",
       archived: false,
       tokens: 18420,
+      contextTokens: 9210,
+      contextCacheTokens: 8140,
+      contextSpeed: 38.6,
       createdAt: now - 3600000,
       updatedAt: now - 120000,
     },
@@ -96,6 +99,9 @@ const threads: Record<string, ThreadView[]> = {
       status: "idle",
       archived: false,
       tokens: 7310,
+      contextTokens: 5120,
+      contextCacheTokens: 4310,
+      contextSpeed: 45.2,
       createdAt: now - 7200000,
       updatedAt: now - 3600000,
     },
@@ -111,6 +117,9 @@ const threads: Record<string, ThreadView[]> = {
       status: "idle",
       archived: false,
       tokens: 9640,
+      contextTokens: 6480,
+      contextCacheTokens: 5940,
+      contextSpeed: 31.4,
       createdAt: now - 86400000,
       updatedAt: now - 1800000,
     },
@@ -124,6 +133,9 @@ const threads: Record<string, ThreadView[]> = {
       status: "idle",
       archived: false,
       tokens: 4120,
+      contextTokens: 2860,
+      contextCacheTokens: 2310,
+      contextSpeed: 52.7,
       createdAt: now - 86400000 * 2,
       updatedAt: now - 7200000,
     },
@@ -210,7 +222,7 @@ function assistantMessage(id: string, threadId: string, parts: ChatPart[]): Chat
   };
 }
 
-/** Mock 对话消息：线程 ID 到消息列表的映射，包含文本、推理与工具调用三类片段。 */
+/** Mock 对话消息：会话 ID 到消息列表的映射，包含文本、推理与工具调用三类片段。 */
 const messages: Record<string, ChatMessage[]> = {
   th_code_1: [
     {
@@ -235,7 +247,7 @@ const messages: Record<string, ChatMessage[]> = {
       role: "user",
       status: "complete",
       createdAt: now - 3700000,
-      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "线程搜索现在只能匹配标题，怎么补上消息内容命中？" } }],
+      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "会话搜索现在只能匹配标题，怎么补上消息内容命中？" } }],
     },
     assistantMessage("m2_assistant", "th_code_2", [
       { id: "p2", kind: "text", seq: 2, data: { text: "搜索入口在 `internal/service/threads.go`，现在只查 `threads.title`。\n\n建议用 `LEFT JOIN events` 对 `payload` 做 `LIKE`，并对 `thread_id + updated_at` 建索引；中文查询不需要额外分词，子串匹配即可满足 F-TH-03。" } },
@@ -385,9 +397,9 @@ const catalogModels: Record<string, CatalogModelView[]> = {
 const terminalSessions: TerminalView[] = [];
 /** 终端会话自增编号，用于生成 `term_1` 这类稳定的 ID。 */
 let terminalCounter = 0;
-/** 已被用户取消运行的线程 ID 集合；`simulateRun` 在每个阶段之间检查它。 */
+/** 已被用户取消运行的会话 ID 集合；`simulateRun` 在每个阶段之间检查它。 */
 const cancelled = new Set<string>();
-/** 仍允许首轮自动命名的线程 ID；用户改名或完成命名后移除。 */
+/** 仍允许首轮自动命名的会话 ID；用户改名或完成命名后移除。 */
 const autoTitleThreads = new Set<string>();
 /**
  * 待审批请求的放行函数：审批 ID 到 resolve 函数的映射。
@@ -395,22 +407,22 @@ const autoTitleThreads = new Set<string>();
  */
 const approvalResolvers = new Map<string, (allow: boolean) => void>();
 
-/** 在 Code 与 Work 两个模式的线程列表里查找指定线程。 */
+/** 在 Code 与 Work 两个模式的会话列表里查找指定会话。 */
 function findThread(threadID: string): ThreadView | undefined {
   return [...threads.code, ...threads.work].find((thread) => thread.id === threadID);
 }
 
 /**
- * 组装一个线程快照。
+ * 组装一个会话快照。
  *
- * 快照包含线程本身、全部消息、事件序号、待审批列表与分页标记。
+ * 快照包含会话本身、全部消息、事件序号、待审批列表与分页标记。
  * 这里把所有仍在 waiting 的审批片段收集成审批列表，让界面刷新后也能恢复待审批状态；
- * 线程不存在时抛出错误，由调用方转成用户可读的提示。
+ * 会话不存在时抛出错误，由调用方转成用户可读的提示。
  */
 function snapshot(threadID: string): ThreadSnapshot {
   const thread = findThread(threadID);
   if (!thread) {
-    throw new Error("线程不存在");
+    throw new Error("会话不存在");
   }
   const list = messages[threadID] ?? [];
   const approvals = list.flatMap((message) =>
@@ -492,7 +504,7 @@ function addPart(threadID: string, messageID: string, part: ChatPart): void {
  * 5. 如果用户消息里出现「修改 / 修复 / bug / 超时」等关键词，再模拟一次文件编辑：
  *    派发 `approvalRequested` 后挂起，直到 `decideApproval` 放行，
  *    然后按用户的选择派发 `approvalResolved` 与工具结果，并补一段收尾正文；
- * 6. 收尾：把线程状态改回 idle，派发 `runCompleted` 与 `threadUpdated`。
+ * 6. 收尾：把会话状态改回 idle，派发 `runCompleted` 与 `threadUpdated`。
  *
  * 每个阶段之间都检查 `cancelled`：一旦用户取消，立刻停止派发剩余事件。
  */
@@ -630,7 +642,24 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
 
   thread.status = "idle";
   thread.updatedAt = Date.now();
+  // 模拟一轮用量：tokens 走累加语义，上下文占用与速度走覆盖语义，
+  // 让预览环境的圆环、速度与详情面板和真实后端行为一致。
+  const usageInput = 1200 + Math.round(Math.random() * 400);
+  const usageOutput = 180 + Math.round(Math.random() * 120);
+  thread.tokens += usageInput + usageOutput;
+  thread.contextTokens = usageInput + usageOutput;
+  thread.contextCacheTokens = usageInput - 200;
+  thread.contextSpeed = Math.round((usageOutput / 2.4) * 10) / 10;
   dispatch(batch(thread.id, [
+    envelope(EVENT.usageUpdated, thread.id, runID, {
+      inputTokens: usageInput,
+      outputTokens: usageOutput,
+      costMicros: 0,
+      contextTokens: usageInput + usageOutput,
+      cacheTokens: usageInput - 200,
+      durationMs: 2400,
+      tokensPerSecond: Math.round((usageOutput / 2.4) * 10) / 10,
+    }),
     envelope(EVENT.runCompleted, thread.id, runID, { status: "done" }),
     envelope(EVENT.threadUpdated, thread.id, runID, { threadId: thread.id, status: "idle", thread: { ...thread } }),
   ]));
@@ -728,12 +757,12 @@ export const mockApi: Api = {
       return { ...settings };
     },
   },
-  /** 线程读写：列表、搜索、新建、重命名、切换模型、归档、删除与分页快照。 */
+  /** 会话读写：列表、搜索、新建、重命名、切换模型、归档、删除与分页快照。 */
   threads: {
-    /** 按模式列出线程，默认过滤掉已归档线程。 */
+    /** 按模式列出会话，默认过滤掉已归档会话。 */
     list: async (mode, includeArchived = false) =>
       (threads[mode] ?? []).filter((thread) => includeArchived || !thread.archived).map((thread) => ({ ...thread })),
-    /** 搜索线程：标题命中或任意消息文本命中都算匹配，对应产品需求里的「搜标题 + 搜内容」。 */
+    /** 搜索会话：标题命中或任意消息文本命中都算匹配，对应产品需求里的「搜标题 + 搜内容」。 */
     search: async (mode, query) => {
       const keyword = query.trim().toLowerCase();
       return (threads[mode] ?? []).filter((thread) => {
@@ -745,12 +774,13 @@ export const mockApi: Api = {
         );
       }).map((thread) => ({ ...thread }));
     },
-    /** 新建线程：插到列表最前，默认标题为「新对话」，并初始化空消息列表。 */
+    /** 新建会话：插到列表最前，默认标题为「新对话」，并初始化空消息列表。 */
     create: async (mode, workspaceID, title) => {
       const thread: ThreadView = {
         id: uid("th"), mode, title: title || "新对话", modelId: settings.defaultModel,
         modelName: "GPT-5.1", workspaceId: workspaceID, status: "idle", archived: false,
-        tokens: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        tokens: 0, contextTokens: 0, contextCacheTokens: 0, contextSpeed: 0,
+        createdAt: Date.now(), updatedAt: Date.now(),
       };
       threads[mode] = [thread, ...(threads[mode] ?? [])];
       messages[thread.id] = [];
@@ -759,7 +789,7 @@ export const mockApi: Api = {
       }
       return { ...thread };
     },
-    /** 重命名线程并刷新更新时间。 */
+    /** 重命名会话并刷新更新时间。 */
     rename: async (threadID, title) => {
       const thread = findThread(threadID);
       if (thread) {
@@ -768,21 +798,21 @@ export const mockApi: Api = {
         autoTitleThreads.delete(threadID);
       }
     },
-    /** 切换线程使用的模型。 */
+    /** 切换会话使用的模型。 */
     setModel: async (threadID, modelID) => {
       const thread = findThread(threadID);
       if (thread) {
         thread.modelId = modelID;
       }
     },
-    /** 归档或取消归档线程；归档后的线程默认不出现在列表里。 */
+    /** 归档或取消归档会话；归档后的会话默认不出现在列表里。 */
     archive: async (threadID, archived) => {
       const thread = findThread(threadID);
       if (thread) {
         thread.archived = archived;
       }
     },
-    /** 彻底删除线程：从两个模式的列表和消息表里一并移除。 */
+    /** 彻底删除会话：从两个模式的列表和消息表里一并移除。 */
     remove: async (threadID) => {
       threads.code = threads.code.filter((thread) => thread.id !== threadID);
       threads.work = threads.work.filter((thread) => thread.id !== threadID);
@@ -819,7 +849,7 @@ export const mockApi: Api = {
     send: async (threadID, text, attachments: string[] = []) => {
       const thread = findThread(threadID);
       if (!thread) {
-        throw new Error("线程不存在");
+        throw new Error("会话不存在");
       }
       messages[threadID] = [
         ...(messages[threadID] ?? []),
@@ -854,7 +884,7 @@ export const mockApi: Api = {
     regenerate: async (threadID) => {
       const thread = findThread(threadID);
       if (!thread) {
-        throw new Error("线程不存在");
+        throw new Error("会话不存在");
       }
       const lastUser = (messages[threadID] ?? []).filter((message) => message.role === "user").pop();
       const text = String(lastUser?.parts[0]?.data?.text ?? "");
@@ -862,7 +892,7 @@ export const mockApi: Api = {
       void simulateRun(thread, text);
       return runID;
     },
-    /** 取消运行：把线程记入 `cancelled`，正在流式输出的模拟循环会在下一片之前停下。 */
+    /** 取消运行：把会话记入 `cancelled`，正在流式输出的模拟循环会在下一片之前停下。 */
     cancel: async (threadID) => {
       cancelled.add(threadID);
       const thread = findThread(threadID);
@@ -930,6 +960,22 @@ export const mockApi: Api = {
     /** 写入文件：直接覆盖内存中的内容，不模拟哈希校验与「外部修改」冲突。 */
     writeFile: async (_workspaceID, path, content) => {
       files[path] = content;
+    },
+    /** 按文件名或路径后缀在已登记的文件里找唯一匹配，模拟后端的短路径解析。 */
+    locateFile: async (_workspaceID, path) => {
+      const clean = path.replace(/^\.\//, "").replace(/^\//, "");
+      if (clean in files) {
+        return clean;
+      }
+      const bySuffix = Object.keys(files).filter((key) => key.endsWith(`/${clean}`) || key === clean);
+      const byName = Object.keys(files).filter((key) => key.split("/").pop() === clean.split("/").pop());
+      if (bySuffix.length === 1) {
+        return bySuffix[0];
+      }
+      if (byName.length === 1) {
+        return byName[0];
+      }
+      throw new Error(bySuffix.length > 1 || byName.length > 1 ? `路径 ${path} 匹配到多个文件` : `找不到 ${path}`);
     },
     /** 计算差异，具体算法见 `computeDiff`。 */
     computeDiff: async (oldText, newText) => computeDiff(oldText, newText),
@@ -1214,7 +1260,7 @@ export const mockApi: Api = {
      * 新建终端会话。
      *
      * 创建后延迟 120ms 推送一条提示符输出，模拟 shell 启动完成；
-     * 批次所属的线程 ID 使用 `terminal:<会话ID>` 的形式，与终端事件约定保持一致。
+     * 批次所属的会话 ID 使用 `terminal:<会话ID>` 的形式，与终端事件约定保持一致。
      */
     create: async (name, cwd) => {
       terminalCounter += 1;

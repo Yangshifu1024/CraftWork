@@ -1,5 +1,5 @@
-// 本文件负责审批行的持久化：创建等待中的审批、记录用户决定、查询单条或线程内的
-// 待审批，以及在线程取消时批量关闭未决审批。
+// 本文件负责审批行的持久化：创建等待中的审批、记录用户决定、查询单条或会话内的
+// 待审批，以及在会话取消时批量关闭未决审批。
 //
 // 审批行的 decision 为空表示仍在等待；一旦写入决定就不再允许修改。
 
@@ -66,7 +66,7 @@ func (db *DB) GetApproval(id string) (*Approval, error) {
 	return &approval, nil
 }
 
-// PendingApprovals 返回线程内等待中的审批。
+// PendingApprovals 返回会话内等待中的审批。
 func (db *DB) PendingApprovals(threadID string) ([]Approval, error) {
 	rows, err := db.sqlDB.Query(
 		`SELECT id, thread_id, run_id, tool_call_id, tool, risk,
@@ -90,14 +90,14 @@ func (db *DB) PendingApprovals(threadID string) ([]Approval, error) {
 	return result, rows.Err()
 }
 
-// CancelThreadApprovals 取消线程内所有等待中的审批。
+// CancelThreadApprovals 取消会话内所有等待中的审批。
 func (db *DB) CancelThreadApprovals(threadID string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 	if _, err := db.sqlDB.Exec(
 		`UPDATE approvals SET decision = 'canceled', decided_at = ?
 		 WHERE thread_id = ? AND decision IS NULL`, nowMillis(), threadID); err != nil {
-		return fmt.Errorf("取消线程审批: %w", err)
+		return fmt.Errorf("取消会话审批: %w", err)
 	}
 	return nil
 }

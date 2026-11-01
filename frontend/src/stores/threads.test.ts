@@ -40,13 +40,16 @@ const { useAppStore } = await import("./app");
 const thread: ThreadView = {
   id: "th",
   mode: "code",
-  title: "测试线程",
+  title: "测试会话",
   modelId: "openai/gpt-5.1",
   modelName: "GPT-5.1",
   workspaceId: "ws",
   status: "idle",
   archived: false,
   tokens: 0,
+  contextTokens: 0,
+  contextCacheTokens: 0,
+  contextSpeed: 0,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -84,7 +87,7 @@ beforeEach(() => {
   });
 });
 
-describe("线程事件归约", () => {
+describe("会话事件归约", () => {
   it("合并文本增量并在完成事件后写入完整文本", () => {
     const store = useThreadStore.getState();
     store.applyBatch(batch(envelope(EVENT.runStarted, { messageId: "msg_1" })));
@@ -178,8 +181,8 @@ describe("线程事件归约", () => {
   });
 });
 
-describe("线程分页", () => {
-  it("选择线程时加载最新一页并记录 hasEarlier", async () => {
+describe("会话分页", () => {
+  it("选择会话时加载最新一页并记录 hasEarlier", async () => {
     const snapshot: ThreadSnapshot = {
       thread: { ...thread, mode: "code" as const },
       messages: [message("m_latest", "user", [{ id: "p1", kind: "text", seq: 10, data: { text: "最新" } }])],

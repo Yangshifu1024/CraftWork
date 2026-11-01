@@ -31,9 +31,9 @@ const titleSystemPrompt = `你是会话标题生成器。根据用户的第一�
 - 不要引号、书名号、句号或“标题：”前缀；
 - 只输出标题本身，不要解释。`
 
-// autoTitle 与第一轮模型请求并行生成标题，并广播线程更新。
+// autoTitle 与第一轮模型请求并行生成标题，并广播会话更新。
 //
-// 只有仍允许自动命名且标题仍为“新对话”的线程才会进入。模型调用失败、
+// 只有仍允许自动命名且标题仍为“新对话”的会话才会进入。模型调用失败、
 // 超时或返回空文本时，使用首条用户消息提取降级标题。
 func (r *Runner) autoTitle(thread store.Thread, modelRef string) {
 	r.mu.Lock()
@@ -49,7 +49,7 @@ func (r *Runner) autoTitle(thread store.Thread, modelRef string) {
 		r.mu.Unlock()
 	}()
 
-	// 传入的线程可能是运行开始时的快照；重新读取，避免覆盖刚刚完成的手动改名。
+	// 传入的会话可能是运行开始时的快照；重新读取，避免覆盖刚刚完成的手动改名。
 	current, err := r.db.GetThread(thread.ID)
 	if err != nil || !current.TitleAuto || current.Title != title.Default {
 		return
@@ -70,8 +70,9 @@ func (r *Runner) autoTitle(thread store.Thread, modelRef string) {
 		defer cancel()
 		generated, usage = r.generateTitle(ctx, modelRef, userText)
 		if usage != nil {
-			// 标题调用同样消耗 token，计入用量与费用，保持统计透明。
-			r.recordUsage(*current, "", modelRef, usage)
+			// 标题调用同样消耗 token，计入用量与费用，保持统计透明；
+			// 标记为 sidecar，避免覆盖主对话的上下文占用水位。
+			r.recordUsage(*current, "", modelRef, usage, 0, true)
 		}
 	}
 	if generated == "" {
@@ -83,7 +84,7 @@ func (r *Runner) autoTitle(thread store.Thread, modelRef string) {
 
 	changed, err := r.db.AutoTitleThread(current.ID, generated, title.Default)
 	if err != nil {
-		slog.Warn("自动命名线程失败", "thread", current.ID, "err", err)
+		slog.Warn("自动命名会话失败", "thread", current.ID, "err", err)
 		return
 	}
 	if !changed {

@@ -1,15 +1,15 @@
-// 本文件定义存储层的数据结构：线程、工作区、消息与部件、事件、运行、审批、
+// 本文件定义存储层的数据结构：会话、工作区、消息与部件、事件、运行、审批、
 // 审计、用量、备份与快照。
 //
 // 这些结构同时是返回给前端的 JSON 形状，字段标签与 internal/events 的载荷保持一致。
 
 package store
 
-// Thread 是一个对话线程。mode 取 code / work。
+// Thread 是一个对话会话。mode 取 code / work。
 type Thread struct {
-	// ID 是线程的唯一标识。
+	// ID 是会话的唯一标识。
 	ID string `json:"id"`
-	// Mode 是线程所属模式，取值为 code 或 work。
+	// Mode 是会话所属模式，取值为 code 或 work。
 	Mode string `json:"mode"`
 	// Title 是侧边栏展示的标题。
 	Title string `json:"title"`
@@ -19,11 +19,11 @@ type Thread struct {
 	ModelID string `json:"modelId"`
 	// WorkspaceID 是绑定的工作区标识，可为空。
 	WorkspaceID string `json:"workspaceId"`
-	// Status 是线程运行状态，取值为 idle / running / awaiting / error。
+	// Status 是会话运行状态，取值为 idle / running / awaiting / error。
 	Status string `json:"status"` // idle / running / awaiting / error
-	// Archived 表示线程是否已归档。
+	// Archived 表示会话是否已归档。
 	Archived bool `json:"archived"`
-	// Tokens 是该线程累计消耗的 token 数。
+	// Tokens 是该会话累计消耗的 token 数。
 	Tokens int64 `json:"tokens"`
 	// CreatedAt 是创建时间，毫秒时间戳。
 	CreatedAt int64 `json:"createdAt"`
@@ -51,7 +51,7 @@ type Workspace struct {
 type Message struct {
 	// ID 是消息标识，同时用于把事件归组。
 	ID string `json:"id"`
-	// ThreadID 是所属线程。
+	// ThreadID 是所属会话。
 	ThreadID string `json:"threadId"`
 	// Role 是消息角色，取值为 user / assistant。
 	Role string `json:"role"` // user / assistant
@@ -70,7 +70,7 @@ type Part struct {
 	ID string `json:"id"`
 	// Kind 是部件类型，例如 text、reasoning、tool、approval。
 	Kind string `json:"kind"`
-	// Seq 是事件在线程内的序号，前端用它排序与断点续传。
+	// Seq 是事件在会话内的序号，前端用它排序与断点续传。
 	Seq int64 `json:"seq"`
 	// Data 是部件的具体内容，形状由 Kind 决定。
 	Data any `json:"data"`
@@ -80,7 +80,7 @@ type Part struct {
 type EventRecord struct {
 	// ID 是事件标识，通常与部件 ID 相同。
 	ID string
-	// ThreadID 是事件所属线程，序号按线程分配。
+	// ThreadID 是事件所属会话，序号按会话分配。
 	ThreadID string
 	// MessageID 是事件归属的消息。
 	MessageID string
@@ -98,7 +98,7 @@ type EventRecord struct {
 type Run struct {
 	// ID 是运行的唯一标识。
 	ID string `json:"id"`
-	// ThreadID 是所属线程。
+	// ThreadID 是所属会话。
 	ThreadID string `json:"threadId"`
 	// MessageID 是本次运行产出回复对应的消息。
 	MessageID string `json:"messageId"`
@@ -120,7 +120,7 @@ type Run struct {
 type Approval struct {
 	// ID 是审批的唯一标识。
 	ID string `json:"id"`
-	// ThreadID 是所属线程。
+	// ThreadID 是所属会话。
 	ThreadID string `json:"threadId"`
 	// RunID 是触发审批的那次运行。
 	RunID string `json:"runId"`
@@ -146,7 +146,7 @@ type AuditEntry struct {
 	ID int64 `json:"id"`
 	// TS 是记录时间，毫秒时间戳。
 	TS int64 `json:"ts"`
-	// ThreadID 是所属线程，可为空。
+	// ThreadID 是所属会话，可为空。
 	ThreadID string `json:"threadId"`
 	// RunID 是所属运行，可为空。
 	RunID string `json:"runId"`
@@ -168,7 +168,7 @@ type UsageRow struct {
 	ID int64 `json:"id"`
 	// TS 是记录时间，毫秒时间戳。
 	TS int64 `json:"ts"`
-	// ThreadID 是所属线程。
+	// ThreadID 是所属会话。
 	ThreadID string `json:"threadId"`
 	// ModelID 是实际使用的模型标识。
 	ModelID string `json:"modelId"`
@@ -182,6 +182,9 @@ type UsageRow struct {
 	ReasoningTokens int64 `json:"reasoningTokens"`
 	// CostMicros 是按模型价格换算的费用，单位是百万分之一货币单位。
 	CostMicros int64 `json:"costMicros"`
+	// DurationMs 是本次模型调用的墙钟耗时，用于计算输出速度；旧记录与
+	// sidecar 调用为 0，表示速度未知。
+	DurationMs int64 `json:"durationMs,omitempty"`
 }
 
 // UsageSummary 是设置页与审计面板使用的聚合。
@@ -256,15 +259,15 @@ type Backup struct {
 	CreatedAt int64 `json:"createdAt"`
 }
 
-// Snapshot 是线程的完整视图：线程本身、消息与事件序号。
+// Snapshot 是会话的完整视图：会话本身、消息与事件序号。
 type Snapshot struct {
-	// Thread 是线程本身的属性。
+	// Thread 是会话本身的属性。
 	Thread Thread `json:"thread"`
 	// Messages 是按创建顺序排列的消息，每条消息都带有部件。
 	Messages []Message `json:"messages"`
-	// LastSeq 是当前线程最大的事件序号，前端据此接续增量事件。
+	// LastSeq 是当前会话最大的事件序号，前端据此接续增量事件。
 	LastSeq int64 `json:"lastSeq"`
-	// Approvals 是线程内尚未决定的审批。
+	// Approvals 是会话内尚未决定的审批。
 	Approvals []Approval `json:"approvals"`
 	// HasMore 表示当前页之前还有更早的消息。
 	HasMore bool `json:"hasMore"`

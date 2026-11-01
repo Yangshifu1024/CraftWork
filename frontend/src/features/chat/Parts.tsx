@@ -32,6 +32,7 @@ const levelLabel: Record<string, string> = {
   graded: "分级",
   strict: "严格",
   readonly: "只读",
+  free: "自由",
 };
 
 /**
@@ -276,12 +277,15 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const previewLinesValue = hasDiffPreview ? previewLines(oldText, newText) : [];
 
   // 档位说明跟随设置变化，告诉用户当前档位会如何影响这次决定。
+  // 自由档位下不会再产生新的审批卡，这里只可能出现在看历史记录时。
   const note =
     level === "strict"
       ? "严格档位：所有写入与执行逐次询问，不提供永久允许"
       : level === "readonly"
         ? "只读档位：写入与执行会被阻止"
-        : "默认选中“拒绝”；Esc 拒绝；R3 / R4 不提供永久允许";
+        : level === "free"
+          ? "自由档位：所有操作自动放行，不再弹出审批"
+          : "默认选中“拒绝”；Esc 拒绝；R3 / R4 不提供永久允许";
 
   return (
     <div
@@ -440,8 +444,8 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
 const errorHints: Record<string, string> = {
   auth: "密钥无效或权限不足：请在设置 → 模型 → 提供商中重新保存 API Key，并确认该 Key 允许调用模型。",
   rate_limit: "请求被限流或额度不足：请稍后重试，或在设置中切换其他模型。",
-  timeout: "模型响应超时：可以重试；长对话可先精简历史或新建线程。",
-  context_overflow: "输入超出模型上下文窗口：请新建线程、精简历史，或切换到上下文更大的模型。",
+  timeout: "模型响应超时：可以重试；长对话可先精简历史或新建会话。",
+  context_overflow: "输入超出模型上下文窗口：请新建会话、精简历史，或切换到上下文更大的模型。",
   provider_unavailable: "模型服务暂时不可用：请稍后重试，或切换到其他提供商。",
   invalid_request: "请求参数不被模型接受：请检查模型名称、端点与工具配置。",
   interrupted: "上次运行在应用退出时中断，已保留已产生的消息；可以点击重试继续。",

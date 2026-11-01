@@ -4,7 +4,7 @@
  * 职责：
  * - 用 `AssistantRuntimeProvider` 把 runtime 提供给整棵聊天组件树。
  * - 组装消息头、滚动视口、消息列表、输入框与拖拽附件遮罩。
- * - 线程为空时显示对应模式的引导文案与快捷提示句。
+ * - 会话为空时显示对应模式的引导文案与快捷提示句。
  * - 负责滚动相关交互：是否显示“回到底部”、点击后平滑滚动到末尾。
  * - 负责拖拽文件到聊天区添加附件。
  */
@@ -18,7 +18,7 @@ import { Composer } from "./Composer";
 import { MessageView } from "./MessageView";
 import { useChatRuntime } from "./runtime";
 
-/** 空线程时按模式展示的快捷提示句；点击后会直接作为一条用户消息发送。 */
+/** 空会话时按模式展示的快捷提示句；点击后会直接作为一条用户消息发送。 */
 const suggestions: Record<string, string[]> = {
   code: ["解释这个仓库的结构", "运行测试并修复失败用例", "为当前分支写一份变更摘要"],
   work: ["总结这份文档的要点", "把会议纪要整理成待办表", "草拟一封回复邮件"],
@@ -27,7 +27,7 @@ const suggestions: Record<string, string[]> = {
 /**
  * 聊天主区域组件。
  *
- * props：无，模式与线程数据来自全局 store，运行时由 useChatRuntime 创建。
+ * props：无，模式与会话数据来自全局 store，运行时由 useChatRuntime 创建。
  *
  * 关键状态：
  * - `atBottom`：视口是否贴近底部（阈值 80 像素），用于决定是否显示“回到底部”按钮。
@@ -105,7 +105,7 @@ export function ChatPane() {
               </ThreadPrimitive.LoadEarlier>
             ) : null}
 
-            {/* 空线程引导：标题、说明与按模式区分的快捷提示句。 */}
+            {/* 空会话引导：标题、说明与按模式区分的快捷提示句。 */}
             {messages.length === 0 ? (
               <div className="chat-empty">
                 <span className="empty-mark">

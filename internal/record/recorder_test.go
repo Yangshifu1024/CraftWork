@@ -113,7 +113,7 @@ func TestSetThreadStatusUpdatesAndBroadcasts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if thread.Status != "running" {
-		t.Fatalf("线程状态未更新: %s", thread.Status)
+		t.Fatalf("会话状态未更新: %s", thread.Status)
 	}
 	if len(*names) != 1 || (*names)[0] != events.TypeThreadUpdated {
 		t.Fatalf("应广播 thread.updated，实际 %v", *names)

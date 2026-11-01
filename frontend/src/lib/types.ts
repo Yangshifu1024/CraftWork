@@ -2,7 +2,7 @@
  * 前端共享类型层。
  *
  * 三类内容集中在这里：
- * 1. 直接复用 Go 生成的类型（应用信息、设置、线程视图、用量等）；
+ * 1. 直接复用 Go 生成的类型（应用信息、设置、会话视图、用量等）；
  * 2. 前端专用的视图类型与字面量联合类型（消息、部件、事件信封等）；
  * 3. `EVENT` 事件名常量，Go 侧推送事件与前端订阅必须使用同一套字符串。
  *
@@ -114,14 +114,14 @@ export interface UsageSummary extends Omit<ApiUsageSummary, "byModel" | "byDay">
   byDay: DailyUsage[];
 }
 
-/** 工作模式：`code` 面向编码任务，`work` 面向办公任务，两者各有线程列表。 */
+/** 工作模式：`code` 面向编码任务，`work` 面向办公任务，两者各有会话列表。 */
 export type Mode = "code" | "work";
 /** 右侧面板的页签：文件、差异、终端、文档。 */
 export type PanelTab = "files" | "diff" | "terminal" | "document";
-/** 界面主题。 */
-export type Theme = "dark" | "light";
-/** 审批档位：分级审批、严格审批、只读。 */
-export type ApprovalLevel = "graded" | "strict" | "readonly";
+/** 界面主题：跟随系统、深色或浅色。 */
+export type Theme = "dark" | "light" | "system";
+/** 审批档位：分级审批、严格审批、只读、自由（放行一切，切换前需确认）。 */
+export type ApprovalLevel = "graded" | "strict" | "readonly" | "free";
 /** 消息角色。 */
 export type MessageRole = "user" | "assistant";
 /** 消息状态：流式输出中、正常完成、被取消、出错。 */
@@ -157,7 +157,7 @@ export interface ChatPart {
   data: any;
 }
 
-/** 聊天消息：归属某个线程，带角色、状态、创建时间与部件列表。 */
+/** 聊天消息：归属某个会话，带角色、状态、创建时间与部件列表。 */
 export interface ChatMessage {
   id: string;
   threadId: string;
@@ -264,8 +264,8 @@ export interface NoticePartData {
 /**
  * 事件信封。
  *
- * `seq` 在同一线程内单调递增，`type` 对应 `EVENT` 里的字符串；
- * `threadId` 标记事件归属，终端事件使用 `terminal:` 前缀的伪线程 id。
+ * `seq` 在同一会话内单调递增，`type` 对应 `EVENT` 里的字符串；
+ * `threadId` 标记事件归属，终端事件使用 `terminal:` 前缀的伪会话 id。
  */
 export interface Envelope {
   seq: number;
@@ -290,7 +290,7 @@ export interface AttachmentInfo {
   size?: number;
 }
 
-/** 线程快照直接使用 Go 生成的类型，避免前端手写镜像。 */
+/** 会话快照直接使用 Go 生成的类型，避免前端手写镜像。 */
 export type ThreadSnapshot = Snapshot;
 
 /**
@@ -320,7 +320,7 @@ export const EVENT = {
   notice: "notice",
   contextCompressed: "context.compressed",
   error: "error",
-  // 线程与用量统计。
+  // 会话与用量统计。
   threadUpdated: "thread.updated",
   usageUpdated: "usage.updated",
   // 应用级广播与终端事件。

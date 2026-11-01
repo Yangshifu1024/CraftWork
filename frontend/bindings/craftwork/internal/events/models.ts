@@ -11,7 +11,7 @@ export interface Batch {
     "v": number;
 
     /**
-     * ThreadID 是这批事件所属线程；批量推送按线程分组。
+     * ThreadID 是这批事件所属会话；批量推送按会话分组。
      */
     "threadId"?: string;
 
@@ -26,7 +26,7 @@ export interface Batch {
  */
 export interface Envelope {
     /**
-     * Seq 是线程内单调递增的序号，前端可据此发现丢失或乱序。
+     * Seq 是会话内单调递增的序号，前端可据此发现丢失或乱序。
      */
     "seq": number;
 
@@ -36,7 +36,7 @@ export interface Envelope {
     "type": string;
 
     /**
-     * ThreadID 是所属线程；全局事件可以为空。
+     * ThreadID 是所属会话；全局事件可以为空。
      */
     "threadId"?: string;
 

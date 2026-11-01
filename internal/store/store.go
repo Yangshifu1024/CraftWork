@@ -1,7 +1,7 @@
 // 本文件负责 SQLite 存储的打开、关闭与迁移：建立数据目录、配置连接参数、
 // 按版本执行建表语句，并提供数据库对象的公共入口。
 //
-// 具体的数据读写分散在同包的其他文件里（线程、事件、审批、审计、用量等）。
+// 具体的数据读写分散在同包的其他文件里（会话、事件、审批、审计、用量等）。
 
 package store
 
@@ -99,6 +99,16 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("执行数据库迁移 v2: %w", err)
 		}
 	}
+	if version < 3 {
+		if _, err := tx.Exec(schemaV3); err != nil {
+			return fmt.Errorf("执行数据库迁移 v3: %w", err)
+		}
+	}
+	if version < 4 {
+		if _, err := tx.Exec(schemaV4); err != nil {
+			return fmt.Errorf("执行数据库迁移 v4: %w", err)
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("写入数据库版本: %w", err)
 	}
@@ -109,9 +119,25 @@ func (db *DB) migrate() error {
 }
 
 // schemaVersion 是当前数据库结构版本，对应 PRAGMA user_version。
-const schemaVersion = 2
+const schemaVersion = 4
 
-// schemaV1 是第 1 版数据库结构：线程、工作区、事件、运行、审批、审计、
+// schemaV3 是第 3 版数据库结构：给用量表加会话维度索引。
+//
+// 上下文占用显示需要按会话取最近一次用量，没有该索引时每次列表
+// 刷新都要全表扫描。
+const schemaV3 = `
+CREATE INDEX IF NOT EXISTS usage_thread ON usage(thread_id, ts DESC);
+`
+
+// schemaV4 是第 4 版数据库结构：用量表补记模型调用耗时。
+//
+// 输出速度 = 输出 token ÷ 调用耗时，把耗时落库才能在重启或重新拉取
+// 会话列表后继续展示最近一轮的真实速度，而不是显示为空。
+const schemaV4 = `
+ALTER TABLE usage ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV1 是第 1 版数据库结构：会话、工作区、事件、运行、审批、审计、
 // 用量、设置与备份九张表，以及配套索引。
 //
 // 事件表按 thread_id + seq 唯一，seq 由写入方在事务内分配；其余表用 AUTOINCREMENT
@@ -225,9 +251,9 @@ CREATE TABLE IF NOT EXISTS backups (
 CREATE INDEX IF NOT EXISTS backups_created ON backups(created_at DESC);
 `
 
-// schemaV2 增加线程标题来源标记。
+// schemaV2 增加会话标题来源标记。
 //
-// title_auto = 1 表示线程刚创建、标题仍为“新对话”，首轮消息可以自动命名；
+// title_auto = 1 表示会话刚创建、标题仍为“新对话”，首轮消息可以自动命名；
 // 用户手动改名或自动命名完成后置为 0，后续不再覆盖。
 const schemaV2 = `
 ALTER TABLE threads ADD COLUMN title_auto INTEGER NOT NULL DEFAULT 0;

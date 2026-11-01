@@ -11,7 +11,7 @@ export interface Approval {
     "id": string;
 
     /**
-     * ThreadID 是所属线程。
+     * ThreadID 是所属会话。
      */
     "threadId": string;
 
@@ -73,7 +73,7 @@ export interface AuditEntry {
     "ts": number;
 
     /**
-     * ThreadID 是所属线程，可为空。
+     * ThreadID 是所属会话，可为空。
      */
     "threadId": string;
 
@@ -183,7 +183,7 @@ export interface Message {
     "id": string;
 
     /**
-     * ThreadID 是所属线程。
+     * ThreadID 是所属会话。
      */
     "threadId": string;
 
@@ -256,7 +256,7 @@ export interface Part {
     "kind": string;
 
     /**
-     * Seq 是事件在线程内的序号，前端用它排序与断点续传。
+     * Seq 是事件在会话内的序号，前端用它排序与断点续传。
      */
     "seq": number;
 
@@ -267,11 +267,11 @@ export interface Part {
 }
 
 /**
- * Snapshot 是线程的完整视图：线程本身、消息与事件序号。
+ * Snapshot 是会话的完整视图：会话本身、消息与事件序号。
  */
 export interface Snapshot {
     /**
-     * Thread 是线程本身的属性。
+     * Thread 是会话本身的属性。
      */
     "thread": Thread;
 
@@ -281,12 +281,12 @@ export interface Snapshot {
     "messages": Message[] | null;
 
     /**
-     * LastSeq 是当前线程最大的事件序号，前端据此接续增量事件。
+     * LastSeq 是当前会话最大的事件序号，前端据此接续增量事件。
      */
     "lastSeq": number;
 
     /**
-     * Approvals 是线程内尚未决定的审批。
+     * Approvals 是会话内尚未决定的审批。
      */
     "approvals": Approval[] | null;
 
@@ -302,16 +302,16 @@ export interface Snapshot {
 }
 
 /**
- * Thread 是一个对话线程。mode 取 code / work。
+ * Thread 是一个对话会话。mode 取 code / work。
  */
 export interface Thread {
     /**
-     * ID 是线程的唯一标识。
+     * ID 是会话的唯一标识。
      */
     "id": string;
 
     /**
-     * Mode 是线程所属模式，取值为 code 或 work。
+     * Mode 是会话所属模式，取值为 code 或 work。
      */
     "mode": string;
 
@@ -331,18 +331,18 @@ export interface Thread {
     "workspaceId": string;
 
     /**
-     * Status 是线程运行状态，取值为 idle / running / awaiting / error。
+     * Status 是会话运行状态，取值为 idle / running / awaiting / error。
      * idle / running / awaiting / error
      */
     "status": string;
 
     /**
-     * Archived 表示线程是否已归档。
+     * Archived 表示会话是否已归档。
      */
     "archived": boolean;
 
     /**
-     * Tokens 是该线程累计消耗的 token 数。
+     * Tokens 是该会话累计消耗的 token 数。
      */
     "tokens": number;
 

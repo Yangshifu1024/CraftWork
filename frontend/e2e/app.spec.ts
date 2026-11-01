@@ -29,9 +29,9 @@ test("发送消息、工具调用与审批闭环", async ({ page }) => {
   await expect(page.getByText("已允许", { exact: false }).first()).toBeVisible();
 });
 
-test("首轮消息自动命名新线程", async ({ page }) => {
+test("首轮消息自动命名新会话", async ({ page }) => {
   await boot(page);
-  await page.getByRole("button", { name: "新建线程" }).click();
+  await page.getByRole("button", { name: "新建会话" }).click();
   await sendMessage(page, "帮我修复登录刷新超时");
 
   await expect(

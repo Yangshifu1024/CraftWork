@@ -51,7 +51,7 @@ export interface ConfirmRequest {
 /**
  * 一次单行输入框请求。
  *
- * 用于重命名线程、输入命令前缀等只需要一个字符串的场景。
+ * 用于重命名会话、输入命令前缀等只需要一个字符串的场景。
  */
 export interface PromptRequest {
   /** 主标题。 */

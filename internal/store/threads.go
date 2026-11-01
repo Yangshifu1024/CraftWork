@@ -1,7 +1,7 @@
-// 本文件负责线程、工作区与设置的读写：创建与查询线程、维护线程状态与归档、
+// 本文件负责会话、工作区与设置的读写：创建与查询会话、维护会话状态与归档、
 // 管理工作区记录，以及把任意值以 JSON 形式存入 settings 表。
 //
-// 线程是软删除：deleted_at 非空即视为不存在，查询时统一过滤。
+// 会话是软删除：deleted_at 非空即视为不存在，查询时统一过滤。
 
 package store
 
@@ -37,7 +37,7 @@ func nowMillis() int64 {
 	return time.Now().UnixMilli()
 }
 
-// CreateThread 写入新线程。
+// CreateThread 写入新会话。
 func (db *DB) CreateThread(thread *Thread) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
@@ -48,12 +48,12 @@ func (db *DB) CreateThread(thread *Thread) error {
 		thread.Status, boolToInt(thread.Archived), thread.Tokens, thread.CreatedAt, thread.UpdatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("创建线程: %w", err)
+		return fmt.Errorf("创建会话: %w", err)
 	}
 	return nil
 }
 
-// GetThread 读取单个线程。
+// GetThread 读取单个会话。
 func (db *DB) GetThread(id string) (*Thread, error) {
 	row := db.sqlDB.QueryRow(
 		`SELECT id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at
@@ -63,12 +63,12 @@ func (db *DB) GetThread(id string) (*Thread, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("读取线程: %w", err)
+		return nil, fmt.Errorf("读取会话: %w", err)
 	}
 	return thread, nil
 }
 
-// ListThreads 按模式列出线程，默认不包含归档。
+// ListThreads 按模式列出会话，默认不包含归档。
 func (db *DB) ListThreads(mode string, includeArchived bool) ([]Thread, error) {
 	query := `SELECT id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at
 	          FROM threads WHERE mode = ? AND deleted_at IS NULL`
@@ -78,7 +78,7 @@ func (db *DB) ListThreads(mode string, includeArchived bool) ([]Thread, error) {
 	query += ` ORDER BY updated_at DESC`
 	rows, err := db.sqlDB.Query(query, mode)
 	if err != nil {
-		return nil, fmt.Errorf("列出线程: %w", err)
+		return nil, fmt.Errorf("列出会话: %w", err)
 	}
 	defer rows.Close()
 
@@ -86,14 +86,14 @@ func (db *DB) ListThreads(mode string, includeArchived bool) ([]Thread, error) {
 	for rows.Next() {
 		thread, err := scanThread(rows)
 		if err != nil {
-			return nil, fmt.Errorf("扫描线程: %w", err)
+			return nil, fmt.Errorf("扫描会话: %w", err)
 		}
 		result = append(result, *thread)
 	}
 	return result, rows.Err()
 }
 
-// SearchThreads 按标题或消息内容搜索线程。
+// SearchThreads 按标题或消息内容搜索会话。
 //
 // 内容搜索直接匹配事件的 JSON 载荷，属于简单包含查询；限制 100 条避免
 // 在大量历史消息上做全表扫描时把界面拖慢。
@@ -106,7 +106,7 @@ func (db *DB) SearchThreads(mode, query string) ([]Thread, error) {
 		 WHERE t.mode = ? AND t.deleted_at IS NULL AND (t.title LIKE ? OR e.payload LIKE ?)
 		 ORDER BY t.updated_at DESC LIMIT 100`, mode, like, like)
 	if err != nil {
-		return nil, fmt.Errorf("搜索线程: %w", err)
+		return nil, fmt.Errorf("搜索会话: %w", err)
 	}
 	defer rows.Close()
 
@@ -114,14 +114,14 @@ func (db *DB) SearchThreads(mode, query string) ([]Thread, error) {
 	for rows.Next() {
 		thread, err := scanThread(rows)
 		if err != nil {
-			return nil, fmt.Errorf("扫描线程: %w", err)
+			return nil, fmt.Errorf("扫描会话: %w", err)
 		}
 		result = append(result, *thread)
 	}
 	return result, rows.Err()
 }
 
-// RenameThread 修改线程标题，并把标题标记为用户手动命名。
+// RenameThread 修改会话标题，并把标题标记为用户手动命名。
 func (db *DB) RenameThread(id, title string) error {
 	return db.updateThread(id,
 		`UPDATE threads SET title = ?, title_auto = 0, updated_at = ? WHERE id = ?`,
@@ -140,18 +140,18 @@ func (db *DB) AutoTitleThread(id, title, previousTitle string) (bool, error) {
 		 WHERE id = ? AND title_auto = 1 AND title = ?`,
 		title, nowMillis(), id, previousTitle)
 	if err != nil {
-		return false, fmt.Errorf("自动命名线程: %w", err)
+		return false, fmt.Errorf("自动命名会话: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	return affected > 0, nil
 }
 
-// SetThreadStatus 更新线程运行状态。
+// SetThreadStatus 更新会话运行状态。
 func (db *DB) SetThreadStatus(id, status string) error {
 	return db.updateThread(id, `UPDATE threads SET status = ?, updated_at = ? WHERE id = ?`, status, nowMillis(), id)
 }
 
-// SetThreadModel 更新线程当前模型。
+// SetThreadModel 更新会话当前模型。
 func (db *DB) SetThreadModel(id, modelID string) error {
 	return db.updateThread(id, `UPDATE threads SET model_id = ?, updated_at = ? WHERE id = ?`, modelID, nowMillis(), id)
 }
@@ -161,12 +161,12 @@ func (db *DB) SetThreadArchived(id string, archived bool) error {
 	return db.updateThread(id, `UPDATE threads SET archived = ?, updated_at = ? WHERE id = ?`, boolToInt(archived), nowMillis(), id)
 }
 
-// TouchThread 更新线程的最近活动时间。
+// TouchThread 更新会话的最近活动时间。
 func (db *DB) TouchThread(id string) error {
 	return db.updateThread(id, `UPDATE threads SET updated_at = ? WHERE id = ?`, nowMillis(), id)
 }
 
-// AddThreadTokens 累加线程 token 用量。
+// AddThreadTokens 累加会话 token 用量。
 func (db *DB) AddThreadTokens(id string, tokens int64) error {
 	if tokens == 0 {
 		return nil
@@ -174,7 +174,7 @@ func (db *DB) AddThreadTokens(id string, tokens int64) error {
 	return db.updateThread(id, `UPDATE threads SET tokens = tokens + ?, updated_at = ? WHERE id = ?`, tokens, nowMillis(), id)
 }
 
-// DeleteThread 彻底删除线程及其事件、审批与运行记录。
+// DeleteThread 彻底删除会话及其事件、审批与运行记录。
 //
 // 这是物理删除，不可恢复；调用方需要自行确认用户意图。四条删除语句放在
 // 同一个事务里，避免留下孤立的事件或审批行。
@@ -184,7 +184,7 @@ func (db *DB) DeleteThread(id string) error {
 
 	tx, err := db.sqlDB.Begin()
 	if err != nil {
-		return fmt.Errorf("开始删除线程事务: %w", err)
+		return fmt.Errorf("开始删除会话事务: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -195,11 +195,11 @@ func (db *DB) DeleteThread(id string) error {
 		`DELETE FROM threads WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(statement, id); err != nil {
-			return fmt.Errorf("删除线程数据: %w", err)
+			return fmt.Errorf("删除会话数据: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("提交删除线程: %w", err)
+		return fmt.Errorf("提交删除会话: %w", err)
 	}
 	return nil
 }
@@ -318,9 +318,9 @@ func (db *DB) DeleteSetting(key string) error {
 	return nil
 }
 
-// updateThread 执行一条以线程 ID 为参数的更新语句，并统一处理“记录不存在”。
+// updateThread 执行一条以会话 ID 为参数的更新语句，并统一处理“记录不存在”。
 //
-// 名称沿用了线程场景，但包内的其他单行写操作也复用它，因此错误信息写成“更新记录”。
+// 名称沿用了会话场景，但包内的其他单行写操作也复用它，因此错误信息写成“更新记录”。
 func (db *DB) updateThread(id, statement string, args ...any) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
@@ -342,7 +342,7 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanThread 把一行查询结果扫描成线程对象，并把 SQLite 的整数转换成布尔值。
+// scanThread 把一行查询结果扫描成会话对象，并把 SQLite 的整数转换成布尔值。
 func scanThread(row rowScanner) (*Thread, error) {
 	var thread Thread
 	var archived int

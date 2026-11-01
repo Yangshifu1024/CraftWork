@@ -505,7 +505,7 @@ export interface ModelView {
     "id": string;
 
     /**
-     * Ref 是“提供商/模型”的稳定引用，线程与设置使用它区分同名模型。
+     * Ref 是“提供商/模型”的稳定引用，会话与设置使用它区分同名模型。
      */
     "ref": string;
 
@@ -655,7 +655,7 @@ export interface ProviderView {
  */
 export interface Settings {
     /**
-     * Theme 是界面主题：dark 或 light。
+     * Theme 是界面主题：system（跟随系统）、dark 或 light。
      */
     "theme": string;
 
@@ -670,7 +670,7 @@ export interface Settings {
     "panelWidth": number;
 
     /**
-     * ApprovalLevel 是审批档位：graded、strict 或 readonly。
+     * ApprovalLevel 是审批档位：graded、strict、readonly 或 free。
      */
     "approvalLevel": string;
 
@@ -756,11 +756,11 @@ export interface TerminalView {
 }
 
 /**
- * ThreadView 是线程列表使用的扁平结构。
+ * ThreadView 是会话列表使用的扁平结构。
  */
 export interface ThreadView {
     /**
-     * ID 是线程标识。
+     * ID 是会话标识。
      */
     "id": string;
 
@@ -775,7 +775,7 @@ export interface ThreadView {
     "title": string;
 
     /**
-     * ModelID 是线程当前使用的模型标识。
+     * ModelID 是会话当前使用的模型标识。
      */
     "modelId": string;
 
@@ -785,7 +785,7 @@ export interface ThreadView {
     "modelName": string;
 
     /**
-     * WorkspaceID 是线程绑定的工作区。
+     * WorkspaceID 是会话绑定的工作区。
      */
     "workspaceId": string;
 
@@ -795,14 +795,32 @@ export interface ThreadView {
     "status": string;
 
     /**
-     * Archived 表示线程是否已归档。
+     * Archived 表示会话是否已归档。
      */
     "archived": boolean;
 
     /**
-     * Tokens 是该线程累计使用的 token 数。
+     * Tokens 是该会话累计使用的 token 数。
      */
     "tokens": number;
+
+    /**
+     * ContextTokens 是最近一次模型调用的输入加输出 token，即当前上下文
+     * 占用；每轮调用后覆盖更新，与累计的 Tokens 口径不同。
+     */
+    "contextTokens": number;
+
+    /**
+     * ContextCacheTokens 是最近一次模型调用命中的缓存 token，用于展示
+     * 缓存收益；没有调用记录时为 0。
+     */
+    "contextCacheTokens": number;
+
+    /**
+     * ContextSpeed 是最近一次模型调用的输出速度（tok/s），由输出 token
+     * 除以调用耗时得出；耗时未知或没有调用记录时为 0。
+     */
+    "contextSpeed": number;
 
     /**
      * CreatedAt 是创建时间（毫秒时间戳）。

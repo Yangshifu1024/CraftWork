@@ -6,13 +6,16 @@ import { reduceThread, updateThread, type ThreadSlice } from "./threadReducer";
 const thread: ThreadView = {
   id: "th",
   mode: "code",
-  title: "测试线程",
+  title: "测试会话",
   modelId: "openai/gpt-5.1",
   modelName: "GPT-5.1",
   workspaceId: "ws",
   status: "idle",
   archived: false,
   tokens: 0,
+  contextTokens: 0,
+  contextCacheTokens: 0,
+  contextSpeed: 0,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -79,7 +82,7 @@ describe("reduceThread", () => {
     expect(finished.refreshNeeded).toBe(true);
   });
 
-  it("审批请求进入待审批列表并切换线程状态", () => {
+  it("审批请求进入待审批列表并切换会话状态", () => {
     const started = reduceThread(
       baseState(),
       batch(envelope(EVENT.runStarted, { messageId: "msg_1" })),
@@ -125,7 +128,7 @@ describe("reduceThread", () => {
     expect(resolved.threads.code[0]?.status).toBe("running");
   });
 
-  it("usage.updated 累加线程 tokens", () => {
+  it("usage.updated 累加会话 tokens", () => {
     const next = reduceThread(
       baseState(),
       batch(envelope(EVENT.usageUpdated, { inputTokens: 10, outputTokens: 5 })),
@@ -134,7 +137,56 @@ describe("reduceThread", () => {
     expect(next.threads.code[0]?.tokens).toBe(15);
   });
 
-  it("其他线程的 thread.updated 只标记刷新，不修改当前线程", () => {
+  it("usage.updated 覆盖上下文占用与速度，缺字段时保持原值", () => {
+    // 第一轮带上下文字段：覆盖为实测值。
+    const first = reduceThread(
+      baseState(),
+      batch(
+        envelope(EVENT.usageUpdated, {
+          inputTokens: 100,
+          outputTokens: 20,
+          contextTokens: 120,
+          cacheTokens: 90,
+          tokensPerSecond: 42.5,
+        }),
+      ),
+      "th",
+    );
+    expect(first.threads.code[0]?.contextTokens).toBe(120);
+    expect(first.threads.code[0]?.contextCacheTokens).toBe(90);
+    expect(first.threads.code[0]?.contextSpeed).toBe(42.5);
+
+    // 第二轮是不带上下文字段的 sidecar 请求（如自动命名）：tokens 照常累加，
+    // 但占用水位与速度不被 sidecar 小请求覆盖。
+    const second = reduceThread(
+      first,
+      batch(envelope(EVENT.usageUpdated, { inputTokens: 30, outputTokens: 5 }, 2)),
+      "th",
+    );
+    expect(second.threads.code[0]?.tokens).toBe(155);
+    expect(second.threads.code[0]?.contextTokens).toBe(120);
+    expect(second.threads.code[0]?.contextSpeed).toBe(42.5);
+
+    // 第三轮主对话再次携带字段：覆盖为最新一轮。
+    const third = reduceThread(
+      second,
+      batch(
+        envelope(EVENT.usageUpdated, {
+          inputTokens: 200,
+          outputTokens: 50,
+          contextTokens: 250,
+          cacheTokens: 180,
+          tokensPerSecond: 60,
+        }, 3),
+      ),
+      "th",
+    );
+    expect(third.threads.code[0]?.contextTokens).toBe(250);
+    expect(third.threads.code[0]?.contextCacheTokens).toBe(180);
+    expect(third.threads.code[0]?.contextSpeed).toBe(60);
+  });
+
+  it("其他会话的 thread.updated 只标记刷新，不修改当前会话", () => {
     const result = reduceThread(
       baseState(),
       batch(envelope(EVENT.threadUpdated, { threadId: "other", status: "idle" }, 1, "other")),
@@ -144,7 +196,7 @@ describe("reduceThread", () => {
     expect(result.threads.code[0]?.status).toBe("idle");
   });
 
-  it("终端与全局事件不修改线程状态", () => {
+  it("终端与全局事件不修改会话状态", () => {
     const result = reduceThread(
       baseState(),
       batch(
@@ -172,9 +224,9 @@ describe("reduceThread", () => {
 });
 
 describe("updateThread", () => {
-  it("只修改命中的线程", () => {
+  it("只修改命中的会话", () => {
     const threads = updateThread({ code: [thread], work: [] }, "th", { title: "新标题" });
     expect(threads.code[0]?.title).toBe("新标题");
-    expect(thread.title).toBe("测试线程");
+    expect(thread.title).toBe("测试会话");
   });
 });

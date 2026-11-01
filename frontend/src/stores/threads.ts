@@ -1,7 +1,7 @@
 /**
- * 线程 store。
+ * 会话 store。
  *
- * 维护左侧线程列表、当前线程的消息与运行状态、待审批队列、搜索结果以及附件草稿，
+ * 维护左侧会话列表、当前会话的消息与运行状态、待审批队列、搜索结果以及附件草稿，
  * 并把后端推送的事件批次交给 threadReducer 合并成界面状态。
  *
  * 约定：会改动后端数据的 action 都先调用命令、成功后再更新本地状态；
@@ -26,24 +26,24 @@ import { useAppStore } from "./app";
 import { useUiStore } from "./ui";
 
 /**
- * 线程 store 的完整状态与可用操作。
+ * 会话 store 的完整状态与可用操作。
  *
  * 字段是界面的只读快照，操作是唯一入口；组件通过选择器订阅需要的字段。
  */
 interface ThreadState {
-  /** 两种模式各自的线程列表。 */
+  /** 两种模式各自的会话列表。 */
   threads: Record<Mode, ThreadView[]>;
-  /** 两种模式各自选中的线程 id，切换模式时互不影响。 */
+  /** 两种模式各自选中的会话 id，切换模式时互不影响。 */
   activeID: Record<Mode, string | null>;
-  /** 当前线程的消息，按时间正序排列。 */
+  /** 当前会话的消息，按时间正序排列。 */
   messages: ChatMessage[];
-  /** 当前线程是否有正在进行的运行。 */
+  /** 当前会话是否有正在进行的运行。 */
   running: boolean;
   /** 正在流式输出的 assistant 消息 id，事件处理靠它定位目标消息。 */
   runningMessageID: string | null;
-  /** 是否正在读取线程快照，界面据此显示加载状态。 */
+  /** 是否正在读取会话快照，界面据此显示加载状态。 */
   loading: boolean;
-  /** 当前线程里等待用户决定的审批。 */
+  /** 当前会话里等待用户决定的审批。 */
   pendingApprovals: ApprovalPartData[];
   /** 搜索命中结果；为 null 表示当前没有进行搜索。 */
   searchResults: ThreadView[] | null;
@@ -51,41 +51,41 @@ interface ThreadState {
   attachments: AttachmentInfo[];
   /** 是否已经订阅事件总线，避免重复注册监听。 */
   connected: boolean;
-  /** 当前线程是否还有更早的消息可以继续加载。 */
+  /** 当前会话是否还有更早的消息可以继续加载。 */
   hasEarlier: boolean;
   /** 是否正在加载更早的消息。 */
   loadingEarlier: boolean;
   /** 订阅事件总线；重复调用无副作用。 */
   connect(): void;
-  /** 启动初始化：读取线程列表并选中合适的线程。 */
+  /** 启动初始化：读取会话列表并选中合适的会话。 */
   boot(): Promise<void>;
-  /** 重新拉取指定模式（默认当前模式）的线程列表。 */
+  /** 重新拉取指定模式（默认当前模式）的会话列表。 */
   refresh(mode?: Mode): Promise<void>;
-  /** 选中线程，并加载它的最新一页快照。 */
+  /** 选中会话，并加载它的最新一页快照。 */
   select(threadID: string): Promise<void>;
   /** 向前翻页，加载更早的消息。 */
   loadEarlier(): Promise<void>;
-  /** 在当前模式下新建线程并选中。 */
+  /** 在当前模式下新建会话并选中。 */
   create(): Promise<void>;
-  /** 复制一个线程，标题追加「（副本）」。 */
+  /** 复制一个会话，标题追加「（副本）」。 */
   duplicate(threadID: string): Promise<void>;
-  /** 修改线程标题。 */
+  /** 修改会话标题。 */
   rename(threadID: string, title: string): Promise<void>;
-  /** 归档或取消归档线程。 */
+  /** 归档或取消归档会话。 */
   archive(threadID: string, archived: boolean): Promise<void>;
-  /** 永久删除线程。 */
+  /** 永久删除会话。 */
   remove(threadID: string): Promise<void>;
-  /** 修改线程使用的模型。 */
+  /** 修改会话使用的模型。 */
   setModel(threadID: string, modelID: string): Promise<void>;
-  /** 发送消息；没有当前线程时先自动新建。 */
+  /** 发送消息；没有当前会话时先自动新建。 */
   send(text: string, attachments?: string[]): Promise<void>;
-  /** 取消当前线程正在进行的运行。 */
+  /** 取消当前会话正在进行的运行。 */
   cancel(): Promise<void>;
-  /** 让当前线程的最后一轮回复重新生成。 */
+  /** 让当前会话的最后一轮回复重新生成。 */
   regenerate(): Promise<void>;
   /** 提交审批决定。 */
   decide(approvalID: string, allow: boolean, scope: string): Promise<void>;
-  /** 按关键词搜索线程。 */
+  /** 按关键词搜索会话。 */
   search(query: string): Promise<void>;
   /** 清空搜索结果。 */
   clearSearch(): void;
@@ -139,7 +139,7 @@ function collectApprovals(messages: ChatMessage[]): ApprovalPartData[] {
   return result;
 }
 
-/** 线程 store：界面读取线程数据、触发线程操作的唯一入口。 */
+/** 会话 store：界面读取会话数据、触发会话操作的唯一入口。 */
 export const useThreadStore = create<ThreadState>((set, get) => ({
   threads: { code: [], work: [] },
   activeID: { code: null, work: null },
@@ -170,7 +170,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   /**
    * 启动初始化。
    *
-   * 先拉当前模式的线程列表，再优先恢复上次选中的线程；
+   * 先拉当前模式的会话列表，再优先恢复上次选中的会话；
    * 选中项已不存在时退回列表第一条，列表为空则清空消息区并退出运行状态。
    */
   async boot() {
@@ -193,7 +193,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   /**
-   * 重新拉取线程列表。
+   * 重新拉取会话列表。
    *
    * 不传模式时以应用当前模式为准；读取失败只记录日志，保留旧列表继续可用。
    */
@@ -203,19 +203,19 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const list = await api.threads.list(target, false);
       set((state) => ({ threads: { ...state.threads, [target]: list } }));
     } catch (error) {
-      console.error("读取线程列表失败", error);
+      console.error("读取会话列表失败", error);
     }
   },
 
   /**
-   * 选中线程并加载最新一页快照。
+   * 选中会话并加载最新一页快照。
    *
    * 先把选中 id 写进当前模式的槽位，同时清空旧消息与旧审批，避免切换瞬间
-   * 显示上一个线程的内容；随后读取快照并据此恢复消息、运行状态与待审批队列。
+   * 显示上一个会话的内容；随后读取快照并据此恢复消息、运行状态与待审批队列。
    */
   async select(threadID) {
     const mode = useAppStore.getState().mode;
-    // 选中状态按模式隔离，切换 code / work 时各自记住自己的线程。
+    // 选中状态按模式隔离，切换 code / work 时各自记住自己的会话。
     set((state) => ({
       activeID: { ...state.activeID, [mode]: threadID },
       loading: true,
@@ -237,13 +237,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         loading: false,
         hasEarlier: snapshot.hasMore ?? false,
         loadingEarlier: false,
-        // 快照里的线程状态可能比列表新，顺手同步回线程列表。
+        // 快照里的会话状态可能比列表新，顺手同步回会话列表。
         threads: updateThread(get().threads, threadID, {
           status: snapshot.thread.status as ThreadView["status"],
         }),
       });
     } catch (error) {
-      console.error("读取线程快照失败", error);
+      console.error("读取会话快照失败", error);
       set({ loading: false });
     }
   },
@@ -257,7 +257,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   async loadEarlier() {
     const mode = useAppStore.getState().mode;
     const threadID = get().activeID[mode];
-    // 没有当前线程、已经加载到头，或正在加载时直接返回，避免重复请求。
+    // 没有当前会话、已经加载到头，或正在加载时直接返回，避免重复请求。
     if (!threadID || !get().hasEarlier || get().loadingEarlier) {
       return;
     }
@@ -299,9 +299,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   /**
-   * 新建线程。
+   * 新建会话。
    *
-   * 归属当前模式与当前工作区；成功后把新线程插到列表最前面并立即选中，
+   * 归属当前模式与当前工作区；成功后把新会话插到列表最前面并立即选中，
    * 同时清空消息区，让界面呈现一个空对话。
    */
   async create() {
@@ -317,14 +317,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         runningMessageID: null,
       }));
     } catch (error) {
-      console.error("新建线程失败", error);
+      console.error("新建会话失败", error);
     }
   },
 
   /**
-   * 复制线程。
+   * 复制会话。
    *
-   * 优先沿用当前工作区，没有时退回源线程所属的工作区；
+   * 优先沿用当前工作区，没有时退回源会话所属的工作区；
    * 复制完成后重新拉列表（后端会给副本一个新的位置），再选中副本。
    */
   async duplicate(threadID) {
@@ -343,17 +343,17 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     await get().select(thread.id);
   },
 
-  /** 重命名线程：以服务端结果为准，成功后同步列表里的标题。 */
+  /** 重命名会话：以服务端结果为准，成功后同步列表里的标题。 */
   async rename(threadID, title) {
     await api.threads.rename(threadID, title);
     set((state) => ({ threads: updateThread(state.threads, threadID, { title }) }));
   },
 
   /**
-   * 归档或取消归档线程。
+   * 归档或取消归档会话。
    *
-   * 列表默认不包含归档线程，因此操作后必须重新拉取；
-   * 若归档的正是当前线程，则切到列表第一条，没有可选线程时清空消息区。
+   * 列表默认不包含归档会话，因此操作后必须重新拉取；
+   * 若归档的正是当前会话，则切到列表第一条，没有可选会话时清空消息区。
    */
   async archive(threadID, archived) {
     await api.threads.archive(threadID, archived);
@@ -370,9 +370,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   /**
-   * 删除线程。
+   * 删除会话。
    *
-   * 与归档类似：删除后刷新列表；如果删掉的是当前线程，
+   * 与归档类似：删除后刷新列表；如果删掉的是当前会话，
    * 自动选中剩下的第一条，避免界面停留在已经不存在的数据上。
    */
   async remove(threadID) {
@@ -389,7 +389,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 
-  /** 切换线程使用的模型：先写入后端，再更新列表里的模型字段。 */
+  /** 切换会话使用的模型：先写入后端，再更新列表里的模型字段。 */
   async setModel(threadID, modelID) {
     await api.threads.setModel(threadID, modelID);
     set((state) => ({ threads: updateThread(state.threads, threadID, { modelId: modelID }) }));
@@ -398,7 +398,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   /**
    * 发送消息。
    *
-   * 没有当前线程时先自动新建一个；内容为空且没有附件时不做任何事。
+   * 没有当前会话时先自动新建一个；内容为空且没有附件时不做任何事。
    * 发送前先把用户消息乐观地插入列表，让界面立刻看到自己的输入，
    * 后端确认后再清空附件草稿；调用失败则退出运行状态并提示。
    */
@@ -410,7 +410,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       await get().create();
       threadID = get().activeID[mode];
     }
-    // 新建也拿不到线程 id 时只能放弃，避免把消息发到空线程。
+    // 新建也拿不到会话 id 时只能放弃，避免把消息发到空会话。
     if (!threadID) {
       return;
     }
@@ -450,7 +450,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 
-  /** 取消当前线程的运行；本地立即退出运行状态，不等后端事件回来。 */
+  /** 取消当前会话的运行；本地立即退出运行状态，不等后端事件回来。 */
   async cancel() {
     const mode = useAppStore.getState().mode;
     const threadID = get().activeID[mode];
@@ -509,7 +509,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 
-  /** 按关键词搜索线程；关键词为空时清空结果，恢复普通列表。 */
+  /** 按关键词搜索会话；关键词为空时清空结果，恢复普通列表。 */
   async search(query) {
     const mode = useAppStore.getState().mode;
     if (!query.trim()) {
@@ -552,8 +552,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   /**
    * 把事件批次合并进 store。
    *
-   * 只把处理需要的字段交给 reduceThread，当前线程 id 用来判断哪些事件属于本线程；
-   * 处理结果显示需要刷新时（其他线程有更新），异步重新拉取线程列表，不阻塞事件处理。
+   * 只把处理需要的字段交给 reduceThread，当前会话 id 用来判断哪些事件属于本会话；
+   * 处理结果显示需要刷新时（其他会话有更新），异步重新拉取会话列表，不阻塞事件处理。
    */
   applyBatch(batch) {
     const state = get();

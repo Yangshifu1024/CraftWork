@@ -45,6 +45,8 @@ const (
 	LevelStrict Level = "strict"
 	// LevelReadonly 只读：只允许 R0。
 	LevelReadonly Level = "readonly"
+	// LevelFree 自由：放行所有操作，包括 R4；切换时前端必须先弹出风险确认。
+	LevelFree Level = "free"
 )
 
 // ParseLevel 把前端字符串转换为审批档位，未知值回退到分级。
@@ -54,6 +56,8 @@ func ParseLevel(value string) Level {
 		return LevelStrict
 	case LevelReadonly:
 		return LevelReadonly
+	case LevelFree:
+		return LevelFree
 	default:
 		return LevelGraded
 	}
@@ -172,6 +176,12 @@ func ClassifyCommand(command string) (Risk, string) {
 
 // Action 根据审批档位与信任状态给出处置。
 func (e *Engine) Action(risk Risk) Action {
+	// 自由档位放行一切（包括 R4 与受限工作区的 R3）；
+	// 这是用户在风险确认后做出的显式选择，策略层不再拦截，
+	// 安全完全依赖审计记录与写入前备份兜底。
+	if e.level == LevelFree {
+		return ActionAllow
+	}
 	if e.level == LevelReadonly {
 		if risk == R0 {
 			return ActionAllow
