@@ -11,6 +11,7 @@
 CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成**（骨架、对话、Code 闭环、文档文本级读写）：
 
 - Wails3 v3.0.0 桌面外壳 + 系统 WebView。
+- 同一份代码支持 **server 模式**（`-tags server`）：不创建窗口，由 Go 提供 HTTP 服务，可在浏览器里运行完整应用（见第 2 节）。
 - Go 1.26 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
 - React 19 + TypeScript 前端：三栏界面、聊天、面板、浮层。
 - 已打通：多提供商（OpenAI 兼容、Anthropic、Gemini）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
@@ -50,11 +51,25 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 - `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录。
 - `CRAFTWORK_DEMO=1` 写入演示工作区与线程；普通启动不写演示数据。
 
+### server 模式（用浏览器运行完整应用）
+
+Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不创建原生窗口，前端由 Go 直接提供，绑定调用走 `/wails/runtime`，后端事件走 `/wails/events` 的 WebSocket。**在本机浏览器里验证真实后端时用这种方式，不要依赖 Mock。**
+
+- 开发运行：`wails3 task run:server` → `http://localhost:8080/`。前端是构建产物，没有 HMR，改完前端要重新构建。
+- 生产构建：`wails3 task build:server` → `bin/craftwork-server`（`-tags server,production`）。
+- 容器：`wails3 task build:docker` / `wails3 task run:docker`（`build/docker/Dockerfile.server`）。
+- 地址与端口：默认只绑 `localhost:8080`；用 `WAILS_SERVER_HOST`、`WAILS_SERVER_PORT` 覆盖，容器里通常设 `WAILS_SERVER_HOST=0.0.0.0`。
+- 健康检查：`GET /health` 返回 `{"status":"ok"}`；页面与静态资源走 `/`。
+- 服务端参数如需调整（TLS、超时、跨域白名单），在 `internal/app/app.go` 的 `application.Options` 里加 `Server: application.ServerOptions{...}`；反代场景把公网 origin 加进 `WebSocketOriginPatterns`。
+- 能力差异：窗口、托盘、原生菜单、原生文件对话框、单实例在 server 模式都是空实现；Agent、终端、文件、SQLite 等后端能力完整可用。
+- 安全：server 模式没有内置认证，等于把 shell 与文件读写暴露给能访问该端口的人。只在本机或可信内网使用；对外必须前置认证与 TLS。
+- 前端宿主判断：`frontend/src/lib/bus.ts` 的 `isDesktop` 把 `wails:` / `wails.localhost` 以及非 mock 构建都视为「真实宿主」，所以 server 模式直接使用 Go 绑定，不需要额外开关。
+
 ### 不能提交的生成物
 
 `bin/`、`frontend/dist/`、`frontend/node_modules/`、`.task/`、`.DS_Store`。
 
-`frontend/bindings/` 是 Wails3 生成的 TypeScript 绑定，**需要提交**，保证浏览器预览与 CI 类型检查可用；不要手工编辑，通过 `wails3 generate bindings` 重新生成。
+`frontend/bindings/` 是 Wails3 生成的 TypeScript 绑定，**需要提交**，保证 server 模式预览与 CI 类型检查可用；不要手工编辑，通过 `wails3 generate bindings` 重新生成。
 
 ## 3. 常用命令
 
@@ -63,7 +78,10 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | 安装前端依赖 | `cd frontend && npm install` |
 | 生成绑定 | `wails3 generate bindings -clean=true -ts -i` |
 | 桌面开发模式 | `wails3 dev` |
-| 纯前端预览（Mock 后端） | `cd frontend && npm run dev` → `http://127.0.0.1:9245/` |
+| 浏览器运行完整应用（server 模式） | `wails3 task run:server` → `http://localhost:8080/` |
+| server 模式生产构建 | `wails3 task build:server` → `bin/craftwork-server` |
+| server 模式容器 | `wails3 task build:docker` / `wails3 task run:docker` |
+| 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && npm run dev` → `http://127.0.0.1:9245/` |
 | 生产构建 | `wails3 build` → `bin/craftwork` |
 | macOS 打包 | `wails3 package` → `bin/craftwork.app` |
 | Go 测试 | `go test ./...` |
@@ -98,7 +116,7 @@ internal/events/         事件类型与批量总线
 frontend/src/app/        AppShell、全局快捷键
 frontend/src/features/   sidebar / chat / panel / overlays / statusbar
 frontend/src/components/ Icon、BrandMark、Popover、Toast、Dialog
-frontend/src/lib/        API、桌面绑定、浏览器 Mock、类型、工具
+frontend/src/lib/        API、真实宿主绑定、Mock（仅 npm run dev）、类型、工具
 frontend/src/stores/     app / threads / panel / workspace / terminal / ui
 frontend/src/styles/     原型 CSS 分区 + highlight + app-extra + desktop
 docs/                    需求、界面、技术方案、原型
@@ -120,7 +138,8 @@ docs/                    需求、界面、技术方案、原型
 1. 在 `internal/service/` 新建具体类型与构造函数。
 2. 在 `internal/app/app.go` 的 `application.Options.Services` 注册。
 3. `wails3 generate bindings`。
-4. 在 `frontend/src/lib/desktop.ts` 与 `mock.ts` 实现；`Api` 类型从 `desktopApi` 推导，不再手写接口文件。
+4. 在 `frontend/src/lib/desktop.ts` 实现；纯 UI 预览的 `mock.ts` 也要补，否则 `npm run dev` 会缺接口。
+   `Api` 类型从 `desktopApi` 推导，不再手写接口文件；浏览器验证真实后端用 `wails3 task run:server`。
 5. 补 Go 单测与前端类型。
 
 ### 新增一个工具
@@ -164,6 +183,7 @@ docs/                    需求、界面、技术方案、原型
 - 所有路径校验在 Go 侧完成：`policy.Resolve` 先词法校验，再解析符号链接；不信任前端路径。
 - 密钥只存在 Go 进程与 `~/.craftwork/keys.json`；不进入日志、数据库、事件、导出包。
 - `shell_exec` 必须清洗敏感环境变量、杀进程组、限制输出。
+- server 模式默认只绑 `localhost`；对外提供服务必须前置认证与 TLS，禁止用 `WebSocketAllowAllOrigins` 把 shell 与文件读写直接暴露出去。
 
 ### 6.4 前端
 
@@ -197,7 +217,11 @@ docs/                    需求、界面、技术方案、原型
 - macOS 图标使用 `icons.icns`；不要重新引入 `Assets.car` 或 `CFBundleIconName`，否则会覆盖新图标。
 - `wails3 build` 需要 `frontend/dist`；正常流程会自动构建前端。
 - Vite HMR 与 Zustand 同时存在时，模式切换可能出现旧 store 实例；验证时整页重载。
-- 浏览器预览与桌面端的桥接通过 `isDesktop` 判断；新增 API 时两个实现（`desktop.ts`、`mock.ts`）都要改；端口类型由 `desktopApi` 推导。
+- `isDesktop` 表示「后端在 Go 进程里」：桌面是 `wails:` / `wails.localhost`，server 模式是 http(s) 且 `import.meta.env.MODE !== "mock"`；只有 `npm run dev`（`vite --mode mock`）走 Mock。新增 API 要改 `desktop.ts`，保留的 Mock 同步改 `mock.ts`；端口类型由 `desktopApi` 推导。
+- server 模式下窗口、托盘、原生菜单、原生对话框、单实例都是空实现；`Window.NewWithOptions` 不会报错，但也不会产生窗口。
+- server 模式的页面是构建产物，没有 HMR；改完前端要重新 `wails3 task build:server` 或 `wails3 task run:server`。
+- server 模式生产构建的 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）；如果浏览器拦截同源 WebSocket 导致事件不刷新，显式放行 `ws://`。
+- `wails3 dev` / `wails3 build` 只产出桌面窗口；server 模式走 Taskfile 的 `build:server`（本质是 `go build -tags server`）。
 - `frontend/bindings` 不要手改；重新生成即可。
 
 ## 8. 验证清单
@@ -213,13 +237,21 @@ wails3 build
 
 涉及 UI 时额外：
 
-- `cd frontend && npm run dev`，在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
+- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && npm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
 - 检查三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题。
 - 走一遍：发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
 - 桌面端启动冒烟（建议隔离目录）：
 
 ```bash
 CRAFTWORK_HOME=/tmp/cw-smoke CRAFTWORK_DEMO=1 ./bin/craftwork
+```
+
+- server 模式冒烟（建议隔离目录）：
+
+```bash
+CRAFTWORK_HOME=/tmp/cw-server CRAFTWORK_DEMO=1 wails3 task run:server
+# 另开终端
+curl -fsS http://localhost:8080/health
 ```
 
 CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`govulncheck`、`npm ci`、`npm run typecheck`、`npm run build`、`npm audit`，并重新生成绑定检查 `frontend/bindings` 是否漂移。本地提交前仍以本节命令为准。

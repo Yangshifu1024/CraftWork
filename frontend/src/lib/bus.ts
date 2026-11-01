@@ -1,10 +1,20 @@
 import { Events } from "@wailsio/runtime";
 import type { Batch } from "./types";
 
-/** 桌面宿主：Wails 的 wails:// 协议或 Windows 的 wails.localhost。 */
+/**
+ * 是否为真实宿主（后端在 Go 进程里）。
+ *
+ * - 桌面窗口：Wails 的 wails:// 协议，Windows 下是 wails.localhost。
+ * - server 模式：由 Go 通过 HTTP 提供页面（`task run:server`），地址是
+ *   http(s)，绑定走 /wails/runtime、事件走 /wails/events，同样直连 Go。
+ * - 只有 `npm run dev`（`vite --mode mock`）是不带后端的纯 UI 预览，
+ *   由 Mock 接管，所以这里只把 mock 模式排除掉。
+ */
 export const isDesktop =
   typeof window !== "undefined" &&
-  (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost");
+  (window.location.protocol === "wails:" ||
+    window.location.hostname === "wails.localhost" ||
+    import.meta.env.MODE !== "mock");
 
 type BatchHandler = (batch: Batch) => void;
 

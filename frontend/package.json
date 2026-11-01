@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode mock",
     "build:dev": "tsc --noEmit && vite build --minify false --mode development",
     "build": "tsc --noEmit && vite build --mode production",
     "typecheck": "tsc --noEmit",

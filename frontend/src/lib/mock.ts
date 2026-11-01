@@ -1,7 +1,8 @@
-// 浏览器 Mock 后端。
+// 纯 UI 预览用的 Mock 后端。
 //
-// 用途：不启动 Wails3 时用 `npm run dev` 直接预览界面，便于视觉走查与
-// 后续 Playwright 回归。它不读写磁盘，所有数据都在内存中。
+// 只在 `npm run dev`（`vite --mode mock`）下接管 API，用于界面走查与
+// Playwright 回归；需要真实后端时用 server 模式（`task run:server`）或桌面端。
+// 它不读写磁盘，所有数据都在内存中。
 import type { Api } from "./desktop";
 import { dispatch, envelope } from "./bus";
 import type {
