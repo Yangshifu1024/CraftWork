@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
+import { onBatch } from "../lib/bus";
 import type { AppInfo, Mode, ProviderView, Settings, Theme, WorkspaceView } from "../lib/types";
+import { EVENT } from "../lib/types";
 import { useUiStore } from "./ui";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +29,36 @@ function applyTheme(theme: Theme): void {
 
 function applyMode(mode: Mode): void {
   document.documentElement.dataset.mode = mode;
+}
+
+let eventsConnected = false;
+
+// Settings 与工作区变化由服务端广播；这里统一刷新，避免各组件重复订阅。
+function connectEvents(): void {
+  if (eventsConnected) {
+    return;
+  }
+  eventsConnected = true;
+  onBatch((batch) => {
+    for (const event of batch.events) {
+      if (event.type === EVENT.settingsUpdated && event.data) {
+        const settings = event.data as Settings;
+        applyTheme((settings.theme as Theme) ?? "dark");
+        applyMode((settings.mode as Mode) ?? "code");
+        useAppStore.setState({
+          settings,
+          theme: (settings.theme as Theme) ?? "dark",
+          mode: (settings.mode as Mode) ?? "code",
+        });
+      }
+      if (event.type === EVENT.workspaceUpdated) {
+        void useAppStore
+          .getState()
+          .refreshWorkspaces()
+          .catch(() => undefined);
+      }
+    }
+  });
 }
 
 interface AppState {
@@ -60,6 +92,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   providers: [],
 
   async boot() {
+    connectEvents();
     try {
       const [info, settings, workspaces, active, keyWarnings] = await Promise.all([
         api.app.info(),

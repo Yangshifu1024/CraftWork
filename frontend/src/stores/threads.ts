@@ -11,8 +11,8 @@ import type {
   ThreadSnapshot,
   ThreadView,
 } from "../lib/types";
-import { EVENT } from "../lib/types";
 import { uid } from "../lib/utils";
+import { reduceThread, updateThread } from "./threadReducer";
 import { useAppStore } from "./app";
 import { useUiStore } from "./ui";
 
@@ -78,127 +78,6 @@ function collectApprovals(messages: ChatMessage[]): ApprovalPartData[] {
     }
   }
   return result;
-}
-
-function ensureMessage(messages: ChatMessage[], messageID: string, threadID: string): ChatMessage[] {
-  if (messages.some((message) => message.id === messageID)) {
-    return messages.map((message) =>
-      message.id === messageID ? { ...message, status: "streaming" } : message,
-    );
-  }
-  return [
-    ...messages,
-    {
-      id: messageID,
-      threadId: threadID,
-      role: "assistant",
-      status: "streaming",
-      createdAt: Date.now(),
-      parts: [],
-    },
-  ];
-}
-
-function appendText(
-  messages: ChatMessage[],
-  messageID: string,
-  partID: string,
-  kind: "text" | "reasoning",
-  text: string,
-): ChatMessage[] {
-  return messages.map((message) => {
-    if (message.id !== messageID) {
-      return message;
-    }
-    const index = message.parts.findIndex((part) => part.id === partID);
-    if (index < 0) {
-      return {
-        ...message,
-        parts: [...message.parts, { id: partID, kind, seq: message.parts.length, data: { text } }],
-      };
-    }
-    const parts = message.parts.map((part, partIndex) => {
-      if (partIndex !== index) {
-        return part;
-      }
-      return { ...part, data: { ...part.data, text: `${part.data?.text ?? ""}${text}` } };
-    });
-    return { ...message, parts };
-  });
-}
-
-function upsertPart(
-  messages: ChatMessage[],
-  messageID: string,
-  threadID: string,
-  part: ChatPart,
-): ChatMessage[] {
-  let found = false;
-  const next = messages.map((message) => {
-    if (message.id !== messageID) {
-      return message;
-    }
-    found = true;
-    const index = message.parts.findIndex((item) => item.id === part.id);
-    if (index < 0) {
-      return { ...message, parts: [...message.parts, part] };
-    }
-    const parts = message.parts.map((item, itemIndex) =>
-      itemIndex === index ? { ...item, ...part } : item,
-    );
-    return { ...message, parts };
-  });
-  if (found) {
-    return next;
-  }
-  return [
-    ...next,
-    {
-      id: messageID,
-      threadId: threadID,
-      role: "assistant",
-      status: "streaming",
-      createdAt: Date.now(),
-      parts: [part],
-    },
-  ];
-}
-
-function setMessageStatus(
-  messages: ChatMessage[],
-  messageID: string | null,
-  status: ChatMessage["status"],
-): ChatMessage[] {
-  if (!messageID) {
-    return messages;
-  }
-  return messages.map((message) => (message.id === messageID ? { ...message, status } : message));
-}
-
-function updateApprovalPart(
-  messages: ChatMessage[],
-  partID: string,
-  data: Partial<ApprovalPartData>,
-): ChatMessage[] {
-  return messages.map((message) => ({
-    ...message,
-    parts: message.parts.map((part) =>
-      part.id === partID && part.kind === "approval"
-        ? { ...part, data: { ...part.data, ...data } }
-        : part,
-    ),
-  }));
-}
-
-function updateThread(
-  threads: Record<Mode, ThreadView[]>,
-  threadID: string,
-  patch: Partial<ThreadView>,
-): Record<Mode, ThreadView[]> {
-  return {
-    code: threads.code.map((thread) => (thread.id === threadID ? { ...thread, ...patch } : thread)),
-    work: threads.work.map((thread) => (thread.id === threadID ? { ...thread, ...patch } : thread)),
-  };
 }
 
 export const useThreadStore = create<ThreadState>((set, get) => ({
@@ -517,207 +396,25 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   applyBatch(batch) {
     const state = get();
     const mode = useAppStore.getState().mode;
-    const activeThreadID = state.activeID[mode];
-    let messages = state.messages;
-    let running = state.running;
-    let runningMessageID = state.runningMessageID;
-    let pending = state.pendingApprovals;
-    let threads = state.threads;
-    let refreshNeeded = false;
-
-    for (const event of batch.events) {
-      if (event.threadId?.startsWith("terminal:")) {
-        continue;
-      }
-      if (activeThreadID && event.threadId && event.threadId !== activeThreadID) {
-        if (event.type === EVENT.threadUpdated) {
-          refreshNeeded = true;
-        }
-        continue;
-      }
-
-      switch (event.type) {
-        case EVENT.runStarted: {
-          const messageID = event.data?.messageId as string | undefined;
-          if (!messageID) {
-            break;
-          }
-          runningMessageID = messageID;
-          running = true;
-          messages = ensureMessage(messages, messageID, activeThreadID ?? "");
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "running" });
-          }
-          break;
-        }
-        case EVENT.textDelta: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = appendText(messages, runningMessageID, event.data.partId, "text", event.data.text ?? "");
-          break;
-        }
-        case EVENT.textCompleted: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "text",
-            seq: 0,
-            data: { text: event.data.text ?? "" },
-          });
-          break;
-        }
-        case EVENT.reasoningDelta: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = appendText(messages, runningMessageID, event.data.partId, "reasoning", event.data.text ?? "");
-          break;
-        }
-        case EVENT.reasoningCompleted: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "reasoning",
-            seq: 0,
-            data: { text: event.data.text ?? "" },
-          });
-          break;
-        }
-        case EVENT.toolStarted:
-        case EVENT.toolCompleted: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "tool",
-            seq: 0,
-            data: event.data,
-          });
-          break;
-        }
-        case EVENT.approvalRequested: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "approval",
-            seq: 0,
-            data: event.data,
-          });
-          pending = [
-            ...pending.filter((item) => item.approvalId !== event.data.approvalId),
-            event.data as ApprovalPartData,
-          ];
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "awaiting" });
-          }
-          break;
-        }
-        case EVENT.approvalResolved: {
-          if (!event.data?.partId) {
-            break;
-          }
-          messages = updateApprovalPart(messages, event.data.partId, {
-            status: event.data.status,
-            decision: event.data.decision,
-            scope: event.data.scope,
-          });
-          pending = pending.filter((item) => item.approvalId !== event.data.approvalId);
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "running" });
-          }
-          break;
-        }
-        case EVENT.todoUpdated: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "todo",
-            seq: 0,
-            data: event.data,
-          });
-          break;
-        }
-        case EVENT.error: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "error",
-            seq: 0,
-            data: event.data,
-          });
-          break;
-        }
-        case EVENT.notice: {
-          if (!runningMessageID || !event.data?.partId) {
-            break;
-          }
-          messages = upsertPart(messages, runningMessageID, activeThreadID ?? "", {
-            id: event.data.partId,
-            kind: "notice",
-            seq: 0,
-            data: event.data,
-          });
-          break;
-        }
-        case EVENT.runCompleted: {
-          messages = setMessageStatus(messages, runningMessageID, "complete");
-          running = false;
-          runningMessageID = null;
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "idle" });
-          }
-          refreshNeeded = true;
-          break;
-        }
-        case EVENT.runCanceled: {
-          messages = setMessageStatus(messages, runningMessageID, "incomplete");
-          running = false;
-          runningMessageID = null;
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "idle" });
-          }
-          refreshNeeded = true;
-          break;
-        }
-        case EVENT.runFailed: {
-          messages = setMessageStatus(messages, runningMessageID, "error");
-          running = false;
-          runningMessageID = null;
-          if (activeThreadID) {
-            threads = updateThread(threads, activeThreadID, { status: "error" });
-          }
-          refreshNeeded = true;
-          break;
-        }
-        case EVENT.threadUpdated: {
-          if (event.data?.thread) {
-            threads = updateThread(threads, event.data.thread.id, event.data.thread);
-          } else if (activeThreadID && event.data?.status) {
-            threads = updateThread(threads, activeThreadID, {
-              status: event.data.status as ThreadView["status"],
-            });
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    }
-
-    set({ messages, running, runningMessageID, pendingApprovals: pending, threads });
-    if (refreshNeeded) {
+    const result = reduceThread(
+      {
+        messages: state.messages,
+        running: state.running,
+        runningMessageID: state.runningMessageID,
+        pendingApprovals: state.pendingApprovals,
+        threads: state.threads,
+      },
+      batch,
+      state.activeID[mode] ?? "",
+    );
+    set({
+      messages: result.messages,
+      running: result.running,
+      runningMessageID: result.runningMessageID,
+      pendingApprovals: result.pendingApprovals,
+      threads: result.threads,
+    });
+    if (result.refreshNeeded) {
       void get().refresh(mode);
     }
   },
