@@ -716,6 +716,36 @@ html[data-theme="light"] .sline.del .dt { color: #a12a2a; }
 }
 .term-head .spacer { flex: 1; }
 .term-head .ico { width: 11px; height: 11px; }
+.term-search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+  flex: none;
+}
+.term-search .ico { width: 12px; height: 12px; color: var(--text-4); }
+.term-search input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 10.5px;
+  outline: none;
+}
+.term-search input:focus { border-color: var(--accent); }
+.term-search-count {
+  min-width: 48px;
+  text-align: right;
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
 .term-scroll {
   flex: 1;
   overflow: auto;

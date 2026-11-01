@@ -1,11 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { Icon } from "../../components/Icon";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
 import { useTerminalStore } from "../../stores/terminal";
+
+const searchDecorations = {
+  matchBackground: "#39452a",
+  matchBorder: "#6f8a3f",
+  matchOverviewRuler: "#6f8a3f",
+  activeMatchBackground: "#5b9dff",
+  activeMatchBorder: "#ffffff",
+  activeMatchColorOverviewRuler: "#5b9dff",
+};
 
 function terminalTheme(theme: string) {
   if (theme === "light") {
@@ -69,9 +79,14 @@ export function TerminalPanel() {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const activeRef = useRef<string | null>(activeID);
   const counterRef = useRef<{ id: string | null; length: number }>({ id: null, length: 0 });
   const createdRef = useRef(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchResult, setSearchResult] = useState({ index: -1, count: 0 });
 
   useEffect(() => {
     activeRef.current = activeID;
@@ -99,6 +114,11 @@ export function TerminalPanel() {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    const searchSubscription = search.onDidChangeResults(({ resultIndex, resultCount }) => {
+      setSearchResult({ index: resultIndex, count: resultCount });
+    });
     term.open(host);
     fit.fit();
     term.onData((data) => {
@@ -115,6 +135,7 @@ export function TerminalPanel() {
     });
     termRef.current = term;
     fitRef.current = fit;
+    searchRef.current = search;
     counterRef.current = { id: null, length: 0 };
 
     const observer = new ResizeObserver(() => {
@@ -129,9 +150,12 @@ export function TerminalPanel() {
 
     return () => {
       observer.disconnect();
+      searchSubscription.dispose();
+      search.dispose();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
+      searchRef.current = null;
     };
   }, [theme, settings.terminalFontSize]);
 
@@ -153,6 +177,39 @@ export function TerminalPanel() {
   }, [outputs, activeID]);
 
   const active = sessions.find((session) => session.id === activeID);
+
+  function runFind(backward = false, value = query) {
+    const search = searchRef.current;
+    if (!search || !value.trim()) {
+      search?.clearDecorations();
+      setSearchResult({ index: -1, count: 0 });
+      return;
+    }
+    const options = { incremental: !backward, decorations: searchDecorations };
+    if (backward) {
+      search.findPrevious(value, options);
+    } else {
+      search.findNext(value, options);
+    }
+  }
+
+  function openSearch() {
+    setSearchOpen(true);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    searchRef.current?.clearDecorations();
+    setSearchResult({ index: -1, count: 0 });
+  }
+
+  const resultLabel =
+    searchResult.count > 0
+      ? `${Math.max(searchResult.index + 1, 1)} / ${searchResult.count}`
+      : query.trim()
+        ? "无匹配"
+        : "";
 
   return (
     <div className="terminal-wrap">
@@ -196,8 +253,52 @@ export function TerminalPanel() {
           {active?.running ? "运行中" : "未运行"}
         </span>
         <span className="spacer" />
+        <button
+          type="button"
+          className={cn("icon-btn sm", searchOpen && "is-on")}
+          title="搜索终端输出 ⌘F"
+          aria-label="搜索终端输出"
+          onClick={() => (searchOpen ? closeSearch() : openSearch())}
+        >
+          <Icon name="search" className="ico" />
+        </button>
         <span className="term-hint">点击终端后直接输入 · Ctrl+L 清屏</span>
       </div>
+
+      {searchOpen ? (
+        <div className="term-search">
+          <Icon name="search" className="ico" />
+          <input
+            ref={searchInputRef}
+            value={query}
+            placeholder="搜索终端输出…"
+            aria-label="搜索终端输出"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              runFind(false, event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                runFind(event.shiftKey);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                closeSearch();
+              }
+            }}
+          />
+          <span className="term-search-count">{resultLabel}</span>
+          <button type="button" className="icon-btn sm" title="上一个匹配" aria-label="上一个匹配" onClick={() => runFind(true)}>
+            <Icon name="chevron-up" className="ico" />
+          </button>
+          <button type="button" className="icon-btn sm" title="下一个匹配" aria-label="下一个匹配" onClick={() => runFind(false)}>
+            <Icon name="chevron-down" className="ico" />
+          </button>
+          <button type="button" className="icon-btn sm" title="关闭搜索" aria-label="关闭终端搜索" onClick={closeSearch}>
+            <Icon name="x" className="ico" />
+          </button>
+        </div>
+      ) : null}
 
       <div className="term-host" ref={hostRef} />
 
