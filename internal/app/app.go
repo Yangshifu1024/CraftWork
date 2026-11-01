@@ -115,7 +115,7 @@ func Run(frontend embed.FS, build version.Info) error {
 	threadService := service.NewThreadService(db, bus)
 	chatService := service.NewChatService(db, bus, runner, broker)
 	workspaceService := service.NewWorkspaceService(db, bus, engine, registry, filepath.Join(dataDir, "backups"))
-	providerService := service.NewProviderService(secrets)
+	providerService := service.NewProviderService(db, secrets)
 	auditService := service.NewAuditService(db)
 	terminalService := service.NewTerminalService(bus, registry.Workspace)
 	documentService := service.NewDocumentService(db)

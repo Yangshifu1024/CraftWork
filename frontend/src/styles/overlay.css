@@ -418,6 +418,81 @@ html[data-theme="light"] .overlay-backdrop { background: rgba(22, 28, 38, 0.3); 
   text-overflow: ellipsis;
 }
 .provider-actions { display: flex; align-items: center; gap: 5px; flex: none; }
+.provider-toolbar { display: flex; justify-content: flex-end; margin: 8px 0; }
+.provider-editor {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  padding: 12px;
+  margin: 10px 0;
+}
+.provider-editor-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.provider-editor-head h3 { margin: 0; font-size: 12.5px; }
+.provider-editor-head .ico { width: 14px; height: 14px; color: var(--text-2); }
+.provider-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  margin: 8px 0 12px;
+}
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--text-3); }
+.field.span-2 { grid-column: span 2; }
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  flex-wrap: wrap;
+}
+.checkbox-line .sec-desc { margin: 0; }
+.provider-models { border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.provider-models-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.provider-models-head .spacer { flex: 1; }
+.provider-model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  margin-bottom: 6px;
+  background: var(--bg);
+}
+.pmr-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) 72px 12px 86px;
+  gap: 6px;
+  align-items: center;
+}
+.pmr-main .text-input { height: 24px; font-size: 10.5px; }
+.pmr-ctx { text-align: right; }
+.pmr-unit { font-size: 10px; color: var(--text-4); }
+.pmr-caps { display: flex; flex-wrap: wrap; gap: 10px; }
+.cap-check { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-2); }
+.cap-check.is-fixed { color: var(--text-4); }
+.provider-editor-error {
+  color: var(--danger);
+  font-size: 10.5px;
+  line-height: 1.6;
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+.provider-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
 .provider-body {
   display: none;
   padding: 0 12px 11px;

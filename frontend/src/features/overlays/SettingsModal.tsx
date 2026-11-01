@@ -6,6 +6,7 @@ import type { ApprovalLevel, MCPServerView, ProviderView, Settings } from "../..
 import { cn } from "../../lib/utils";
 import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
 import { useUiStore, type SettingsTab } from "../../stores/ui";
+import { ProviderEditor } from "./ProviderEditor";
 
 const groups: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
   { id: "general", label: "通用", icon: "settings" },
@@ -58,6 +59,7 @@ export function SettingsModal() {
   const [testing, setTesting] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServerView[]>([]);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
+  const [providerEditor, setProviderEditor] = useState<{ provider: ProviderView | null } | null>(null);
 
   useEffect(() => {
     if (open && tab === "mcp") {
@@ -66,6 +68,12 @@ export function SettingsModal() {
     // refreshMCP 只在打开 MCP 标签时读取服务器列表。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab]);
+
+  useEffect(() => {
+    if (!open) {
+      setProviderEditor(null);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -218,6 +226,28 @@ export function SettingsModal() {
       await refreshMCP();
     } catch (error) {
       toast({ title: "移除 MCP 服务器失败", description: String(error), tone: "danger" });
+    }
+  }
+
+  async function deleteProvider(provider: ProviderView) {
+    const overridden = provider.overridden;
+    const confirmed = await askConfirm({
+      title: overridden ? `恢复 ${provider.name} 的内置配置？` : `删除 ${provider.name}？`,
+      description: overridden
+        ? "自定义端点与模型会被移除，API Key 保留。"
+        : "该提供商的模型会立即从列表中移除，API Key 同时删除。",
+      confirmText: overridden ? "恢复默认" : "删除",
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await api.providers.deleteProvider(provider.id);
+      await refreshProviders();
+      toast({ title: overridden ? "已恢复内置配置" : "提供商已删除", tone: "ok" });
+    } catch (error) {
+      toast({ title: "删除提供商失败", description: String(error), tone: "danger" });
     }
   }
 
@@ -393,7 +423,31 @@ export function SettingsModal() {
                   </select>
                 </Row>
 
-                {providers.map((provider) => (
+                {providerEditor ? (
+                  <ProviderEditor
+                    provider={providerEditor.provider}
+                    onCancel={() => setProviderEditor(null)}
+                    onSaved={(saved) => {
+                      setProviderEditor(null);
+                      void refreshProviders();
+                      if (saved.keyRequired && !saved.keySource) {
+                        toast({
+                          title: "还需配置 API Key",
+                          description: "在提供商卡片中展开并设置密钥后，模型才会出现在模型列表。",
+                          tone: "warn",
+                        });
+                      }
+                    }}
+                  />
+                ) : (
+                  <>
+                    <div className="provider-toolbar">
+                      <button type="button" className="btn sm" onClick={() => setProviderEditor({ provider: null })}>
+                        <Icon name="plus" className="ico" />
+                        添加提供商
+                      </button>
+                    </div>
+                    {providers.map((provider) => (
                   <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
                     <div className="provider-head">
                       <div className="provider-logo">{provider.name.slice(0, 2)}</div>
@@ -403,10 +457,35 @@ export function SettingsModal() {
                           <span className={cn("badge", provider.available ? "ok" : "neutral")}>
                             {provider.available ? "可用" : "未配置"}
                           </span>
+                          {provider.custom ? (
+                            <span className="badge accent">{provider.overridden ? "已覆盖" : "自定义"}</span>
+                          ) : null}
                         </div>
                         <div className="provider-sub">{provider.endpoint || provider.note || provider.kind}</div>
                       </div>
                       <div className="provider-actions">
+                        {provider.kind !== "mock" ? (
+                          <button
+                            type="button"
+                            className="icon-btn sm"
+                            title="编辑提供商"
+                            aria-label={`编辑 ${provider.name}`}
+                            onClick={() => setProviderEditor({ provider })}
+                          >
+                            <Icon name="edit" />
+                          </button>
+                        ) : null}
+                        {provider.custom ? (
+                          <button
+                            type="button"
+                            className="icon-btn sm"
+                            title={provider.overridden ? "恢复内置配置" : "删除提供商"}
+                            aria-label={provider.overridden ? `恢复 ${provider.name} 的内置配置` : `删除 ${provider.name}`}
+                            onClick={() => void deleteProvider(provider)}
+                          >
+                            <Icon name={provider.overridden ? "refresh" : "trash"} />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="btn sm ghost"
@@ -447,6 +526,7 @@ export function SettingsModal() {
                             <tr>
                               <th>模型</th>
                               <th>上下文</th>
+                              <th>最大输出</th>
                               <th>流式</th>
                               <th>工具</th>
                               <th>推理</th>
@@ -458,6 +538,7 @@ export function SettingsModal() {
                               <tr key={model.id}>
                                 <td>{model.name}</td>
                                 <td>{model.contextK}k</td>
+                                <td>{model.maxTokens ? model.maxTokens : "默认"}</td>
                                 <Cap yes={model.caps.stream} />
                                 <Cap yes={model.caps.tools} />
                                 <Cap yes={model.caps.reasoning} />
@@ -470,7 +551,9 @@ export function SettingsModal() {
                       </div>
                     ) : null}
                   </div>
-                ))}
+                    ))}
+                  </>
+                )}
               </SettingsSection>
             ) : null}
 

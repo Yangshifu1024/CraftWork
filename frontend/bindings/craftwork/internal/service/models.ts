@@ -98,6 +98,17 @@ export interface MCPToolView {
 }
 
 /**
+ * ModelInput 是模型配置输入。
+ */
+export interface ModelInput {
+    "id": string;
+    "name": string;
+    "contextK": number;
+    "maxTokens"?: number;
+    "caps": model$0.Capabilities;
+}
+
+/**
  * ModelView 是模型目录的展示结构。
  */
 export interface ModelView {
@@ -106,9 +117,22 @@ export interface ModelView {
     "provider": string;
     "providerName": string;
     "contextK": number;
+    "maxTokens"?: number;
     "caps": model$0.Capabilities;
     "default": boolean;
     "available": boolean;
+}
+
+/**
+ * ProviderInput 是新增或编辑提供商的输入。
+ */
+export interface ProviderInput {
+    "id": string;
+    "name": string;
+    "kind": string;
+    "endpoint": string;
+    "keyRequired": boolean;
+    "models": ModelInput[] | null;
 }
 
 /**
@@ -124,6 +148,8 @@ export interface ProviderView {
     "keySource": string;
     "keyMasked": string;
     "available": boolean;
+    "custom": boolean;
+    "overridden": boolean;
     "models": ModelView[] | null;
 }
 

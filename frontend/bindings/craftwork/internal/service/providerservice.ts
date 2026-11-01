@@ -22,10 +22,24 @@ export function ClearKey(providerID: string): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteProvider 删除自定义配置；内置提供商删除自定义配置后恢复默认。
+ */
+export function DeleteProvider(providerID: string): $CancellablePromise<void> {
+    return $Call.ByID(3565237198, providerID);
+}
+
+/**
  * List 返回所有提供商与模型。密钥只返回来源与遮罩。
  */
 export function List(): $CancellablePromise<$models.ProviderView[] | null> {
     return $Call.ByID(2902708572);
+}
+
+/**
+ * SaveProvider 新增或覆盖一个提供商配置，并持久化到本地设置。
+ */
+export function SaveProvider(input: $models.ProviderInput): $CancellablePromise<$models.ProviderView> {
+    return $Call.ByID(2189567672, input);
 }
 
 /**

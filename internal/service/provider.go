@@ -5,12 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
+	"craftwork/internal/id"
 	"craftwork/internal/model"
 	"craftwork/internal/secret"
+	"craftwork/internal/store"
 )
+
+const customProvidersKey = "model.custom_providers"
 
 // ModelView 是模型目录的展示结构。
 type ModelView struct {
@@ -19,6 +25,7 @@ type ModelView struct {
 	Provider     string             `json:"provider"`
 	ProviderName string             `json:"providerName"`
 	ContextK     int                `json:"contextK"`
+	MaxTokens    int                `json:"maxTokens,omitempty"`
 	Caps         model.Capabilities `json:"caps"`
 	Default      bool               `json:"default"`
 	Available    bool               `json:"available"`
@@ -35,7 +42,28 @@ type ProviderView struct {
 	KeySource   string      `json:"keySource"`
 	KeyMasked   string      `json:"keyMasked"`
 	Available   bool        `json:"available"`
+	Custom      bool        `json:"custom"`
+	Overridden  bool        `json:"overridden"`
 	Models      []ModelView `json:"models"`
+}
+
+// ProviderInput 是新增或编辑提供商的输入。
+type ProviderInput struct {
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Kind        string       `json:"kind"`
+	Endpoint    string       `json:"endpoint"`
+	KeyRequired bool         `json:"keyRequired"`
+	Models      []ModelInput `json:"models"`
+}
+
+// ModelInput 是模型配置输入。
+type ModelInput struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	ContextK  int                `json:"contextK"`
+	MaxTokens int                `json:"maxTokens,omitempty"`
+	Caps      model.Capabilities `json:"caps"`
 }
 
 // ConnectionResult 是连接测试结果。
@@ -48,45 +76,299 @@ type ConnectionResult struct {
 
 // ProviderService 管理提供商目录、密钥状态与连接测试。
 type ProviderService struct {
+	db      *store.DB
 	secrets *secret.Store
+
+	mu     sync.RWMutex
+	custom []model.Provider
 }
 
-// NewProviderService 创建提供商服务。
-func NewProviderService(secrets *secret.Store) *ProviderService {
-	return &ProviderService{secrets: secrets}
+// NewProviderService 创建提供商服务，并加载已保存的自定义提供商配置。
+func NewProviderService(db *store.DB, secrets *secret.Store) *ProviderService {
+	service := &ProviderService{db: db, secrets: secrets}
+	var custom []model.Provider
+	if db != nil {
+		if err := db.GetSetting(customProvidersKey, &custom); err != nil {
+			custom = nil
+		}
+	}
+	service.custom = cloneProviders(custom)
+	model.SetCustomProviders(service.custom)
+	return service
 }
 
 // List 返回所有提供商与模型。密钥只返回来源与遮罩。
 func (s *ProviderService) List() []ProviderView {
+	s.mu.RLock()
+	custom := cloneProviders(s.custom)
+	s.mu.RUnlock()
+
+	customSet := map[string]bool{}
+	for _, provider := range custom {
+		customSet[provider.ID] = true
+	}
 	providers := model.Providers()
 	result := make([]ProviderView, 0, len(providers))
 	for _, provider := range providers {
-		keySource := s.secrets.Source(provider.ID)
-		available := provider.Kind != "unsupported" && (!provider.KeyRequired || keySource != "")
-		view := ProviderView{
-			ID:          provider.ID,
-			Name:        provider.Name,
-			Kind:        provider.Kind,
-			Endpoint:    provider.Endpoint,
-			Note:        provider.Note,
-			KeyRequired: provider.KeyRequired,
-			KeySource:   keySource,
-			KeyMasked:   s.secrets.Masked(provider.ID),
-			Available:   available,
+		result = append(result, s.viewFor(provider, customSet))
+	}
+	return result
+}
+
+func (s *ProviderService) viewFor(provider model.Provider, customSet map[string]bool) ProviderView {
+	keySource := s.secrets.Source(provider.ID)
+	available := provider.Kind != "unsupported" && (!provider.KeyRequired || keySource != "")
+	custom := customSet[provider.ID]
+	overridden := custom && isBuiltinProvider(provider.ID)
+	view := ProviderView{
+		ID:          provider.ID,
+		Name:        provider.Name,
+		Kind:        provider.Kind,
+		Endpoint:    provider.Endpoint,
+		Note:        provider.Note,
+		KeyRequired: provider.KeyRequired,
+		KeySource:   keySource,
+		KeyMasked:   s.secrets.Masked(provider.ID),
+		Available:   available,
+		Custom:      custom,
+		Overridden:  overridden,
+	}
+	for _, item := range provider.Models {
+		view.Models = append(view.Models, ModelView{
+			ID:           item.ID,
+			Name:         item.Name,
+			Provider:     item.Provider,
+			ProviderName: provider.Name,
+			ContextK:     item.ContextK,
+			MaxTokens:    item.MaxTokens,
+			Caps:         item.Caps,
+			Default:      item.Default,
+			Available:    available,
+		})
+	}
+	return view
+}
+
+// SaveProvider 新增或覆盖一个提供商配置，并持久化到本地设置。
+func (s *ProviderService) SaveProvider(input ProviderInput) (ProviderView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	provider, err := s.buildProvider(input, s.custom)
+	if err != nil {
+		return ProviderView{}, err
+	}
+
+	next := cloneProviders(s.custom)
+	replaced := false
+	for index := range next {
+		if next[index].ID == provider.ID {
+			next[index] = provider
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		next = append(next, provider)
+	}
+	if err := s.db.SetSetting(customProvidersKey, next); err != nil {
+		return ProviderView{}, fmt.Errorf("保存提供商配置: %w", err)
+	}
+	s.custom = next
+	model.SetCustomProviders(next)
+
+	customSet := map[string]bool{}
+	for _, item := range next {
+		customSet[item.ID] = true
+	}
+	return s.viewFor(provider, customSet), nil
+}
+
+// DeleteProvider 删除自定义配置；内置提供商删除自定义配置后恢复默认。
+func (s *ProviderService) DeleteProvider(providerID string) error {
+	s.mu.Lock()
+	current := cloneProviders(s.custom)
+	index := -1
+	for i, provider := range current {
+		if provider.ID == providerID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		s.mu.Unlock()
+		if isBuiltinProvider(providerID) {
+			return errors.New("内置提供商没有自定义配置")
+		}
+		return errors.New("未知提供商")
+	}
+	builtin := isBuiltinProvider(providerID)
+	next := append(current[:index], current[index+1:]...)
+	if err := s.db.SetSetting(customProvidersKey, next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("删除提供商配置: %w", err)
+	}
+	s.custom = next
+	model.SetCustomProviders(next)
+	s.mu.Unlock()
+
+	if !builtin {
+		_ = s.secrets.Delete(providerID)
+	}
+	return nil
+}
+
+func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Provider) (model.Provider, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return model.Provider{}, errors.New("提供商名称不能为空")
+	}
+	kind := strings.TrimSpace(input.Kind)
+	if kind == "" {
+		kind = "openai-compatible"
+	}
+	switch kind {
+	case "openai", "openai-compatible", "anthropic", "gemini":
+	default:
+		return model.Provider{}, errors.New("不支持的提供商协议")
+	}
+
+	providerID := strings.TrimSpace(input.ID)
+	if providerID == "" {
+		providerID = id.New("custom")
+	} else {
+		if providerID == "local" {
+			return model.Provider{}, errors.New("本地演示提供商不能修改")
+		}
+		if !isBuiltinProvider(providerID) && !containsProvider(custom, providerID) {
+			return model.Provider{}, errors.New("未知提供商")
+		}
+	}
+
+	endpoint := strings.TrimSpace(input.Endpoint)
+	if endpoint == "" {
+		for _, builtin := range model.BuiltinProviders() {
+			if builtin.ID == providerID {
+				endpoint = builtin.Endpoint
+				break
+			}
+		}
+	}
+	if endpoint == "" {
+		return model.Provider{}, errors.New("端点不能为空")
+	}
+	if err := validateEndpoint(endpoint); err != nil {
+		return model.Provider{}, err
+	}
+
+	if len(input.Models) == 0 {
+		return model.Provider{}, errors.New("至少需要配置一个模型")
+	}
+	reserved := map[string]bool{}
+	for _, provider := range append(model.BuiltinProviders(), custom...) {
+		if provider.ID == providerID {
+			continue
 		}
 		for _, item := range provider.Models {
-			view.Models = append(view.Models, ModelView{
-				ID:           item.ID,
-				Name:         item.Name,
-				Provider:     item.Provider,
-				ProviderName: provider.Name,
-				ContextK:     item.ContextK,
-				Caps:         item.Caps,
-				Default:      item.Default,
-				Available:    available,
-			})
+			reserved[item.ID] = true
 		}
-		result = append(result, view)
+	}
+	models := make([]model.ModelInfo, 0, len(input.Models))
+	seen := map[string]bool{}
+	for _, item := range input.Models {
+		modelID := strings.TrimSpace(item.ID)
+		if modelID == "" {
+			return model.Provider{}, errors.New("模型 ID 不能为空")
+		}
+		if strings.ContainsAny(modelID, " \t\n") {
+			return model.Provider{}, fmt.Errorf("模型 ID 不能包含空白：%s", modelID)
+		}
+		if seen[modelID] || reserved[modelID] {
+			return model.Provider{}, fmt.Errorf("模型 ID 重复：%s", modelID)
+		}
+		seen[modelID] = true
+		modelName := strings.TrimSpace(item.Name)
+		if modelName == "" {
+			modelName = modelID
+		}
+		contextK := item.ContextK
+		if contextK <= 0 {
+			contextK = 32
+		}
+		if contextK > 10000 {
+			return model.Provider{}, fmt.Errorf("模型 %s 的上下文窗口过大", modelName)
+		}
+		maxTokens := item.MaxTokens
+		if maxTokens < 0 || maxTokens > 200000 {
+			return model.Provider{}, fmt.Errorf("模型 %s 的最大输出 token 不合法", modelName)
+		}
+		caps := item.Caps
+		caps.Stream = true
+		models = append(models, model.ModelInfo{
+			ID:        modelID,
+			Name:      modelName,
+			Provider:  providerID,
+			ContextK:  contextK,
+			MaxTokens: maxTokens,
+			Caps:      caps,
+		})
+	}
+
+	note := "自定义提供商"
+	if isBuiltinProvider(providerID) {
+		note = "已覆盖内置提供商配置"
+	}
+	return model.Provider{
+		ID:          providerID,
+		Name:        name,
+		Kind:        kind,
+		Endpoint:    endpoint,
+		KeyRequired: input.KeyRequired,
+		Note:        note,
+		Models:      models,
+	}, nil
+}
+
+func validateEndpoint(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return errors.New("端点必须是合法的 HTTP(S) 地址")
+	}
+	if parsed.Scheme == "http" {
+		host := strings.Trim(parsed.Hostname(), "[]")
+		switch host {
+		case "localhost", "127.0.0.1", "::1":
+		default:
+			return errors.New("非本地端点必须使用 HTTPS")
+		}
+	}
+	return nil
+}
+
+func isBuiltinProvider(providerID string) bool {
+	for _, provider := range model.BuiltinProviders() {
+		if provider.ID == providerID {
+			return true
+		}
+	}
+	return false
+}
+
+func containsProvider(providers []model.Provider, providerID string) bool {
+	for _, provider := range providers {
+		if provider.ID == providerID {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneProviders(providers []model.Provider) []model.Provider {
+	result := make([]model.Provider, 0, len(providers))
+	for _, provider := range providers {
+		cloned := provider
+		cloned.Models = append([]model.ModelInfo(nil), provider.Models...)
+		result = append(result, cloned)
 	}
 	return result
 }

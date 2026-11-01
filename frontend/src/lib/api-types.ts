@@ -8,6 +8,7 @@ import type {
   FileContent,
   FileNode,
   MCPServerView,
+  ProviderInput,
   ProviderView,
   Settings,
   TerminalView,
@@ -64,6 +65,8 @@ export interface Api {
   providers: {
     list(): Promise<ProviderView[]>;
     warnings(): Promise<string[]>;
+    saveProvider(input: ProviderInput): Promise<ProviderView>;
+    deleteProvider(providerID: string): Promise<void>;
     setKey(providerID: string, key: string): Promise<void>;
     clearKey(providerID: string): Promise<void>;
     test(providerID: string): Promise<ConnectionResult>;

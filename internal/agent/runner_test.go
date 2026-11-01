@@ -462,6 +462,49 @@ func TestHistoryLoadsAttachmentContents(t *testing.T) {
 	}
 }
 
+func TestRunnerUsesModelMaxTokens(t *testing.T) {
+	requests := make(chan model.Request, 1)
+	capture := &captureClient{requests: requests}
+	t.Cleanup(func() { model.SetCustomProviders(nil) })
+	model.SetCustomProviders([]model.Provider{{
+		ID: "test", Name: "Test", Kind: "openai-compatible",
+		Endpoint: "https://example.com/v1", KeyRequired: false,
+		Models: []model.ModelInfo{{
+			ID: "fake", Name: "Fake", Provider: "test", ContextK: 32, MaxTokens: 512,
+			Caps: model.Capabilities{Stream: true},
+		}},
+	}})
+
+	h := newHarnessWithFactory(t, fakeFactory{client: capture})
+	h.start(t)
+	waitStatus(t, h.db, "th_1", "idle")
+
+	select {
+	case request := <-requests:
+		if request.MaxTokens != 512 {
+			t.Fatalf("模型最大输出未传入请求: %+v", request)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("没有捕获到模型请求")
+	}
+}
+
+type captureClient struct {
+	requests chan model.Request
+}
+
+func (c *captureClient) Stream(_ context.Context, request model.Request) (<-chan model.Chunk, error) {
+	select {
+	case c.requests <- request:
+	default:
+	}
+	channel := make(chan model.Chunk, 2)
+	channel <- model.Chunk{Text: "完成"}
+	channel <- model.Chunk{Usage: &model.Usage{}, Done: true}
+	close(channel)
+	return channel, nil
+}
+
 func waitApproval(t *testing.T, db *store.DB, threadID string) store.Approval {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

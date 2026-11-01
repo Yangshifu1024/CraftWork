@@ -1,10 +1,9 @@
 package model
 
-// Providers 返回内置提供商目录。
-//
-// 这里只描述“有哪些提供商与模型”，不包含任何密钥。密钥由
-// internal/secret 从 ~/.craftwork/keys.json 读取。
-func Providers() []Provider {
+import "sync"
+
+// builtinProviders 返回内置提供商目录。
+func builtinProviders() []Provider {
 	return []Provider{
 		{
 			ID:          "local",
@@ -119,6 +118,72 @@ func FindModel(modelID string) (Provider, ModelInfo, bool) {
 		}
 	}
 	return Provider{}, ModelInfo{}, false
+}
+
+var (
+	catalogMu       sync.RWMutex
+	customProviders []Provider
+)
+
+// BuiltinProviders 返回内置提供商目录，不包含用户自定义配置。
+func BuiltinProviders() []Provider {
+	return cloneProviders(builtinProviders())
+}
+
+// Providers 返回内置与用户自定义合并后的提供商目录。
+//
+// 自定义提供商与内置提供商 ID 相同时覆盖内置配置；密钥仍按提供商 ID
+// 保存在 keys.json，不进入这份目录。
+func Providers() []Provider {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	return mergeProviders(builtinProviders(), customProviders)
+}
+
+// CustomProviders 返回用户自定义提供商配置的副本。
+func CustomProviders() []Provider {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	return cloneProviders(customProviders)
+}
+
+// SetCustomProviders 替换用户自定义提供商配置。
+func SetCustomProviders(providers []Provider) {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	customProviders = cloneProviders(providers)
+}
+
+func mergeProviders(builtins, custom []Provider) []Provider {
+	merged := cloneProviders(builtins)
+	for _, provider := range custom {
+		replaced := false
+		for index := range merged {
+			if merged[index].ID == provider.ID {
+				merged[index] = cloneProvider(provider)
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			merged = append(merged, cloneProvider(provider))
+		}
+	}
+	return merged
+}
+
+func cloneProviders(providers []Provider) []Provider {
+	result := make([]Provider, 0, len(providers))
+	for _, provider := range providers {
+		result = append(result, cloneProvider(provider))
+	}
+	return result
+}
+
+func cloneProvider(provider Provider) Provider {
+	cloned := provider
+	cloned.Models = append([]ModelInfo(nil), provider.Models...)
+	return cloned
 }
 
 // DefaultModel 返回目录中的默认模型。

@@ -14,12 +14,13 @@ type Capabilities struct {
 
 // ModelInfo 是目录中的一个模型。
 type ModelInfo struct {
-	ID       string       `json:"id"`
-	Name     string       `json:"name"`
-	Provider string       `json:"provider"`
-	ContextK int          `json:"contextK"`
-	Caps     Capabilities `json:"caps"`
-	Default  bool         `json:"default"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Provider  string       `json:"provider"`
+	ContextK  int          `json:"contextK"`
+	MaxTokens int          `json:"maxTokens,omitempty"`
+	Caps      Capabilities `json:"caps"`
+	Default   bool         `json:"default"`
 }
 
 // Provider 是一组共享密钥与端点的模型。

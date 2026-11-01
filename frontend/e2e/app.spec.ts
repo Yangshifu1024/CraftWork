@@ -41,6 +41,23 @@ test("设置面板与主题切换", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
+test("添加自定义提供商与模型", async ({ page }) => {
+  await boot(page);
+  await page.locator('.side-link[title^="设置"]').click();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
+  await page.locator(".settings-nav-item", { hasText: "模型与提供商" }).click();
+
+  await page.getByRole("button", { name: "添加提供商" }).click();
+  await page.getByPlaceholder("例如 公司网关").fill("我的网关");
+  await page.getByPlaceholder("https://api.example.com/v1").fill("https://gateway.example.com/v1");
+  await page.getByLabel("模型 1 ID").fill("gateway-model");
+  await page.getByLabel("模型 1 名称").fill("Gateway Model");
+  await page.getByRole("button", { name: "保存提供商" }).click();
+
+  await expect(page.locator(".provider-name", { hasText: "我的网关" })).toBeVisible();
+  await expect(page.locator(".provider-name", { hasText: "自定义" })).toBeVisible();
+});
+
 test("界面截图基线 @screenshot", async ({ page }) => {
   await boot(page, true);
   await expect(page.getByText("修复登录刷新超时").first()).toBeVisible();

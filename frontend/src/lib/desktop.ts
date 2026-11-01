@@ -9,7 +9,7 @@ import * as TerminalService from "../../bindings/craftwork/internal/service/term
 import * as ThreadService from "../../bindings/craftwork/internal/service/threadservice";
 import * as WorkspaceService from "../../bindings/craftwork/internal/service/workspaceservice";
 import type { Api } from "./api-types";
-import type { DiffResult, ThreadSnapshot, UsageSummary } from "./types";
+import type { DiffResult, ProviderView, ThreadSnapshot, UsageSummary } from "./types";
 
 const emptyTotals = { inputTokens: 0, outputTokens: 0, cacheTokens: 0, costMicros: 0, runs: 0 };
 
@@ -97,6 +97,11 @@ export const desktopApi: Api = {
       return raw.map((provider) => ({ ...provider, models: provider.models ?? [] }));
     },
     warnings: async () => (await ProviderService.Warnings()) ?? [],
+    saveProvider: async (input) => {
+      const raw = await ProviderService.SaveProvider(input);
+      return { ...raw, models: raw.models ?? [] } as ProviderView;
+    },
+    deleteProvider: (providerID) => ProviderService.DeleteProvider(providerID),
     setKey: (providerID, key) => ProviderService.SetKey(providerID, key),
     clearKey: (providerID) => ProviderService.ClearKey(providerID),
     test: (providerID) => ProviderService.Test(providerID),

@@ -278,12 +278,12 @@ const mcpServers: MCPServerView[] = [];
 const providers: ProviderView[] = [
   {
     id: "local", name: "本地演示", kind: "mock", endpoint: "", keyRequired: false,
-    keySource: "", keyMasked: "", available: true, note: "无需密钥，用于本地演示与端到端测试。",
+    keySource: "", keyMasked: "", custom: false, overridden: false, available: true, note: "无需密钥，用于本地演示与端到端测试。",
     models: [{ id: "local-demo", name: "Local Demo", provider: "local", providerName: "本地演示", contextK: 32, caps: { stream: true, tools: true, vision: false, reasoning: true, structured: false }, default: true, available: true }],
   },
   {
     id: "deepseek", name: "DeepSeek", kind: "openai-compatible", endpoint: "https://api.deepseek.com/v1", keyRequired: true,
-    keySource: "", keyMasked: "", available: false,
+    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
     models: [
       { id: "deepseek-chat", name: "DeepSeek Chat", provider: "deepseek", providerName: "DeepSeek", contextK: 64, caps: { stream: true, tools: true, vision: false, reasoning: false, structured: true }, default: false, available: false },
       { id: "deepseek-reasoner", name: "DeepSeek Reasoner", provider: "deepseek", providerName: "DeepSeek", contextK: 64, caps: { stream: true, tools: true, vision: false, reasoning: true, structured: false }, default: false, available: false },
@@ -291,14 +291,14 @@ const providers: ProviderView[] = [
   },
   {
     id: "openai", name: "OpenAI", kind: "openai", endpoint: "https://api.openai.com/v1", keyRequired: true,
-    keySource: "", keyMasked: "", available: false,
+    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
     models: [
       { id: "gpt-4o", name: "GPT-4o", provider: "openai", providerName: "OpenAI", contextK: 128, caps: { stream: true, tools: true, vision: true, reasoning: false, structured: true }, default: false, available: false },
     ],
   },
   {
     id: "anthropic", name: "Anthropic", kind: "anthropic", endpoint: "https://api.anthropic.com", keyRequired: true,
-    keySource: "", keyMasked: "", available: false,
+    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
     note: "原生 Messages 协议，支持流式输出、工具调用与图片输入。",
     models: [
       { id: "claude-sonnet-4", name: "Claude Sonnet 4", provider: "anthropic", providerName: "Anthropic", contextK: 200, caps: { stream: true, tools: true, vision: true, reasoning: false, structured: false }, default: false, available: false },
@@ -306,7 +306,7 @@ const providers: ProviderView[] = [
   },
   {
     id: "gemini", name: "Google Gemini", kind: "gemini", endpoint: "https://generativelanguage.googleapis.com", keyRequired: true,
-    keySource: "", keyMasked: "", available: false,
+    keySource: "", keyMasked: "", custom: false, overridden: false, available: false,
     note: "原生 generateContent 协议，支持流式输出、函数调用与图片输入。",
     models: [
       { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "gemini", providerName: "Google Gemini", contextK: 1000, caps: { stream: true, tools: true, vision: true, reasoning: true, structured: false }, default: false, available: false },
@@ -722,6 +722,47 @@ export const mockApi: Api = {
   },
   providers: {
     list: async () => providers.map((provider) => ({ ...provider })),    warnings: async () => [],
+    saveProvider: async (input) => {
+      const existing = providers.find((provider) => provider.id === input.id);
+      const id = input.id || uid("custom");
+      const available = existing?.available ?? !input.keyRequired;
+      const models = (input.models ?? []).map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: id,
+        providerName: input.name,
+        contextK: model.contextK,
+        caps: { ...model.caps, stream: true },
+        default: false,
+        available,
+      }));
+      const view: ProviderView = {
+        id,
+        name: input.name,
+        kind: input.kind,
+        endpoint: input.endpoint,
+        keyRequired: input.keyRequired,
+        keySource: existing?.keySource ?? "",
+        keyMasked: existing?.keyMasked ?? "",
+        available,
+        custom: true,
+        overridden: Boolean(existing && !existing.custom),
+        note: existing ? "已覆盖内置提供商配置" : "自定义提供商",
+        models,
+      };
+      if (existing) {
+        Object.assign(existing, view);
+      } else {
+        providers.push(view);
+      }
+      return { ...view, models: models.map((model) => ({ ...model })) };
+    },
+    deleteProvider: async (providerID) => {
+      const index = providers.findIndex((provider) => provider.id === providerID);
+      if (index >= 0) {
+        providers.splice(index, 1);
+      }
+    },
     setKey: async (providerID, key) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {

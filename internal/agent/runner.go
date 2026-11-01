@@ -300,13 +300,15 @@ func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, me
 			return nil, err
 		}
 
+		_, modelInfo := model.Resolve(candidate)
 		streamCtx, cancel := context.WithTimeout(ctx, modelRequestTimeout)
 		chunks, err := client.Stream(streamCtx, model.Request{
-			Model:    candidate,
-			Mode:     mode,
-			System:   system,
-			Messages: history,
-			Tools:    specs,
+			Model:     candidate,
+			Mode:      mode,
+			System:    system,
+			Messages:  history,
+			Tools:     specs,
+			MaxTokens: modelInfo.MaxTokens,
 		})
 		if err == nil {
 			return &streamSession{
