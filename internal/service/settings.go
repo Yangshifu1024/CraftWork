@@ -49,6 +49,17 @@ type Settings struct {
 	UpdateChannel string `json:"updateChannel"`
 	// Telemetry 表示是否允许发送匿名用量统计。
 	Telemetry bool `json:"telemetry"`
+	// MaxIterations 是单次运行最大模型往返次数，超过后停止本次运行；0 表示不限制。
+	MaxIterations int `json:"maxIterations"`
+}
+
+// clampMaxIterations 校正单次运行最大往返数：0 合法（不限制），
+// 负数与超过 1000 的值按脏数据回退默认 300。
+func clampMaxIterations(v int) int {
+	if v < 0 || v > 1000 {
+		return 300
+	}
+	return v
 }
 
 // DefaultSettings 返回首次启动的默认设置。
@@ -70,6 +81,7 @@ func DefaultSettings() Settings {
 		Notifications:    true,
 		UpdateChannel:    "stable",
 		Telemetry:        false,
+		MaxIterations:    300,
 	}
 }
 
@@ -173,6 +185,8 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	if next.TerminalFontSize < 10 || next.TerminalFontSize > 20 {
 		next.TerminalFontSize = 12
 	}
+	// 往返上限允许 0（不限制），其余限制在 1..1000；非法值回退默认。
+	next.MaxIterations = clampMaxIterations(next.MaxIterations)
 	// 默认模型允许为空；非空时必须是当前用户目录中的模型。
 	// 失效模型不静默回退，而是清空，让用户重新选择。
 	normalizeModelSettings(&next)

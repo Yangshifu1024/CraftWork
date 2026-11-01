@@ -39,3 +39,18 @@ func TestNormalizeModelSettings(t *testing.T) {
 		t.Fatalf("失效模型应被清空: %+v", settings)
 	}
 }
+
+func TestClampMaxIterations(t *testing.T) {
+	// 合法值原样保留，0 表示不限制。
+	for _, want := range []int{0, 1, 24, 300, 1000} {
+		if got := clampMaxIterations(want); got != want {
+			t.Fatalf("clampMaxIterations(%d) = %d", want, got)
+		}
+	}
+	// 负数与超界值回退默认 300。
+	for _, bad := range []int{-5, -1, 1001, 99999} {
+		if got := clampMaxIterations(bad); got != 300 {
+			t.Fatalf("clampMaxIterations(%d) 应回退 300，实际 %d", bad, got)
+		}
+	}
+}

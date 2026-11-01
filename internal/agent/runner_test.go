@@ -597,3 +597,112 @@ func TestEstimateCostMicros(t *testing.T) {
 		t.Fatalf("未知价格应为 0: %d", cost)
 	}
 }
+
+// toolLoopClient 每次调用都返回一个 fs_list 工具调用（R0 只读，不产生审批阻塞）；
+// calls 记录实际被请求的次数，用于断言上限恰好生效。
+type toolLoopClient struct{ calls int }
+
+func (c *toolLoopClient) Stream(_ context.Context, _ model.Request) (<-chan model.Chunk, error) {
+	c.calls++
+	channel := make(chan model.Chunk, 2)
+	go func() {
+		defer close(channel)
+		channel <- model.Chunk{ToolCall: &model.ToolCall{
+			ID:   fmt.Sprintf("call_%d", c.calls),
+			Name: "fs_list",
+			Args: map[string]any{"path": "."},
+		}}
+		channel <- model.Chunk{Usage: &model.Usage{InputTokens: 10, OutputTokens: 2}, Done: true}
+	}()
+	return channel, nil
+}
+
+// finishAfterClient 前 until 次返回工具调用，之后返回收尾文本；step 记录总调用次数。
+type finishAfterClient struct {
+	until int
+	step  int
+}
+
+func (c *finishAfterClient) Stream(_ context.Context, _ model.Request) (<-chan model.Chunk, error) {
+	step := c.step
+	c.step++
+	channel := make(chan model.Chunk, 2)
+	go func() {
+		defer close(channel)
+		if step < c.until {
+			channel <- model.Chunk{ToolCall: &model.ToolCall{
+				ID:   fmt.Sprintf("call_%d", step+1),
+				Name: "fs_list",
+				Args: map[string]any{"path": "."},
+			}}
+		} else {
+			channel <- model.Chunk{Text: "完成"}
+		}
+		channel <- model.Chunk{Usage: &model.Usage{InputTokens: 10, OutputTokens: 2}, Done: true}
+	}()
+	return channel, nil
+}
+
+// TestRunnerMaxIterationsLimit 验证设置回调返回的往返上限恰好生效：
+// 模型永远调用工具时，应在第 N 次往返后被 max_iterations 终止。
+func TestRunnerMaxIterationsLimit(t *testing.T) {
+	client := &toolLoopClient{}
+	h := newHarnessWithFactory(t, fakeFactory{client: client})
+	h.runner.SetMaxIterationsResolver(func() int { return 3 })
+	h.start(t)
+
+	waitStatus(t, h.db, "th_1", "error")
+
+	if client.calls != 3 {
+		t.Fatalf("应恰好调用模型 3 次，实际 %d", client.calls)
+	}
+	snapshot, err := h.db.Snapshot("th_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, message := range snapshot.Messages {
+		for _, part := range message.Parts {
+			if part.Kind != "error" {
+				continue
+			}
+			data, _ := part.Data.(map[string]any)
+			if data["code"] != "max_iterations" {
+				continue
+			}
+			found = true
+			if msg, _ := data["message"].(string); !strings.Contains(msg, "3") {
+				t.Fatalf("错误信息应包含上限轮数 3: %q", msg)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("应记录 max_iterations 错误部件")
+	}
+}
+
+// TestRunnerUnlimitedIterations 验证上限为 0 时不限制往返次数：
+// 模型连续调用 5 轮工具后收尾，应正常完成而不是被终止。
+func TestRunnerUnlimitedIterations(t *testing.T) {
+	client := &finishAfterClient{until: 5}
+	h := newHarnessWithFactory(t, fakeFactory{client: client})
+	h.runner.SetMaxIterationsResolver(func() int { return 0 })
+	h.start(t)
+
+	waitStatus(t, h.db, "th_1", "idle")
+
+	if client.step != 6 {
+		t.Fatalf("应调用模型 6 次（5 轮工具 + 1 轮收尾），实际 %d", client.step)
+	}
+	snapshot, err := h.db.Snapshot("th_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range snapshot.Messages {
+		for _, part := range message.Parts {
+			if part.Kind == "error" {
+				t.Fatalf("不限制模式不应产生错误部件: %+v", part.Data)
+			}
+		}
+	}
+}

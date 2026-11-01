@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 14,
   codeTheme: "dark",
   terminalFontSize: 12,
+  maxIterations: 300,
   autoUpdate: true,
   notifications: true,
   updateChannel: "stable",

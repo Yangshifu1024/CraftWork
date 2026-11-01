@@ -139,6 +139,10 @@ func Run(frontend embed.FS, build version.Info) error {
 	recorder := record.New(db, bus)
 	approvals := agent.NewApprovals(db, recorder)
 	runner := agent.NewRunner(db, recorder, registry, engine, approvals, modelFactory, attachmentDir)
+	// 单次运行最大模型往返数从设置里实时读取，用户改设置后无需重启。
+	runner.SetMaxIterationsResolver(func() int {
+		return settingsService.Get().MaxIterations
+	})
 
 	appService := service.NewAppService(dataDir, build)
 	threadService := service.NewThreadService(db, recorder)

@@ -728,6 +728,11 @@ export interface Settings {
      * Telemetry 表示是否允许发送匿名用量统计。
      */
     "telemetry": boolean;
+
+    /**
+     * MaxIterations 是单次运行最大模型往返次数，超过后停止本次运行；0 表示不限制。
+     */
+    "maxIterations": number;
 }
 
 /**

@@ -754,6 +754,22 @@ export function SettingsModal() {
                     ))}
                   </div>
                 </Row>
+                <Row
+                  label="单次运行最大往返"
+                  desc="Agent 一次运行的模型调用轮数上限，超过后停止本次运行；「不限制」适合长任务，但请在场观察，避免模型空转消耗。改动对下一次运行生效。"
+                >
+                  <select
+                    className="select"
+                    value={settings.maxIterations}
+                    onChange={(event) => update({ maxIterations: Number(event.target.value) })}
+                  >
+                    {[24, 60, 120, 300, 600, 0].map((limit) => (
+                      <option key={limit} value={limit}>
+                        {limit === 0 ? "不限制" : `${limit} 轮`}
+                      </option>
+                    ))}
+                  </select>
+                </Row>
                 <div className="set-row" style={{ display: "block" }}>
                   {/* 风险等级表：说明 R0–R4 的判定与默认策略 */}
                   <table className="perm-table">

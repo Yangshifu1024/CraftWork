@@ -450,6 +450,8 @@ const errorHints: Record<string, string> = {
   invalid_request: "请求参数不被模型接受：请检查模型名称、端点与工具配置。",
   interrupted: "上次运行在应用退出时中断，已保留已产生的消息；可以点击重试继续。",
   canceled: "本次生成已取消。",
+  max_iterations:
+    "模型多轮调用工具达到了本次运行的上限。可以点击重试继续，或在设置 → 工具与权限中调高「单次运行最大往返」。",
 };
 
 /**

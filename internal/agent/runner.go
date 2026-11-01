@@ -27,8 +27,8 @@ import (
 
 const (
 	// defaultMaxIterations 是一次运行内最多的模型往返次数，用来兜底防止模型
-	// 反复调用工具、始终不给最终回答。
-	defaultMaxIterations = 24
+	// 反复调用工具、始终不给最终回答；注入设置回调后以设置值为准，0 表示不限制。
+	defaultMaxIterations = 300
 	// modelRequestTimeout 是单次模型请求（包含流式接收全过程）的最长等待时间，
 	// 超过后按超时错误结束本轮运行。
 	modelRequestTimeout = 3 * time.Minute
@@ -71,7 +71,8 @@ type Runner struct {
 	// attachmentDir 是粘贴附件的落盘目录。该目录由应用管理，读取时不受
 	// 工作区边界限制；系统文件选择框仍然只能选工作区内的文件。
 	attachmentDir string
-	// maxIterations 是一次运行的模型往返上限，创建时取 defaultMaxIterations。
+	// maxIterations 是一次运行的模型往返上限，创建时取 defaultMaxIterations；
+	// 注入 maxIterationsFn 后以回调返回值为准。
 	maxIterations int
 
 	// mu 保护 cancels 与 notify，保证启动、取消与读取通知回调时不发生竞争。
@@ -82,6 +83,8 @@ type Runner struct {
 	titlePending map[string]bool
 	// notify 是系统通知回调，未设置时为 nil。
 	notify func(title, message string)
+	// maxIterationsFn 实时读取最大往返上限（来自设置服务），未注入时为 nil。
+	maxIterationsFn func() int
 }
 
 // NewRunner 创建运行器。
@@ -108,6 +111,26 @@ func (r *Runner) SetNotifier(notifier func(title, message string)) {
 	r.mu.Lock()
 	r.notify = notifier
 	r.mu.Unlock()
+}
+
+// SetMaxIterationsResolver 注入最大往返上限的实时读取回调（来自设置服务），
+// 用户修改设置后无需重启即对下一次运行生效。回调返回 0 表示不限制。
+func (r *Runner) SetMaxIterationsResolver(fn func() int) {
+	r.mu.Lock()
+	r.maxIterationsFn = fn
+	r.mu.Unlock()
+}
+
+// maxIterationsLimit 返回本次运行生效的最大往返上限；0 表示不限制。
+// 未注入回调时使用构造默认值。
+func (r *Runner) maxIterationsLimit() int {
+	r.mu.Lock()
+	fn := r.maxIterationsFn
+	r.mu.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return r.maxIterations
 }
 
 // sendNotification 读取通知回调并调用；没有配置回调时什么也不做。
@@ -205,7 +228,9 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	// 压缩只在本轮开头做一次，避免每次迭代都去估算并重复摘要。
 	compressionChecked := false
 
-	for iteration := 0; iteration < r.maxIterations; iteration++ {
+	// 上限在一次运行开始时读定，运行途中改设置不影响本次；0 表示不限制。
+	limit := r.maxIterationsLimit()
+	for iteration := 0; limit <= 0 || iteration < limit; iteration++ {
 		// 每轮迭代先检查取消，用户取消后不再发起新的模型请求。
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID)
@@ -347,7 +372,8 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	}
 
 	// 循环耗尽仍未结束，通常是模型反复调用工具，按可重试错误提示用户。
-	r.fail(thread, runID, messageID, "max_iterations", "达到模型调用上限，已停止本次运行", false)
+	r.fail(thread, runID, messageID, "max_iterations",
+		fmt.Sprintf("达到模型调用上限（%d 轮），已停止本次运行", limit), false)
 }
 
 // openSession 选择模型并建立流。
