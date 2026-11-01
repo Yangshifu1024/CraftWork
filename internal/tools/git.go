@@ -1,3 +1,7 @@
+// 本文件负责 Git 相关工具：查看差异、查看提交历史与提交代码。
+// 所有命令都直接启动 git 子进程，不经过 Shell，参数以数组形式传递，
+// 避免拼接字符串带来的注入风险。
+
 package tools
 
 import (
@@ -10,12 +14,15 @@ import (
 	"craftwork/internal/policy"
 )
 
+// gitTimeout 是单次 Git 命令的默认超时时间。
 const gitTimeout = 30 * time.Second
 
 // ---------- git_diff ----------
 
+// gitDiffTool 查看工作区或暂存区的差异，只读。
 type gitDiffTool struct{}
 
+// Spec 声明 git_diff 的元数据：可选 path 与 staged，只读操作。
 func (t *gitDiffTool) Spec() Spec {
 	return Spec{
 		Name:        "git_diff",
@@ -34,8 +41,10 @@ func (t *gitDiffTool) Spec() Spec {
 	}
 }
 
+// Execute 按参数拼装 git diff 命令并返回差异文本。
 func (t *gitDiffTool) Execute(ctx context.Context, call Call) Result {
 	args := call.Args
+	// 参数逐项追加，路径放在 -- 之后，防止把文件名误当成选项。
 	arguments := []string{"diff", "--no-color"}
 	if boolArg(args, "staged") {
 		arguments = append(arguments, "--staged")
@@ -63,8 +72,10 @@ func (t *gitDiffTool) Execute(ctx context.Context, call Call) Result {
 
 // ---------- git_log ----------
 
+// gitLogTool 查看最近的提交记录，只读。
 type gitLogTool struct{}
 
+// Spec 声明 git_log 的元数据：limit 控制条数，path 可选。
 func (t *gitLogTool) Spec() Spec {
 	return Spec{
 		Name:        "git_log",
@@ -83,6 +94,7 @@ func (t *gitLogTool) Spec() Spec {
 	}
 }
 
+// Execute 输出单行格式的提交列表，条数夹取到 1–100。
 func (t *gitLogTool) Execute(ctx context.Context, call Call) Result {
 	args := call.Args
 	limit := intArg(args, "limit", 20)
@@ -116,8 +128,10 @@ func (t *gitLogTool) Execute(ctx context.Context, call Call) Result {
 
 // ---------- git_commit ----------
 
+// gitCommitTool 提交已修改或指定路径的文件，不执行推送。
 type gitCommitTool struct{}
 
+// Spec 声明 git_commit 的元数据：message 必填，paths 可选，风险等级 R1。
 func (t *gitCommitTool) Spec() Spec {
 	return Spec{
 		Name:        "git_commit",
@@ -140,12 +154,14 @@ func (t *gitCommitTool) Spec() Spec {
 	}
 }
 
+// Execute 校验提交信息与路径后暂存并提交；未指定路径时只提交已跟踪文件。
 func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
 	args := call.Args
 	message := strings.TrimSpace(stringArg(args, "message"))
 	if message == "" {
 		return errorResult("message 不能为空")
 	}
+	// 提交信息里出现 NUL 字节说明输入异常，直接拒绝而不是传给子进程。
 	if strings.ContainsRune(message, 0) {
 		return errorResult("message 包含非法字符")
 	}
@@ -160,6 +176,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
 			if strings.TrimSpace(path) == "" {
 				continue
 			}
+			// 路径列表同样要经过工作区边界校验，并转换成相对路径交给 git。
 			_, display, err := call.Resolve(path)
 			if err != nil {
 				return errorResult("%v", err)
@@ -174,6 +191,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
 		}
 	}
 
+	// 指定路径时先暂存再提交这些路径；否则用 -a 提交全部已跟踪文件的修改。
 	arguments := []string{"commit", "-m", message}
 	if len(paths) > 0 {
 		arguments = append(arguments, "--")
@@ -192,6 +210,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
 		return errorResult("提交失败: %s", truncate(strings.TrimSpace(output), maxOutputBytes))
 	}
 
+	// 提交成功后取短哈希用于回显；这一步失败不影响提交本身。
 	hash, _, _, _ := runGit(ctx, call.Workspace, 10*time.Second, "rev-parse", "--short", "HEAD")
 	hash = strings.TrimSpace(hash)
 	subject := strings.SplitN(message, "\n", 2)[0]
@@ -199,6 +218,7 @@ func (t *gitCommitTool) Execute(ctx context.Context, call Call) Result {
 	return Result{Output: line, Meta: map[string]any{"hash": hash, "message": message, "paths": paths}}
 }
 
+// gitAdd 暂存指定路径。返回 nil 表示成功，否则返回可直接回给模型的失败结果。
 func (t *gitCommitTool) gitAdd(ctx context.Context, workspace string, paths []string) *Result {
 	arguments := append([]string{"add", "--"}, paths...)
 	output, exitCode, timedOut, err := runGit(ctx, workspace, gitTimeout, arguments...)

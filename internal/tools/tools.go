@@ -1,5 +1,10 @@
 // Package tools 实现 Agent 可调用的内置工具。
 //
+// 本包集中声明每个工具的静态元数据（名称、描述、参数 Schema、风险等级、
+// 路径与命令参数），并提供统一的注册表、路径解析、写入前备份与输出截断
+// 出口。新增工具只需在 Spec 中声明一次，注册、策略判断与审批展示都会
+// 读取同一份声明。
+//
 // 所有文件路径都经过 policy.Resolve 校验；写入类工具在落盘前备份原文件。
 // 工具输出统一在 Registry.Execute 出口截断到 32 KB，避免把大段二进制
 // 或日志塞进上下文。
@@ -18,29 +23,43 @@ import (
 	"craftwork/internal/policy"
 )
 
-// Result 是工具执行结果。
+// Result 是工具执行结果。成功与失败共用同一结构，用 IsError 与 Code 区分。
 type Result struct {
-	Output  string         `json:"output"`
-	IsError bool           `json:"isError"`
-	Code    string         `json:"code,omitempty"`
-	Meta    map[string]any `json:"meta,omitempty"`
+	// Output 是返回给模型的文本，可能是正常内容，也可能是错误说明。
+	Output string `json:"output"`
+	// IsError 表示本次执行失败，模型应据此调整后续动作。
+	IsError bool `json:"isError"`
+	// Code 是结构化错误码，便于前端与审计区分失败类型。
+	Code string `json:"code,omitempty"`
+	// Meta 是给界面展示使用的附加信息，不进入模型上下文。
+	Meta map[string]any `json:"meta,omitempty"`
 }
 
-// Spec 是暴露给模型的工具定义，以及执行接缝需要的静态元数据。
+// Spec 是暴露给模型的工具定义，以及执行入口需要的静态元数据。
 //
 // 新增一个工具只需要在这里声明一次风险、路径与摘要位置，注册表、
 // 策略判断与审批展示都从同一份声明读取。
 type Spec struct {
-	Name        string
+	// Name 是工具在模型侧的唯一标识，也是注册表的键。
+	Name string
+	// Description 是给模型看的用途说明。
 	Description string
-	Schema      map[string]any
-	Risk        policy.Risk
-	PathArg     string // 需要解析并校验的路径参数名
-	CommandArg  string // 需要分类的命令参数名
-	Work        bool   // 是否在 Work 模式开放
-	Title       string // 审批卡标题，空时使用名称
-	SummaryArg  string // 摘要优先取用的参数
-	SummaryText string // 参数为空时的固定摘要
+	// Schema 是 JSON Schema 形式的参数定义。
+	Schema map[string]any
+	// Risk 是工具的默认风险等级；命令类工具会在执行前按命令内容重算。
+	Risk policy.Risk
+	// PathArg 是需要解析并校验的路径参数名；留空表示该工具不接触文件路径。
+	PathArg string
+	// CommandArg 是需要分类的命令参数名，目前仅 shell_exec 使用。
+	CommandArg string
+	// Work 表示该工具在 Work 模式下仍然开放。
+	Work bool
+	// Title 是审批卡标题，空时使用 Name。
+	Title string
+	// SummaryArg 是摘要优先取用的参数名。
+	SummaryArg string
+	// SummaryText 是参数为空或没有摘要参数时使用的固定摘要。
+	SummaryText string
 }
 
 // TitleOf 返回审批卡标题。
@@ -72,23 +91,33 @@ func (s Spec) SummaryOf(args map[string]any) string {
 // Spec 声明静态元数据，Execute 只实现领域动作；路径解析、权限判断、
 // 输出截断与错误码由 Registry 的统一出口负责。
 type Tool interface {
+	// Spec 返回工具的静态元数据。
 	Spec() Spec
+	// Execute 执行工具动作；路径解析、备份出口与参数校验已由注册表准备。
 	Execute(ctx context.Context, call Call) Result
 }
 
 // Call 是一次已经准备好的工具调用：路径已经解析，备份出口已经绑定。
 type Call struct {
-	Name      string
-	Args      map[string]any
-	Target    string
-	Display   string
+	// Name 是工具名称，与 Spec.Name 一致。
+	Name string
+	// Args 是模型给出的原始参数，保持原样交给工具自行解释。
+	Args map[string]any
+	// Target 是路径参数解析后的绝对路径；工具没有路径参数时为空。
+	Target string
+	// Display 是相对工作区的展示路径，只用于输出与审批卡。
+	Display string
+	// Workspace 是调用发生时的工作区根目录，用于相对路径换算。
 	Workspace string
 	// Err 表示路径解析失败；非空时 Registry 不会执行工具。
-	Err    error
+	Err error
+	// backup 由注册表注入，写入前用它保存原文件内容。
 	backup func(abs string, data []byte) error
 }
 
 // Backup 在写入前保存目标文件的原始内容。
+//
+// data 必须是即将被覆盖的当前内容；没有配置备份目录时静默跳过。
 func (c Call) Backup(data []byte) error {
 	if c.Err != nil {
 		return c.Err
@@ -100,6 +129,8 @@ func (c Call) Backup(data []byte) error {
 }
 
 // Resolve 解析额外路径（例如 git_commit 的 paths 列表），仍然限制在工作区内。
+//
+// rel 为空时按当前工作区根目录处理；返回绝对路径与相对展示路径。
 func (c Call) Resolve(rel string) (abs string, display string, err error) {
 	if strings.TrimSpace(rel) == "" {
 		rel = "."
@@ -115,7 +146,7 @@ func (c Call) Resolve(rel string) (abs string, display string, err error) {
 type Options struct {
 	// Workspace 是工作区根目录的绝对路径。
 	Workspace string
-	// BackupDir 是写入前备份的目录。
+	// BackupDir 是写入前备份的目录；为空表示不落盘备份。
 	BackupDir string
 	// RecordBackup 把备份记录写入数据库。
 	RecordBackup func(path, backupPath, hash string, size int64) error
@@ -123,12 +154,17 @@ type Options struct {
 
 // Registry 持有当前工作区可用的工具集合。
 type Registry struct {
-	mu    sync.RWMutex
-	opts  Options
+	// mu 保护 opts 与 tools，支持运行期切换工作区、注册 MCP 工具。
+	mu sync.RWMutex
+	// opts 是注册表配置，其中 Workspace 会随活动工作区变化。
+	opts Options
+	// tools 以工具名称为键，内置工具在构造时一次性注册。
 	tools map[string]Tool
 }
 
 // NewRegistry 创建工具注册表。
+//
+// 这里注册的是全部内置工具；MCP 工具稍后通过 Register 动态加入。
 func NewRegistry(opts Options) *Registry {
 	registry := &Registry{opts: opts, tools: map[string]Tool{}}
 	for _, tool := range []Tool{
@@ -206,6 +242,9 @@ func (r *Registry) Specs() []Spec {
 	return r.specsLocked()
 }
 
+// specsLocked 在已持有读锁的前提下收集并排序工具定义。
+//
+// 排序保证提示词里的工具顺序稳定，避免相同配置产生不同的模型输入。
 func (r *Registry) specsLocked() []Spec {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
@@ -264,18 +303,22 @@ func (r *Registry) Assess(name string, args map[string]any) (policy.Assessment, 
 
 	call := Call{Name: name, Args: args, Workspace: workspace}
 	if !exists {
+		// 未注册的工具一律按最高常见风险处理，交由上层拒绝，避免绕过策略。
 		return policy.Assessment{Risk: policy.R2, Reason: "执行命令"}, call, false
 	}
 
 	spec := tool.Spec()
 	assessment := policy.Assessment{Risk: spec.Risk, Reason: policy.ReasonFor(spec.Risk)}
 
+	// 命令类工具的风险由命令内容决定，例如 rm -rf 会被提升到 R4。
 	if spec.CommandArg != "" {
 		command := stringArg(args, spec.CommandArg)
 		assessment.Target = command
 		assessment.Risk, assessment.Reason = policy.ClassifyCommand(command)
 	}
 
+	// 路径类工具在这里完成唯一一次解析：越界直接判 R3 并记录错误，
+	// 后续 Execute 使用已经解析好的 Target，不再信任前端传入的路径。
 	if spec.PathArg != "" {
 		path := stringArg(args, spec.PathArg)
 		if path == "" {
@@ -291,6 +334,7 @@ func (r *Registry) Assess(name string, args map[string]any) (policy.Assessment, 
 		call.Target = resolved
 		call.Display = displayPath(workspace, resolved)
 		call.backup = r.backup
+		// 同时带命令参数时，审批目标保留命令本身而不是工作目录。
 		if spec.CommandArg == "" {
 			assessment.Target = resolved
 		}
@@ -305,6 +349,7 @@ func (r *Registry) Assess(name string, args map[string]any) (policy.Assessment, 
 //
 // 输出在这里统一截断，错误统一补上错误码；MCP 等动态工具也走同一出口。
 func (r *Registry) Execute(ctx context.Context, call Call) Result {
+	// 路径解析阶段已经失败，不再给工具任何执行机会。
 	if call.Err != nil {
 		return errorResult("%v", call.Err)
 	}
@@ -315,6 +360,7 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 		return result
 	}
 	result := tool.Execute(ctx, call)
+	// 无论工具自身返回什么，出口都保证输出长度受限。
 	result.Output = truncate(result.Output, maxOutputBytes)
 	if result.IsError && result.Code == "" {
 		result.Code = CodeToolError
@@ -322,10 +368,15 @@ func (r *Registry) Execute(ctx context.Context, call Call) Result {
 	return result
 }
 
+// 输出与读取上限。工具输出在统一出口截断，fs_read 单次读取也有上限，
+// 防止一次调用把超大内容灌进模型上下文。
 const (
+	// maxOutputBytes 是单个工具输出允许保留的最大字节数。
 	maxOutputBytes = 32 * 1024
-	maxReadBytes   = 256 * 1024
-	maxReadLines   = 2000
+	// maxReadBytes 是 fs_read 单次读取的最大字节数。
+	maxReadBytes = 256 * 1024
+	// maxReadLines 是 fs_read 单次返回的最大行数。
+	maxReadLines = 2000
 
 	// CodeToolError 是工具执行失败的默认错误码。
 	CodeToolError = "tool_error"
@@ -340,7 +391,10 @@ func IsIgnoredDir(name string) bool {
 	return isIgnoredDir(name)
 }
 
-// truncate 按字节上限截断输出并注明。
+// truncate 按字节上限截断输出并注明原始长度。
+//
+// 只做字节切片，可能把多字节字符切成两半；这是可接受的取舍，
+// 因为该出口主要用于限制日志与命令输出，模型侧仍能读懂提示。
 func truncate(text string, limit int) string {
 	if len(text) <= limit {
 		return text
@@ -349,6 +403,9 @@ func truncate(text string, limit int) string {
 }
 
 // backup 在写入前保存原文件内容。
+//
+// 备份文件写入备份目录并记录哈希；配置了 RecordBackup 时再把记录
+// 落到数据库，供审计与恢复使用。
 func (r *Registry) backup(absPath string, data []byte) error {
 	r.mu.RLock()
 	backupDir := r.opts.BackupDir
@@ -374,6 +431,7 @@ func (r *Registry) backup(absPath string, data []byte) error {
 	return nil
 }
 
+// stringArg 读取字符串参数；缺失、nil 或类型不符时返回空字符串。
 func stringArg(args map[string]any, key string) string {
 	value, ok := args[key]
 	if !ok || value == nil {
@@ -383,6 +441,8 @@ func stringArg(args map[string]any, key string) string {
 	return text
 }
 
+// intArg 读取整数参数。JSON 反序列化后数字是 float64，
+// 这里同时兼容 float64、int 与 int64，其余类型回退到默认值。
 func intArg(args map[string]any, key string, fallback int) int {
 	value, ok := args[key]
 	if !ok || value == nil {
@@ -400,6 +460,7 @@ func intArg(args map[string]any, key string, fallback int) int {
 	}
 }
 
+// boolArg 读取布尔参数；缺失或类型不符时按 false 处理。
 func boolArg(args map[string]any, key string) bool {
 	value, ok := args[key]
 	if !ok {
@@ -409,6 +470,7 @@ func boolArg(args map[string]any, key string) bool {
 	return result
 }
 
+// errorResult 构造一个带默认错误码的失败结果。
 func errorResult(format string, args ...any) Result {
 	return Result{Output: fmt.Sprintf(format, args...), IsError: true, Code: CodeToolError}
 }

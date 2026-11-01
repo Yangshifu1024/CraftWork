@@ -1,3 +1,7 @@
+// 本文件负责文档类工具：读取 Word/Excel/PDF 的文本，替换 Word 文本，
+// 以及修改 Excel 单元格。实际解析与写回交给 internal/doc，这里只做
+// 参数校验、写入前备份与结果整理。
+
 package tools
 
 import (
@@ -12,8 +16,10 @@ import (
 
 // ---------- doc_read ----------
 
+// docReadTool 读取文档的文本内容，只读。
 type docReadTool struct{}
 
+// Spec 声明 doc_read 的元数据：path 必填，只读操作。
 func (t *docReadTool) Spec() Spec {
 	return Spec{
 		Name:        "doc_read",
@@ -32,6 +38,7 @@ func (t *docReadTool) Spec() Spec {
 	}
 }
 
+// Execute 读取文档并按需要附上格式说明，供模型判断内容是否完整。
 func (t *docReadTool) Execute(_ context.Context, call Call) Result {
 	document, err := doc.ReadFile(call.Target)
 	if err != nil {
@@ -54,8 +61,10 @@ func (t *docReadTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- doc_edit ----------
 
+// docEditTool 替换 Word 文档中的一段文本，属于写操作。
 type docEditTool struct{}
 
+// Spec 声明 doc_edit 的元数据：old_text 与 new_text 必填，风险等级 R1。
 func (t *docEditTool) Spec() Spec {
 	return Spec{
 		Name:        "doc_edit",
@@ -77,6 +86,7 @@ func (t *docEditTool) Spec() Spec {
 	}
 }
 
+// Execute 在写入前备份原文档，再交给 doc.Replace 做文本替换。
 func (t *docEditTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	oldText := stringArg(args, "old_text")
@@ -103,8 +113,10 @@ func (t *docEditTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- xlsx_set_cell ----------
 
+// xlsxSetCellTool 修改 Excel 单元格的值或公式，属于写操作。
 type xlsxSetCellTool struct{}
 
+// Spec 声明 xlsx_set_cell 的元数据：path、cell、value 必填，风险等级 R1。
 func (t *xlsxSetCellTool) Spec() Spec {
 	return Spec{
 		Name:        "xlsx_set_cell",
@@ -127,6 +139,7 @@ func (t *xlsxSetCellTool) Spec() Spec {
 	}
 }
 
+// Execute 备份原表格后写入指定单元格，保留其余内容与样式。
 func (t *xlsxSetCellTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	abs, display := call.Target, call.Display

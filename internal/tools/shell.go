@@ -1,3 +1,7 @@
+// 本文件负责 shell_exec 与 git_status 两个与外部进程打交道的工具。
+// 命令统一交给 platform.Run 执行：它会清洗敏感环境变量、限制输出、
+// 超时后杀掉整个进程组，避免残留子进程。
+
 package tools
 
 import (
@@ -11,8 +15,11 @@ import (
 	"craftwork/internal/policy"
 )
 
+// shellExecTool 在工作区内执行 Shell 命令，属于需要审批的执行操作。
 type shellExecTool struct{}
 
+// Spec 声明 shell_exec 的元数据：command 必填，cwd 限制工作区，
+// 风险默认 R2，实际等级由 policy.ClassifyCommand 按命令内容重算。
 func (t *shellExecTool) Spec() Spec {
 	return Spec{
 		Name:        "shell_exec",
@@ -34,6 +41,7 @@ func (t *shellExecTool) Spec() Spec {
 	}
 }
 
+// Execute 启动 Shell 执行命令，返回输出、退出码与耗时。
 func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
 	args := call.Args
 	command := stringArg(args, "command")
@@ -41,6 +49,7 @@ func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
 		return errorResult("command 不能为空")
 	}
 	cwd := call.Target
+	// 超时时间同样由模型提供，这里夹取到 1–600 秒。
 	timeoutSeconds := intArg(args, "timeout", 120)
 	if timeoutSeconds < 1 {
 		timeoutSeconds = 1
@@ -50,6 +59,7 @@ func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
 	}
 
 	start := time.Now()
+	// 平台层负责清洗环境变量、限制输出，并在超时后杀掉整个进程组。
 	run := platform.Run(ctx, platform.RunSpec{
 		Path: shellPath(), Args: []string{"-c", command}, Dir: cwd,
 		Timeout: time.Duration(timeoutSeconds) * time.Second, OutputLimit: maxOutputBytes,
@@ -73,6 +83,7 @@ func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
 	return result
 }
 
+// shellPath 返回可用的 Shell 路径，优先使用 /bin/sh。
 func shellPath() string {
 	if _, err := os.Stat("/bin/sh"); err == nil {
 		return "/bin/sh"
@@ -80,8 +91,10 @@ func shellPath() string {
 	return "sh"
 }
 
+// gitStatusTool 查看工作区的 Git 分支与文件状态，只读。
 type gitStatusTool struct{}
 
+// Spec 声明 git_status 的元数据：没有参数，只读操作。
 func (t *gitStatusTool) Spec() Spec {
 	return Spec{
 		Name:        "git_status",
@@ -92,6 +105,7 @@ func (t *gitStatusTool) Spec() Spec {
 	}
 }
 
+// Execute 运行 git status --short --branch 并返回文本结果。
 func (t *gitStatusTool) Execute(ctx context.Context, call Call) Result {
 	run := platform.Run(ctx, platform.RunSpec{
 		Path: "git", Args: []string{"status", "--short", "--branch"}, Dir: call.Workspace,

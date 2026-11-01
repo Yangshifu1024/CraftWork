@@ -1,3 +1,6 @@
+// 本文件是审计相关的前端绑定：读取审计日志、用量聚合与备份记录，
+// 并提供把备份写回原文件的恢复操作。
+
 package service
 
 import (
@@ -12,6 +15,7 @@ import (
 
 // AuditService 读取审计、用量与备份，并提供备份恢复。
 type AuditService struct {
+	// db 是审计、用量与备份记录的存储入口。
 	db *store.DB
 }
 
@@ -36,6 +40,9 @@ func (s *AuditService) Backups(limit int) ([]store.Backup, error) {
 }
 
 // Restore 用备份覆盖原文件。调用前前端必须让用户确认。
+//
+// 恢复会保留目标文件现有权限（文件不存在时用 0644），
+// 写回后追加一条允许类审计记录，保证恢复动作同样可追溯。
 func (s *AuditService) Restore(backupID string) error {
 	backup, err := s.db.GetBackup(backupID)
 	if err != nil {

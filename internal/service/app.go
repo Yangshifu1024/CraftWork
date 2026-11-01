@@ -2,6 +2,9 @@
 //
 // 每个导出类型都会被 Wails3 注册为服务，导出方法会生成对应的 TypeScript
 // 调用入口。服务层只做参数校验、编排与错误转换，业务逻辑放在领域包中。
+//
+// 本文件提供应用级能力：构建信息读取、窗口控制、文件选择、剪贴板，
+// 以及唯一允许打开外部链接的出口。
 package service
 
 import (
@@ -18,19 +21,28 @@ import (
 
 // AppInfo 是前端启动时读取的构建与运行环境信息。
 type AppInfo struct {
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	Commit   string `json:"commit"`
-	Build    string `json:"buildTime"`
+	// Name 是应用名称，固定为 CraftWork。
+	Name string `json:"name"`
+	// Version 是构建版本号。
+	Version string `json:"version"`
+	// Commit 是构建对应的提交号。
+	Commit string `json:"commit"`
+	// Build 是构建时间。
+	Build string `json:"buildTime"`
+	// Platform 是运行平台，例如 darwin、windows、linux。
 	Platform string `json:"platform"`
-	Arch     string `json:"arch"`
-	DataDir  string `json:"dataDir"`
+	// Arch 是运行架构，例如 arm64、amd64。
+	Arch string `json:"arch"`
+	// DataDir 是数据目录路径，数据库、密钥与备份都在其中。
+	DataDir string `json:"dataDir"`
 }
 
 // AppService 提供应用级能力：信息读取、窗口控制、剪贴板与外部链接。
 type AppService struct {
+	// dataDir 是数据目录路径。
 	dataDir string
-	build   version.Info
+	// build 是编译期注入的版本信息。
+	build version.Info
 }
 
 // NewAppService 创建应用服务。
@@ -137,6 +149,7 @@ func (s *AppService) ReadClipboard() string {
 	return text
 }
 
+// mainWindow 取名为 main 的主窗口；应用未初始化或窗口不存在时返回错误。
 func mainWindow() (application.Window, error) {
 	current := application.Get()
 	if current == nil {

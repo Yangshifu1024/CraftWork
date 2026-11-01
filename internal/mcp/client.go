@@ -1,3 +1,7 @@
+// 本文件实现 MCP 的 stdio 客户端：启动服务器子进程，按行收发
+// JSON-RPC 消息，并把并发请求按编号分发到各自的等待通道。
+// 读取循环与进程退出都会关闭 done 通道，让所有等待中的调用及时返回。
+
 package mcp
 
 import (
@@ -15,52 +19,84 @@ import (
 	"craftwork/internal/platform"
 )
 
+// 客户端的时间与容量限制：握手较快，普通请求更宽松，
+// 单条消息最多 16 MB，防止异常服务器塞爆内存。
 const (
+	// initializeTimeout 是 MCP 握手的最长等待时间。
 	initializeTimeout = 15 * time.Second
-	requestTimeout    = 120 * time.Second
-	maxMessageBytes   = 16 << 20
+	// requestTimeout 是单次工具列表或工具调用的最长等待时间。
+	requestTimeout = 120 * time.Second
+	// maxMessageBytes 是单条 JSON-RPC 消息允许的最大字节数。
+	maxMessageBytes = 16 << 20
 )
 
 // Client 是一个已启动的 MCP stdio 客户端。
 type Client struct {
+	// command 是服务器子进程，退出时用于清理进程组。
 	command *exec.Cmd
-	stdin   io.WriteCloser
+	// stdin 是向服务器写入 JSON-RPC 消息的管道。
+	stdin io.WriteCloser
+	// scanner 按行读取服务器返回的消息。
 	scanner *bufio.Scanner
-	stderr  *platform.LimitedBuffer
+	// stderr 保存服务器标准错误，进程异常退出时用于提示原因。
+	stderr *platform.LimitedBuffer
 
-	writeMu   sync.Mutex
-	mu        sync.Mutex
-	pending   map[int64]chan rpcResponse
-	nextID    int64
-	closed    bool
-	done      chan struct{}
+	// writeMu 串行化写入，保证每行消息完整且不交错。
+	writeMu sync.Mutex
+	// mu 保护 pending、closed 等共享状态。
+	mu sync.Mutex
+	// pending 按请求编号保存等待响应的通道。
+	pending map[int64]chan rpcResponse
+	// nextID 是单调递增的请求编号。
+	nextID int64
+	// closed 表示连接已经关闭，不再接受新请求。
+	closed bool
+	// done 在连接结束或进程退出时关闭，用于唤醒所有等待者。
+	done chan struct{}
+	// closeOnce 保证关闭逻辑只执行一次。
 	closeOnce sync.Once
 }
 
+// rpcRequest 是发往服务器的 JSON-RPC 请求；通知（notify）不填 ID。
 type rpcRequest struct {
+	// JSONRPC 固定为 2.0。
 	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id,omitempty"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
+	// ID 是请求编号，通知消息省略。
+	ID int64 `json:"id,omitempty"`
+	// Method 是 MCP 方法名，例如 tools/list。
+	Method string `json:"method"`
+	// Params 是方法参数。
+	Params any `json:"params,omitempty"`
 }
 
+// rpcError 是服务器返回的 JSON-RPC 错误对象。
 type rpcError struct {
-	Code    int    `json:"code"`
+	// Code 是协议错误码。
+	Code int `json:"code"`
+	// Message 是错误说明。
 	Message string `json:"message"`
 }
 
+// Error 把协议错误转换成可读文本。
 func (e *rpcError) Error() string {
 	return fmt.Sprintf("MCP 错误 %d: %s", e.Code, e.Message)
 }
 
+// rpcResponse 是服务器返回的 JSON-RPC 响应，结果与错误二者其一。
 type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  json.RawMessage `json:"result"`
-	Error   *rpcError       `json:"error"`
+	// JSONRPC 固定为 2.0。
+	JSONRPC string `json:"jsonrpc"`
+	// ID 是响应对应的请求编号。
+	ID json.RawMessage `json:"id"`
+	// Result 是成功结果，由调用方自行解析。
+	Result json.RawMessage `json:"result"`
+	// Error 是失败信息，非空时忽略 Result。
+	Error *rpcError `json:"error"`
 }
 
 // Start 启动 MCP 服务器进程并建立 JSON-RPC 通道。调用方需要随后调用 Initialize。
+//
+// 环境变量经过清洗，子进程独立成组，便于退出时整体回收。
 func Start(ctx context.Context, config ServerConfig) (*Client, error) {
 	if config.Command == "" {
 		return nil, fmt.Errorf("MCP 服务器命令不能为空")
@@ -93,12 +129,15 @@ func Start(ctx context.Context, config ServerConfig) (*Client, error) {
 		pending: map[int64]chan rpcResponse{},
 		done:    make(chan struct{}),
 	}
+	// 初始缓冲 64 KB，上限 16 MB，避免长消息触发行长度限制。
 	client.scanner.Buffer(make([]byte, 64*1024), maxMessageBytes)
 	go client.readLoop()
 	go func() {
+		// 标准错误只保留末尾一段，避免大量日志占满内存。
 		_, _ = io.Copy(client.stderr, stderr)
 	}()
 	go func() {
+		// 进程退出后关闭 done，唤醒所有等待响应的调用。
 		_ = command.Wait()
 		client.closeDone()
 	}()
@@ -107,6 +146,9 @@ func Start(ctx context.Context, config ServerConfig) (*Client, error) {
 }
 
 // Initialize 完成 MCP 握手。
+//
+// 先发送 initialize 声明协议版本与客户端信息，再发送 initialized
+// 通知，表示客户端已准备好接收服务器消息。
 func (c *Client) Initialize(ctx context.Context) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
 	defer cancel()
@@ -128,6 +170,7 @@ func (c *Client) Initialize(ctx context.Context) error {
 
 // ListTools 返回服务器暴露的工具。
 func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
+	// 请求级超时独立于调用方上下文，防止服务器长时间不响应。
 	timeoutCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	raw, err := c.call(timeoutCtx, "tools/list", map[string]any{})
@@ -144,6 +187,8 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolInfo, error) {
 }
 
 // CallTool 调用一个 MCP 工具，返回文本输出与是否由工具报告错误。
+//
+// MCP 内容块可能是文本以外的类型，这里用 [类型] 占位，保持顺序可读。
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (string, bool, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
@@ -180,6 +225,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 }
 
 // Close 关闭客户端并终止服务器进程组。
+//
+// 先关闭标准输入让服务器自行退出，再强制回收整个进程组，
+// 保证服务器派生的子进程不会残留。
 func (c *Client) Close() error {
 	var closeErr error
 	c.closeOnce.Do(func() {
@@ -194,6 +242,10 @@ func (c *Client) Close() error {
 	return closeErr
 }
 
+// call 发送请求并等待对应编号的响应。
+//
+// 使用带缓冲的通道接收结果，读取循环即使在调用方超时后才收到响应
+// 也不会阻塞。等待期间响应、上下文取消、连接结束三者谁先发生就返回谁。
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	id := atomic.AddInt64(&c.nextID, 1)
 	response := make(chan rpcResponse, 1)
@@ -226,10 +278,14 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 	}
 }
 
+// notify 发送不期待响应的 JSON-RPC 通知。
 func (c *Client) notify(method string, params any) error {
 	return c.write(rpcRequest{JSONRPC: "2.0", Method: method, Params: params})
 }
 
+// write 序列化一条消息并以换行结尾写入标准输入。
+//
+// MCP stdio 以行分隔消息，因此必须持有写锁，避免两条消息交错。
 func (c *Client) write(message rpcRequest) error {
 	data, err := json.Marshal(message)
 	if err != nil {
@@ -242,6 +298,10 @@ func (c *Client) write(message rpcRequest) error {
 	return err
 }
 
+// readLoop 持续读取服务器输出，把响应分发给等待中的请求。
+//
+// 无法解析的行、通知消息与未知编号都会被忽略；扫描结束说明
+// 服务器已经关闭输出，此时关闭 done 并唤醒所有等待者。
 func (c *Client) readLoop() {
 	for c.scanner.Scan() {
 		line := bytes.TrimSpace(c.scanner.Bytes())
@@ -272,6 +332,7 @@ func (c *Client) readLoop() {
 	c.closeDone()
 }
 
+// closeDone 标记连接已关闭并关闭 done 通道，重复调用安全。
 func (c *Client) closeDone() {
 	c.mu.Lock()
 	if !c.closed {

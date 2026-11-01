@@ -1,3 +1,11 @@
+/**
+ * 线程事件合并。
+ *
+ * 这里把事件批量通道推送的事件批次（Batch）换算成聊天界面需要的线程状态：
+ * 消息列表、流式文本增量、工具与审批部件、运行标记，以及线程列表里的状态字段。
+ *
+ * 本文件只做纯计算：不读写 store，也不调用后端命令，因此可以脱离界面单独测试。
+ */
 import type {
   ApprovalPartData,
   Batch,
@@ -9,7 +17,11 @@ import type {
 } from "../lib/types";
 import { EVENT } from "../lib/types";
 
-/** 线程事件归约涉及的 store 字段。 */
+/**
+ * 线程事件合并处理涉及的 store 字段。
+ *
+ * 合并入口只接收这些字段，不依赖完整的线程 store，方便测试时按需构造。
+ */
 export interface ThreadSlice {
   messages: ChatMessage[];
   running: boolean;
@@ -18,27 +30,57 @@ export interface ThreadSlice {
   threads: Record<Mode, ThreadView[]>;
 }
 
+/**
+ * 合并结果：在 {@link ThreadSlice} 基础上多出一个刷新标记。
+ *
+ * `refreshNeeded` 为真表示批次里出现了其他线程的变更，调用方需要重新拉取线程列表。
+ */
 export interface ReducedThread extends ThreadSlice {
   refreshNeeded: boolean;
 }
 
+/** 事件类型字符串的联合类型，取自 `EVENT` 常量对象的全部取值。 */
 type EventType = (typeof EVENT)[keyof typeof EVENT];
 
+/**
+ * 合并过程中使用的可变草稿。
+ *
+ * 在 store 字段之外补充「当前线程 id」与「是否需要刷新列表」，
+ * 处理函数直接修改草稿，最后由 {@link reduceThread} 一次性返回结果。
+ */
 interface Draft extends ThreadSlice {
   activeThreadID: string;
   refreshNeeded: boolean;
 }
 
+/** 单个事件的处理函数签名：读取事件并就地修改草稿。 */
 type Handler = (draft: Draft, event: Envelope) => void;
 
+/**
+ * 占位处理函数。
+ *
+ * 用于本文件不负责的事件类型；实际效果由其他 store 或后端通知部件承载。
+ */
 function noop(): void {
   // 由其他 store 或后端通知部件承载。
 }
 
+/**
+ * 取出事件里携带的部件 id。
+ *
+ * 事件载荷是松散的 `any`，这里做一次类型检查，缺失时返回空字符串，
+ * 让调用方以「没有部件 id」为由跳过处理。
+ */
 function partIdOf(event: Envelope): string {
   return typeof event.data?.partId === "string" ? event.data.partId : "";
 }
 
+/**
+ * 确保消息列表中存在指定 id 的 assistant 消息，并把它标记为流式输出中。
+ *
+ * 事件可能早于消息列表加载完成就到达，所以找不到消息时要补一条空消息；
+ * 已存在的消息只更新状态，避免覆盖已有的部件。
+ */
 function ensureMessage(
   messages: ChatMessage[],
   messageID: string,
@@ -62,6 +104,13 @@ function ensureMessage(
   ];
 }
 
+/**
+ * 把一段文本增量追加到指定消息的指定部件上。
+ *
+ * 增量事件只带片段内容，因此需要按部件 id 找到之前的文本再拼接；
+ * 部件还不存在时新建一个，`seq` 取当前部件数量，保证顺序与后端一致。
+ * 其他消息和部件保持原引用，避免整棵消息树重新渲染。
+ */
 function appendText(
   messages: ChatMessage[],
   messageID: string,
@@ -84,12 +133,20 @@ function appendText(
       if (partIndex !== index) {
         return part;
       }
+      // 文本增量合并：旧内容在前、新片段在后，拼成完整正文。
       return { ...part, data: { ...part.data, text: `${part.data?.text ?? ""}${text}` } };
     });
     return { ...message, parts };
   });
 }
 
+/**
+ * 按部件 id 新增或合并一个部件。
+ *
+ * 同一部件可能先以「开始」事件出现、再以「完成」事件带完整数据到达，
+ * 因此已存在时做浅合并（新字段覆盖旧字段），不存在时追加到消息末尾。
+ * 消息本身也不存在时补一条 assistant 流式消息，避免事件丢失。
+ */
 function upsertPart(
   messages: ChatMessage[],
   messageID: string,
@@ -127,6 +184,11 @@ function upsertPart(
   ];
 }
 
+/**
+ * 更新单条消息的状态。
+ *
+ * 没有正在处理的消息 id 时原样返回，避免把整份消息数组无意义地重建一次。
+ */
 function setMessageStatus(
   messages: ChatMessage[],
   messageID: string | null,
@@ -138,6 +200,12 @@ function setMessageStatus(
   return messages.map((message) => (message.id === messageID ? { ...message, status } : message));
 }
 
+/**
+ * 就地更新审批部件里的字段。
+ *
+ * 只匹配 id 相同且类型为审批的部件，其他部件原样返回；
+ * 典型用法是收到 `approval.resolved` 后把状态从「等待」改成「已批准 / 已拒绝」。
+ */
 function updateApprovalPart(
   messages: ChatMessage[],
   partID: string,
@@ -153,6 +221,12 @@ function updateApprovalPart(
   }));
 }
 
+/**
+ * 在线程列表中就地合并某个线程的字段。
+ *
+ * code 与 work 两个模式各有一份列表，这里同时扫描，只替换 id 命中的那一条，
+ * 其他线程保持原引用。返回新的 `Record`，不改动传入的对象。
+ */
 export function updateThread(
   threads: Record<Mode, ThreadView[]>,
   threadID: string,
@@ -164,6 +238,12 @@ export function updateThread(
   };
 }
 
+/**
+ * 用自定义函数改写某个线程。
+ *
+ * 与 {@link updateThread} 的区别是需要读取原线程再做增量计算，
+ * 例如用量事件要在已有的 token 计数上累加。
+ */
 function updateThreadWith(
   threads: Record<Mode, ThreadView[]>,
   threadID: string,
@@ -175,7 +255,12 @@ function updateThreadWith(
   };
 }
 
-/** 把部件事件写入当前流式消息。 */
+/**
+ * 把整块部件事件写入当前正在流式输出的消息。
+ *
+ * 用于工具、审批、待办、通知、错误等「一次发送完整数据」的事件；
+ * 没有运行中的消息或事件缺少部件 id 时直接忽略。
+ */
 function upsertFromEvent(draft: Draft, kind: ChatPart["kind"], event: Envelope): void {
   const partID = partIdOf(event);
   if (!draft.runningMessageID || !partID) {
@@ -189,6 +274,11 @@ function upsertFromEvent(draft: Draft, kind: ChatPart["kind"], event: Envelope):
   });
 }
 
+/**
+ * 把文本类增量事件追加到当前正在流式输出的消息。
+ *
+ * 与 {@link upsertFromEvent} 的区别是只拼接正文，不整体替换部件数据。
+ */
 function appendFromEvent(
   draft: Draft,
   kind: "text" | "reasoning",
@@ -207,6 +297,12 @@ function appendFromEvent(
   );
 }
 
+/**
+ * 收尾一次运行。
+ *
+ * 依次做三件事：给当前消息写入终态、清空运行标记、把线程状态改成终态；
+ * 最后标记需要刷新列表，让侧边栏的排序与统计跟上数据库里的最新结果。
+ */
 function finishRun(
   draft: Draft,
   messageStatus: ChatMessage["status"],
@@ -221,8 +317,13 @@ function finishRun(
   draft.refreshNeeded = true;
 }
 
-/** 每种事件一个处理函数；新增 EVENT 时类型检查会强制补表。 */
+/**
+ * 事件类型到处理函数的映射表。
+ *
+ * 每种事件一个处理函数；新增 EVENT 时类型检查会强制补表，避免漏处理。
+ */
 const handlers: Record<EventType, Handler> = {
+  // 运行开始：记录正在流式输出的消息 id，并把线程标记为运行中。
   [EVENT.runStarted]: (draft, event) => {
     const messageID = event.data?.messageId as string | undefined;
     if (!messageID) {
@@ -235,15 +336,23 @@ const handlers: Record<EventType, Handler> = {
       draft.threads = updateThread(draft.threads, draft.activeThreadID, { status: "running" });
     }
   },
+  // 正文增量：把片段追加到对应文本部件后面。
   [EVENT.textDelta]: (draft, event) => appendFromEvent(draft, "text", event),
+  // 正文片段完成：用后端给出的完整文本覆盖该部件。
   [EVENT.textCompleted]: (draft, event) => upsertFromEvent(draft, "text", event),
+  // 推理过程增量：与正文分开存放，供界面折叠展示。
   [EVENT.reasoningDelta]: (draft, event) => appendFromEvent(draft, "reasoning", event),
+  // 推理片段完成：整体覆盖该部件。
   [EVENT.reasoningCompleted]: (draft, event) => upsertFromEvent(draft, "reasoning", event),
+  // 工具调用开始：写入工具部件，此时通常只有命令与参数。
   [EVENT.toolStarted]: (draft, event) => upsertFromEvent(draft, "tool", event),
+  // 工具调用结束：同一部件 id 合并输出、耗时与错误标记。
   [EVENT.toolCompleted]: (draft, event) => upsertFromEvent(draft, "tool", event),
   [EVENT.approvalRequested]: (draft, event) => {
+    // 先落一个审批部件，界面据此渲染允许 / 拒绝按钮。
     upsertFromEvent(draft, "approval", event);
     const approval = event.data as ApprovalPartData;
+    // 去重后放入待审批队列：同一个审批重复推送时只保留最新一份。
     draft.pendingApprovals = [
       ...draft.pendingApprovals.filter((item) => item.approvalId !== approval.approvalId),
       approval,
@@ -253,6 +362,7 @@ const handlers: Record<EventType, Handler> = {
     }
   },
   [EVENT.approvalResolved]: (draft, event) => {
+    // 审批状态更新：把部件里的等待状态改成最终结果，并记录决定与生效范围。
     const partID = partIdOf(event);
     if (partID) {
       draft.messages = updateApprovalPart(draft.messages, partID, {
@@ -261,6 +371,7 @@ const handlers: Record<EventType, Handler> = {
         scope: event.data.scope,
       });
     }
+    // 无论部件是否存在，都要把它移出待审批队列。
     draft.pendingApprovals = draft.pendingApprovals.filter(
       (item) => item.approvalId !== event.data?.approvalId,
     );
@@ -268,13 +379,18 @@ const handlers: Record<EventType, Handler> = {
       draft.threads = updateThread(draft.threads, draft.activeThreadID, { status: "running" });
     }
   },
+  // 待办清单更新：整份清单一次性替换。
   [EVENT.todoUpdated]: (draft, event) => upsertFromEvent(draft, "todo", event),
+  // 普通提示：例如上下文压缩说明，作为消息内的通知部件展示。
   [EVENT.notice]: (draft, event) => upsertFromEvent(draft, "notice", event),
+  // 错误事件：写成错误部件，交给消息组件展示错误码与可读文案。
   [EVENT.error]: (draft, event) => upsertFromEvent(draft, "error", event),
+  // 三种运行终态：分别对应完成、取消、失败。
   [EVENT.runCompleted]: (draft) => finishRun(draft, "complete", "idle"),
   [EVENT.runCanceled]: (draft) => finishRun(draft, "incomplete", "idle"),
   [EVENT.runFailed]: (draft) => finishRun(draft, "error", "error"),
   [EVENT.threadUpdated]: (draft, event) => {
+    // 事件带整条线程时直接合并；只带状态时更新当前线程的状态字段。
     if (event.data?.thread) {
       draft.threads = updateThread(draft.threads, event.data.thread.id, event.data.thread);
     } else if (draft.activeThreadID && event.data?.status) {
@@ -286,9 +402,11 @@ const handlers: Record<EventType, Handler> = {
   [EVENT.usageUpdated]: (draft, event) => {
     const input = Number(event.data?.inputTokens ?? 0);
     const output = Number(event.data?.outputTokens ?? 0);
+    // 令牌数为 0 或没有当前线程时不必改动列表。
     if (!draft.activeThreadID || input + output <= 0) {
       return;
     }
+    // 用量是累加语义：在已有计数上加本次输入与输出之和。
     draft.threads = updateThreadWith(draft.threads, draft.activeThreadID, (thread) => ({
       ...thread,
       tokens: (thread.tokens ?? 0) + input + output,
@@ -296,7 +414,7 @@ const handlers: Record<EventType, Handler> = {
   },
   // 上下文压缩的可见文案由后端同时写入的 notice 部件承载。
   [EVENT.contextCompressed]: noop,
-  // 设置与工作区事件由 app store 订阅，线程归约只负责线程内状态。
+  // 设置与工作区事件由 app store 订阅，线程处理只负责线程内状态。
   [EVENT.settingsUpdated]: noop,
   [EVENT.workspaceUpdated]: noop,
   // 终端事件由 terminal store 订阅。
@@ -305,9 +423,10 @@ const handlers: Record<EventType, Handler> = {
 };
 
 /**
- * reduceThread 是线程事件的唯一归约入口。
+ * reduceThread 是线程事件的唯一合并入口。
  *
  * 纯函数：给定状态与批次返回新状态，便于直接测试，不需要 mock api 或总线。
+ * 处理顺序严格按批次里的事件顺序进行，因此同一批次内的增量不会乱序。
  */
 export function reduceThread(
   state: ThreadSlice,
@@ -325,9 +444,12 @@ export function reduceThread(
   };
 
   for (const event of batch.events) {
+    // 事件批次过滤：终端事件挂在 "terminal:" 伪线程下，与聊天消息无关，直接跳过。
     if (event.threadId?.startsWith("terminal:")) {
       continue;
     }
+    // 当前线程判定：明确属于其他线程的事件不进入本线程的消息与运行状态。
+    // 但线程列表仍要跟上，因此遇到其他线程的更新事件只打刷新标记，稍后重新拉取列表。
     if (activeThreadID && event.threadId && event.threadId !== activeThreadID) {
       if (event.type === EVENT.threadUpdated) {
         draft.refreshNeeded = true;
@@ -338,6 +460,7 @@ export function reduceThread(
     if (handler) {
       handler(draft, event);
     }
+    // 没有登记的事件类型（后端新增、前端尚未跟上）静默忽略，不影响同批次的其他事件。
   }
 
   return {

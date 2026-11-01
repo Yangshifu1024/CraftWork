@@ -2,6 +2,9 @@
 //
 // 三道防线互相独立：工具自身做参数校验，策略引擎决定是否需要审批，
 // 路径解析拒绝任何越界访问。前端传入的路径一律视为不可信。
+//
+// 本文件定义风险等级、审批档位与处置动作的判断规则，并给出命令的
+// 破坏性与网络访问分类；路径解析的实现放在同包的 resolve.go。
 package policy
 
 import (
@@ -12,6 +15,7 @@ import (
 // Risk 是工具调用的风险等级。
 type Risk int
 
+// 风险等级从只读到破坏性递增，数字越大限制越严。
 const (
 	// R0 只读：自动允许并记录审计。
 	R0 Risk = iota
@@ -33,6 +37,7 @@ func (r Risk) String() string {
 // Level 是审批档位。
 type Level string
 
+// 审批档位决定不同风险等级的默认处置方式。
 const (
 	// LevelGraded 分级：R0 自动；R1–R3 询问；R4 阻止。
 	LevelGraded Level = "graded"
@@ -57,6 +62,7 @@ func ParseLevel(value string) Level {
 // Action 是策略引擎对一次调用的处置。
 type Action string
 
+// 策略引擎对一次调用的三种可能处置。
 const (
 	// ActionAllow 直接执行。
 	ActionAllow Action = "allow"
@@ -68,15 +74,21 @@ const (
 
 // Assessment 是一次工具调用的策略结论。
 type Assessment struct {
-	Risk   Risk   `json:"risk"`
+	// Risk 是本次调用最终判定的风险等级。
+	Risk Risk `json:"risk"`
+	// Reason 是给用户看的判定理由，会出现在审批卡上。
 	Reason string `json:"reason"`
+	// Target 是审批展示的目标，通常是命令或解析后的路径。
 	Target string `json:"target,omitempty"`
 }
 
 // Engine 根据审批档位、工作区与信任状态判断工具调用。
 type Engine struct {
-	level      Level
-	workspace  string
+	// level 是当前审批档位。
+	level Level
+	// workspace 是当前工作区根目录的绝对路径。
+	workspace string
+	// restricted 表示工作区未受信任，网络访问直接拒绝。
 	restricted bool
 }
 
@@ -118,9 +130,13 @@ func (e *Engine) SetWorkspace(workspace string) {
 
 // ToolMeta 是评估一次工具调用所需的静态元数据，由工具自己声明。
 type ToolMeta struct {
-	Name       string
-	Risk       Risk
-	PathArg    string
+	// Name 是工具名称。
+	Name string
+	// Risk 是工具的默认风险等级。
+	Risk Risk
+	// PathArg 是需要解析的路径参数名，空表示没有。
+	PathArg string
+	// CommandArg 是需要分类的命令参数名，空表示没有。
 	CommandArg string
 }
 
@@ -189,6 +205,8 @@ func (e *Engine) Action(risk Risk) Action {
 // AllowsPermanent 判断该风险是否允许“本会话 / 本工作区”授权。
 // R3、R4 永远不提供永久允许；严格、只读与受限工作区也不提供。
 func (e *Engine) AllowsPermanent(risk Risk) bool {
+	// 只有分级档位且工作区受信任时，写工作区与执行命令才允许
+	// 一次授权覆盖本会话或本工作区；其余情况每次都问。
 	if e.level != LevelGraded || e.restricted {
 		return false
 	}
@@ -213,6 +231,9 @@ var destructivePatterns = []string{
 	"git push --force", "git reset --hard", "git clean -fdx",
 }
 
+// isDestructiveCommand 判断命令是否包含破坏性特征。
+//
+// 采用小写子串匹配，宁可误判也不放过；一旦命中按 R4 阻止执行。
 func isDestructiveCommand(command string) bool {
 	lower := strings.ToLower(command)
 	if strings.Contains(lower, "sudo ") {
@@ -226,12 +247,17 @@ func isDestructiveCommand(command string) bool {
 	return false
 }
 
+// networkCommands 是可能访问网络的命令与包管理器前缀。
 var networkCommands = []string{
 	"curl ", "wget ", "ssh ", "scp ", "sftp ", "nc ", "netcat ",
 	"npm install", "npm i ", "pnpm add", "yarn add", "go get", "pip install",
 	"docker pull", "git clone", "git fetch", "git pull", "git push",
 }
 
+// isNetworkCommand 判断命令是否可能访问网络。
+//
+// 同样是子串匹配，覆盖常见下载、远程登录与依赖安装命令；
+// 命中后按 R3 处理，受限工作区会直接拒绝。
 func isNetworkCommand(command string) bool {
 	lower := strings.ToLower(command)
 	for _, prefix := range networkCommands {

@@ -1,3 +1,7 @@
+// 本文件是工作区相关的前端绑定：工作区增删切换、信任状态、文件树、
+// 文件读写、行级差异与 Git 状态。所有路径都经 policy.Resolve 校验，
+// 保存文件前会备份并在检测到外部修改时拒绝覆盖。
+
 package service
 
 import (
@@ -22,42 +26,67 @@ import (
 
 // WorkspaceView 是工作区的展示结构。
 type WorkspaceView struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Path         string `json:"path"`
-	Trust        string `json:"trust"`
-	CreatedAt    int64  `json:"createdAt"`
-	LastOpenedAt int64  `json:"lastOpenedAt"`
+	// ID 是工作区标识。
+	ID string `json:"id"`
+	// Name 是工作区展示名称，默认取目录名。
+	Name string `json:"name"`
+	// Path 是工作区根目录的绝对路径。
+	Path string `json:"path"`
+	// Trust 是 trusted 或 restricted。
+	Trust string `json:"trust"`
+	// CreatedAt 是添加时间（毫秒时间戳）。
+	CreatedAt int64 `json:"createdAt"`
+	// LastOpenedAt 是最后一次设为活动工作区的时间。
+	LastOpenedAt int64 `json:"lastOpenedAt"`
 }
 
 // FileNode 是文件树中的一个节点（单层，按需加载）。
 type FileNode struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Type     string `json:"type"` // dir / file
-	Size     int64  `json:"size"`
-	Modified int64  `json:"modified"`
+	// Name 是文件或目录名。
+	Name string `json:"name"`
+	// Path 是相对工作区的路径。
+	Path string `json:"path"`
+	// Type 是 dir 或 file。
+	Type string `json:"type"`
+	// Size 是字节数。
+	Size int64 `json:"size"`
+	// Modified 是最后修改时间（毫秒时间戳）。
+	Modified int64 `json:"modified"`
 }
 
 // FileContent 是读取文件的结果。
 type FileContent struct {
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	Size      int64  `json:"size"`
-	Binary    bool   `json:"binary"`
-	Language  string `json:"language"`
-	Lines     int    `json:"lines"`
-	Truncated bool   `json:"truncated"`
-	Hash      string `json:"hash"`
-	Modified  int64  `json:"modified"`
+	// Path 是相对工作区的路径。
+	Path string `json:"path"`
+	// Content 是文件文本内容；二进制文件不带内容。
+	Content string `json:"content"`
+	// Size 是文件实际字节数。
+	Size int64 `json:"size"`
+	// Binary 表示这是二进制文件，无法在编辑器中查看。
+	Binary bool `json:"binary"`
+	// Language 是编辑器高亮使用的语言标识。
+	Language string `json:"language"`
+	// Lines 是内容行数。
+	Lines int `json:"lines"`
+	// Truncated 表示内容超过上限，只返回了前一部分。
+	Truncated bool `json:"truncated"`
+	// Hash 是原始文件内容的 SHA-256，用于保存时检测外部修改。
+	Hash string `json:"hash"`
+	// Modified 是最后修改时间（毫秒时间戳）。
+	Modified int64 `json:"modified"`
 }
 
 // WorkspaceService 管理工作区、文件树、文件读写与差异计算。
 type WorkspaceService struct {
-	db        *store.DB
-	bus       *events.Bus
-	engine    *policy.Engine
-	registry  *tools.Registry
+	// db 是工作区记录与审计的存储入口。
+	db *store.DB
+	// bus 推送工作区变更与文件变动事件。
+	bus *events.Bus
+	// engine 是策略引擎，切换工作区时同步路径与信任状态。
+	engine *policy.Engine
+	// registry 是工具注册表，切换工作区时同步根目录。
+	registry *tools.Registry
+	// backupDir 是文件备份目录。
 	backupDir string
 }
 
@@ -95,6 +124,9 @@ func (s *WorkspaceService) PickFolder() (string, error) {
 }
 
 // Add 添加工作区并设为当前活动工作区。
+//
+// 输入路径会先转成绝对路径并解析符号链接，确保之后的所有边界判断
+// 都基于真实的目录位置，而不是可能被替换的链接。
 func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -176,6 +208,7 @@ func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
 		return err
 	}
+	// 只有修改的是当前活动工作区时，才需要同步策略引擎的受限标记。
 	if s.engine.Workspace() == workspace.Path {
 		s.engine.SetRestricted(trust != "trusted")
 	}
@@ -187,6 +220,9 @@ func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 }
 
 // Remove 移除工作区记录，不删除磁盘文件。
+//
+// 如果移除的是当前活动工作区，同时清空设置、策略引擎与工具注册表
+// 中的路径，避免后续调用继续指向已不存在的工作区。
 func (s *WorkspaceService) Remove(workspaceID string) error {
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
@@ -214,6 +250,7 @@ func (s *WorkspaceService) ListDir(workspaceID, rel string) ([]FileNode, error) 
 	if err != nil {
 		return nil, err
 	}
+	// 目录路径同样必须落在工作区内。
 	abs, err := policy.Resolve(workspace.Path, rel)
 	if err != nil {
 		return nil, err
@@ -258,6 +295,9 @@ func (s *WorkspaceService) ListDir(workspaceID, rel string) ([]FileNode, error) 
 }
 
 // ReadFile 读取工作区文件。
+//
+// 目录、超过 10 MB 的文件会被拒绝；二进制文件只返回元数据，
+// 文本超过 2 MB 时截断并标记 Truncated。
 func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
@@ -304,6 +344,9 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 }
 
 // WriteFile 保存编辑器内容。写入前备份，并在外部修改时拒绝覆盖。
+//
+// expectedHash 是前端打开文件时拿到的哈希；非空且与磁盘内容不一致，
+// 说明文件已被其他程序修改，此时返回错误让用户重新加载，避免覆盖。
 func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash string) error {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
@@ -329,6 +372,7 @@ func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash str
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return fmt.Errorf("创建目录: %w", err)
 	}
+	// 原子替换：先写同目录临时文件，再重命名覆盖目标，避免留下半截文件。
 	if err := platform.WriteFileAtomic(abs, []byte(content), mode); err != nil {
 		return err
 	}
@@ -361,11 +405,13 @@ func (s *WorkspaceService) GitStatuses(workspaceID string) (map[string]string, e
 		return result, nil
 	}
 	for _, line := range strings.Split(string(output), "\n") {
+		// porcelain 每行格式为“XY 路径”，重命名还会出现“旧 -> 新”。
 		if len(line) < 4 {
 			continue
 		}
 		code := strings.TrimSpace(line[:2])
 		path := strings.TrimSpace(line[3:])
+		// 重命名只看新路径，旧路径对界面没有意义。
 		if index := strings.Index(path, " -> "); index >= 0 {
 			path = path[index+4:]
 		}
@@ -376,6 +422,10 @@ func (s *WorkspaceService) GitStatuses(workspaceID string) (map[string]string, e
 	return result, nil
 }
 
+// activate 把工作区设为活动状态，并同步策略引擎与工具注册表。
+//
+// 需要同时更新数据库中的活动工作区设置、目录访问时间，以及内存里
+// 的路径与信任状态；任一步失败都直接返回，避免状态不一致。
 func (s *WorkspaceService) activate(workspace *store.Workspace) error {
 	workspace.LastOpenedAt = store.NowMillis()
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
@@ -397,6 +447,8 @@ func (s *WorkspaceService) activate(workspace *store.Workspace) error {
 	return nil
 }
 
+// backup 把文件当前内容保存到备份目录，并写入一条备份记录。
+// 未配置备份目录时静默跳过。
 func (s *WorkspaceService) backup(absPath string, data []byte) error {
 	if s.backupDir == "" {
 		return nil
@@ -418,6 +470,7 @@ func (s *WorkspaceService) backup(absPath string, data []byte) error {
 	})
 }
 
+// toWorkspaceView 把存储层的工作区转换成前端视图。
 func toWorkspaceView(workspace store.Workspace) WorkspaceView {
 	return WorkspaceView{
 		ID:           workspace.ID,
@@ -429,6 +482,7 @@ func toWorkspaceView(workspace store.Workspace) WorkspaceView {
 	}
 }
 
+// languageOf 根据扩展名推断编辑器高亮语言，未知类型返回 text。
 func languageOf(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":

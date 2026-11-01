@@ -1,3 +1,7 @@
+// 本文件是模型提供商相关的前端绑定：列出提供商与模型、维护自定义
+// 配置、保存或清除密钥、测试连接。密钥只保存在 internal/secret，
+// 对前端只返回来源与遮罩后的文本，绝不返回明文。
+
 package service
 
 import (
@@ -16,70 +20,111 @@ import (
 	"craftwork/internal/store"
 )
 
+// customProvidersKey 是自定义提供商配置在设置表中的键名。
 const customProvidersKey = "model.custom_providers"
 
 // ModelView 是模型目录的展示结构。
 type ModelView struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	Provider     string             `json:"provider"`
-	ProviderName string             `json:"providerName"`
-	ContextK     int                `json:"contextK"`
-	MaxTokens    int                `json:"maxTokens,omitempty"`
-	Caps         model.Capabilities `json:"caps"`
-	Default      bool               `json:"default"`
-	Available    bool               `json:"available"`
+	// ID 是模型标识。
+	ID string `json:"id"`
+	// Name 是模型展示名称。
+	Name string `json:"name"`
+	// Provider 是所属提供商标识。
+	Provider string `json:"provider"`
+	// ProviderName 是所属提供商展示名称。
+	ProviderName string `json:"providerName"`
+	// ContextK 是上下文窗口大小，单位为千 token。
+	ContextK int `json:"contextK"`
+	// MaxTokens 是单次最大输出 token 数，0 表示不限制。
+	MaxTokens int `json:"maxTokens,omitempty"`
+	// Caps 声明模型支持的能力，例如流式输出与工具调用。
+	Caps model.Capabilities `json:"caps"`
+	// Default 表示这是默认模型。
+	Default bool `json:"default"`
+	// Available 表示模型当前可用（提供商可用且密钥已配置）。
+	Available bool `json:"available"`
 }
 
 // ProviderView 是提供商的展示结构，绝不包含明文密钥。
 type ProviderView struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Kind        string      `json:"kind"`
-	Endpoint    string      `json:"endpoint"`
-	Note        string      `json:"note,omitempty"`
-	KeyRequired bool        `json:"keyRequired"`
-	KeySource   string      `json:"keySource"`
-	KeyMasked   string      `json:"keyMasked"`
-	Available   bool        `json:"available"`
-	Custom      bool        `json:"custom"`
-	Overridden  bool        `json:"overridden"`
-	Models      []ModelView `json:"models"`
+	// ID 是提供商标识。
+	ID string `json:"id"`
+	// Name 是提供商展示名称。
+	Name string `json:"name"`
+	// Kind 是协议类型，例如 openai、anthropic、gemini。
+	Kind string `json:"kind"`
+	// Endpoint 是接口端点。
+	Endpoint string `json:"endpoint"`
+	// Note 是配置说明，例如“自定义提供商”。
+	Note string `json:"note,omitempty"`
+	// KeyRequired 表示调用该提供商必须配置密钥。
+	KeyRequired bool `json:"keyRequired"`
+	// KeySource 是密钥来源，例如环境变量或本地文件。
+	KeySource string `json:"keySource"`
+	// KeyMasked 是遮罩后的密钥，仅用于界面展示。
+	KeyMasked string `json:"keyMasked"`
+	// Available 表示提供商当前是否可用。
+	Available bool `json:"available"`
+	// Custom 表示该提供商来自自定义配置。
+	Custom bool `json:"custom"`
+	// Overridden 表示内置提供商被自定义配置覆盖。
+	Overridden bool `json:"overridden"`
+	// Models 是该提供商下的模型列表。
+	Models []ModelView `json:"models"`
 }
 
 // ProviderInput 是新增或编辑提供商的输入。
 type ProviderInput struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Kind        string       `json:"kind"`
-	Endpoint    string       `json:"endpoint"`
-	KeyRequired bool         `json:"keyRequired"`
-	Models      []ModelInput `json:"models"`
+	// ID 为空时自动生成；非空时必须是内置或已存在的提供商。
+	ID string `json:"id"`
+	// Name 是提供商名称，不能为空。
+	Name string `json:"name"`
+	// Kind 是协议类型，为空时按 openai-compatible 处理。
+	Kind string `json:"kind"`
+	// Endpoint 是接口地址，为空时尝试使用内置默认值。
+	Endpoint string `json:"endpoint"`
+	// KeyRequired 表示是否必须配置密钥。
+	KeyRequired bool `json:"keyRequired"`
+	// Models 是至少一个模型配置。
+	Models []ModelInput `json:"models"`
 }
 
 // ModelInput 是模型配置输入。
 type ModelInput struct {
-	ID        string             `json:"id"`
-	Name      string             `json:"name"`
-	ContextK  int                `json:"contextK"`
-	MaxTokens int                `json:"maxTokens,omitempty"`
-	Caps      model.Capabilities `json:"caps"`
+	// ID 是模型标识，不能包含空白。
+	ID string `json:"id"`
+	// Name 是展示名称，为空时使用 ID。
+	Name string `json:"name"`
+	// ContextK 是上下文窗口，单位千 token，默认 32。
+	ContextK int `json:"contextK"`
+	// MaxTokens 是最大输出 token 数，0 表示不限制。
+	MaxTokens int `json:"maxTokens,omitempty"`
+	// Caps 是模型能力声明。
+	Caps model.Capabilities `json:"caps"`
 }
 
 // ConnectionResult 是连接测试结果。
 type ConnectionResult struct {
-	OK        bool   `json:"ok"`
-	Message   string `json:"message"`
-	LatencyMs int64  `json:"latencyMs"`
-	Code      string `json:"code,omitempty"`
+	// OK 表示连接是否成功。
+	OK bool `json:"ok"`
+	// Message 是给用户看的说明。
+	Message string `json:"message"`
+	// LatencyMs 是请求耗时（毫秒）。
+	LatencyMs int64 `json:"latencyMs"`
+	// Code 是失败时的统一错误码。
+	Code string `json:"code,omitempty"`
 }
 
 // ProviderService 管理提供商目录、密钥状态与连接测试。
 type ProviderService struct {
-	db      *store.DB
+	// db 是自定义提供商配置与设置的存储入口。
+	db *store.DB
+	// secrets 管理密钥文件，前端永远读不到明文。
 	secrets *secret.Store
 
-	mu     sync.RWMutex
+	// mu 保护 custom 列表的读写。
+	mu sync.RWMutex
+	// custom 是当前生效的自定义提供商配置。
 	custom []model.Provider
 }
 
@@ -115,6 +160,7 @@ func (s *ProviderService) List() []ProviderView {
 	return result
 }
 
+// viewFor 把内部提供商结构转换成展示视图，并计算可用性与密钥掩码。
 func (s *ProviderService) viewFor(provider model.Provider, customSet map[string]bool) ProviderView {
 	keySource := s.secrets.Source(provider.ID)
 	available := provider.Kind != "unsupported" && (!provider.KeyRequired || keySource != "")
@@ -218,6 +264,10 @@ func (s *ProviderService) DeleteProvider(providerID string) error {
 	return nil
 }
 
+// buildProvider 校验输入并构造提供商配置。
+//
+// 校验顺序为：名称、协议、标识、端点、模型列表。模型 ID 不允许重复，
+// 也不允许与其它提供商的模型同名，避免选择模型时产生歧义。
 func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Provider) (model.Provider, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -329,6 +379,10 @@ func (s *ProviderService) buildProvider(input ProviderInput, custom []model.Prov
 	}, nil
 }
 
+// validateEndpoint 校验端点必须是 HTTP(S) 地址。
+//
+// 除 localhost、127.0.0.1、::1 之外，一律要求 HTTPS，
+// 避免明文传输密钥与对话内容。
 func validateEndpoint(endpoint string) error {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
@@ -345,6 +399,7 @@ func validateEndpoint(endpoint string) error {
 	return nil
 }
 
+// isBuiltinProvider 判断标识是否属于内置提供商。
 func isBuiltinProvider(providerID string) bool {
 	for _, provider := range model.BuiltinProviders() {
 		if provider.ID == providerID {
@@ -354,6 +409,7 @@ func isBuiltinProvider(providerID string) bool {
 	return false
 }
 
+// containsProvider 判断自定义列表里是否已有指定标识的提供商。
 func containsProvider(providers []model.Provider, providerID string) bool {
 	for _, provider := range providers {
 		if provider.ID == providerID {
@@ -363,6 +419,7 @@ func containsProvider(providers []model.Provider, providerID string) bool {
 	return false
 }
 
+// cloneProviders 复制提供商列表与其模型切片，避免调用方修改共享配置。
 func cloneProviders(providers []model.Provider) []model.Provider {
 	result := make([]model.Provider, 0, len(providers))
 	for _, provider := range providers {
@@ -422,6 +479,7 @@ func (s *ProviderService) Test(providerID string) (ConnectionResult, error) {
 	response, err := client.Do(request)
 	latency := time.Since(started).Milliseconds()
 	if err != nil {
+		// 网络错误统一映射成模型错误码，前端只处理稳定的错误类型。
 		coded := model.TransportError(provider.Name, err)
 		return ConnectionResult{
 			Code:      string(coded.Code),
@@ -501,6 +559,7 @@ func joinServiceURL(base, path string) string {
 	return base + "/" + path
 }
 
+// findProvider 在当前生效的提供商目录中查找指定标识。
 func findProvider(providerID string) (model.Provider, bool) {
 	for _, provider := range model.Providers() {
 		if provider.ID == providerID {

@@ -1,3 +1,7 @@
+// 本文件是对话相关的前端绑定：发送消息、重新生成、取消运行与回传
+// 审批决定。服务层只做参数非空与状态前置校验，真正的 Agent 循环、
+// 审批状态机与事件推送由 internal/agent 负责。
+
 package service
 
 import (
@@ -12,9 +16,13 @@ import (
 
 // ChatService 处理发送、取消、重新生成与审批决定。
 type ChatService struct {
-	db        *store.DB
-	records   *record.Recorder
-	runner    *agent.Runner
+	// db 用于读取线程并写入运行记录。
+	db *store.DB
+	// records 负责写入消息事件与线程状态。
+	records *record.Recorder
+	// runner 执行 Agent 循环，一个线程同一时间只允许一个 run。
+	runner *agent.Runner
+	// approvals 保存待审批请求，并按用户决定放行或拒绝。
 	approvals *agent.Approvals
 }
 
@@ -41,6 +49,8 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 	}
 
 	userMessageID := id.New("msg")
+	// 用户消息先落事件表，再启动 run；即使后续模型调用失败，
+	// 用户输入的原文也不会丢失。
 	if err := s.records.Append(store.EventRecord{
 		ID:        id.New("part"),
 		ThreadID:  threadID,
@@ -95,7 +105,7 @@ func (s *ChatService) Cancel(threadID string) (bool, error) {
 // DecideApproval 回传用户对审批的决定。
 //
 // scope 的合法性与“拒绝时强制一次”等状态机规则由审批模块负责，
-// 服务层只做 IPC 参数的非空校验。
+// 服务层只做进程间通信（IPC）参数的非空校验。
 func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string) error {
 	if strings.TrimSpace(approvalID) == "" {
 		return errors.New("approvalID 不能为空")
@@ -103,9 +113,11 @@ func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string
 	return s.approvals.Resolve(approvalID, agent.Decision{Allow: allow, Scope: scope})
 }
 
+// startRun 创建运行记录、更新线程状态并异步启动 Agent 循环，返回 runID。
 func (s *ChatService) startRun(thread store.Thread) (string, error) {
 	runID := id.New("run")
 	messageID := id.New("msg")
+	// 先创建运行记录并把线程置为运行中，再交给 Runner 异步执行。
 	if err := s.db.CreateRun(&store.Run{
 		ID:        runID,
 		ThreadID:  thread.ID,

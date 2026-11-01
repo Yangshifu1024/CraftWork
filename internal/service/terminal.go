@@ -1,3 +1,7 @@
+// 本文件是用户终端的前端绑定：基于 PTY 创建会话、转发输入、同步尺寸
+// 并把输出以事件推送给界面。用户终端与 Agent 的 shell_exec 相互独立，
+// 不经过工具审批流程。
+
 package service
 
 import (
@@ -16,24 +20,36 @@ import (
 
 // TerminalView 是终端会话的展示结构。
 type TerminalView struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	CWD     string `json:"cwd"`
-	Running bool   `json:"running"`
+	// ID 是会话标识。
+	ID string `json:"id"`
+	// Name 是会话名称。
+	Name string `json:"name"`
+	// CWD 是会话启动目录。
+	CWD string `json:"cwd"`
+	// Running 表示会话进程是否仍在运行。
+	Running bool `json:"running"`
 }
 
+// terminalSession 是一个已启动的终端会话。
 type terminalSession struct {
+	// view 是对外展示的会话信息。
 	view TerminalView
-	cmd  *exec.Cmd
+	// cmd 是 Shell 子进程，关闭时用于结束。
+	cmd *exec.Cmd
+	// file 是 PTY 主端，读写都通过它完成。
 	file *os.File
 }
 
 // TerminalService 管理用户终端（PTY）。用户终端不经过 Agent 审批，
 // 与 Agent 的 shell_exec 是两条独立路径。
 type TerminalService struct {
-	mu        sync.Mutex
-	sessions  map[string]*terminalSession
-	bus       *events.Bus
+	// mu 保护 sessions 映射。
+	mu sync.Mutex
+	// sessions 按会话标识保存终端。
+	sessions map[string]*terminalSession
+	// bus 推送终端输出与退出事件。
+	bus *events.Bus
+	// workspace 返回当前工作区路径，用于限制终端启动目录。
 	workspace func() string
 }
 
@@ -54,6 +70,9 @@ func (s *TerminalService) List() []TerminalView {
 }
 
 // Create 新建一个终端会话。
+//
+// 启动目录同样经过工作区边界校验；Shell 取自 SHELL 环境变量，
+// 未设置时回退到 /bin/zsh。
 func (s *TerminalService) Create(name, cwd string) (TerminalView, error) {
 	workspace := s.workspace()
 	if workspace == "" {
@@ -132,12 +151,15 @@ func (s *TerminalService) Close(sessionID string) error {
 	return nil
 }
 
+// get 按会话标识取终端，加锁读取以避免并发关闭时的数据竞争。
 func (s *TerminalService) get(sessionID string) *terminalSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sessions[sessionID]
 }
 
+// readLoop 持续读取 PTY 输出并推送 terminal.output 事件。
+// 读取失败说明进程已结束，此时更新运行状态并推送 terminal.exit。
 func (s *TerminalService) readLoop(session *terminalSession) {
 	buffer := make([]byte, 4096)
 	threadID := "terminal:" + session.view.ID

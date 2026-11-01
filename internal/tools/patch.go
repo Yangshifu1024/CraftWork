@@ -1,3 +1,7 @@
+// 本文件负责 apply_patch 工具：解析统一 diff 补丁，按补丁块匹配原文件，
+// 支持预演（dry_run）与只应用指定块。匹配时先按声明的行号定位，
+// 找不到再从文件开头搜索，容忍少量行号偏移。
+
 package tools
 
 import (
@@ -13,22 +17,34 @@ import (
 	"craftwork/internal/policy"
 )
 
+// hunkHeaderPattern 匹配 @@ -旧起始,旧行数 +新起始,新行数 @@ 形式的块头，
+// 行数部分可以省略，省略时按 1 行处理。
 var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 
+// patchHunk 是解析后的一个补丁块，保存两侧的行内容与起止位置。
 type patchHunk struct {
-	oldStart  int
-	oldCount  int
-	newStart  int
-	newCount  int
-	oldLines  []string
-	newLines  []string
+	// oldStart 是原文件中的起始行号（从 1 开始）。
+	oldStart int
+	// oldCount 是块头声明的原文件行数，用于校验解析结果。
+	oldCount int
+	// newStart 是应用后新文件的起始行号。
+	newStart int
+	// newCount 是块头声明的新文件行数。
+	newCount int
+	// oldLines 是块中属于原文件的行（上下文行与删除行）。
+	oldLines []string
+	// newLines 是块中属于新文件的行（上下文行与新增行）。
+	newLines []string
+	// additions 是新增行数，仅用于结果展示。
 	additions int
+	// deletions 是删除行数，仅用于结果展示。
 	deletions int
 }
 
 // applyPatchTool 在单个文件上预演或应用统一 diff 补丁。
 type applyPatchTool struct{}
 
+// Spec 声明 apply_patch 的元数据：path 与 patch 必填，风险等级 R1。
 func (t *applyPatchTool) Spec() Spec {
 	return Spec{
 		Name:        "apply_patch",
@@ -55,12 +71,14 @@ func (t *applyPatchTool) Spec() Spec {
 	}
 }
 
+// Execute 解析补丁并尝试应用；dry_run 只报告能否应用，不写文件。
 func (t *applyPatchTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	patch := stringArg(args, "patch")
 	if strings.TrimSpace(patch) == "" {
 		return errorResult("patch 不能为空")
 	}
+	// 先完整解析与选择块，任何格式错误都在读取文件之前暴露。
 	hunks, err := parseUnifiedPatch(patch)
 	if err != nil {
 		return errorResult("解析补丁失败: %v", err)
@@ -71,6 +89,7 @@ func (t *applyPatchTool) Execute(_ context.Context, call Call) Result {
 	}
 
 	abs, display := call.Target, call.Display
+	// apply_patch 只修改已存在的文件，不创建新文件。
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return errorResult("读取文件失败（apply_patch 只修改已有文件）: %v", err)
@@ -111,6 +130,11 @@ func (t *applyPatchTool) Execute(_ context.Context, call Call) Result {
 	}
 }
 
+// parseUnifiedPatch 把统一 diff 文本解析成补丁块列表。
+//
+// 统一换行符后逐行处理：块头开启新块，空格开头是上下文行，
+// 减号开头是删除行，加号开头是新增行；以反斜杠开头的提示行忽略。
+// 解析完成后校验每个块的行数与块头声明一致，防止补丁本身有误。
 func parseUnifiedPatch(patch string) ([]patchHunk, error) {
 	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
@@ -172,6 +196,8 @@ func parseUnifiedPatch(patch string) ([]patchHunk, error) {
 	return hunks, nil
 }
 
+// selectedHunks 解析 hunks 参数，返回去重排序后的块序号。
+// 返回 nil 表示未指定，调用方应应用全部块。
 func selectedHunks(args map[string]any, total int) ([]int, error) {
 	raw, ok := args["hunks"].([]any)
 	if !ok || len(raw) == 0 {
@@ -203,6 +229,10 @@ func selectedHunks(args map[string]any, total int) ([]int, error) {
 	return result, nil
 }
 
+// applyHunks 按顺序应用选中的补丁块，返回新内容与增删统计。
+//
+// 每个块优先在声明的行号附近匹配，匹配不到再从文件开头重新搜索；
+// 已经应用过的块会通过 delta 修正后续块的偏移量。
 func applyHunks(content string, hunks []patchHunk, selected []int) (string, int, int, int, error) {
 	chosen := map[int]bool{}
 	for _, index := range selected {
@@ -225,6 +255,7 @@ func applyHunks(content string, hunks []patchHunk, selected []int) (string, int,
 			position = 0
 		}
 		if len(hunk.oldLines) == 0 {
+			// 纯新增块没有上下文可匹配，直接按修正后的位置插入。
 			if position > len(lines) {
 				position = len(lines)
 			}
@@ -232,6 +263,7 @@ func applyHunks(content string, hunks []patchHunk, selected []int) (string, int,
 		} else {
 			found := findLines(lines, hunk.oldLines, position)
 			if found < 0 {
+				// 行号有偏差时退回全文件搜索，但必须找到唯一且连续的匹配。
 				found = findLines(lines, hunk.oldLines, 0)
 			}
 			if found < 0 {
@@ -250,6 +282,7 @@ func applyHunks(content string, hunks []patchHunk, selected []int) (string, int,
 	return strings.Join(lines, "\n"), applied, additions, deletions, nil
 }
 
+// findLines 从 start 开始查找 target 连续出现的首个位置，找不到返回 -1。
 func findLines(lines, target []string, start int) int {
 	if len(target) == 0 {
 		return start
@@ -272,6 +305,7 @@ func findLines(lines, target []string, start int) int {
 	return -1
 }
 
+// replaceLines 用 replacement 替换从 start 开始的 count 行。
 func replaceLines(lines []string, start, count int, replacement []string) []string {
 	result := make([]string, 0, len(lines)-count+len(replacement))
 	result = append(result, lines[:start]...)
@@ -280,15 +314,18 @@ func replaceLines(lines []string, start, count int, replacement []string) []stri
 	return result
 }
 
+// insertLines 在 position 处插入若干行，不删除原有内容。
 func insertLines(lines []string, position int, inserted []string) []string {
 	return replaceLines(lines, position, 0, inserted)
 }
 
+// atoi 把十进制字符串转成整数，解析失败时返回 0。
 func atoi(value string) int {
 	number, _ := strconv.Atoi(value)
 	return number
 }
 
+// countOrDefault 解析块头里的行数，省略时按 1 行处理。
 func countOrDefault(value string) int {
 	if value == "" {
 		return 1

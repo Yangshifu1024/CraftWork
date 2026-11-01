@@ -1,3 +1,7 @@
+// 本文件负责文件系统类工具：列目录、读文件、通配符匹配、内容搜索、
+// 写入与精确替换。读工具只访问工作区内的路径；写工具在落盘前备份，
+// 并使用临时文件原子替换，避免中途失败留下半截文件。
+
 package tools
 
 import (
@@ -16,8 +20,10 @@ import (
 
 // ---------- fs_list ----------
 
+// fsListTool 列出工作区目录内容，只读、自动放行。
 type fsListTool struct{}
 
+// Spec 声明 fs_list 的元数据：路径参数为 path，属于只读操作。
 func (t *fsListTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_list",
@@ -36,8 +42,10 @@ func (t *fsListTool) Spec() Spec {
 	}
 }
 
+// Execute 输出目录树或单个文件的尺寸信息。
 func (t *fsListTool) Execute(_ context.Context, call Call) Result {
 	abs, display := call.Target, call.Display
+	// depth 由模型传入，这里再次夹取到 1–3，防止一次展开过深。
 	depth := intArg(call.Args, "depth", 1)
 	if depth < 1 {
 		depth = 1
@@ -61,6 +69,9 @@ func (t *fsListTool) Execute(_ context.Context, call Call) Result {
 	return Result{Output: strings.Join(lines, "\n")}
 }
 
+// walkList 递归收集目录条目，隐藏文件与忽略目录会被跳过。
+//
+// 目录排在文件之前、同类按名称排序，保证同一次调用的输出顺序稳定。
 func walkList(dir, prefix string, level, maxLevel int, lines *[]string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -101,8 +112,10 @@ func walkList(dir, prefix string, level, maxLevel int, lines *[]string) error {
 
 // ---------- fs_read ----------
 
+// fsReadTool 读取文本文件并输出带行号的内容，只读。
 type fsReadTool struct{}
 
+// Spec 声明 fs_read 的元数据：必须提供 path，offset 与 limit 用于分页。
 func (t *fsReadTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_read",
@@ -123,6 +136,7 @@ func (t *fsReadTool) Spec() Spec {
 	}
 }
 
+// Execute 读取文件内容，按 offset/limit 截取后加上行号返回。
 func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
 	abs, display := call.Target, call.Display
 	args := call.Args
@@ -133,6 +147,7 @@ func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
 	if info.IsDir() {
 		return errorResult("%s 是目录，请使用 fs_list", display)
 	}
+	// 超大文件直接拒绝，避免读入内存后立刻被截断，浪费时间和内存。
 	if info.Size() > 8*1024*1024 {
 		return errorResult("文件过大（%s），请使用 offset 与 limit 分段读取", humanSize(info.Size()))
 	}
@@ -141,6 +156,7 @@ func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
 	if err != nil {
 		return errorResult("读取文件失败: %v", err)
 	}
+	// 二进制文件只返回大小与哈希，不把不可读内容塞进上下文。
 	if platform.IsBinary(data) {
 		return Result{Output: fmt.Sprintf("二进制文件 %s\n大小: %s\nSHA-256: %s", display, humanSize(info.Size()), platform.Sha256Hex(data))}
 	}
@@ -178,8 +194,10 @@ func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- fs_glob ----------
 
+// fsGlobTool 按通配符查找文件，只读。
 type fsGlobTool struct{}
 
+// Spec 声明 fs_glob 的元数据：pattern 是必填参数，path 指定起始目录。
 func (t *fsGlobTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_glob",
@@ -199,6 +217,7 @@ func (t *fsGlobTool) Spec() Spec {
 	}
 }
 
+// Execute 遍历起始目录，返回最多 200 条相对路径匹配结果。
 func (t *fsGlobTool) Execute(_ context.Context, call Call) Result {
 	pattern := stringArg(call.Args, "pattern")
 	if pattern == "" {
@@ -207,6 +226,8 @@ func (t *fsGlobTool) Execute(_ context.Context, call Call) Result {
 	root := call.Target
 
 	var matches []string
+	// 遍历时跳过依赖与构建产物目录；收集到 200 条立即停止，
+	// 避免在大仓库里做无意义的全量扫描。
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -236,6 +257,10 @@ func (t *fsGlobTool) Execute(_ context.Context, call Call) Result {
 	return Result{Output: strings.Join(matches, "\n")}
 }
 
+// matchGlob 判断相对路径是否匹配通配符。
+//
+// 先按完整相对路径匹配，再退回按文件名匹配；包含 **/ 的模式会拆成
+// 后缀匹配，满足“任意层级下的某类文件”这种常见需求。
 func matchGlob(pattern, rel string) bool {
 	pattern = filepath.ToSlash(pattern)
 	rel = filepath.ToSlash(rel)
@@ -255,8 +280,10 @@ func matchGlob(pattern, rel string) bool {
 
 // ---------- fs_grep ----------
 
+// fsGrepTool 在工作区文本文件中搜索字符串或正则，只读。
 type fsGrepTool struct{}
 
+// Spec 声明 fs_grep 的元数据：pattern 必填，regex 控制是否按正则解释。
 func (t *fsGrepTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_grep",
@@ -277,6 +304,7 @@ func (t *fsGrepTool) Spec() Spec {
 	}
 }
 
+// Execute 遍历文本文件逐行匹配，返回 path:line: 内容，最多 200 条。
 func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	pattern := stringArg(args, "pattern")
@@ -306,6 +334,8 @@ func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
 			return nil
 		}
 		info, err := entry.Info()
+		// 跳过目录项大小未知、超过 1 MB 的文件与二进制文件，
+		// 搜索只在适合放进上下文的纯文本上进行。
 		if err != nil || info.Size() > 1024*1024 {
 			return nil
 		}
@@ -342,8 +372,10 @@ func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- fs_write ----------
 
+// fsWriteTool 写入整份文件内容，属于写工作区操作。
 type fsWriteTool struct{}
 
+// Spec 声明 fs_write 的元数据：path 与 content 必填，风险等级 R1。
 func (t *fsWriteTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_write",
@@ -364,6 +396,7 @@ func (t *fsWriteTool) Spec() Spec {
 	}
 }
 
+// Execute 写入文件：已存在时先备份并保留原权限，再用临时文件原子替换。
 func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
 	content := stringArg(call.Args, "content")
 	abs, display := call.Target, call.Display
@@ -371,6 +404,7 @@ func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
 	mode := os.FileMode(0o644)
 	if existing, err := os.ReadFile(abs); err == nil {
 		mode = 0o644
+		// 保留原文件权限，避免覆盖后把可执行脚本变成普通文件。
 		if info, statErr := os.Stat(abs); statErr == nil {
 			mode = info.Mode().Perm()
 		}
@@ -381,6 +415,7 @@ func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return errorResult("创建目录失败: %v", err)
 	}
+	// 先写同目录临时文件再重命名，写入中断不会留下半截内容。
 	if err := platform.WriteFileAtomic(abs, []byte(content), mode); err != nil {
 		return errorResult("写入失败: %v", err)
 	}
@@ -392,8 +427,10 @@ func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- fs_edit ----------
 
+// fsEditTool 在文件中精确替换一段文本，属于写工作区操作。
 type fsEditTool struct{}
 
+// Spec 声明 fs_edit 的元数据：old_string 必须唯一匹配，风险等级 R1。
 func (t *fsEditTool) Spec() Spec {
 	return Spec{
 		Name:        "fs_edit",
@@ -415,6 +452,8 @@ func (t *fsEditTool) Spec() Spec {
 	}
 }
 
+// Execute 校验唯一匹配后替换一次；匹配不到或匹配多处都直接报错，
+// 避免模型在不确定的上下文里误改代码。
 func (t *fsEditTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	oldText := stringArg(args, "old_string")
@@ -454,8 +493,10 @@ func (t *fsEditTool) Execute(_ context.Context, call Call) Result {
 
 // ---------- todo_write ----------
 
+// todoWriteTool 接收并回显任务清单，用于向用户展示当前进度。
 type todoWriteTool struct{}
 
+// Spec 声明 todo_write 的元数据：items 是必填数组，只读操作。
 func (t *todoWriteTool) Spec() Spec {
 	return Spec{
 		Name:        "todo_write",
@@ -483,6 +524,7 @@ func (t *todoWriteTool) Spec() Spec {
 	}
 }
 
+// Execute 把待办项渲染成带状态符号的文本；空清单视为参数错误。
 func (t *todoWriteTool) Execute(_ context.Context, call Call) Result {
 	items, _ := call.Args["items"].([]any)
 	var lines []string
@@ -493,6 +535,7 @@ func (t *todoWriteTool) Execute(_ context.Context, call Call) Result {
 		}
 		status, _ := object["status"].(string)
 		text, _ := object["text"].(string)
+		// 用符号区分待办、进行中与已完成，前端与模型都能直接读懂。
 		mark := "○"
 		switch status {
 		case "done":

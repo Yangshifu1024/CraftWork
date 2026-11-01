@@ -1,3 +1,8 @@
+// 本文件负责审批行的持久化：创建等待中的审批、记录用户决定、查询单条或线程内的
+// 待审批，以及在线程取消时批量关闭未决审批。
+//
+// 审批行的 decision 为空表示仍在等待；一旦写入决定就不再允许修改。
+
 package store
 
 import (
@@ -21,6 +26,9 @@ func (db *DB) CreateApproval(approval *Approval) error {
 }
 
 // ResolveApproval 记录审批决定。只有等待中的审批可以被决定。
+//
+// WHERE 条件里的 decision IS NULL 是并发保护：重复提交同一个审批时，
+// 第二次更新不会命中任何行，从而返回 ErrNotFound。
 func (db *DB) ResolveApproval(id, decision, scope string) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
@@ -38,6 +46,8 @@ func (db *DB) ResolveApproval(id, decision, scope string) error {
 }
 
 // GetApproval 读取单条审批。
+//
+// 可空列用 COALESCE 转成空字符串或 0，调用方无需处理 sql.NullString。
 func (db *DB) GetApproval(id string) (*Approval, error) {
 	var approval Approval
 	err := db.sqlDB.QueryRow(

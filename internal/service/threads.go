@@ -1,3 +1,7 @@
+// 本文件是线程相关的前端绑定：列表、搜索、创建、重命名、切换模型、
+// 归档、删除与分页快照。服务层负责把存储层的线程结构转换成前端
+// 可直接使用的扁平视图，并在变更后推送 thread.updated 事件。
+
 package service
 
 import (
@@ -14,22 +18,35 @@ import (
 
 // ThreadView 是线程列表使用的扁平结构。
 type ThreadView struct {
-	ID          string `json:"id"`
-	Mode        string `json:"mode"`
-	Title       string `json:"title"`
-	ModelID     string `json:"modelId"`
-	ModelName   string `json:"modelName"`
+	// ID 是线程标识。
+	ID string `json:"id"`
+	// Mode 是 code 或 work。
+	Mode string `json:"mode"`
+	// Title 是展示标题。
+	Title string `json:"title"`
+	// ModelID 是线程当前使用的模型标识。
+	ModelID string `json:"modelId"`
+	// ModelName 是模型展示名称。
+	ModelName string `json:"modelName"`
+	// WorkspaceID 是线程绑定的工作区。
 	WorkspaceID string `json:"workspaceId"`
-	Status      string `json:"status"`
-	Archived    bool   `json:"archived"`
-	Tokens      int64  `json:"tokens"`
-	CreatedAt   int64  `json:"createdAt"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	// Status 是 idle、running 或 awaiting。
+	Status string `json:"status"`
+	// Archived 表示线程是否已归档。
+	Archived bool `json:"archived"`
+	// Tokens 是该线程累计使用的 token 数。
+	Tokens int64 `json:"tokens"`
+	// CreatedAt 是创建时间（毫秒时间戳）。
+	CreatedAt int64 `json:"createdAt"`
+	// UpdatedAt 是最后更新时间（毫秒时间戳）。
+	UpdatedAt int64 `json:"updatedAt"`
 }
 
 // ThreadService 管理线程的创建、列表、搜索与快照。
 type ThreadService struct {
-	db      *store.DB
+	// db 是线程与事件的存储入口。
+	db *store.DB
+	// records 用于推送线程变更事件。
 	records *record.Recorder
 }
 
@@ -60,6 +77,9 @@ func (s *ThreadService) Search(mode, query string) ([]ThreadView, error) {
 }
 
 // Create 新建线程。
+//
+// 标题为空时使用“新对话”；模型取自当前设置的默认模型，
+// 读取失败时保留 DefaultSettings 给出的默认值。
 func (s *ThreadService) Create(mode, workspaceID, title string) (ThreadView, error) {
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
@@ -172,6 +192,7 @@ func (s *ThreadService) SnapshotPage(threadID string, limit int, beforeSeq int64
 
 	messages := snapshot.Messages
 	if beforeSeq > 0 {
+		// 只保留最后一条消息的序号小于游标的记录，即更早的一页。
 		older := make([]store.Message, 0, len(messages))
 		for _, message := range messages {
 			if lastPartSeq(message) < beforeSeq {
@@ -181,16 +202,19 @@ func (s *ThreadService) SnapshotPage(threadID string, limit int, beforeSeq int64
 		messages = older
 	}
 	if len(messages) > limit {
+		// 取末尾 limit 条（最新的消息），并告知前端还有更早的内容。
 		snapshot.Messages = messages[len(messages)-limit:]
 		snapshot.HasMore = true
 	} else {
 		snapshot.Messages = messages
 		snapshot.HasMore = false
 	}
+	// 返回本页最小序号，前端下次用它作为 beforeSeq 继续向前翻页。
 	snapshot.OldestSeq = oldestPartSeq(snapshot.Messages)
 	return snapshot, nil
 }
 
+// lastPartSeq 返回一条消息中最大的部件序号，用于分页边界比较。
 func lastPartSeq(message store.Message) int64 {
 	var last int64
 	for _, part := range message.Parts {
@@ -201,6 +225,8 @@ func lastPartSeq(message store.Message) int64 {
 	return last
 }
 
+// oldestPartSeq 返回一组消息中最小的部件序号，作为继续向前翻页的游标。
+// 没有部件时返回 0。
 func oldestPartSeq(messages []store.Message) int64 {
 	for _, message := range messages {
 		for _, part := range message.Parts {
@@ -210,6 +236,7 @@ func oldestPartSeq(messages []store.Message) int64 {
 	return 0
 }
 
+// toViews 批量把存储层的线程转换成前端视图，保持输入顺序。
 func toViews(threads []store.Thread) []ThreadView {
 	result := make([]ThreadView, 0, len(threads))
 	for _, thread := range threads {
@@ -218,6 +245,7 @@ func toViews(threads []store.Thread) []ThreadView {
 	return result
 }
 
+// toView 把单个线程转换成前端视图，并补齐模型展示名称。
 func toView(thread store.Thread) ThreadView {
 	_, modelInfo := model.Resolve(thread.ModelID)
 	return ThreadView{
@@ -235,6 +263,8 @@ func toView(thread store.Thread) ThreadView {
 	}
 }
 
+// publishChanged 重新读取线程并推送 thread.updated 事件。
+// 线程已被删除或读取失败时静默返回，不影响主流程。
 func (s *ThreadService) publishChanged(threadID, mode string) {
 	thread, err := s.db.GetThread(threadID)
 	if err != nil {
@@ -247,6 +277,7 @@ func (s *ThreadService) publishChanged(threadID, mode string) {
 	})
 }
 
+// normalizeMode 归一化线程模式，未知值一律按 code 处理。
 func normalizeMode(mode string) string {
 	if mode == "work" {
 		return "work"

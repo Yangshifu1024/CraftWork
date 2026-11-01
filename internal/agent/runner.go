@@ -1,3 +1,10 @@
+// 本文件负责 Agent 的主循环：启动与取消一次运行、建立模型流、消费流式片段、
+// 执行工具调用、重建对话历史，并在运行结束时写入对应的事件、状态与用量。
+//
+// 一次运行通常由服务层写入用户消息后通过 Start 异步触发。循环按“模型回复 →
+// 工具调用 → 把工具结果回填给模型”的顺序反复迭代，直到模型不再请求工具、
+// 达到迭代上限，或者用户主动取消。
+
 package agent
 
 import (
@@ -19,12 +26,17 @@ import (
 )
 
 const (
+	// defaultMaxIterations 是一次运行内最多的模型往返次数，用来兜底防止模型
+	// 反复调用工具、始终不给最终回答。
 	defaultMaxIterations = 24
-	modelRequestTimeout  = 3 * time.Minute
+	// modelRequestTimeout 是单次模型请求（包含流式接收全过程）的最长等待时间，
+	// 超过后按超时错误结束本轮运行。
+	modelRequestTimeout = 3 * time.Minute
 )
 
 // ModelFactory 根据模型标识创建客户端，便于测试注入假模型。
 type ModelFactory interface {
+	// Client 返回指定模型的客户端；模型未知或凭据不可用时返回错误。
 	Client(modelID string) (model.Client, error)
 	// FallbackModel 返回配置的失败转移模型；没有配置时返回空字符串。
 	FallbackModel(modelID string) string
@@ -32,28 +44,44 @@ type ModelFactory interface {
 
 // streamSession 是一次已经建立的模型流及其超时上下文。
 type streamSession struct {
+	// modelID 是本次实际使用的模型标识；发生失败转移时会与线程配置的模型不同。
 	modelID string
-	ctx     context.Context
-	cancel  context.CancelFunc
-	chunks  <-chan model.Chunk
+	// ctx 带单次请求的超时，用来把“用户取消”和“模型超时”区分开。
+	ctx context.Context
+	// cancel 释放 ctx 关联的计时器与资源，流消费结束后必须调用。
+	cancel context.CancelFunc
+	// chunks 是模型客户端返回的片段通道；通道关闭表示本次回复结束。
+	chunks <-chan model.Chunk
 }
 
 // Runner 负责一次 Agent 执行的完整循环。
 type Runner struct {
-	db            *store.DB
-	records       *record.Recorder
-	tools         *tools.Registry
-	policy        *policy.Engine
-	approvals     *Approvals
-	models        ModelFactory
+	// db 负责运行记录、线程 token 累计、用量与审计的持久化。
+	db *store.DB
+	// records 是事件写入与前端广播的唯一出口。
+	records *record.Recorder
+	// tools 是当前可用的工具注册表，同时提供工作区路径与各模式的工具清单。
+	tools *tools.Registry
+	// policy 给出风险等级对应的审批动作（直接拒绝、需要询问、直接放行）。
+	policy *policy.Engine
+	// approvals 负责向前端发起审批请求并等待用户决定。
+	approvals *Approvals
+	// models 按模型标识创建模型客户端。
+	models ModelFactory
+	// maxIterations 是一次运行的模型往返上限，创建时取 defaultMaxIterations。
 	maxIterations int
 
-	mu      sync.Mutex
+	// mu 保护 cancels 与 notify，保证启动、取消与读取通知回调时不发生竞争。
+	mu sync.Mutex
+	// cancels 记录每个线程当前运行的取消函数，以线程 ID 为键。
 	cancels map[string]context.CancelFunc
-	notify  func(title, message string)
+	// notify 是系统通知回调，未设置时为 nil。
+	notify func(title, message string)
 }
 
 // NewRunner 创建运行器。
+//
+// 参数都是已经装配好的依赖，构造函数只保存引用，不产生新的连接或副作用。
 func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 	engine *policy.Engine, approvals *Approvals, models ModelFactory) *Runner {
 	return &Runner{
@@ -75,6 +103,7 @@ func (r *Runner) SetNotifier(notifier func(title, message string)) {
 	r.mu.Unlock()
 }
 
+// sendNotification 读取通知回调并调用；没有配置回调时什么也不做。
 func (r *Runner) sendNotification(title, message string) {
 	r.mu.Lock()
 	notifier := r.notify
@@ -85,6 +114,9 @@ func (r *Runner) sendNotification(title, message string) {
 }
 
 // Start 异步启动一次 run。调用前服务层已经写入用户消息与运行记录。
+//
+// 同一个线程同时只允许一次运行：如果线程上已有运行，会先取消旧的，
+// 再用新的取消函数覆盖，保证“新消息总是接管”而不是并行跑两份。
 func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -95,6 +127,7 @@ func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	r.cancels[thread.ID] = cancel
 	r.mu.Unlock()
 
+	// 运行结束后无论成功、失败还是取消，都要清理取消函数登记。
 	go func() {
 		defer func() {
 			r.mu.Lock()
@@ -107,6 +140,8 @@ func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 }
 
 // Cancel 取消线程上正在进行的 run。
+//
+// 返回 false 表示该线程当前没有运行，调用方可以据此决定是否提示用户。
 func (r *Runner) Cancel(threadID string) bool {
 	r.mu.Lock()
 	cancel, ok := r.cancels[threadID]
@@ -125,7 +160,9 @@ func (r *Runner) IsRunning(threadID string) bool {
 	return ok
 }
 
+// execute 是运行的主循环：重建历史、反复请求模型、执行工具，直到结束。
 func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messageID, mode string) {
+	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
 		"modelId":   thread.ModelID,
@@ -139,9 +176,11 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 	system := systemPrompt(mode, r.tools.Workspace())
 	specs := toModelSpecs(r.tools.SpecsForMode(mode))
+	// 压缩只在本轮开头做一次，避免每次迭代都去估算并重复摘要。
 	compressionChecked := false
 
 	for iteration := 0; iteration < r.maxIterations; iteration++ {
+		// 每轮迭代先检查取消，用户取消后不再发起新的模型请求。
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID)
 			return
@@ -151,6 +190,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			compressionChecked = true
 		}
 
+		// 本轮流式回复的累积状态：文本与推理各自一个部件，工具调用按到达顺序收集。
 		textPartID := ""
 		reasoningPartID := ""
 		var textBuilder, reasoningBuilder strings.Builder
@@ -159,6 +199,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 		session, err := r.openSession(ctx, thread, runID, messageID, mode, system, history, specs)
 		if err != nil {
+			// 建立流之前就被取消，按取消处理；否则是真正的模型错误。
 			if ctx.Err() != nil {
 				r.canceled(thread, runID, messageID)
 				return
@@ -167,6 +208,8 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			return
 		}
 
+		// 逐片段消费模型输出：文本与推理立即以增量事件推给前端，
+		// 工具调用先收集起来，等流结束后再统一执行。
 		for chunk := range session.chunks {
 			if chunk.Err != nil {
 				session.cancel()
@@ -178,6 +221,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				return
 			}
 			if chunk.Reasoning != "" {
+				// 同一条回复里的推理增量共用一个部件 ID，前端据此合并展示。
 				if reasoningPartID == "" {
 					reasoningPartID = id.New("part")
 				}
@@ -204,6 +248,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				usage = chunk.Usage
 			}
 		}
+		// 通道关闭后再检查一次上下文的错误：超时与取消都体现在这里。
 		streamErr := session.ctx.Err()
 		session.cancel()
 
@@ -222,6 +267,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			return
 		}
 
+		// 把本轮流式累积的内容整体写入数据库一次，事件表保存的是完整部件而不是增量。
 		if reasoningPartID != "" {
 			text := reasoningBuilder.String()
 			r.persist(thread.ID, messageID, runID, reasoningPartID, "reasoning", map[string]any{"text": text})
@@ -234,6 +280,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			r.recordUsage(thread, runID, session.modelID, usage)
 		}
 
+		// 没有工具调用说明模型已经给出最终回答，本轮运行正常结束。
 		if len(toolCalls) == 0 {
 			if textBuilder.Len() > 0 {
 				history = append(history, model.Message{Role: "assistant", Content: textBuilder.String()})
@@ -242,6 +289,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			return
 		}
 
+		// 有工具调用时逐个执行，把结果组装成 tool 消息追加到历史，进入下一轮模型请求。
 		assistant := model.Message{Role: "assistant", Content: textBuilder.String()}
 		var results []model.Message
 		aborted := false
@@ -249,6 +297,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			assistant.ToolCalls = append(assistant.ToolCalls, call)
 			result, wasAborted := r.runTool(ctx, thread, runID, messageID, call)
 			if wasAborted {
+				// 取消后立即停止，剩余工具不再执行，避免继续产生副作用。
 				aborted = true
 				break
 			}
@@ -263,6 +312,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		history = append(history, results...)
 	}
 
+	// 循环耗尽仍未结束，通常是模型反复调用工具，按可重试错误提示用户。
 	r.fail(thread, runID, messageID, "max_iterations", "达到模型调用上限，已停止本次运行", false)
 }
 
@@ -277,6 +327,7 @@ func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, me
 		candidates = append(candidates, fallback)
 	}
 
+	// 依次尝试候选模型：主模型失败且错误可重试时，切换到失败转移模型。
 	var lastErr error
 	for index, candidate := range candidates {
 		client, err := r.models.Client(candidate)
@@ -336,14 +387,20 @@ func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to st
 	r.persist(thread.ID, messageID, runID, partID, "notice", payload)
 }
 
-// runTool 执行一次工具调用，返回用于回填给模型的结果。
+// runTool 执行一次工具调用，并把结果回填给模型。
+//
+// 审批被拒绝或取消时不会执行工具，而是把原因作为工具结果返回，
+// 让模型知道这一步没有发生。返回值第二项表示本次调用是否因为取消而中断。
 func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messageID string, call model.ToolCall) (model.Message, bool) {
+	// 先做只读评估：得到风险等级、解析后的调用参数与工具是否存在。
+	// 真正的执行放在审批之后，避免评估阶段产生副作用。
 	partID := id.New("part")
 	assessment, prepared, exists := r.tools.Assess(call.Name, call.Args)
 	spec, _ := r.tools.SpecFor(call.Name)
 	summary := spec.SummaryOf(call.Args)
 	title := spec.TitleOf()
 	if !exists {
+		// 未知工具没有规格，直接用工具名当标题与摘要。
 		summary = call.Name
 		title = call.Name
 	}
@@ -358,33 +415,41 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"summary":    summary,
 	})
 
+	// denied 非空表示这次调用被拦截，其内容会作为错误结果回填给模型。
 	denied := ""
 	aborted := false
+	// scope 记录授权范围：auto 表示没有走审批（直接放行或命中已有授权）。
 	scope := "auto"
 
 	switch {
 	case !exists:
 		denied = fmt.Sprintf("未知工具：%s", call.Name)
 	case prepared.Err != nil:
+		// 参数校验失败（例如路径越界）在这里就拦下，不进入审批。
 		denied = prepared.Err.Error()
 	case !r.tools.Allows(thread.Mode, call.Name):
 		denied = "当前模式不支持该工具"
 	default:
+		// 按策略档位决定：直接拒绝、需要询问、直接放行。
 		switch r.policy.Action(assessment.Risk) {
 		case policy.ActionDeny:
 			denied = "当前审批档位拒绝该操作"
 		case policy.ActionAsk:
+			// 命中“本会话/本工作区”已有授权时不再重复询问；受限工作区例外，
+			// 每次都必须重新审批，且不提供永久授权。
 			if r.policy.Restricted() || !r.approvals.Allowed(call.Name, assessment.Target) {
 				approvalID := id.New("ap")
 				approvalPartID := id.New("part")
 				allowPermanent := r.policy.AllowsPermanent(assessment.Risk)
 				facts := approvalFacts(assessment, summary)
 				if call.Name == "shell_exec" {
+					// 命令类工具额外提示可以按前缀授权，让用户理解“允许”的覆盖范围。
 					if prefix, ok := commandPrefix(stringValue(call.Args["command"])); ok {
 						facts = append(facts, Fact{Label: "授权粒度", Value: "允许“" + prefix + "”开头的命令"})
 					}
 				}
 
+				// 审批必须跨进程完成：先发系统通知提醒用户，再挂起等待前端决定。
 				r.sendNotification("需要审批", title+" · "+summary)
 				outcome, err := r.approvals.Request(ctx, ApprovalRequest{
 					ID:             approvalID,
@@ -404,6 +469,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 				})
 				switch {
 				case err != nil:
+					// 上下文结束（取消或超时）时审批没有结论，等同于取消本次运行。
 					denied = "审批已取消"
 					aborted = errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 				case !outcome.Allow:
@@ -415,12 +481,14 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		}
 	}
 
+	// 只有没有被拦截时才真正执行工具；被拦截时直接构造错误结果。
 	result := tools.Result{}
 	duration := time.Duration(0)
 	if denied == "" {
 		started := time.Now()
 		result = r.tools.Execute(ctx, prepared)
 		duration = time.Since(started)
+		// 执行过程中被取消也要标记中断，让上层停止后续工具。
 		if ctx.Err() != nil {
 			aborted = true
 		}
@@ -446,10 +514,12 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		"summary":    summary,
 	}
 	if call.Signature != "" {
+		// 部分提供商的工具调用带签名，回放历史时需要原样带回。
 		payload["signature"] = call.Signature
 	}
 	r.persist(thread.ID, messageID, runID, partID, "tool_call", payload)
 
+	// 审计记录不区分“拦截”与“执行失败”：denied 记 deny，其余按是否审批记 auto / allow。
 	decision := "auto"
 	if denied != "" {
 		decision = "deny"
@@ -466,6 +536,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		Detail:   summary,
 	})
 
+	// 待办工具成功后额外写一条 todo 事件，前端用它渲染待办卡片。
 	if call.Name == "todo_write" && !result.IsError {
 		if items, ok := call.Args["items"]; ok {
 			todoPartID := id.New("part")
@@ -477,6 +548,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 	return model.Message{Role: "tool", ToolCallID: call.ID, Content: result.Output}, aborted
 }
 
+// complete 结束一次成功运行：标记运行完成、线程回到空闲并广播完成事件。
 func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "done", "", "")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
@@ -485,6 +557,7 @@ func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
+// canceled 结束一次被取消的运行：记录取消原因，并把线程状态恢复为空闲。
 func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "canceled", "canceled", "用户取消")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
@@ -492,6 +565,9 @@ func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
 	r.records.Flush(thread.ID)
 }
 
+// fail 结束一次失败的运行：写错误事件让界面显示可重试的错误卡片，并发送系统通知。
+//
+// retryable 表示用户是否可以原样重试；false 通常意味着需要调整配置或输入。
 func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool) {
 	_ = r.db.FinishRun(runID, "error", code, message)
 	_ = r.records.SetThreadStatus(thread.ID, runID, "error")
@@ -513,6 +589,10 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
 }
 
+// failWithError 从模型错误里取出标准错误码后交给 fail。
+//
+// 无法识别错误码时使用 fallbackCode，保证前端拿到的永远是统一错误码，
+// 而不是原始 HTTP 状态或底层错误文本。
 func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCode string, err error) {
 	if err == nil {
 		err = errors.New("未知模型错误")
@@ -524,6 +604,7 @@ func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCo
 	r.fail(thread, runID, messageID, code, err.Error(), model.Retryable(err))
 }
 
+// recordUsage 写入一次模型调用的用量，并累加到线程的 token 总数。
 func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *model.Usage) {
 	row := &store.UsageRow{
 		ThreadID:        thread.ID,
@@ -534,6 +615,7 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 		ReasoningTokens: usage.ReasoningTokens,
 	}
 	if err := r.db.AddUsage(row); err != nil {
+		// 用量统计失败不影响对话本身，只记录日志。
 		slog.Warn("记录用量失败", "err", err)
 	}
 	_ = r.db.AddThreadTokens(thread.ID, usage.InputTokens+usage.OutputTokens)
@@ -543,6 +625,7 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 	})
 }
 
+// persist 把一个部件作为事件写入事件表；写入失败只记录警告，不中断运行。
 func (r *Runner) persist(threadID, messageID, runID, eventID, kind string, payload any) {
 	r.records.AppendOrWarn(store.EventRecord{
 		ID:        eventID,
@@ -555,6 +638,10 @@ func (r *Runner) persist(threadID, messageID, runID, eventID, kind string, paylo
 }
 
 // history 从事件表重建发送给模型的对话。
+//
+// 数据库只存部件（文本、工具调用、审批等），这里把它们重新拼成模型要求的
+// 角色序列：用户消息合并所有文本部件，助手消息按“文本 + 工具调用 + 工具结果”
+// 的顺序拆分，保证多轮工具调用也能被正确回放。
 func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 	snapshot, err := r.db.Snapshot(thread.ID)
 	if err != nil {
@@ -569,6 +656,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 		case "user":
 			text := joinTextParts(message.Parts)
 			paths := userAttachmentPaths(message.Parts)
+			// 纯附件消息没有文本也要保留，否则模型看不到用户上传的文件。
 			if text == "" && len(paths) == 0 {
 				continue
 			}
@@ -585,6 +673,8 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 				case "text":
 					content.WriteString(partText(part))
 				case "tool":
+					// 一个工具调用必须紧跟着一条 tool 结果消息；遇到新调用时先把
+					// 之前累积的文本与调用切成一条 assistant 消息。
 					data, _ := part.Data.(map[string]any)
 					call := model.ToolCall{
 						ID:        stringValue(data["toolCallId"]),
@@ -607,6 +697,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 					content.Reset()
 				}
 			}
+			// 落掉末尾剩余的文本或调用，避免最后一段内容丢失。
 			if content.Len() > 0 || len(current.ToolCalls) > 0 {
 				current.Content = content.String()
 				messages = append(messages, current)
@@ -616,6 +707,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, error) {
 	return messages, nil
 }
 
+// toModelSpecs 把工具注册表里的规格转换成模型请求需要的工具描述。
 func toModelSpecs(specs []tools.Spec) []model.ToolSpec {
 	result := make([]model.ToolSpec, 0, len(specs))
 	for _, spec := range specs {
@@ -624,6 +716,10 @@ func toModelSpecs(specs []tools.Spec) []model.ToolSpec {
 	return result
 }
 
+// systemPrompt 生成系统提示词，写入当前模式、工作区路径与工作规则。
+//
+// 规则里明确要求把工具输出、文件内容与网页内容当作不可信数据，
+// 这是防止提示词注入的第一道防线。
 func systemPrompt(mode, workspace string) string {
 	label := "Code"
 	if mode == "work" {
@@ -640,18 +736,21 @@ func systemPrompt(mode, workspace string) string {
 - 回答简洁、具体，引用文件时使用 path:line 形式。`, label, workspace)
 }
 
+// approvalFacts 把风险评估结果整理成审批卡片上展示的事实列表。
 func approvalFacts(assessment policy.Assessment, summary string) []Fact {
 	facts := []Fact{
 		{Label: "风险等级", Value: assessment.Risk.String()},
 		{Label: "操作", Value: summary},
 		{Label: "原因", Value: assessment.Reason},
 	}
+	// 只有存在明确目标（例如文件路径、命令）时才追加这一条。
 	if assessment.Target != "" {
 		facts = append(facts, Fact{Label: "目标", Value: assessment.Target})
 	}
 	return facts
 }
 
+// joinTextParts 把消息里所有文本部件按顺序拼接成一个字符串。
 func joinTextParts(parts []store.Part) string {
 	var builder strings.Builder
 	for _, part := range parts {
@@ -662,6 +761,7 @@ func joinTextParts(parts []store.Part) string {
 	return builder.String()
 }
 
+// partText 读取文本部件的 text 字段；形状不符时返回空字符串。
 func partText(part store.Part) string {
 	if data, ok := part.Data.(map[string]any); ok {
 		return stringValue(data["text"])
@@ -669,11 +769,13 @@ func partText(part store.Part) string {
 	return ""
 }
 
+// stringValue 把任意值断言为字符串，失败时返回空字符串。
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
 }
 
+// objectValue 把任意值断言为键值对象，失败时返回空对象而不是 nil。
 func objectValue(value any) map[string]any {
 	object, _ := value.(map[string]any)
 	if object == nil {

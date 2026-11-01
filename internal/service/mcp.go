@@ -1,3 +1,7 @@
+// 本文件是 MCP 服务器管理的前端绑定：保存服务器配置、启动与断开连接、
+// 把服务器暴露的工具注册到工具注册表。配置保存在 SQLite 设置表中，
+// 启动时按启用状态自动恢复连接，单个服务器失败不影响应用启动。
+
 package service
 
 import (
@@ -14,37 +18,56 @@ import (
 	"craftwork/internal/tools"
 )
 
+// mcpServersKey 是 MCP 服务器配置在设置表中的键名。
 const mcpServersKey = "mcp.servers"
 
 // MCPToolView 是 MCP 工具的展示结构。
 type MCPToolView struct {
-	Name        string `json:"name"`
+	// Name 是工具在服务器侧的名称。
+	Name string `json:"name"`
+	// Description 是工具用途说明。
 	Description string `json:"description"`
 }
 
 // MCPServerView 是 MCP 服务器的展示结构。
 type MCPServerView struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Command   string        `json:"command"`
-	Args      []string      `json:"args"`
-	Enabled   bool          `json:"enabled"`
-	Connected bool          `json:"connected"`
-	Error     string        `json:"error,omitempty"`
-	Tools     []MCPToolView `json:"tools"`
+	// ID 是服务器标识。
+	ID string `json:"id"`
+	// Name 是服务器名称。
+	Name string `json:"name"`
+	// Command 是启动命令。
+	Command string `json:"command"`
+	// Args 是启动参数。
+	Args []string `json:"args"`
+	// Enabled 表示该服务器是否启用。
+	Enabled bool `json:"enabled"`
+	// Connected 表示当前是否已连接。
+	Connected bool `json:"connected"`
+	// Error 是最近一次连接失败的原因。
+	Error string `json:"error,omitempty"`
+	// Tools 是服务器暴露的工具列表。
+	Tools []MCPToolView `json:"tools"`
 }
 
 // MCPService 管理本地 MCP 服务器的配置、连接与工具注册。
 type MCPService struct {
-	db       *store.DB
+	// db 是服务器配置的存储入口。
+	db *store.DB
+	// registry 是工具注册表，动态工具注册到这里。
 	registry *tools.Registry
 
-	mu         sync.Mutex
-	configs    []mcp.ServerConfig
-	clients    map[string]*mcp.Client
+	// mu 保护缓存中的所有字段。
+	mu sync.Mutex
+	// configs 是已保存的服务器配置。
+	configs []mcp.ServerConfig
+	// clients 按服务器标识保存活动连接。
+	clients map[string]*mcp.Client
+	// serverTool 缓存每个服务器返回的工具信息。
 	serverTool map[string][]mcp.ToolInfo
+	// registered 记录每个服务器注册到工具注册表的工具名，断开时按名移除。
 	registered map[string][]string
-	errors     map[string]string
+	// errors 保存每个服务器最近一次失败的原因。
+	errors map[string]string
 }
 
 // NewMCPService 创建 MCP 服务并读取已保存的服务器配置。
@@ -67,6 +90,7 @@ func NewMCPService(db *store.DB, registry *tools.Registry) *MCPService {
 // Restore 在启动时连接启用的服务器。失败只记录在视图里，不阻塞窗口。
 func (s *MCPService) Restore() {
 	s.mu.Lock()
+	// 复制一份配置再解锁，避免连接过程中长时间持锁。
 	configs := append([]mcp.ServerConfig(nil), s.configs...)
 	s.mu.Unlock()
 	for _, config := range configs {
@@ -139,6 +163,10 @@ func (s *MCPService) Remove(serverID string) error {
 }
 
 // Connect 启动服务器、握手并注册工具。
+//
+// 连接失败或工具列表读取失败时，把服务器标记为停用并保存错误信息，
+// 下次启动不会反复尝试连接同一台坏掉的服务器。成功时替换旧连接，
+// 并把每个工具的适配器注册到工具注册表。
 func (s *MCPService) Connect(serverID string) (MCPServerView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -207,6 +235,8 @@ func (s *MCPService) Disconnect(serverID string) error {
 	return s.persistLocked()
 }
 
+// disconnectLocked 关闭连接并从注册表移除该服务器的全部工具。
+// 调用方必须已经持有 s.mu。
 func (s *MCPService) disconnectLocked(serverID string) {
 	if client := s.clients[serverID]; client != nil {
 		_ = client.Close()
@@ -220,6 +250,7 @@ func (s *MCPService) disconnectLocked(serverID string) {
 	delete(s.errors, serverID)
 }
 
+// viewLocked 组装服务器展示结构。调用方必须已经持有 s.mu。
 func (s *MCPService) viewLocked(config mcp.ServerConfig) MCPServerView {
 	view := MCPServerView{
 		ID:        config.ID,
@@ -237,6 +268,7 @@ func (s *MCPService) viewLocked(config mcp.ServerConfig) MCPServerView {
 	return view
 }
 
+// persistLocked 把当前服务器配置写回设置表。调用方必须已经持有 s.mu。
 func (s *MCPService) persistLocked() error {
 	return s.db.SetSetting(mcpServersKey, s.configs)
 }

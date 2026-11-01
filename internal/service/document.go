@@ -1,3 +1,7 @@
+// 本文件是文档预览的前端绑定。它根据扩展名选择 internal/doc 的
+// 文本级解析器，返回供界面展示的文本、格式说明与截断状态；
+// 文档写入不在这里进行，而是走 Agent 的 doc_edit / xlsx_set_cell。
+
 package service
 
 import (
@@ -14,14 +18,22 @@ import (
 
 // DocumentPreview 是文档预览的返回结构。
 type DocumentPreview struct {
-	Kind      string `json:"kind"` // docx / xlsx / pdf / text
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	Modified  int64  `json:"modified"`
-	Supported bool   `json:"supported"`
-	Note      string `json:"note,omitempty"`
-	Text      string `json:"text,omitempty"`
+	// Kind 是文件类型：docx、xlsx、pdf 或 text。
+	Kind string `json:"kind"`
+	// Path 是相对工作区的路径。
+	Path string `json:"path"`
+	// Name 是文件名。
+	Name string `json:"name"`
+	// Size 是文件字节数。
+	Size int64 `json:"size"`
+	// Modified 是最后修改时间（毫秒时间戳）。
+	Modified int64 `json:"modified"`
+	// Supported 表示当前能否展示文本内容。
+	Supported bool `json:"supported"`
+	// Note 是格式限制或读取失败的说明。
+	Note string `json:"note,omitempty"`
+	// Text 是可展示的文本内容。
+	Text string `json:"text,omitempty"`
 }
 
 // DocumentService 提供文档预览。
@@ -29,6 +41,7 @@ type DocumentPreview struct {
 // docx / xlsx / pdf 走 internal/doc 的文本级解析；其他文本文件直接预览。
 // 写入由 Agent 的 doc_edit / xlsx_set_cell 工具完成，并经过审批与备份。
 type DocumentService struct {
+	// db 用于按标识读取工作区根目录。
 	db *store.DB
 }
 
@@ -38,6 +51,9 @@ func NewDocumentService(db *store.DB) *DocumentService {
 }
 
 // Preview 返回文档预览数据。
+//
+// docx、xlsx、pdf 由 internal/doc 提取文本层；其他文件按纯文本读取，
+// 二进制文件只返回元数据。文本超过 8000 字节时截断并提示。
 func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {

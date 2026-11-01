@@ -1,3 +1,8 @@
+// 本文件负责 SQLite 存储的打开、关闭与迁移：建立数据目录、配置连接参数、
+// 按版本执行建表语句，并提供数据库对象的公共入口。
+//
+// 具体的数据读写分散在同包的其他文件里（线程、事件、审批、审计、用量等）。
+
 package store
 
 import (
@@ -16,12 +21,18 @@ var ErrNotFound = errors.New("记录不存在")
 
 // DB 是本地 SQLite 存储。所有写入串行化，避免多 goroutine 争抢 seq。
 type DB struct {
-	sqlDB   *sql.DB
-	path    string
+	// sqlDB 是底层连接池；读操作可以并发，写操作由 writeMu 串行化。
+	sqlDB *sql.DB
+	// path 是数据库文件路径，供设置页与日志展示。
+	path string
+	// writeMu 保护所有写入路径，保证事务之间不会互相争抢锁。
 	writeMu sync.Mutex
 }
 
 // Open 打开（或创建）数据库并执行迁移。
+//
+// 连接串里固定了几个关键参数：busy_timeout 等待锁释放、WAL 提升读写并发、
+// 外键约束默认开启。目录权限设为仅当前用户可访问。
 func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("创建数据库目录: %w", err)
@@ -31,10 +42,12 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库: %w", err)
 	}
+	// 连接数保持在较小范围，既够读并发，也不会让 SQLite 积累过多锁竞争。
 	sqlDB.SetMaxOpenConns(4)
 	sqlDB.SetMaxIdleConns(4)
 
 	db := &DB{sqlDB: sqlDB, path: path}
+	// 迁移失败时必须关闭连接，避免泄漏文件句柄。
 	if err := db.migrate(); err != nil {
 		sqlDB.Close()
 		return nil, err
@@ -57,6 +70,10 @@ func NowMillis() int64 {
 	return nowMillis()
 }
 
+// migrate 按 PRAGMA user_version 判断是否需要建表。
+//
+// 当前只有第 1 版结构；后续修改表结构时应新增迁移版本，而不是修改已有的建表语句。
+// 建表与版本号写入在同一个事务里完成，避免中途失败留下半成品。
 func (db *DB) migrate() error {
 	var version int
 	if err := db.sqlDB.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -84,8 +101,14 @@ func (db *DB) migrate() error {
 	return nil
 }
 
+// schemaVersion 是当前数据库结构版本，对应 PRAGMA user_version。
 const schemaVersion = 1
 
+// schemaV1 是第 1 版数据库结构：线程、工作区、事件、运行、审批、审计、
+// 用量、设置与备份九张表，以及配套索引。
+//
+// 事件表按 thread_id + seq 唯一，seq 由写入方在事务内分配；其余表用 AUTOINCREMENT
+// 主键或字符串标识，软删除通过 deleted_at 表达。
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS threads (
   id TEXT PRIMARY KEY,

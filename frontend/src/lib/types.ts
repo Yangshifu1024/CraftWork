@@ -1,3 +1,14 @@
+/**
+ * 前端共享类型层。
+ *
+ * 三类内容集中在这里：
+ * 1. 直接复用 Go 生成的类型（应用信息、设置、线程视图、用量等）；
+ * 2. 前端专用的视图类型与字面量联合类型（消息、部件、事件信封等）；
+ * 3. `EVENT` 事件名常量，Go 侧推送事件与前端订阅必须使用同一套字符串。
+ *
+ * 修改事件名或载荷结构时，需要同时同步 `internal/events/events.go`，
+ * 否则前端会收不到或解析不了对应事件。
+ */
 import type {
   AppInfo,
   ConnectionResult,
@@ -25,6 +36,12 @@ import type {
   UsageTotals,
 } from "../../bindings/craftwork/internal/store";
 
+/**
+ * 把 Go 生成的类型原样再导出。
+ *
+ * 业务代码统一从本文件导入，避免到处写 `../../bindings/...` 的长路径；
+ * 同时让「前端类型来自后端生成」这件事只有这一处依赖。
+ */
 export type {
   AppInfo,
   AuditEntry,
@@ -47,7 +64,7 @@ export type {
   WorkspaceView,
 };
 
-/** 差异结果：数组在前端统一为非空数组。 */
+/** 差异中的一行：`kind` 区分新增、删除与上下文，行号用于左侧 gutter。 */
 export interface DiffLine {
   kind: string;
   old?: number;
@@ -55,11 +72,13 @@ export interface DiffLine {
   text: string;
 }
 
+/** 差异中的一个区块：`header` 是 `@@ -a,b +c,d @@` 形式的区块头。 */
 export interface DiffHunk {
   header: string;
   lines: DiffLine[];
 }
 
+/** 差异结果：数组在前端统一为非空数组。 */
 export interface DiffResult {
   additions: number;
   deletions: number;
@@ -67,24 +86,45 @@ export interface DiffResult {
   truncated: boolean;
 }
 
-/** 提供商视图：模型数组在前端统一为非空数组。 */
+/**
+ * 提供商视图：模型数组在前端统一为非空数组。
+ *
+ * 后端可能返回 nil 切片，桌面适配器会补成 `[]`，因此这里把 `models` 重新声明为必填。
+ */
 export interface ProviderView extends Omit<ApiProviderView, "models"> {
   models: ModelView[];
 }
 
-/** 用量聚合：数组在前端统一为非空数组。 */
+/**
+ * 用量聚合：数组在前端统一为非空数组。
+ *
+ * 与 `ProviderView` 同理，把两个统计数组收紧成必填，
+ * 图表面板可以直接遍历而不用判空。
+ */
 export interface UsageSummary extends Omit<ApiUsageSummary, "byModel" | "byDay"> {
   byModel: ModelUsage[];
   byDay: DailyUsage[];
 }
 
+/** 工作模式：`code` 面向编码任务，`work` 面向办公任务，两者各有线程列表。 */
 export type Mode = "code" | "work";
+/** 右侧面板的页签：文件、差异、终端、文档。 */
 export type PanelTab = "files" | "diff" | "terminal" | "document";
+/** 界面主题。 */
 export type Theme = "dark" | "light";
+/** 审批档位：分级审批、严格审批、只读。 */
 export type ApprovalLevel = "graded" | "strict" | "readonly";
+/** 消息角色。 */
 export type MessageRole = "user" | "assistant";
+/** 消息状态：流式输出中、正常完成、被取消、出错。 */
 export type MessageStatus = "streaming" | "complete" | "incomplete" | "error";
 
+/**
+ * 消息部件类型。
+ *
+ * 一条消息由多个部件按 `seq` 顺序拼成：正文、推理、工具调用、审批卡片、
+ * 待办清单、错误、提示、草稿与强调块。
+ */
 export type PartKind =
   | "text"
   | "reasoning"
@@ -96,6 +136,12 @@ export type PartKind =
   | "draft"
   | "callout";
 
+/**
+ * 消息部件。
+ *
+ * `data` 的具体结构由 `kind` 决定，对应下面各个 `*PartData` 类型；
+ * 因为事件载荷来自后端且类型较松，这里保留 `any`，由渲染组件自行按 kind 收窄。
+ */
 export interface ChatPart {
   id: string;
   kind: PartKind;
@@ -103,6 +149,7 @@ export interface ChatPart {
   data: any;
 }
 
+/** 聊天消息：归属某个线程，带角色、状态、创建时间与部件列表。 */
 export interface ChatMessage {
   id: string;
   threadId: string;
@@ -112,16 +159,19 @@ export interface ChatMessage {
   parts: ChatPart[];
 }
 
+/** 正文部件的数据。 */
 export interface TextPartData {
   partId?: string;
   text: string;
 }
 
+/** 推理过程部件的数据，与正文分开展示，可折叠。 */
 export interface ReasoningPartData {
   partId?: string;
   text: string;
 }
 
+/** 工具调用部件的数据：记录工具名、参数、风险级别、执行状态与输出。 */
 export interface ToolPartData {
   partId: string;
   toolCallId: string;
@@ -135,11 +185,13 @@ export interface ToolPartData {
   summary?: string;
 }
 
+/** 审批卡片上展示的单条事实，例如目标路径、命令内容。 */
 export interface ApprovalFact {
   label: string;
   value: string;
 }
 
+/** 审批部件的数据：包含展示信息与用户决定后的状态、决定与生效范围。 */
 export interface ApprovalPartData {
   partId: string;
   approvalId: string;
@@ -151,22 +203,26 @@ export interface ApprovalPartData {
   detail?: string;
   facts?: ApprovalFact[];
   args?: Record<string, any>;
+  /** 是否允许「本次会话 / 当前工作区」的永久授权。 */
   allowPermanent: boolean;
   status: "waiting" | "approved" | "denied" | "canceled";
   decision?: string;
   scope?: string;
 }
 
+/** 待办清单里的一条任务。 */
 export interface TodoItem {
   text: string;
   status: "pending" | "active" | "done";
 }
 
+/** 待办部件的数据：整份清单一次性下发。 */
 export interface TodoPartData {
   partId: string;
   items: TodoItem[];
 }
 
+/** 错误部件的数据：错误码与可读文案，`retryable` 表示是否可重试。 */
 export interface ErrorPartData {
   partId: string;
   code: string;
@@ -174,6 +230,7 @@ export interface ErrorPartData {
   retryable?: boolean;
 }
 
+/** 草稿部件的数据：办公模式下生成的邮件草稿等。 */
 export interface DraftPartData {
   partId?: string;
   to: string;
@@ -182,18 +239,26 @@ export interface DraftPartData {
   time?: string;
 }
 
+/** 强调块部件的数据：用于提示、警告或成功信息。 */
 export interface CalloutPartData {
   partId?: string;
   tone?: "info" | "warn" | "ok";
   text: string;
 }
 
+/** 通知部件的数据：系统提示或上下文压缩说明等简短信息。 */
 export interface NoticePartData {
   partId: string;
   text: string;
   summary?: string;
 }
 
+/**
+ * 事件信封。
+ *
+ * `seq` 在同一线程内单调递增，`type` 对应 `EVENT` 里的字符串；
+ * `threadId` 标记事件归属，终端事件使用 `terminal:` 前缀的伪线程 id。
+ */
 export interface Envelope {
   seq: number;
   type: string;
@@ -203,12 +268,14 @@ export interface Envelope {
   data: any;
 }
 
+/** 事件批次：总线把多个事件合并成一批推送，`v` 为协议版本。 */
 export interface Batch {
   v: number;
   threadId?: string;
   events: Envelope[];
 }
 
+/** 附件信息：路径、显示名与可选的文件大小。 */
 export interface AttachmentInfo {
   name: string;
   path: string;
@@ -218,25 +285,37 @@ export interface AttachmentInfo {
 /** 线程快照直接使用 Go 生成的类型，避免前端手写镜像。 */
 export type ThreadSnapshot = Snapshot;
 
+/**
+ * 事件名常量。
+ *
+ * 必须与 Go 侧 `internal/events/events.go` 保持一致；
+ * `reduceThread` 以这些名字做分发，类型检查会在新增事件时强制补处理函数。
+ */
 export const EVENT = {
+  // 一次运行的生命周期。
   runStarted: "run.started",
   runCompleted: "run.completed",
   runCanceled: "run.canceled",
   runFailed: "run.failed",
+  // 正文与推理过程的增量 / 完成事件。
   textDelta: "text.delta",
   textCompleted: "text.completed",
   reasoningDelta: "reasoning.delta",
   reasoningCompleted: "reasoning.completed",
+  // 工具调用与审批。
   toolStarted: "tool.started",
   toolCompleted: "tool.completed",
   approvalRequested: "approval.requested",
   approvalResolved: "approval.resolved",
+  // 消息内的其他部件。
   todoUpdated: "todo.updated",
   notice: "notice",
   contextCompressed: "context.compressed",
   error: "error",
+  // 线程与用量统计。
   threadUpdated: "thread.updated",
   usageUpdated: "usage.updated",
+  // 应用级广播与终端事件。
   settingsUpdated: "settings.updated",
   workspaceUpdated: "workspace.updated",
   terminalOutput: "terminal.output",
