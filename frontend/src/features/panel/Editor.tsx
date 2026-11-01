@@ -204,6 +204,8 @@ export function Editor() {
         <button
           type="button"
           className={cn("tool-btn", editorMode === "edit" && "is-on")}
+          disabled={content.binary || content.truncated}
+          title={content.binary ? "二进制文件不可编辑" : content.truncated ? "文件超过 2MB，已截断，编辑已禁用" : undefined}
           onClick={() => setEditorMode("edit")}
         >
           <Icon name="edit" className="ico" />
@@ -260,7 +262,13 @@ export function Editor() {
       <div className="editor-note">
         <Icon name="info" className="ico" />
         <span>
-          {editorMode === "edit" ? "保存前会备份原文件，外部修改会阻止覆盖。" : "只读预览；切换到编辑态后可修改。"}
+          {content.binary
+            ? "二进制文件不可编辑。"
+            : content.truncated
+              ? "文件超过 2MB，已截断，编辑已禁用；请使用其他方式处理。"
+              : editorMode === "edit"
+                ? "保存前会备份原文件，外部修改会阻止覆盖。"
+                : "只读预览；切换到编辑态后可修改。"}
         </span>
         <span className="spacer" />
         <span>

@@ -130,7 +130,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setEditorMode(mode) {
-    set({ editorMode: mode, draft: get().content?.content ?? get().draft });
+    const content = get().content;
+    if (mode === "edit" && (content?.binary || content?.truncated)) {
+      return;
+    }
+    set({ editorMode: mode, draft: content?.content ?? get().draft });
   },
 
   setDraft(value) {
@@ -149,7 +153,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ content: refreshed, draft: refreshed.content, editorMode: "read" });
       useUiStore.getState().toast({ title: "已保存", description: content.path, tone: "ok" });
     } catch (error) {
-      useUiStore.getState().toast({ title: "保存失败", description: String(error), tone: "danger" });
+      const message = String(error);
+      if (message.includes("外部修改")) {
+        const reload = await useUiStore.getState().askConfirm({
+          title: "文件已被外部修改",
+          description: "重新加载会丢弃当前未保存的修改。",
+          detail: content.path,
+          confirmText: "重新加载",
+          danger: true,
+        });
+        if (reload) {
+          await get().openFile(content.path);
+        }
+        return;
+      }
+      useUiStore.getState().toast({ title: "保存失败", description: message, tone: "danger" });
     }
   },
 
