@@ -7,7 +7,7 @@
  * 2. 用媒体查询判断窄窗口，窄窗口下面板改为浮层，不再挤压对话区；
  * 3. 注册全局快捷键（新建对话、搜索、设置、命令面板、Esc 逐层退出）。
  */
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { ChatPane } from "../features/chat/ChatPane";
 import { useNotifications } from "../features/chat/useNotifications";
@@ -15,6 +15,7 @@ import { Panel } from "../features/panel/Panel";
 import { Toasts } from "../components/Toasts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PromptDialog } from "../components/PromptDialog";
+import { ImagePreviewOverlay } from "../features/overlays/ImagePreviewOverlay";
 import { cn } from "../lib/utils";
 import { usePanelStore } from "../stores/panel";
 import { useThreadStore } from "../stores/threads";
@@ -68,11 +69,21 @@ export function AppShell() {
     return () => media.removeEventListener("change", apply);
   }, [setNarrow]);
 
+  // 双击 Esc 的确认窗口：第一击进入待确认后，超过该时长未按第二击就自动解除。
+  const ESC_ARM_WINDOW_MS = 800;
+  const armTimerRef = useRef<number | null>(null);
+  function disarmTimer() {
+    if (armTimerRef.current !== null) {
+      window.clearTimeout(armTimerRef.current);
+      armTimerRef.current = null;
+    }
+  }
+
   // 全局快捷键：
   // - Cmd/Ctrl + K 打开命令面板，Cmd/Ctrl + N 新建对话；
   // - Cmd/Ctrl + , 打开设置，Cmd/Ctrl + F 聚焦会话搜索；
-  // - Esc 按「浮层 → 最大化面板 → 运行中的会话 → 待审批」的优先级逐层退出，
-  //   一次只处理最上层的那件事，避免一次按键关掉所有东西。
+  // - Esc 按「浮层 → 最大化面板 → 运行中的会话（双击确认）→ 待审批」的优先级
+  //   逐层退出，一次只处理最上层的那件事，避免一次按键关掉所有东西。
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       // 输入法组合期间（如按 Esc 取消拼音候选）派发的按键不是普通快捷键，
@@ -117,15 +128,32 @@ export function AppShell() {
           ui.closeData();
           return;
         }
+        if (ui.imagePreview) {
+          ui.closeImagePreview();
+          return;
+        }
         if (usePanelStore.getState().maximized) {
           setMaximized(false);
           return;
         }
         const threadStore = useThreadStore.getState();
         if (threadStore.running) {
-          void threadStore.cancel();
+          // 双击 Esc 才取消：第一击只进入「待确认」状态（停止按钮给出提示），
+          // 短窗口内再按一次才真正停止，避免误触打断正在运行的任务。
+          if (threadStore.interruptArmed) {
+            disarmTimer();
+            threadStore.disarmInterrupt();
+            void threadStore.cancel();
+            return;
+          }
+          threadStore.armInterrupt();
+          armTimerRef.current = window.setTimeout(() => {
+            armTimerRef.current = null;
+            useThreadStore.getState().disarmInterrupt();
+          }, ESC_ARM_WINDOW_MS);
           return;
         }
+        threadStore.disarmInterrupt();
         const pending = threadStore.pendingApprovals;
         if (pending.length > 0) {
           // 按 Esc 视为拒绝最后一条审批请求，范围固定为「仅本次」。
@@ -134,7 +162,10 @@ export function AppShell() {
       }
     }
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      disarmTimer();
+    };
   }, [setMaximized]);
 
   // 面板的三种形态：常规停靠、窄窗口浮层、最大化铺满对话区。
@@ -179,9 +210,10 @@ export function AppShell() {
           <DataModal />
         </Suspense>
       ) : null}
-      {/* 确认框与输入框常驻挂载，由 store 里的请求对象决定是否显示 */}
+      {/* 确认框、输入框与图片预览常驻挂载，由 store 里的请求对象决定是否显示 */}
       <ConfirmDialog />
       <PromptDialog />
+      <ImagePreviewOverlay />
     </>
   );
 }

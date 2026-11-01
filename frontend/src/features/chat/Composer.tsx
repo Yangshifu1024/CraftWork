@@ -26,6 +26,7 @@ import {
 import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, ModelView } from "../../lib/types";
 import { cn, formatTokens } from "../../lib/utils";
+import { AttachmentItem } from "./Parts";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
@@ -83,6 +84,8 @@ export function Composer() {
   const activeID = useThreadStore((state) => state.activeID[mode]);
   const messages = useThreadStore((state) => state.messages);
   const running = useThreadStore((state) => state.running);
+  // 双击 Esc 的待确认标记：第一击后停止按钮给出「再按一次」的视觉提示。
+  const interruptArmed = useThreadStore((state) => state.interruptArmed);
   const attachments = useThreadStore((state) => state.attachments);
   const addAttachments = useThreadStore((state) => state.addAttachments);
   const removeAttachment = useThreadStore((state) => state.removeAttachment);
@@ -250,15 +253,16 @@ export function Composer() {
   return (
     <div className="composer-wrap" onPaste={handlePaste}>
       <ComposerPrimitive.Root className="composer">
-        {/* 待发送附件条：点击叉号只从列表移除，不会删除磁盘文件。 */}
+        {/* 待发送附件条：图片显示缩略图（点击放大），其他文件显示文件名；
+            点击叉号只从列表移除，不会删除磁盘文件。 */}
         {attachments.length > 0 ? (
           <div className="attach-strip">
             {attachments.map((attachment) => (
-              <span key={attachment.path} className="attach-chip" title={attachment.path}>
-                <Icon name="file" className="ico" />
-                <span className="fname">{attachment.name}</span>
+              <span key={attachment.path} className="attach-entry">
+                <AttachmentItem path={attachment.path} name={attachment.name} />
                 <button
                   type="button"
+                  className="attach-remove"
                   aria-label={`移除 ${attachment.name}`}
                   onClick={() => removeAttachment(attachment.path)}
                 >
@@ -275,8 +279,21 @@ export function Composer() {
             placeholder={mode === "work" ? "描述要处理的文档或办公任务…" : "向 CraftWork 描述你的任务…"}
             minRows={1}
             maxRows={10}
-            submitMode="ctrlEnter"
+            submitMode="enter"
+            // Esc 取消由 AppShell 的全局「双击 Esc」统一处理；composer 内置的
+            // 单击取消必须关掉，否则按键在这里就被消费，双击确认永远不生效。
+            cancelOnEscape={false}
             autoFocus
+            onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+              // Ctrl/Cmd+Enter 预留给后续的 steer（运行中追加指令），当前
+              // 不绑定任何动作：吞掉按键，避免被 assistant-ui 当作提交。
+              // composeEventHandlers 会先执行外部 handler，并尊重 preventDefault。
+              if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === "Enter") {
+                if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                  event.preventDefault();
+                }
+              }
+            }}
           />
         </div>
 
@@ -352,13 +369,20 @@ export function Composer() {
               <Icon name="chevron-down" className="ico chev" />
             </button>
 
-            {/* 运行中显示停止按钮；没有可用模型时显示禁用发送按钮，避免无效提交。 */}
+            {/* 运行中显示停止按钮；按过一次 Esc 后进入待确认态，提示再按一次。
+                点击按钮仍是明确意图，直接取消，不需要双击。 */}
             {running ? (
-              <button type="button" className="stop-btn" title="停止生成 Esc" aria-label="停止生成" onClick={() => void cancel()}>
+              <button
+                type="button"
+                className={cn("stop-btn", interruptArmed && "is-armed")}
+                title={interruptArmed ? "再按一次 Esc 停止生成" : "停止生成（按两次 Esc）"}
+                aria-label="停止生成"
+                onClick={() => void cancel()}
+              >
                 <Icon name="stop" className="ico" />
               </button>
             ) : currentModel ? (
-              <ComposerPrimitive.Send className="send-btn" title="发送 ⌘↵" aria-label="发送">
+              <ComposerPrimitive.Send className="send-btn" title="发送 ↵" aria-label="发送">
                 <Icon name="arrow-up" className="ico" />
               </ComposerPrimitive.Send>
             ) : (
@@ -380,11 +404,20 @@ export function Composer() {
       <div className="composer-foot">
         <div className="hints">
           <span>
-            <span className="kbd">⌘↵</span> 发送
+            <span className="kbd">↵</span> 发送
           </span>
           <span className="foot-sep" aria-hidden="true" />
           <span>
+            <span className="kbd">⇧↵</span> 换行
+          </span>
+          <span className="foot-sep" aria-hidden="true" />
+          <span>
+            <span className="kbd">Esc</span>
             <span className="kbd">Esc</span> 停止
+          </span>
+          <span className="foot-sep" aria-hidden="true" />
+          <span>
+            <span className="kbd">⌃↵</span> steer 即将支持
           </span>
         </div>
       </div>
