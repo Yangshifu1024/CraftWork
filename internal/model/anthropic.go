@@ -160,6 +160,16 @@ func (c *Anthropic) requestBody(req Request) (map[string]any, error) {
 	if maxTokens <= 0 {
 		maxTokens = 4096
 	}
+	// 在历史最后一条消息的末尾内容块上打缓存断点：Agent 循环里每一轮
+	// 请求都在尾部追加新消息，下一轮可以从本轮断点处命中缓存，只对新增
+	// 的消息按未缓存价计费。system 数组已有稳定/动态两个断点，加上这一
+	// 个共三个，仍在提供商四断点限额之内；内容过短时提供商不写缓存，
+	// 标记本身无副作用。
+	if len(messages) > 0 {
+		if lastBlocks, ok := messages[len(messages)-1]["content"].([]map[string]any); ok && len(lastBlocks) > 0 {
+			lastBlocks[len(lastBlocks)-1]["cache_control"] = map[string]any{"type": "ephemeral"}
+		}
+	}
 	body := map[string]any{
 		"model":      req.Model,
 		"max_tokens": maxTokens,

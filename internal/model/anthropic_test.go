@@ -21,14 +21,15 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 		Messages  []struct {
 			Role    string `json:"role"`
 			Content []struct {
-				Type      string         `json:"type"`
-				Text      string         `json:"text"`
-				ID        string         `json:"id"`
-				Name      string         `json:"name"`
-				Input     map[string]any `json:"input"`
-				ToolUseID string         `json:"tool_use_id"`
-				Content   string         `json:"content"`
-				Source    struct {
+				Type         string         `json:"type"`
+				Text         string         `json:"text"`
+				ID           string         `json:"id"`
+				Name         string         `json:"name"`
+				Input        map[string]any `json:"input"`
+				ToolUseID    string         `json:"tool_use_id"`
+				Content      string         `json:"content"`
+				CacheControl map[string]any `json:"cache_control"`
+				Source       struct {
 					Type      string `json:"type"`
 					MediaType string `json:"media_type"`
 					Data      string `json:"data"`
@@ -171,6 +172,13 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 	}
 	if result.Content[0].ToolUseID != "toolu_1" || result.Content[0].Content != "a.txt" {
 		t.Fatalf("tool_result 内容不符: %+v", result.Content[0])
+	}
+	// 历史尾部断点：最后一条消息的末尾块带缓存标记，其余消息不带。
+	if result.Content[0].CacheControl["type"] != "ephemeral" {
+		t.Fatalf("历史尾部应携带缓存断点: %+v", result.Content[0])
+	}
+	if body.Messages[0].Content[0].CacheControl != nil {
+		t.Fatalf("非尾部消息不应带缓存标记: %+v", body.Messages[0].Content[0])
 	}
 	if len(body.Tools) != 1 || body.Tools[0].Name != "fs_list" {
 		t.Fatalf("工具定义不符: %+v", body.Tools)
