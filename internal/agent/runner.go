@@ -13,6 +13,7 @@ import (
 	"craftwork/internal/id"
 	"craftwork/internal/model"
 	"craftwork/internal/policy"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 	"craftwork/internal/tools"
 )
@@ -40,7 +41,7 @@ type streamSession struct {
 // Runner 负责一次 Agent 执行的完整循环。
 type Runner struct {
 	db            *store.DB
-	bus           *events.Bus
+	records       *record.Recorder
 	tools         *tools.Registry
 	policy        *policy.Engine
 	approvals     *Approvals
@@ -53,11 +54,11 @@ type Runner struct {
 }
 
 // NewRunner 创建运行器。
-func NewRunner(db *store.DB, bus *events.Bus, registry *tools.Registry,
+func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 	engine *policy.Engine, approvals *Approvals, models ModelFactory) *Runner {
-	runner := &Runner{
+	return &Runner{
 		db:            db,
-		bus:           bus,
+		records:       records,
 		tools:         registry,
 		policy:        engine,
 		approvals:     approvals,
@@ -65,8 +66,6 @@ func NewRunner(db *store.DB, bus *events.Bus, registry *tools.Registry,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
 	}
-	approvals.SetRecorder(runner.persist)
-	return runner
 }
 
 // SetNotifier 设置系统通知回调。宿主通常在这里判断窗口是否聚焦。
@@ -127,11 +126,7 @@ func (r *Runner) IsRunning(threadID string) bool {
 }
 
 func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messageID, mode string) {
-	r.bus.Publish(events.TypeRunStarted, thread.ID, runID, map[string]any{
-		"messageId": messageID,
-		"modelId":   thread.ModelID,
-	})
-	r.persist(thread.ID, messageID, runID, id.New("ev"), "run_started", map[string]any{
+	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
 		"modelId":   thread.ModelID,
 	})
@@ -187,7 +182,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 					reasoningPartID = id.New("part")
 				}
 				reasoningBuilder.WriteString(chunk.Reasoning)
-				r.bus.Publish(events.TypeReasoningDelta, thread.ID, runID, events.TextDelta{
+				r.records.Emit(events.TypeReasoningDelta, thread.ID, runID, events.TextDelta{
 					PartID: reasoningPartID,
 					Text:   chunk.Reasoning,
 				})
@@ -197,7 +192,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 					textPartID = id.New("part")
 				}
 				textBuilder.WriteString(chunk.Text)
-				r.bus.Publish(events.TypeTextDelta, thread.ID, runID, events.TextDelta{
+				r.records.Emit(events.TypeTextDelta, thread.ID, runID, events.TextDelta{
 					PartID: textPartID,
 					Text:   chunk.Text,
 				})
@@ -230,18 +225,10 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		if reasoningPartID != "" {
 			text := reasoningBuilder.String()
 			r.persist(thread.ID, messageID, runID, reasoningPartID, "reasoning", map[string]any{"text": text})
-			r.bus.Publish(events.TypeReasoningCompleted, thread.ID, runID, map[string]any{
-				"partId": reasoningPartID,
-				"text":   text,
-			})
 		}
 		if textPartID != "" {
 			text := textBuilder.String()
 			r.persist(thread.ID, messageID, runID, textPartID, "text", map[string]any{"text": text})
-			r.bus.Publish(events.TypeTextCompleted, thread.ID, runID, map[string]any{
-				"partId": textPartID,
-				"text":   text,
-			})
 		}
 		if usage != nil {
 			r.recordUsage(thread, runID, session.modelID, usage)
@@ -347,7 +334,6 @@ func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to st
 	partID := id.New("part")
 	payload := map[string]any{"partId": partID, "text": text}
 	r.persist(thread.ID, messageID, runID, partID, "notice", payload)
-	r.bus.Publish(events.TypeNotice, thread.ID, runID, payload)
 }
 
 // runTool 执行一次工具调用，返回用于回填给模型的结果。
@@ -362,7 +348,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		title = call.Name
 	}
 
-	r.bus.Publish(events.TypeToolStarted, thread.ID, runID, map[string]any{
+	r.records.Emit(events.TypeToolStarted, thread.ID, runID, map[string]any{
 		"partId":     partID,
 		"toolCallId": call.ID,
 		"name":       call.Name,
@@ -463,7 +449,6 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		payload["signature"] = call.Signature
 	}
 	r.persist(thread.ID, messageID, runID, partID, "tool_call", payload)
-	r.bus.Publish(events.TypeToolCompleted, thread.ID, runID, payload)
 
 	decision := "auto"
 	if denied != "" {
@@ -486,7 +471,6 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 			todoPartID := id.New("part")
 			todoPayload := map[string]any{"partId": todoPartID, "items": items}
 			r.persist(thread.ID, messageID, runID, todoPartID, "todo", todoPayload)
-			r.bus.Publish(events.TypeTodoUpdated, thread.ID, runID, todoPayload)
 		}
 	}
 
@@ -495,32 +479,22 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 
 func (r *Runner) complete(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "done", "", "")
-	_ = r.db.SetThreadStatus(thread.ID, "idle")
-	r.persist(thread.ID, messageID, runID, id.New("ev"), "run_finished", map[string]any{"status": "done"})
-	r.bus.Publish(events.TypeRunCompleted, thread.ID, runID, map[string]any{"status": "done"})
-	r.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-		"threadId": thread.ID,
-		"status":   "idle",
-	})
-	r.bus.Flush(thread.ID)
+	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
+	r.records.Emit(events.TypeRunCompleted, thread.ID, runID, map[string]any{"status": "done"})
+	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
 func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
 	_ = r.db.FinishRun(runID, "canceled", "canceled", "用户取消")
-	_ = r.db.SetThreadStatus(thread.ID, "idle")
-	r.persist(thread.ID, messageID, runID, id.New("ev"), "run_finished", map[string]any{"status": "canceled"})
-	r.bus.Publish(events.TypeRunCanceled, thread.ID, runID, map[string]any{"status": "canceled"})
-	r.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-		"threadId": thread.ID,
-		"status":   "idle",
-	})
-	r.bus.Flush(thread.ID)
+	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
+	r.records.Emit(events.TypeRunCanceled, thread.ID, runID, map[string]any{"status": "canceled"})
+	r.records.Flush(thread.ID)
 }
 
 func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool) {
 	_ = r.db.FinishRun(runID, "error", code, message)
-	_ = r.db.SetThreadStatus(thread.ID, "error")
+	_ = r.records.SetThreadStatus(thread.ID, runID, "error")
 
 	partID := id.New("part")
 	payload := map[string]any{
@@ -530,18 +504,12 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"retryable": retryable,
 	}
 	r.persist(thread.ID, messageID, runID, partID, "error", payload)
-	r.bus.Publish(events.TypeError, thread.ID, runID, payload)
-	r.persist(thread.ID, messageID, runID, id.New("ev"), "run_finished", map[string]any{"status": "error"})
-	r.bus.Publish(events.TypeRunFailed, thread.ID, runID, map[string]any{
+	r.records.Emit(events.TypeRunFailed, thread.ID, runID, map[string]any{
 		"status":  "error",
 		"code":    code,
 		"message": message,
 	})
-	r.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-		"threadId": thread.ID,
-		"status":   "error",
-	})
-	r.bus.Flush(thread.ID)
+	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
 }
 
@@ -569,23 +537,21 @@ func (r *Runner) recordUsage(thread store.Thread, runID, modelID string, usage *
 		slog.Warn("记录用量失败", "err", err)
 	}
 	_ = r.db.AddThreadTokens(thread.ID, usage.InputTokens+usage.OutputTokens)
-	r.bus.Publish(events.TypeUsageUpdated, thread.ID, runID, map[string]any{
+	r.records.Emit(events.TypeUsageUpdated, thread.ID, runID, map[string]any{
 		"inputTokens":  usage.InputTokens,
 		"outputTokens": usage.OutputTokens,
 	})
 }
 
 func (r *Runner) persist(threadID, messageID, runID, eventID, kind string, payload any) {
-	if _, err := r.db.AppendEvent(&store.EventRecord{
+	r.records.AppendOrWarn(store.EventRecord{
 		ID:        eventID,
 		ThreadID:  threadID,
 		MessageID: messageID,
 		RunID:     runID,
 		Kind:      kind,
 		Payload:   payload,
-	}); err != nil {
-		slog.Warn("写入事件失败", "kind", kind, "err", err)
-	}
+	})
 }
 
 // history 从事件表重建发送给模型的对话。

@@ -86,6 +86,7 @@ internal/app/            窗口、单实例、CSP、服务装配、关闭钩子
 internal/service/        Wails 绑定层（App / Settings / Thread / Chat /
                          Workspace / Provider / Audit / Terminal / Document）
 internal/agent/          Run 循环、审批状态机、授权缓存
+internal/record/         事件写入与广播（落库 + 推送的唯一出口）
 internal/tools/          fs_* / shell_exec / git_status / todo_write
 internal/policy/         风险分级、审批档位、路径解析、命令分类
 internal/model/          统一 Client、提供商目录、Mock、OpenAI 兼容 SSE
@@ -176,6 +177,7 @@ docs/                    需求、界面、技术方案、原型
 ### 6.5 数据
 
 - SQLite 是事实源；事件表按线程 `seq` 单调递增，写入在事务内完成。
+- 事件写入与广播统一走 `internal/record.Recorder`，不要手写 `AppendEvent` + `Bus.Publish` 配对。
 - 修改表结构时增加迁移版本，不要直接改已有迁移。
 - 写入文件前备份；外部修改时用 `expectedHash` 阻止覆盖。
 - 软删除、审计、用量等保留策略与需求文档一致。

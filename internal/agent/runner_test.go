@@ -16,6 +16,7 @@ import (
 	"craftwork/internal/events"
 	"craftwork/internal/model"
 	"craftwork/internal/policy"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 	"craftwork/internal/tools"
 )
@@ -86,8 +87,9 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 		},
 	})
 	engine := policy.New(policy.LevelGraded, workspace)
-	approvals := NewApprovals(db, bus)
-	runner := NewRunner(db, bus, registry, engine, approvals, factory)
+	recorder := record.New(db, bus)
+	approvals := NewApprovals(db, recorder)
+	runner := NewRunner(db, recorder, registry, engine, approvals, factory)
 
 	thread := store.Thread{
 		ID: "th_1", Mode: "code", Title: "测试", ModelID: "fake",

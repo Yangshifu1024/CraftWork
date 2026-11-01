@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"craftwork/internal/events"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
 
@@ -22,15 +23,7 @@ func newApprovalHarness(t *testing.T) (*Approvals, *store.DB, store.Thread) {
 	bus := events.NewBus(func(string, any) {})
 	t.Cleanup(bus.Close)
 
-	approvals := NewApprovals(db, bus)
-	approvals.SetRecorder(func(threadID, messageID, runID, eventID, kind string, payload any) {
-		if _, err := db.AppendEvent(&store.EventRecord{
-			ID: eventID, ThreadID: threadID, MessageID: messageID,
-			RunID: runID, Kind: kind, Payload: payload,
-		}); err != nil {
-			t.Errorf("写入审批事件失败: %v", err)
-		}
-	})
+	approvals := NewApprovals(db, record.New(db, bus))
 
 	thread := store.Thread{
 		ID: "th_1", Mode: "code", Title: "测试", ModelID: "fake",

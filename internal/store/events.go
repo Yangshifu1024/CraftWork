@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 
 	"craftwork/internal/id"
@@ -10,10 +11,6 @@ import (
 func (db *DB) AppendEvent(event *EventRecord) (int64, error) {
 	if event.CreatedAt == 0 {
 		event.CreatedAt = nowMillis()
-	}
-	payload, err := MarshalPayload(event.Payload)
-	if err != nil {
-		return 0, err
 	}
 
 	db.writeMu.Lock()
@@ -25,6 +22,26 @@ func (db *DB) AppendEvent(event *EventRecord) (int64, error) {
 	}
 	defer tx.Rollback()
 
+	seq, err := appendEventTx(tx, *event)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`UPDATE threads SET updated_at = ? WHERE id = ?`, event.CreatedAt, event.ThreadID); err != nil {
+		return 0, fmt.Errorf("更新线程时间: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("提交事件: %w", err)
+	}
+	return seq, nil
+}
+
+// appendEventTx 是事件写入的唯一实现：分配 seq 并插入 events。
+func appendEventTx(tx *sql.Tx, event EventRecord) (int64, error) {
+	payload, err := MarshalPayload(event.Payload)
+	if err != nil {
+		return 0, err
+	}
+
 	var seq int64
 	if err := tx.QueryRow(
 		`SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE thread_id = ?`, event.ThreadID).Scan(&seq); err != nil {
@@ -35,12 +52,6 @@ func (db *DB) AppendEvent(event *EventRecord) (int64, error) {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.ID, event.ThreadID, event.MessageID, event.RunID, seq, event.Kind, payload, event.CreatedAt); err != nil {
 		return 0, fmt.Errorf("写入事件: %w", err)
-	}
-	if _, err := tx.Exec(`UPDATE threads SET updated_at = ? WHERE id = ?`, event.CreatedAt, event.ThreadID); err != nil {
-		return 0, fmt.Errorf("更新线程时间: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("提交事件: %w", err)
 	}
 	return seq, nil
 }
@@ -310,20 +321,20 @@ func (db *DB) InterruptStaleRuns() (int, error) {
 			return 0, fmt.Errorf("标记中断线程: %w", err)
 		}
 		partID := id.New("part")
-		payload, err := MarshalPayload(map[string]any{
-			"partId":    partID,
-			"code":      "interrupted",
-			"message":   message,
-			"retryable": true,
-		})
-		if err != nil {
-			return 0, err
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO events (id, thread_id, message_id, run_id, seq, kind, payload, created_at)
-			 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE thread_id = ?),
-			         'error', ?, ?)`,
-			id.New("ev"), run.threadID, run.messageID, run.id, run.threadID, payload, now); err != nil {
+		if _, err := appendEventTx(tx, EventRecord{
+			ID:        id.New("ev"),
+			ThreadID:  run.threadID,
+			MessageID: run.messageID,
+			RunID:     run.id,
+			Kind:      "error",
+			CreatedAt: now,
+			Payload: map[string]any{
+				"partId":    partID,
+				"code":      "interrupted",
+				"message":   message,
+				"retryable": true,
+			},
+		}); err != nil {
 			return 0, fmt.Errorf("写入中断事件: %w", err)
 		}
 	}

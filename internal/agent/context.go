@@ -122,13 +122,12 @@ func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, 
 		"afterTokens":     after,
 	}
 	r.persist(thread.ID, messageID, runID, id.New("ev"), "context_compressed", payload)
-	r.bus.Publish(events.TypeContextCompressed, thread.ID, runID, payload)
+	r.records.Emit(events.TypeContextCompressed, thread.ID, runID, payload)
 
 	noticeID := id.New("part")
 	notice := fmt.Sprintf("上下文已压缩：省略 %d 条早期消息，保留最近 %d 条。", len(early), len(recent))
 	noticePayload := map[string]any{"partId": noticeID, "text": notice, "summary": summary}
 	r.persist(thread.ID, messageID, runID, noticeID, "notice", noticePayload)
-	r.bus.Publish(events.TypeNotice, thread.ID, runID, noticePayload)
 
 	compressed := make([]model.Message, 0, len(recent)+1)
 	compressed = append(compressed, model.Message{

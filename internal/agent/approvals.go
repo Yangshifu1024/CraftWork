@@ -9,6 +9,7 @@ import (
 
 	"craftwork/internal/events"
 	"craftwork/internal/id"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
 
@@ -94,26 +95,18 @@ type Approvals struct {
 	mu      sync.Mutex
 	pending map[string]*pendingApproval
 	db      *store.DB
-	bus     *events.Bus
+	records *record.Recorder
 	grants  *Grants
-	record  func(threadID, messageID, runID, eventID, kind string, payload any)
 }
 
 // NewApprovals 创建审批模块。
-func NewApprovals(db *store.DB, bus *events.Bus) *Approvals {
+func NewApprovals(db *store.DB, records *record.Recorder) *Approvals {
 	return &Approvals{
 		pending: map[string]*pendingApproval{},
 		db:      db,
-		bus:     bus,
+		records: records,
 		grants:  NewGrants(db),
 	}
-}
-
-// SetRecorder 注入审批事件落库出口。
-func (a *Approvals) SetRecorder(record func(threadID, messageID, runID, eventID, kind string, payload any)) {
-	a.mu.Lock()
-	a.record = record
-	a.mu.Unlock()
 }
 
 // Allowed 判断工具调用是否命中已有授权。
@@ -154,13 +147,19 @@ func (a *Approvals) Request(ctx context.Context, request ApprovalRequest) (Outco
 	}
 
 	awaiting := request.cardPayload("waiting")
-	a.persist(request, request.PartID, "approval", awaiting)
-	_ = a.db.SetThreadStatus(request.ThreadID, "awaiting")
-	a.bus.Publish(events.TypeThreadUpdated, request.ThreadID, request.RunID, map[string]any{
-		"threadId": request.ThreadID,
-		"status":   "awaiting",
-	})
-	a.bus.Publish(events.TypeApprovalRequested, request.ThreadID, request.RunID, awaiting)
+	if err := a.records.Append(store.EventRecord{
+		ID:        request.PartID,
+		ThreadID:  request.ThreadID,
+		MessageID: request.MessageID,
+		RunID:     request.RunID,
+		Kind:      "approval",
+		Payload:   awaiting,
+	}); err != nil {
+		removePending()
+		_ = a.db.ResolveApproval(request.ID, "canceled", "")
+		return Outcome{}, err
+	}
+	_ = a.records.SetThreadStatus(request.ThreadID, request.RunID, "awaiting")
 
 	select {
 	case decision := <-channel:
@@ -172,22 +171,14 @@ func (a *Approvals) Request(ctx context.Context, request ApprovalRequest) (Outco
 		if decision.Allow {
 			status, decisionText = "approved", "allow"
 		}
-		_ = a.db.SetThreadStatus(request.ThreadID, "running")
-		a.bus.Publish(events.TypeThreadUpdated, request.ThreadID, request.RunID, map[string]any{
-			"threadId": request.ThreadID,
-			"status":   "running",
-		})
+		_ = a.records.SetThreadStatus(request.ThreadID, request.RunID, "running")
 		a.persist(request, id.New("ev"), "approval_resolved", request.resolvedPayload(status, decisionText, scope))
 		return Outcome{Allow: decision.Allow, Status: status, Decision: decisionText, Scope: scope}, nil
 
 	case <-ctx.Done():
 		removePending()
 		_ = a.db.ResolveApproval(request.ID, "canceled", "")
-		_ = a.db.SetThreadStatus(request.ThreadID, "running")
-		a.bus.Publish(events.TypeThreadUpdated, request.ThreadID, request.RunID, map[string]any{
-			"threadId": request.ThreadID,
-			"status":   "running",
-		})
+		_ = a.records.SetThreadStatus(request.ThreadID, request.RunID, "running")
 		a.persist(request, id.New("ev"), "approval_resolved", request.resolvedPayload("canceled", "canceled", ""))
 		return Outcome{Status: "canceled", Decision: "canceled"}, ctx.Err()
 	}
@@ -254,7 +245,7 @@ func (a *Approvals) Resolve(approvalID string, decision Decision) error {
 		Detail:   "用户审批",
 	})
 
-	a.bus.Publish(events.TypeApprovalResolved, approval.ThreadID, approval.RunID, map[string]any{
+	a.records.Emit(events.TypeApprovalResolved, approval.ThreadID, approval.RunID, map[string]any{
 		"partId":     entry.partID,
 		"approvalId": approvalID,
 		"status":     status,
@@ -267,13 +258,14 @@ func (a *Approvals) Resolve(approvalID string, decision Decision) error {
 }
 
 func (a *Approvals) persist(request ApprovalRequest, eventID, kind string, payload any) {
-	a.mu.Lock()
-	record := a.record
-	a.mu.Unlock()
-	if record == nil {
-		return
-	}
-	record(request.ThreadID, request.MessageID, request.RunID, eventID, kind, payload)
+	a.records.AppendOrWarn(store.EventRecord{
+		ID:        eventID,
+		ThreadID:  request.ThreadID,
+		MessageID: request.MessageID,
+		RunID:     request.RunID,
+		Kind:      kind,
+		Payload:   payload,
+	})
 }
 
 func nowMillis() int64 {

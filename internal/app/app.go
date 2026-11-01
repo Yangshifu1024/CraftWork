@@ -20,6 +20,7 @@ import (
 	"craftwork/internal/model"
 	"craftwork/internal/notify"
 	"craftwork/internal/policy"
+	"craftwork/internal/record"
 	"craftwork/internal/secret"
 	"craftwork/internal/service"
 	"craftwork/internal/store"
@@ -108,12 +109,13 @@ func Run(frontend embed.FS, build version.Info) error {
 	modelFactory.SetFallbackResolver(func(string) string {
 		return settingsService.Get().FallbackModel
 	})
-	approvals := agent.NewApprovals(db, bus)
-	runner := agent.NewRunner(db, bus, registry, engine, approvals, modelFactory)
+	recorder := record.New(db, bus)
+	approvals := agent.NewApprovals(db, recorder)
+	runner := agent.NewRunner(db, recorder, registry, engine, approvals, modelFactory)
 
 	appService := service.NewAppService(dataDir, build)
-	threadService := service.NewThreadService(db, bus)
-	chatService := service.NewChatService(db, bus, runner, approvals)
+	threadService := service.NewThreadService(db, recorder)
+	chatService := service.NewChatService(db, recorder, runner, approvals)
 	workspaceService := service.NewWorkspaceService(db, bus, engine, registry, filepath.Join(dataDir, "backups"))
 	providerService := service.NewProviderService(db, secrets)
 	auditService := service.NewAuditService(db)

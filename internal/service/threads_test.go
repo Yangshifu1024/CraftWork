@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"craftwork/internal/events"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
 
@@ -40,7 +41,7 @@ func TestSnapshotPagePagination(t *testing.T) {
 
 	bus := events.NewBus(func(string, any) {})
 	t.Cleanup(bus.Close)
-	service := NewThreadService(db, bus)
+	service := NewThreadService(db, record.New(db, bus))
 
 	page, err := service.SnapshotPage(thread.ID, 4, 0)
 	if err != nil {

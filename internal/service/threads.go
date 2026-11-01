@@ -8,6 +8,7 @@ import (
 	"craftwork/internal/events"
 	"craftwork/internal/id"
 	"craftwork/internal/model"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
 
@@ -28,13 +29,13 @@ type ThreadView struct {
 
 // ThreadService 管理线程的创建、列表、搜索与快照。
 type ThreadService struct {
-	db  *store.DB
-	bus *events.Bus
+	db      *store.DB
+	records *record.Recorder
 }
 
 // NewThreadService 创建线程服务。
-func NewThreadService(db *store.DB, bus *events.Bus) *ThreadService {
-	return &ThreadService{db: db, bus: bus}
+func NewThreadService(db *store.DB, records *record.Recorder) *ThreadService {
+	return &ThreadService{db: db, records: records}
 }
 
 // List 列出指定模式的线程。
@@ -140,7 +141,7 @@ func (s *ThreadService) Delete(threadID string) error {
 	if err := s.db.DeleteThread(threadID); err != nil {
 		return err
 	}
-	s.bus.Publish(events.TypeThreadUpdated, threadID, "", map[string]any{
+	s.records.Emit(events.TypeThreadUpdated, threadID, "", map[string]any{
 		"threadId": threadID,
 		"deleted":  true,
 		"mode":     thread.Mode,
@@ -239,7 +240,7 @@ func (s *ThreadService) publishChanged(threadID, mode string) {
 	if err != nil {
 		return
 	}
-	s.bus.Publish(events.TypeThreadUpdated, threadID, "", map[string]any{
+	s.records.Emit(events.TypeThreadUpdated, threadID, "", map[string]any{
 		"threadId": threadID,
 		"mode":     mode,
 		"thread":   toView(*thread),

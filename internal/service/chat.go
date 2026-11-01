@@ -5,22 +5,22 @@ import (
 	"strings"
 
 	"craftwork/internal/agent"
-	"craftwork/internal/events"
 	"craftwork/internal/id"
+	"craftwork/internal/record"
 	"craftwork/internal/store"
 )
 
 // ChatService 处理发送、取消、重新生成与审批决定。
 type ChatService struct {
 	db        *store.DB
-	bus       *events.Bus
+	records   *record.Recorder
 	runner    *agent.Runner
 	approvals *agent.Approvals
 }
 
 // NewChatService 创建对话服务。
-func NewChatService(db *store.DB, bus *events.Bus, runner *agent.Runner, approvals *agent.Approvals) *ChatService {
-	return &ChatService{db: db, bus: bus, runner: runner, approvals: approvals}
+func NewChatService(db *store.DB, records *record.Recorder, runner *agent.Runner, approvals *agent.Approvals) *ChatService {
+	return &ChatService{db: db, records: records, runner: runner, approvals: approvals}
 }
 
 // Send 写入用户消息并启动一次 run，返回 runID。
@@ -41,7 +41,7 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 	}
 
 	userMessageID := id.New("msg")
-	if _, err := s.db.AppendEvent(&store.EventRecord{
+	if err := s.records.Append(store.EventRecord{
 		ID:        id.New("part"),
 		ThreadID:  threadID,
 		MessageID: userMessageID,
@@ -87,11 +87,7 @@ func (s *ChatService) Cancel(threadID string) (bool, error) {
 		return canceled, err
 	}
 	if canceled {
-		_ = s.db.SetThreadStatus(threadID, "idle")
-		s.bus.Publish(events.TypeThreadUpdated, threadID, "", map[string]any{
-			"threadId": threadID,
-			"status":   "idle",
-		})
+		_ = s.records.SetThreadStatus(threadID, "", "idle")
 	}
 	return canceled, nil
 }
@@ -120,13 +116,9 @@ func (s *ChatService) startRun(thread store.Thread) (string, error) {
 	}); err != nil {
 		return "", err
 	}
-	if err := s.db.SetThreadStatus(thread.ID, "running"); err != nil {
+	if err := s.records.SetThreadStatus(thread.ID, runID, "running"); err != nil {
 		return "", err
 	}
-	s.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-		"threadId": thread.ID,
-		"status":   "running",
-	})
 	s.runner.Start(thread, runID, messageID, thread.Mode)
 	return runID, nil
 }
