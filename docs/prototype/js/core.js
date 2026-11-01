@@ -52,7 +52,7 @@
       code: 'diff',
       work: 'document',
     },
-    panelWidth: prefs.panelWidth || 440,
+    panelWidth: prefs.panelWidth || 320,
     openFile: null,
     openFileLine: null,
     diff: { view: 'unified', fileIndex: 0 },

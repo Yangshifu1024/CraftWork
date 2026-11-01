@@ -59,7 +59,7 @@ func DefaultSettings() Settings {
 	return Settings{
 		Theme:            "dark",
 		Mode:             "code",
-		PanelWidth:       440,
+		PanelWidth:       320,
 		ApprovalLevel:    string(policy.LevelGraded),
 		DefaultModel:     "",
 		Language:         "zh-CN",

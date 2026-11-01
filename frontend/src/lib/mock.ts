@@ -43,7 +43,7 @@ const now = Date.now();
 const settings: Settings = {
   theme: "dark",
   mode: "code",
-  panelWidth: 440,
+  panelWidth: 320,
   approvalLevel: "graded",
   defaultModel: "openai/gpt-5.1",
   fallbackModel: "",

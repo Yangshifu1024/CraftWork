@@ -9,6 +9,16 @@ import { clamp } from "../lib/utils";
 import type { Mode, PanelTab } from "../lib/types";
 
 /**
+ * 面板宽度的合法区间（像素）。
+ *
+ * 默认宽度取最小值：面板是辅助区域，初始应把更多空间留给对话区，
+ * 需要更宽时再由用户拖动分隔条。
+ */
+export const PANEL_MIN_WIDTH = 320;
+/** 面板最大宽度（像素），避免在宽屏上挤压对话区。 */
+export const PANEL_MAX_WIDTH = 760;
+
+/**
  * 面板 store 的状态与操作。
  *
  * 关键约束：面板关闭时一定不是最大化状态，避免下次打开时突然铺满对话区。
@@ -18,7 +28,7 @@ interface PanelState {
   open: boolean;
   /** 面板是否最大化（铺满对话区，仅宽窗口生效）。 */
   maximized: boolean;
-  /** 面板宽度（像素），拖拽调整时限制在 320–760 之间。 */
+  /** 面板宽度（像素），拖拽调整时限制在 PANEL_MIN_WIDTH–PANEL_MAX_WIDTH 之间。 */
   width: number;
   /** 当前是否处于窄窗口（由 AppShell 的媒体查询写入）。 */
   narrow: boolean;
@@ -43,12 +53,12 @@ interface PanelState {
 /**
  * 右侧面板的状态容器。
  *
- * 初始状态：默认展开、非最大化、宽度 440，Code 模式停在「文件」、Work 模式停在「文档」。
+ * 初始状态：默认展开、非最大化、宽度取最小宽度 320，Code 模式停在「文件」、Work 模式停在「文档」。
  */
 export const usePanelStore = create<PanelState>((set, get) => ({
   open: true,
   maximized: false,
-  width: 440,
+  width: PANEL_MIN_WIDTH,
   narrow: false,
   tabs: { code: "files", work: "document" },
 
@@ -76,7 +86,7 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
   // 宽度做上下限夹取，防止拖出过窄或过宽的面板。
   setWidth(width) {
-    set({ width: clamp(width, 320, 760) });
+    set({ width: clamp(width, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH) });
   },
   // 窄窗口下面板改为浮层，会遮住对话区，所以进入窄窗口时自动收起；
   // 回到宽窗口时再自动展开，减少用户手动操作。值没变时直接返回，避免重复 set。

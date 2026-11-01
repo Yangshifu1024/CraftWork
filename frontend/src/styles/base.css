@@ -66,7 +66,8 @@
   --topbar-h: 48px;
   --status-h: 27px;
   --sidebar-w: 268px;
-  --panel-w: 440px;
+  /* 面板默认取最小宽度，把更多空间留给对话区；首次渲染与 store 的初始值保持一致。 */
+  --panel-w: 320px;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur: 160ms;

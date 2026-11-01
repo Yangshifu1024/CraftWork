@@ -21,7 +21,7 @@ import { useUiStore } from "./ui";
 export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   mode: "code",
-  panelWidth: 440,
+  panelWidth: 320,
   approvalLevel: "graded",
   defaultModel: "",
   fallbackModel: "",
