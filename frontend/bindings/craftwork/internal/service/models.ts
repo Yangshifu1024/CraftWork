@@ -46,6 +46,21 @@ export interface AppInfo {
 }
 
 /**
+ * AttachmentContent 是附件文件的内容，Base64 编码后连同 MIME 类型一起返回。
+ */
+export interface AttachmentContent {
+    /**
+     * Base64 是文件字节的 base64 编码，前端据此拼出 data URL 展示。
+     */
+    "base64": string;
+
+    /**
+     * Mime 是按扩展名推断的图片 MIME 类型。
+     */
+    "mime": string;
+}
+
+/**
  * CatalogImportInput 是从目录导入提供商的输入。
  */
 export interface CatalogImportInput {

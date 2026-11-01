@@ -53,6 +53,18 @@ export function PickFiles(): $CancellablePromise<string[] | null> {
 }
 
 /**
+ * ReadAttachment 读取一张图片附件的内容，供前端渲染缩略图与放大预览。
+ * 
+ * 附件路径有两类来源：粘贴落盘的附件目录，以及用户通过系统文件选择框主动
+ * 选取的任意路径。两者都是用户明确提供的文件，因此这里按「只读图片」收窄
+ * 风险面：扩展名必须在白名单内、大小不超过粘贴附件的上限，其余一律拒绝。
+ * 返回 base64 而不是文件路径，避免 WebView 直接加载 file:// 地址。
+ */
+export function ReadAttachment(path: string): $CancellablePromise<$models.AttachmentContent | null> {
+    return $Call.ByID(1941472719, path);
+}
+
+/**
  * ReadClipboard 读取系统剪贴板文本。
  */
 export function ReadClipboard(): $CancellablePromise<string> {

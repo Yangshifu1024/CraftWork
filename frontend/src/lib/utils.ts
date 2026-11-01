@@ -128,3 +128,13 @@ export function chunkText(text: string, size = 4): string[] {
   }
   return chunks;
 }
+
+/**
+ * 判断一个路径是否是可预览的图片附件。
+ *
+ * 扩展名白名单与后端 ReadAttachment 的校验保持一致：前端先据此决定
+ * 渲染缩略图还是文件 chip，真正能否读取仍由后端校验兜底。
+ */
+export function isImagePath(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(path);
+}

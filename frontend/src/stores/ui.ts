@@ -71,6 +71,14 @@ export type SettingsTab = "general" | "mode" | "models" | "tools" | "mcp" | "app
 /** 数据弹窗的分区标识：审计、用量、备份。 */
 export type DataTab = "audit" | "usage" | "backup";
 
+/** 放大预览的图片：data URL 与展示名。 */
+export interface ImagePreviewRequest {
+  /** 图片的 data URL（后端读取附件后拼出）。 */
+  url: string;
+  /** 展示名，通常取路径最后一段。 */
+  name: string;
+}
+
 /**
  * 界面 store 的状态与操作。
  *
@@ -100,6 +108,8 @@ interface UiState {
   prompt: PromptRequest | null;
   /** 输入框的 Promise 落点；用户提交或取消后由 `resolvePrompt` 调用。 */
   promptResolver: ((value: string | null) => void) | null;
+  /** 当前放大预览的图片；null 表示预览浮层关闭。 */
+  imagePreview: ImagePreviewRequest | null;
   /** 弹出一条通知，4.2 秒后自动消失。 */
   toast(toast: Omit<Toast, "id">): void;
   /** 立刻移除指定通知。 */
@@ -124,6 +134,10 @@ interface UiState {
   askPrompt(request: PromptRequest): Promise<string | null>;
   /** 结束输入流程，把结果交还给 `askPrompt` 的调用方。 */
   resolvePrompt(value: string | null): void;
+  /** 打开图片放大预览浮层。 */
+  openImagePreview(request: ImagePreviewRequest): void;
+  /** 关闭图片预览浮层。 */
+  closeImagePreview(): void;
 }
 
 /**
@@ -142,6 +156,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   confirmResolver: null,
   prompt: null,
   promptResolver: null,
+  imagePreview: null,
 
   // 生成唯一 id 后追加到列表，并启动 4.2 秒的自动消失计时。
   // 计时结束调用 dismissToast，用户提前手动关闭也只是提前移除，不会出错。
@@ -203,5 +218,13 @@ export const useUiStore = create<UiState>((set, get) => ({
     const resolver = get().promptResolver;
     set({ prompt: null, promptResolver: null });
     resolver?.(value);
+  },
+
+  openImagePreview(request) {
+    set({ imagePreview: request });
+  },
+
+  closeImagePreview() {
+    set({ imagePreview: null });
   },
 }));

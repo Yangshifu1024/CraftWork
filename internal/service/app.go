@@ -200,6 +200,58 @@ func (s *AppService) SavePastedAttachment(name, content string) (string, error) 
 	return path, nil
 }
 
+// attachmentMimes 是图片附件的扩展名到 MIME 类型的映射，也是缩略图读取的
+// 唯一白名单：预览接口只读图片，非图片扩展名一律拒绝。
+var attachmentMimes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+}
+
+// AttachmentContent 是附件文件的内容，Base64 编码后连同 MIME 类型一起返回。
+type AttachmentContent struct {
+	// Base64 是文件字节的 base64 编码，前端据此拼出 data URL 展示。
+	Base64 string `json:"base64"`
+	// Mime 是按扩展名推断的图片 MIME 类型。
+	Mime string `json:"mime"`
+}
+
+// ReadAttachment 读取一张图片附件的内容，供前端渲染缩略图与放大预览。
+//
+// 附件路径有两类来源：粘贴落盘的附件目录，以及用户通过系统文件选择框主动
+// 选取的任意路径。两者都是用户明确提供的文件，因此这里按「只读图片」收窄
+// 风险面：扩展名必须在白名单内、大小不超过粘贴附件的上限，其余一律拒绝。
+// 返回 base64 而不是文件路径，避免 WebView 直接加载 file:// 地址。
+func (s *AppService) ReadAttachment(path string) (*AttachmentContent, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return nil, errors.New("附件路径为空")
+	}
+	ext := strings.ToLower(filepath.Ext(trimmed))
+	mime, ok := attachmentMimes[ext]
+	if !ok {
+		return nil, errors.New("只支持预览图片附件")
+	}
+	info, err := os.Stat(trimmed)
+	if err != nil {
+		return nil, errors.New("附件文件不存在或无法访问")
+	}
+	if info.IsDir() {
+		return nil, errors.New("附件路径指向的是目录")
+	}
+	if info.Size() > maxPastedAttachmentBytes {
+		return nil, fmt.Errorf("图片超过 %dMB，不进行预览", maxPastedAttachmentBytes>>20)
+	}
+	data, err := os.ReadFile(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("读取附件: %w", err)
+	}
+	return &AttachmentContent{Base64: base64.StdEncoding.EncodeToString(data), Mime: mime}, nil
+}
+
 // sanitizeAttachmentName 把用户提供的文件名清洗成可安全落盘的片段。
 //
 // 只保留字母、数字、点、下划线、连字符与空格，其余字符（路径分隔符、控制

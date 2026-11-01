@@ -37,6 +37,9 @@ const emptyUsage: UsageSummary = {
  * 分组与 `Api` 的命名空间保持一致；每个方法尽量把「可能为 null / undefined」
  * 的返回值收敛成前端可直接消费的值，避免调用方到处判空。
  */
+/** 附件图片 data URL 的读取缓存：同一路径只读一次，缩略图与预览共用。 */
+const attachmentCache = new Map<string, Promise<string | null>>();
+
 export const desktopApi = {
   /** 应用级：版本信息、打开外链、选择文件、粘贴附件、写系统剪贴板。 */
   app: {
@@ -47,6 +50,25 @@ export const desktopApi = {
     // 粘贴附件：内容以 base64 交给 Go 落盘，返回附件目录中的绝对路径。
     savePastedAttachment: (name: string, content: string) =>
       AppService.SavePastedAttachment(name, content),
+    // 附件图片预览：按路径读取内容并拼成 data URL；失败时返回 null，
+    // 调用方回退成普通文件 chip。同一路径在会话内只读一次，
+    // 读取失败不缓存失败结果，下次仍可重试。
+    readAttachment: (path: string): Promise<string | null> => {
+      const cached = attachmentCache.get(path);
+      if (cached) {
+        return cached;
+      }
+      const pending = AppService.ReadAttachment(path)
+        .then((content) => (content ? `data:${content.mime};base64,${content.base64}` : null))
+        .catch(() => null);
+      attachmentCache.set(path, pending);
+      pending.then((url) => {
+        if (url === null) {
+          attachmentCache.delete(path);
+        }
+      });
+      return pending;
+    },
     writeClipboard: async (text) => AppService.WriteClipboard(text),
   },
   /** 设置读写。 */
