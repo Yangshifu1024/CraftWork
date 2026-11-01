@@ -122,7 +122,8 @@ func (e *Engine) Assess(tool string, args map[string]any) Assessment {
 	assessment := Assessment{Risk: base, Reason: riskReason(base)}
 
 	switch tool {
-	case "fs_read", "fs_list", "fs_glob", "fs_grep", "fs_write", "fs_edit", "apply_patch":
+	case "fs_read", "fs_list", "fs_glob", "fs_grep", "fs_write", "fs_edit", "apply_patch",
+		"doc_read", "doc_edit", "xlsx_set_cell":
 		path := stringArg(args, "path")
 		if path == "" {
 			path = stringArg(args, "file")
@@ -218,9 +219,9 @@ func IsWorkspaceTrusted(trust string) bool {
 func baseRisk(tool string) Risk {
 	switch tool {
 	case "fs_read", "fs_list", "fs_glob", "fs_grep",
-		"git_status", "git_diff", "git_log", "todo_write", "ask_user":
+		"git_status", "git_diff", "git_log", "todo_write", "ask_user", "doc_read":
 		return R0
-	case "fs_write", "fs_edit", "apply_patch", "git_commit":
+	case "fs_write", "fs_edit", "apply_patch", "git_commit", "doc_edit", "xlsx_set_cell":
 		return R1
 	case "shell_exec", "task":
 		return R2

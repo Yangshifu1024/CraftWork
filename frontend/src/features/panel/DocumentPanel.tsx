@@ -31,6 +31,8 @@ export function DocumentPanel() {
     );
   }
 
+  const editable = doc.supported && doc.kind === "text";
+
   return (
     <div className="panel-scroll">
       <div className="doc-wrap">
@@ -48,15 +50,15 @@ export function DocumentPanel() {
             type="button"
             className="tool-btn"
             onClick={() => {
-              if (doc.supported) {
+              if (editable) {
                 void openFile(doc.path);
               } else {
                 void openDocument(doc.path);
               }
             }}
           >
-            <Icon name={doc.supported ? "file-code" : "refresh"} className="ico" />
-            {doc.supported ? "在编辑器中打开" : "重新加载预览"}
+            <Icon name={editable ? "file-code" : "refresh"} className="ico" />
+            {editable ? "在编辑器中打开" : "重新加载预览"}
           </button>
         </div>
 
@@ -69,7 +71,7 @@ export function DocumentPanel() {
           ) : (
             <span className="badge warn">
               <Icon name="alert" />
-              预览模型
+              无法预览
             </span>
           )}
           {doc.note ? <span className="doc-note">{doc.note}</span> : null}
@@ -80,8 +82,8 @@ export function DocumentPanel() {
         ) : (
           <div className="panel-empty">
             <Icon name={doc.kind === "xlsx" ? "table" : "file-text"} size={24} />
-            <div>结构化解析将在 M3 接入</div>
-            <div className="panel-empty-hint">{doc.note ?? "当前版本只展示文件信息。"}</div>
+            <div>没有可提取的文本</div>
+            <div className="panel-empty-hint">{doc.note ?? "文档内容为空。"}</div>
           </div>
         )}
       </div>

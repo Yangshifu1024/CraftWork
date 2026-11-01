@@ -8,14 +8,14 @@
 
 ## 1. 项目现状
 
-CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M2 已完成**（骨架、对话、Code 闭环）：
+CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成**（骨架、对话、Code 闭环、文档文本级读写）：
 
 - Wails3 v3.0.0 桌面外壳 + 系统 WebView。
 - Go 1.26 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
 - React 19 + TypeScript 前端：三栏界面、聊天、面板、浮层。
-- 已打通：多提供商（OpenAI 兼容、Anthropic、Gemini）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份。
+- 已打通：多提供商（OpenAI 兼容、Anthropic、Gemini）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
 
-M3（Word/Excel/PDF 解析）、M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界面标注。
+M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界面标注。M3 的文本级限制见第 10 节。
 
 ### 1.1 技术栈
 
@@ -236,8 +236,8 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 
 ## 10. 当前留桩
 
-- M3：Word / Excel / PDF 结构化解析与写入（`internal/doc` 目前只返回预览模型）。
 - M4：MCP 客户端、沙箱、自动更新、签名与公证。
+- M3 限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
 - 真实密钥验收：OpenAI / Anthropic / Gemini 需要本地配置密钥后各跑一次工具调用闭环。
 - 跨平台：Windows 系统通知、Linux 打包与 CI 兼容性需要实机验证。
 

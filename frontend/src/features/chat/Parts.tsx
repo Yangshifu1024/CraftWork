@@ -181,9 +181,19 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
     level === "graded";
 
   const args = data.args ?? {};
-  const oldText = typeof args.old_string === "string" ? args.old_string : "";
-  const newText = typeof args.new_string === "string" ? args.new_string : "";
-  const hasDiffPreview = data.tool === "fs_edit" && Boolean(oldText);
+  const oldText =
+    typeof args.old_string === "string"
+      ? args.old_string
+      : typeof args.old_text === "string"
+        ? args.old_text
+        : "";
+  const newText =
+    typeof args.new_string === "string"
+      ? args.new_string
+      : typeof args.new_text === "string"
+        ? args.new_text
+        : "";
+  const hasDiffPreview = (data.tool === "fs_edit" || data.tool === "doc_edit") && Boolean(oldText);
   const isCommand = data.tool === "shell_exec";
   const patchText = typeof args.patch === "string" ? args.patch : "";
   const isPatch = data.tool === "apply_patch" && Boolean(patchText);

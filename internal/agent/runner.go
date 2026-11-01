@@ -141,7 +141,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	}
 
 	system := systemPrompt(mode, r.tools.Workspace())
-	specs := toModelSpecs(r.tools.Specs())
+	specs := toModelSpecs(r.tools.SpecsForMode(mode))
 	compressionChecked := false
 
 	for iteration := 0; iteration < r.maxIterations; iteration++ {
@@ -369,6 +369,8 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 
 	if !exists {
 		denied = fmt.Sprintf("未知工具：%s", call.Name)
+	} else if !r.tools.Allows(thread.Mode, call.Name) {
+		denied = "当前模式不支持该工具"
 	} else {
 		switch r.policy.Action(assessment.Risk) {
 		case policy.ActionDeny:
@@ -706,6 +708,10 @@ func approvalTitle(tool string) string {
 		return "写入文件"
 	case "fs_edit":
 		return "修改文件"
+	case "doc_edit":
+		return "修改文档"
+	case "xlsx_set_cell":
+		return "修改表格"
 	case "apply_patch":
 		return "应用补丁"
 	case "shell_exec":
@@ -731,7 +737,8 @@ func approvalFacts(assessment policy.Assessment, summary string) []Fact {
 
 func toolSummary(name string, args map[string]any) string {
 	switch name {
-	case "fs_read", "fs_list", "fs_write", "fs_edit", "apply_patch":
+	case "fs_read", "fs_list", "fs_write", "fs_edit", "apply_patch",
+		"doc_read", "doc_edit", "xlsx_set_cell":
 		path := stringValue(args["path"])
 		if path == "" {
 			path = "."

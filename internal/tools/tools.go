@@ -67,6 +67,9 @@ func NewRegistry(opts Options) *Registry {
 		&gitDiffTool{registry: registry},
 		&gitLogTool{registry: registry},
 		&gitCommitTool{registry: registry},
+		&docReadTool{registry: registry},
+		&docEditTool{registry: registry},
+		&xlsxSetCellTool{registry: registry},
 		&todoWriteTool{},
 	} {
 		registry.tools[tool.Name()] = tool
@@ -104,6 +107,38 @@ func (r *Registry) Specs() []Spec {
 		specs = append(specs, Spec{Name: tool.Name(), Description: tool.Description(), Schema: tool.Schema()})
 	}
 	return specs
+}
+
+var workModeTools = map[string]bool{
+	"fs_read": true, "fs_list": true, "fs_glob": true, "fs_grep": true,
+	"fs_write": true, "fs_edit": true, "apply_patch": true,
+	"doc_read": true, "doc_edit": true, "xlsx_set_cell": true,
+	"todo_write": true,
+}
+
+// SpecsForMode 返回指定模式可用的工具。
+//
+// Work 模式只提供文件、文档与任务清单工具，不暴露 Shell、Git 与终端相关能力。
+func (r *Registry) SpecsForMode(mode string) []Spec {
+	specs := r.Specs()
+	if mode != "work" {
+		return specs
+	}
+	filtered := make([]Spec, 0, len(specs))
+	for _, spec := range specs {
+		if workModeTools[spec.Name] {
+			filtered = append(filtered, spec)
+		}
+	}
+	return filtered
+}
+
+// Allows 判断某个工具在指定模式下是否可用。
+func (r *Registry) Allows(mode, name string) bool {
+	if mode != "work" {
+		return true
+	}
+	return workModeTools[name]
 }
 
 const (

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"craftwork/internal/doc"
 	"craftwork/internal/policy"
 	"craftwork/internal/store"
 )
@@ -24,8 +25,8 @@ type DocumentPreview struct {
 
 // DocumentService 提供文档预览。
 //
-// 当前版本只返回文件信息与纯文本预览；docx / xlsx / pdf 的结构化解析
-// 在 M3 接入。界面仍然按正式渲染路径展示，避免后续返工。
+// docx / xlsx / pdf 走 internal/doc 的文本级解析；其他文本文件直接预览。
+// 写入由 Agent 的 doc_edit / xlsx_set_cell 工具完成，并经过审批与备份。
 type DocumentService struct {
 	db *store.DB
 }
@@ -59,15 +60,19 @@ func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, err
 	}
 
 	switch strings.ToLower(filepath.Ext(abs)) {
-	case ".docx":
-		preview.Kind = "docx"
-		preview.Note = "Word 结构化解析将在 M3 接入；当前仅展示文件信息。"
-	case ".xlsx":
-		preview.Kind = "xlsx"
-		preview.Note = "Excel 结构化解析将在 M3 接入；当前仅展示文件信息。"
-	case ".pdf":
-		preview.Kind = "pdf"
-		preview.Note = "PDF 文本层提取将在 M3 接入；当前仅展示文件信息。"
+	case ".docx", ".xlsx", ".pdf":
+		document, readErr := doc.ReadFile(abs)
+		if readErr != nil {
+			preview.Note = readErr.Error()
+			return preview, nil
+		}
+		preview.Kind = document.Kind
+		preview.Text = document.Text
+		preview.Note = document.Note
+		preview.Supported = document.Text != ""
+		if document.Truncated {
+			preview.Note = strings.TrimSpace(preview.Note + " 文本已截断。")
+		}
 	default:
 		preview.Supported = true
 		data, readErr := os.ReadFile(abs)
