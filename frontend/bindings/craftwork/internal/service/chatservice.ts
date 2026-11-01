@@ -21,7 +21,7 @@ export function Cancel(threadID: string): $CancellablePromise<boolean> {
  * DecideApproval 回传用户对审批的决定。
  * 
  * scope 的合法性与“拒绝时强制一次”等状态机规则由审批模块负责，
- * 服务层只做 IPC 参数的非空校验。
+ * 服务层只做进程间通信（IPC）参数的非空校验。
  */
 export function DecideApproval(approvalID: string, allow: boolean, scope: string): $CancellablePromise<void> {
     return $Call.ByID(3885596832, approvalID, allow, scope);

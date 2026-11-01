@@ -5,8 +5,19 @@
  * Batch 是一次 IPC 推送的事件集合。
  */
 export interface Batch {
+    /**
+     * V 是协议版本，当前固定为 1。
+     */
     "v": number;
+
+    /**
+     * ThreadID 是这批事件所属线程；批量推送按线程分组。
+     */
     "threadId"?: string;
+
+    /**
+     * Events 是按产生顺序排列的事件。
+     */
     "events": (Envelope | null)[] | null;
 }
 
@@ -14,10 +25,33 @@ export interface Batch {
  * Envelope 是单个事件的公共字段。
  */
 export interface Envelope {
+    /**
+     * Seq 是线程内单调递增的序号，前端可据此发现丢失或乱序。
+     */
     "seq": number;
+
+    /**
+     * Type 是事件类型，取值为本文件定义的 Type 常量。
+     */
     "type": string;
+
+    /**
+     * ThreadID 是所属线程；全局事件可以为空。
+     */
     "threadId"?: string;
+
+    /**
+     * RunID 是所属运行；非运行期事件可以为空。
+     */
     "runId"?: string;
+
+    /**
+     * TS 是事件产生时间，毫秒时间戳。
+     */
     "ts": number;
+
+    /**
+     * Data 是事件载荷，具体类型由 Type 决定。
+     */
     "data"?: any;
 }

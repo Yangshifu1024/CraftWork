@@ -1,3 +1,11 @@
+/**
+ * 命令面板（⌘K）。
+ *
+ * 负责：集中提供常用命令、线程跳转与文件打开三类入口，
+ * 支持按关键字过滤、上下键选择、回车执行，并可通过遮罩或 Esc 关闭。
+ *
+ * 面板通过 Portal 挂到 body 上，避免被父级布局的溢出裁剪。
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
@@ -8,6 +16,7 @@ import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
 
+/** 命令面板里的一行结果：分组、标题、副标题、图标与点击后执行的动作。 */
 interface PaletteItem {
   id: string;
   group: "命令" | "线程" | "文件";
@@ -17,6 +26,16 @@ interface PaletteItem {
   run: () => void;
 }
 
+/**
+ * 命令面板组件。
+ *
+ * props：无。关键状态：
+ * - query：搜索关键字；
+ * - index：当前选中的结果下标，上下键与鼠标悬停都会更新。
+ *
+ * 结果由 useMemo 计算：命令始终参与；
+ * 线程与文件只在有关键字时按标题 / 路径过滤，各取前 8 条。
+ */
 export function CommandPalette() {
   const open = useUiStore((state) => state.paletteOpen);
   const close = useUiStore((state) => state.closePalette);
@@ -40,6 +59,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    // 每次打开时重置关键字与选中项，并延迟把焦点放到输入框（等弹层渲染完成）。
     if (open) {
       setQuery("");
       setIndex(0);
@@ -47,6 +67,8 @@ export function CommandPalette() {
     }
   }, [open]);
 
+  // 计算当前可用的结果列表。
+  // 命令是固定项，线程与文件需要有关键字才出现，避免空查询时刷屏。
   const items = useMemo<PaletteItem[]>(() => {
     const commands: PaletteItem[] = [
       { id: "new-thread", group: "命令", title: "新建线程", sub: "⌘N", icon: "plus", run: () => void createThread() },
@@ -80,6 +102,7 @@ export function CommandPalette() {
     ];
 
     const threadItems: PaletteItem[] = (threads ?? [])
+      // 线程按标题匹配关键字，最多显示 8 条，避免列表过长。
       .filter((thread) => !query || thread.title.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 8)
       .map((thread) => ({
@@ -93,6 +116,7 @@ export function CommandPalette() {
 
     const files = Object.values(tree)
       .flat()
+      // 只取文件节点（目录不参与搜索），按完整路径匹配关键字。
       .filter((node) => node.type === "file")
       .filter((node) => !query || node.path.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 8)
@@ -118,6 +142,7 @@ export function CommandPalette() {
   }, [theme, threads, query, tree, createThread, openSettings, setTheme, togglePanel, toggleMaximized, openData, setMode, selectThread, openFile]);
 
   useEffect(() => {
+    // 关键字变化后选中项回到第一行，避免索引越界或指向不相关的结果。
     setIndex(0);
   }, [query]);
 
@@ -125,6 +150,7 @@ export function CommandPalette() {
     return null;
   }
 
+  /** 执行选中的结果：先关闭面板，再执行动作，避免动作弹窗被命令面板遮挡。 */
   function execute(item: PaletteItem | undefined) {
     if (!item) {
       return;
@@ -133,6 +159,7 @@ export function CommandPalette() {
     item.run();
   }
 
+  // 渲染时按分组变化插入小标题；该变量在每次渲染中重新初始化。
   let lastGroup = "";
 
   return createPortal(
@@ -150,6 +177,7 @@ export function CommandPalette() {
             placeholder="搜索命令、线程或文件…"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
+              // 键盘操作：上下循环选择、回车执行、Esc 关闭。
               if (event.key === "ArrowDown") {
                 event.preventDefault();
                 setIndex((current) => (items.length ? (current + 1) % items.length : 0));
@@ -169,10 +197,12 @@ export function CommandPalette() {
         </div>
 
         <div className="cp-list">
+          {/* 列表：没有结果时显示提示，否则按分组渲染可点击的行 */}
           {items.length === 0 ? (
             <div className="cp-empty">没有匹配结果</div>
           ) : (
             items.map((item, itemIndex) => {
+              // 分组第一次出现时插入分组标题。
               const showGroup = item.group !== lastGroup;
               lastGroup = item.group;
               return (
@@ -200,6 +230,7 @@ export function CommandPalette() {
         </div>
 
         <div className="cp-foot">
+          {/* 底部快捷键提示 */}
           <span>↑↓ 选择</span>
           <span>↵ 执行</span>
           <span>Esc 关闭</span>

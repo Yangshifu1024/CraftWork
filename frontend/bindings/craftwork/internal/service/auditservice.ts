@@ -30,6 +30,9 @@ export function List(limit: number): $CancellablePromise<store$0.AuditEntry[] | 
 
 /**
  * Restore 用备份覆盖原文件。调用前前端必须让用户确认。
+ * 
+ * 恢复会保留目标文件现有权限（文件不存在时用 0644），
+ * 写回后追加一条允许类审计记录，保证恢复动作同样可追溯。
  */
 export function Restore(backupID: string): $CancellablePromise<void> {
     return $Call.ByID(2972456804, backupID);

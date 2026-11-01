@@ -1,8 +1,15 @@
-// 纯 UI 预览用的 Mock 后端。
-//
-// 只在 `npm run dev`（`vite --mode mock`）下接管 API，用于界面走查与
-// Playwright 回归；需要真实后端时用 server 模式（`task run:server`）或桌面端。
-// 它不读写磁盘，所有数据都在内存中。
+/**
+ * 纯 UI 预览用的 Mock 后端。
+ *
+ * 只在 `npm run dev`（`vite --mode mock`）下接管 API，用于界面走查与
+ * Playwright 回归；需要真实后端时用 server 模式（`task run:server`）或桌面端。
+ * 它不读写磁盘，所有数据都在内存中。
+ *
+ * 启动流程：模块加载时就把下列内存数据（设置、工作区、线程、文件、消息、审计、用量等）
+ * 准备好；界面调用 `api.*` 时直接读写这些对象。
+ * 事件模拟：发送消息后 `simulateRun` 按「推理 → 正文 → 工具 → 审批 → 收尾」的顺序
+ * 逐个派发事件批次，让前端走和真实后端完全相同的处理路径。
+ */
 import type { Api } from "./desktop";
 import { dispatch, envelope } from "./bus";
 import type {
@@ -26,8 +33,10 @@ import type {
 import { EVENT } from "./types";
 import { basename, chunkText, sleep, uid } from "./utils";
 
+/** 模块加载时刻，后续所有示例数据都以它为基准倒推时间，保证每次预览的相对时间一致。 */
 const now = Date.now();
 
+/** Mock 的设置对象：界面保存设置时直接合并到这里，刷新页面后恢复初始值。 */
 const settings: Settings = {
   theme: "dark",
   mode: "code",
@@ -46,6 +55,7 @@ const settings: Settings = {
   telemetry: false,
 };
 
+/** Mock 工作区列表，默认只有一个已受信的演示仓库。 */
 const workspaces: WorkspaceView[] = [
   {
     id: "ws_demo",
@@ -57,6 +67,7 @@ const workspaces: WorkspaceView[] = [
   },
 ];
 
+/** Mock 线程：按模式分组，Code 与 Work 各两条，用于展示列表、搜索与模式切换联动。 */
 const threads: Record<string, ThreadView[]> = {
   code: [
     {
@@ -116,6 +127,7 @@ const threads: Record<string, ThreadView[]> = {
   ],
 };
 
+/** Mock 文件内容：路径到文本内容的映射，读取与写入都直接操作这里。 */
 const files: Record<string, string> = {
   "README.md": "# craftwork\n\n一个用于演示 CraftWork 的 Go 仓库。\n\n## 常用命令\n\n```bash\ngo test ./...\ngo build ./...\n```\n",
   "go.mod": "module craftwork\n\ngo 1.26.0\n",
@@ -146,6 +158,7 @@ func (s *Session) Refresh(now time.Time) error {
   "frontend/src/App.tsx": "export default function App() {\n  return <main>CraftWork</main>;\n}\n",
 };
 
+/** Mock 文件树：目录路径到子节点列表的映射，`"."` 是根目录。 */
 const tree: Record<string, FileNode[]> = {
   ".": [
     { name: "frontend", path: "frontend", type: "dir", size: 0, modified: now },
@@ -173,10 +186,16 @@ const tree: Record<string, FileNode[]> = {
   ],
 };
 
+/** Mock 的 Git 状态：文件路径到状态字母（M 表示已修改）。 */
 const gitStatuses: Record<string, string> = {
   "internal/auth/session.go": "M",
 };
 
+/**
+ * 组装一条已完成的助手消息，供初始示例数据复用。
+ *
+ * 所有示例助手消息的时间都相同、状态都是 complete，避免列表里出现不一致的「进行中」。
+ */
 function assistantMessage(id: string, threadId: string, parts: ChatPart[]): ChatMessage {
   return {
     id,
@@ -188,6 +207,7 @@ function assistantMessage(id: string, threadId: string, parts: ChatPart[]): Chat
   };
 }
 
+/** Mock 对话消息：线程 ID 到消息列表的映射，包含文本、推理与工具调用三类片段。 */
 const messages: Record<string, ChatMessage[]> = {
   th_code_1: [
     {
@@ -246,12 +266,14 @@ const messages: Record<string, ChatMessage[]> = {
   ],
 };
 
+/** Mock 审计记录：按时间倒序，供数据面板的审计分区展示。 */
 const audit: AuditEntry[] = [
   { id: 3, ts: now - 120000, threadId: "th_code_1", runId: "run_demo", tool: "fs_read", risk: "R0", decision: "auto", scope: "auto", detail: "internal/auth/session.go" },
   { id: 2, ts: now - 180000, threadId: "th_code_1", runId: "run_demo", tool: "todo_write", risk: "R0", decision: "auto", scope: "auto", detail: "更新任务清单" },
   { id: 1, ts: now - 1900000, threadId: "th_work_1", runId: "run_work", tool: "doc_read", risk: "R0", decision: "auto", scope: "auto", detail: "季度会议纪要.docx" },
 ];
 
+/** Mock 用量统计：今天 / 本周 / 本月汇总、按模型拆分，以及最近 14 天的趋势。 */
 const usage: UsageSummary = {
   today: { inputTokens: 18420, outputTokens: 3120, cacheTokens: 2100, costMicros: 42000, runs: 6 },
   week: { inputTokens: 98240, outputTokens: 18400, cacheTokens: 12400, costMicros: 210000, runs: 31 },
@@ -269,13 +291,16 @@ const usage: UsageSummary = {
   })),
 };
 
+/** Mock 备份记录：展示文件写入前的备份时间、大小与哈希。 */
 const backups: Backup[] = [
   { id: "bk_demo", path: "季度会议纪要.docx", backupPath: "~/.craftwork/backups/季度会议纪要.docx.20261031-142210", hash: "9f2c", size: 48120, createdAt: now - 1900000 },
   { id: "bk_demo2", path: "内部/auth/session.go", backupPath: "~/.craftwork/backups/session.go.20261031-143002", hash: "a17d", size: 420, createdAt: now - 120000 },
 ];
 
+/** Mock 的 MCP 服务器列表，默认为空，添加后才有数据。 */
 const mcpServers: MCPServerView[] = [];
 
+/** Mock 提供商目录：一个无需密钥的本地演示提供商，以及四个常见云端提供商。 */
 const providers: ProviderView[] = [
   {
     id: "local", name: "本地演示", kind: "mock", endpoint: "", keyRequired: false,
@@ -315,15 +340,30 @@ const providers: ProviderView[] = [
   },
 ];
 
+/** Mock 终端会话列表。 */
 const terminalSessions: TerminalView[] = [];
+/** 终端会话自增编号，用于生成 `term_1` 这类稳定的 ID。 */
 let terminalCounter = 0;
+/** 已被用户取消运行的线程 ID 集合；`simulateRun` 在每个阶段之间检查它。 */
 const cancelled = new Set<string>();
+/**
+ * 待审批请求的放行函数：审批 ID 到 resolve 函数的映射。
+ * `simulateRun` 在这里挂起等待，`decideApproval` 调用对应函数让流程继续。
+ */
 const approvalResolvers = new Map<string, (allow: boolean) => void>();
 
+/** 在 Code 与 Work 两个模式的线程列表里查找指定线程。 */
 function findThread(threadID: string): ThreadView | undefined {
   return [...threads.code, ...threads.work].find((thread) => thread.id === threadID);
 }
 
+/**
+ * 组装一个线程快照。
+ *
+ * 快照包含线程本身、全部消息、事件序号、待审批列表与分页标记。
+ * 这里把所有仍在 waiting 的审批片段收集成审批列表，让界面刷新后也能恢复待审批状态；
+ * 线程不存在时抛出错误，由调用方转成用户可读的提示。
+ */
 function snapshot(threadID: string): ThreadSnapshot {
   const thread = findThread(threadID);
   if (!thread) {
@@ -363,10 +403,12 @@ function snapshot(threadID: string): ThreadSnapshot {
   };
 }
 
+/** 把事件数组包装成前端约定的批次结构，版本号固定为 1。 */
 function batch(threadID: string, events: ReturnType<typeof envelope>[]) {
   return { v: 1, threadId: threadID, events };
 }
 
+/** 向指定消息追加一个片段；消息不存在时静默忽略。 */
 function addPart(threadID: string, messageID: string, part: ChatPart): void {
   const list = messages[threadID] ?? [];
   const message = list.find((item) => item.id === messageID);
@@ -375,6 +417,21 @@ function addPart(threadID: string, messageID: string, part: ChatPart): void {
   }
 }
 
+/**
+ * 模拟一次完整的助手运行，是 Mock 的核心。
+ *
+ * 事件顺序：
+ * 1. 先插入一条 streaming 状态的助手消息，派发 `runStarted`；
+ * 2. 推理阶段：按小块派发 `reasoningDelta`，最后 `reasoningCompleted`；
+ * 3. 正文阶段：按小块派发 `textDelta`，最后 `textCompleted`；
+ * 4. 工具阶段：派发 `toolStarted`，等待一小段后 `toolCompleted`；
+ * 5. 如果用户消息里出现「修改 / 修复 / bug / 超时」等关键词，再模拟一次文件编辑：
+ *    派发 `approvalRequested` 后挂起，直到 `decideApproval` 放行，
+ *    然后按用户的选择派发 `approvalResolved` 与工具结果，并补一段收尾正文；
+ * 6. 收尾：把线程状态改回 idle，派发 `runCompleted` 与 `threadUpdated`。
+ *
+ * 每个阶段之间都检查 `cancelled`：一旦用户取消，立刻停止派发剩余事件。
+ */
 async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   const runID = uid("run");
   const messageID = uid("msg");
@@ -395,6 +452,7 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
 
   const reasoningID = uid("part");
   addPart(thread.id, messageID, { id: reasoningID, kind: "reasoning", seq: 1, data: { text: "" } });
+  // 推理文本按 5 个字符一片送出，每片间隔 22ms，模拟模型逐字思考的节奏。
   for (const piece of chunkText("我先确认工作区的文件结构，再给出结论。", 5)) {
     if (cancelled.has(thread.id)) {
       return;
@@ -406,7 +464,9 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
 
   const textID = uid("part");
   addPart(thread.id, messageID, { id: textID, kind: "text", seq: 2, data: { text: "" } });
+  // 正文里回显用户输入的前 80 个字符，便于在预览中确认「回复的是哪条消息」。
   const answer = `我先看一下当前工作区的文件。\n\n你刚才提到：**${text.slice(0, 80)}**\n\n我会先读取相关文件，再决定是否需要修改。`;
+  // 正文按 4 个字符一片、12ms 间隔送出，比推理阶段更快，接近真实模型的输出观感。
   for (const piece of chunkText(answer, 4)) {
     if (cancelled.has(thread.id)) {
       return;
@@ -416,6 +476,7 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   }
   dispatch(batch(thread.id, [envelope(EVENT.textCompleted, thread.id, runID, { partId: textID, text: answer })]));
 
+  // 工具阶段：先以 running 状态出现，220ms 后补上结果，界面据此展示耗时与输出。
   const toolID = uid("part");
   const toolCallID = uid("call");
   addPart(thread.id, messageID, {
@@ -427,6 +488,8 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   const output = "frontend/\ninternal/\nREADME.md\ngo.mod";
   dispatch(batch(thread.id, [envelope(EVENT.toolCompleted, thread.id, runID, { partId: toolID, toolCallId: toolCallID, name: "fs_list", args: { path: "." }, risk: "R0", status: "done", output, isError: false, durationMs: 220, summary: "." })]));
 
+  // 只有用户消息里出现修改类关键词时才走审批分支，方便预览时分别验证
+  // 「只读对话」与「写入并审批」两条路径。
   if (/修改|修复|改一下|bug|超时/.test(text)) {
     const editPartID = uid("part");
     const editCallID = uid("call");
@@ -471,10 +534,14 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
       allowPermanent: true, status: "waiting",
     })]));
 
+    // 审批挂起：把 resolve 存进 Map，流程在这里 await 住；
+    // 用户在前端点「允许 / 拒绝」时，ChatService.decideApproval 会调用它并把它从 Map 删除。
+    // 这里必须等 Promise 落定后再继续派发，才能保证事件顺序与真实后端一致。
     const approved = await new Promise<boolean>((resolve) => {
       approvalResolvers.set(approvalID, resolve);
     });
     approvalResolvers.delete(approvalID);
+    // 无论允许还是拒绝都要派发 approvalResolved，界面据此把审批卡片从 waiting 改为最终状态。
     dispatch(batch(thread.id, [envelope(EVENT.approvalResolved, thread.id, runID, {
       partId: approvalPartID, approvalId: approvalID,
       status: approved ? "approved" : "denied",
@@ -482,6 +549,7 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
       scope: "once",
     })]));
 
+    // 工具结果跟随审批结论：允许则成功，拒绝则标记为错误并说明原因。
     dispatch(batch(thread.id, [envelope(EVENT.toolCompleted, thread.id, runID, {
       partId: editPartID, toolCallId: editCallID, name: "fs_edit", args, risk: "R1",
       status: approved ? "done" : "error", output: approved ? "已替换 internal/auth/session.go 中的 1 处内容" : "用户拒绝了该操作",
@@ -504,6 +572,17 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   ]));
 }
 
+/**
+ * 计算一份简化的行级差异，供预览环境展示差异面板。
+ *
+ * 算法：
+ * 1. 统一换行符并去掉末尾换行，再按行切分；
+ * 2. 内容完全相同则返回空差异；
+ * 3. 从前往后找出公共前缀，从后往前找出公共后缀，中间部分才是真正变化的内容；
+ * 4. 中间部分先整体标为删除、再整体标为新增（不做行内精细匹配），
+ *    对预览演示足够，真实后端会用更精细的差异算法；
+ * 5. 前后缀作为上下文行输出，最后拼出 `@@ -a,b +c,d @@` 形式的块头。
+ */
 function computeDiff(oldText: string, newText: string): DiffResult {
   const oldLines = oldText.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
   const newLines = newText.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
@@ -546,31 +625,48 @@ function computeDiff(oldText: string, newText: string): DiffResult {
   };
 }
 
+/**
+ * Mock 后端实现：形状与 `desktopApi` 完全一致，业务代码可以无缝切换。
+ *
+ * 所有方法都是异步的（即使内部是同步操作），保证调用方写法与真实环境一致。
+ * 返回值多做一层浅拷贝，避免界面直接修改 Mock 的内部数据。
+ */
 export const mockApi: Api = {
+  /** 应用级信息与外链、文件选择、剪贴板。 */
   app: {
+    /** 应用信息：平台固定为 web，用于界面显示版本与数据目录。 */
     info: async () => ({
       name: "CraftWork", version: "0.1.0", commit: "mock", buildTime: "",
       platform: "web", arch: "browser", dataDir: "~/.craftwork",
     }),
+    /** 打开外链：浏览器环境下直接开新标签页。 */
     openExternal: async (url) => {
       window.open(url, "_blank", "noopener");
     },
+    /** 模拟系统文件选择器，固定返回一个演示文件。 */
     pickFiles: async () => ["internal/auth/session.go"],
+    /** 写入剪贴板；浏览器不支持时静默忽略，仍返回 true 表示调用已完成。 */
     writeClipboard: async (text) => {
       await navigator.clipboard?.writeText(text);
       return true;
     },
   },
+  /** 设置读写：保存时直接合并进内存中的设置对象。 */
   settings: {
+    /** 读取设置的副本，避免调用方直接改到内部对象。 */
     get: async () => ({ ...settings }),
+    /** 合并保存设置并返回保存后的完整副本。 */
     save: async (next) => {
       Object.assign(settings, next);
       return { ...settings };
     },
   },
+  /** 线程读写：列表、搜索、新建、重命名、切换模型、归档、删除与分页快照。 */
   threads: {
+    /** 按模式列出线程，默认过滤掉已归档线程。 */
     list: async (mode, includeArchived = false) =>
       (threads[mode] ?? []).filter((thread) => includeArchived || !thread.archived).map((thread) => ({ ...thread })),
+    /** 搜索线程：标题命中或任意消息文本命中都算匹配，对应产品需求里的「搜标题 + 搜内容」。 */
     search: async (mode, query) => {
       const keyword = query.trim().toLowerCase();
       return (threads[mode] ?? []).filter((thread) => {
@@ -582,6 +678,7 @@ export const mockApi: Api = {
         );
       }).map((thread) => ({ ...thread }));
     },
+    /** 新建线程：插到列表最前，默认标题为「新对话」，并初始化空消息列表。 */
     create: async (mode, workspaceID, title) => {
       const thread: ThreadView = {
         id: uid("th"), mode, title: title || "新对话", modelId: settings.defaultModel,
@@ -592,6 +689,7 @@ export const mockApi: Api = {
       messages[thread.id] = [];
       return { ...thread };
     },
+    /** 重命名线程并刷新更新时间。 */
     rename: async (threadID, title) => {
       const thread = findThread(threadID);
       if (thread) {
@@ -599,23 +697,30 @@ export const mockApi: Api = {
         thread.updatedAt = Date.now();
       }
     },
+    /** 切换线程使用的模型。 */
     setModel: async (threadID, modelID) => {
       const thread = findThread(threadID);
       if (thread) {
         thread.modelId = modelID;
       }
     },
+    /** 归档或取消归档线程；归档后的线程默认不出现在列表里。 */
     archive: async (threadID, archived) => {
       const thread = findThread(threadID);
       if (thread) {
         thread.archived = archived;
       }
     },
+    /** 彻底删除线程：从两个模式的列表和消息表里一并移除。 */
     remove: async (threadID) => {
       threads.code = threads.code.filter((thread) => thread.id !== threadID);
       threads.work = threads.work.filter((thread) => thread.id !== threadID);
       delete messages[threadID];
     },
+    /**
+     * 分页快照：`beforeSeq` 大于 0 时只保留该序号之前的消息（用于向上翻页），
+     * 再按 `limit` 从末尾截取一页；`hasMore` 表示还有更早的消息可加载。
+     */
     snapshotPage: async (threadID, limit, beforeSeq) => {
       const full = snapshot(threadID);
       let messages = full.messages ?? [];
@@ -631,7 +736,14 @@ export const mockApi: Api = {
       return { ...full, messages: page, hasMore, oldestSeq };
     },
   },
+  /** 对话：发送、重新生成、取消与审批决定。 */
   chat: {
+    /**
+     * 发送消息：先把用户消息写入内存，再启动 `simulateRun` 异步模拟回复。
+     *
+     * 注意这里是 `void simulateRun(...)`，不等待模拟结束就返回 runID，
+     * 这样界面能立刻拿到运行标识，后续状态全部通过事件推送。
+     */
     send: async (threadID, text, attachments: string[] = []) => {
       const thread = findThread(threadID);
       if (!thread) {
@@ -649,6 +761,7 @@ export const mockApi: Api = {
       void simulateRun(thread, text);
       return runID;
     },
+    /** 重新生成：取最后一条用户消息的文本再跑一次模拟。 */
     regenerate: async (threadID) => {
       const thread = findThread(threadID);
       if (!thread) {
@@ -660,6 +773,7 @@ export const mockApi: Api = {
       void simulateRun(thread, text);
       return runID;
     },
+    /** 取消运行：把线程记入 `cancelled`，正在流式输出的模拟循环会在下一片之前停下。 */
     cancel: async (threadID) => {
       cancelled.add(threadID);
       const thread = findThread(threadID);
@@ -669,6 +783,10 @@ export const mockApi: Api = {
       dispatch(batch(threadID, [envelope(EVENT.runCanceled, threadID, "", { status: "canceled" })]));
       return true;
     },
+    /**
+     * 审批决定：调用 `simulateRun` 事先存下的 resolve，让挂起的流程继续。
+     * 找不到对应函数说明审批已经被处理过，直接忽略即可。
+     */
     decideApproval: async (approvalID, allow) => {
       const resolver = approvalResolvers.get(approvalID);
       if (resolver) {
@@ -676,9 +794,13 @@ export const mockApi: Api = {
       }
     },
   },
+  /** 工作区：列表、添加、激活、信任级别、目录读取、文件读写、差异与 Git 状态。 */
   workspace: {
+    /** 列出所有工作区。 */
     list: async () => workspaces.map((workspace) => ({ ...workspace })),
+    /** 模拟系统文件夹选择器，固定返回演示路径。 */
     pickFolder: async () => "~/Code/craftwork",
+    /** 添加工作区：名称取路径最后一段，插到列表最前。 */
     add: async (path, trust) => {
       const workspace: WorkspaceView = {
         id: uid("ws"), name: basename(path), path, trust, createdAt: Date.now(), lastOpenedAt: Date.now(),
@@ -686,22 +808,27 @@ export const mockApi: Api = {
       workspaces.unshift(workspace);
       return { ...workspace };
     },
+    /** 激活工作区并写回设置，找不到时退回第一个。 */
     setActive: async (workspaceID) => {
       const workspace = workspaces.find((item) => item.id === workspaceID) ?? workspaces[0];
       settings.activeWorkspace = workspace.id;
       return { ...workspace };
     },
+    /** 读取当前激活工作区；没有工作区时返回 null。 */
     active: async () => {
       const workspace = workspaces.find((item) => item.id === settings.activeWorkspace) ?? workspaces[0] ?? null;
       return workspace ? { ...workspace } : null;
     },
+    /** 修改工作区信任级别（受信 / 受限）。 */
     setTrust: async (workspaceID, trust) => {
       const workspace = workspaces.find((item) => item.id === workspaceID);
       if (workspace) {
         workspace.trust = trust;
       }
     },
+    /** 列出某个目录的子节点；没有缓存的目录返回空数组。 */
     listDir: async (_workspaceID, path) => (tree[path || "."] ?? []).map((node) => ({ ...node })),
+    /** 读取文件：返回内容与语言、行数、哈希等元信息，未登记的文件返回空内容。 */
     readFile: async (_workspaceID, path) => {
       const content = files[path] ?? "";
       return {
@@ -711,14 +838,25 @@ export const mockApi: Api = {
         truncated: false, hash: String(content.length), modified: now,
       };
     },
+    /** 写入文件：直接覆盖内存中的内容，不模拟哈希校验与「外部修改」冲突。 */
     writeFile: async (_workspaceID, path, content) => {
       files[path] = content;
     },
+    /** 计算差异，具体算法见 `computeDiff`。 */
     computeDiff: async (oldText, newText) => computeDiff(oldText, newText),
+    /** 返回全部 Git 状态映射的副本。 */
     gitStatuses: async () => ({ ...gitStatuses }),
   },
+  /** 提供商：列表、覆盖保存、删除、密钥设置与清除、连通性测试。 */
   providers: {
+    /** 列出全部提供商副本；`warnings` 在 Mock 中没有真实检查结果，恒为空数组。 */
     list: async () => providers.map((provider) => ({ ...provider })),    warnings: async () => [],
+    /**
+     * 保存提供商：已有则原地覆盖，没有则新增。
+     *
+     * 内置提供商被修改时会标记 `overridden`，后端据此提示「已覆盖内置配置」。
+     * 模型的可用性继承提供商的可用性，保证密钥未配置时模型不可选。
+     */
     saveProvider: async (input) => {
       const existing = providers.find((provider) => provider.id === input.id);
       const id = input.id || uid("custom");
@@ -754,12 +892,14 @@ export const mockApi: Api = {
       }
       return { ...view, models: models.map((model) => ({ ...model })) };
     },
+    /** 删除提供商。 */
     deleteProvider: async (providerID) => {
       const index = providers.findIndex((provider) => provider.id === providerID);
       if (index >= 0) {
         providers.splice(index, 1);
       }
     },
+    /** 设置密钥：记录掩码（只露前 5 位与后 4 位）并把提供商与模型标记为可用。 */
     setKey: async (providerID, key) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {
@@ -769,6 +909,7 @@ export const mockApi: Api = {
         provider.models = (provider.models ?? []).map((model) => ({ ...model, available: true }));
       }
     },
+    /** 清除密钥：只有 mock 类型的提供商在无密钥时仍可用，其余全部变为不可用。 */
     clearKey: async (providerID) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {
@@ -778,18 +919,22 @@ export const mockApi: Api = {
         provider.models = (provider.models ?? []).map((model) => ({ ...model, available: provider.available }));
       }
     },
+    /** 连通性测试：可用即视为连接正常，否则提示尚未配置密钥。 */
     test: async (providerID) => {
       const provider = providers.find((item) => item.id === providerID);
       return { ok: Boolean(provider?.available), message: provider?.available ? "连接正常" : "尚未配置密钥", latencyMs: 128 };
     },
   },
+  /** MCP 服务器：列表、添加、删除、连接与断开；连接成功后附带两个演示工具。 */
   mcp: {
+    /** 列出 MCP 服务器，返回深拷贝以避免界面直接改到内部数组。 */
     list: async () =>
       mcpServers.map((server) => ({
         ...server,
         args: [...(server.args ?? [])],
         tools: (server.tools ?? []).map((tool) => ({ ...tool })),
       })),
+    /** 添加 MCP 服务器：默认启用并已连接，附带两个演示工具。 */
     add: async (name, command) => {
       const server: MCPServerView = {
         id: uid("mcp"),
@@ -810,12 +955,14 @@ export const mockApi: Api = {
         tools: (server.tools ?? []).map((tool) => ({ ...tool })),
       };
     },
+    /** 删除 MCP 服务器。 */
     remove: async (serverID) => {
       const index = mcpServers.findIndex((server) => server.id === serverID);
       if (index >= 0) {
         mcpServers.splice(index, 1);
       }
     },
+    /** 连接 MCP 服务器：清空错误、标记为启用并重新挂上演示工具。 */
     connect: async (serverID) => {
       const server = mcpServers.find((item) => item.id === serverID);
       if (!server) {
@@ -831,6 +978,7 @@ export const mockApi: Api = {
         tools: (server.tools ?? []).map((tool) => ({ ...tool })),
       };
     },
+    /** 断开 MCP 服务器：标记为未连接、未启用，并清空工具列表。 */
     disconnect: async (serverID) => {
       const server = mcpServers.find((item) => item.id === serverID);
       if (server) {
@@ -840,13 +988,20 @@ export const mockApi: Api = {
       }
     },
   },
+  /** 审计、用量与备份：只读返回内存中的示例数据。 */
   audit: {
+    /** 按条数取最近的审计记录。 */
     list: async (limit) => audit.slice(0, limit),
+    /** 返回用量统计。 */
     usage: async () => usage,
+    /** 按条数取最近的备份记录。 */
     backups: async (limit) => backups.slice(0, limit),
+    /** 恢复备份在 Mock 中为空操作。 */
     restore: async () => undefined,
   },
+  /** 文档预览：Office / PDF 只返回文件信息，文本文件返回完整内容。 */
   documents: {
+    /** 按扩展名区分文档类型；Office / PDF 标记为暂不支持结构化解析。 */
     preview: async (_workspaceID, path): Promise<DocumentPreview> => {
       const extension = path.split(".").pop() ?? "";
       if (["docx", "xlsx", "pdf"].includes(extension)) {
@@ -859,8 +1014,16 @@ export const mockApi: Api = {
       return { kind: "text", path, name: basename(path), size: content.length, modified: now, supported: true, text: content };
     },
   },
+  /** 终端：列表、新建、写入、调整尺寸与关闭；输出同样通过事件批次推送。 */
   terminal: {
+    /** 列出终端会话副本。 */
     list: async () => terminalSessions.map((session) => ({ ...session })),
+    /**
+     * 新建终端会话。
+     *
+     * 创建后延迟 120ms 推送一条提示符输出，模拟 shell 启动完成；
+     * 批次所属的线程 ID 使用 `terminal:<会话ID>` 的形式，与终端事件约定保持一致。
+     */
     create: async (name, cwd) => {
       terminalCounter += 1;
       const session: TerminalView = {
@@ -878,6 +1041,13 @@ export const mockApi: Api = {
       }, 120);
       return { ...session };
     },
+    /**
+     * 向终端写入数据。
+     *
+     * 先原样回显用户输入（相当于终端的本地回显）；
+     * 当输入包含回车时，再延迟 80ms 返回一行模拟输出：
+     * `git status` 与 `ls` 有固定结果，其它命令统一返回「command not found」。
+     */
     write: async (sessionID, data) => {
       const session = terminalSessions.find((item) => item.id === sessionID);
       if (!session) {
@@ -899,7 +1069,9 @@ export const mockApi: Api = {
         ]));
       }
     },
+    /** 终端尺寸在 Mock 中没有实际意义，保留空实现以对齐接口。 */
     resize: async () => undefined,
+    /** 关闭会话并从列表中移除。 */
     close: async (sessionID) => {
       const index = terminalSessions.findIndex((item) => item.id === sessionID);
       if (index >= 0) {

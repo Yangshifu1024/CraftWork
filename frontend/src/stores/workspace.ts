@@ -1,3 +1,9 @@
+/**
+ * 工作区 store：文件树的加载与展开、文件预览与编辑草稿、外部修改冲突处理、
+ * 差异预览与应用、Office / PDF 文档预览。
+ *
+ * 所有数据都按「当前激活工作区」请求，工作区来自 app store；模式切换时由 App.tsx 调用 reset() 清空。
+ */
 import { create } from "zustand";
 import { api } from "../lib/api";
 import type { DiffResult, DocumentPreview, FileContent, FileNode } from "../lib/types";
@@ -5,40 +11,88 @@ import { useAppStore } from "./app";
 import { usePanelStore } from "./panel";
 import { useUiStore } from "./ui";
 
+/**
+ * 工作区 store 的状态与操作。
+ *
+ * 关键状态说明：
+ * - `tree`：按目录路径缓存的子节点列表，`"."` 是根目录；展开目录时才按需拉取；
+ * - `expanded`：目录是否展开；
+ * - `filter`：文件树过滤关键字；
+ * - `git`：文件路径到 Git 状态字母的映射，用于在树上显示标记；
+ * - `selected` / `content`：当前打开的文件路径与内容，`content` 为 null 表示没有打开文件；
+ * - `editorMode`：只读或编辑；
+ * - `draft`：编辑中的文本，保存成功前不写回 `content`；
+ * - `targetLine`：从搜索或差异跳转时要定位到的行号；
+ * - `diff`：当前差异预览的数据与视图方式（统一 / 并排）；
+ * - `doc` / `docLoading`：文档预览内容与加载中标记。
+ */
 interface WorkspaceState {
+  /** 目录路径到子节点列表的缓存，`"."` 表示根目录。 */
   tree: Record<string, FileNode[]>;
+  /** 目录路径到是否展开的映射。 */
   expanded: Record<string, boolean>;
+  /** 文件树过滤关键字。 */
   filter: string;
+  /** 文件路径到 Git 状态字母的映射。 */
   git: Record<string, string>;
+  /** 当前打开的文件路径；null 表示没有打开文件。 */
   selected: string | null;
+  /** 当前打开文件的内容与元信息。 */
   content: FileContent | null;
+  /** 编辑器模式：只读或编辑。 */
   editorMode: "read" | "edit";
+  /** 编辑草稿；保存成功后才写回 `content`。 */
   draft: string;
+  /** 需要在编辑器中定位的行号。 */
   targetLine: number | null;
+  /** 差异预览：标题、原文、新文、计算结果与视图方式。 */
   diff: { title: string; oldText: string; newText: string; result: DiffResult | null; view: "unified" | "side" } | null;
+  /** 文档（Word / Excel / PDF / 文本）预览内容。 */
   doc: DocumentPreview | null;
+  /** 文档是否正在加载。 */
   docLoading: boolean;
+  /** 加载根目录文件树与 Git 状态。 */
   loadRoot(): Promise<void>;
+  /** 按需加载某个目录的子节点。 */
   loadDir(path: string): Promise<void>;
+  /** 展开或收起目录；首次展开时才请求子节点。 */
   toggleDir(path: string): Promise<void>;
+  /** 设置文件树过滤关键字。 */
   setFilter(value: string): void;
+  /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容。 */
   openFile(path: string): Promise<void>;
+  /** 打开文件并定位到指定行。 */
   openFileAt(path: string, line: number | null): Promise<void>;
+  /** 关闭当前文件并清空草稿。 */
   closeFile(): void;
+  /** 切换只读 / 编辑；二进制或内容被截断的文件不允许编辑。 */
   setEditorMode(mode: "read" | "edit"): void;
+  /** 更新编辑草稿。 */
   setDraft(value: string): void;
+  /** 保存草稿；遇到「文件已被外部修改」时询问用户是否重新加载。 */
   save(): Promise<void>;
+  /** 打开差异预览并切换到差异标签页。 */
   openDiff(title: string, oldText: string, newText: string): Promise<void>;
+  /** 二次确认后把差异中的新内容整份写入文件。 */
   applyDiff(): Promise<void>;
+  /** 切换差异视图（统一 / 并排）。 */
   setDiffView(view: "unified" | "side"): void;
+  /** 加载文档预览。 */
   openDocument(path: string): Promise<void>;
+  /** 清空所有工作区数据，模式切换时调用。 */
   reset(): void;
 }
 
+/** 取出当前激活工作区的 ID；没有激活工作区时返回空字符串。 */
 function workspaceID(): string {
   return useAppStore.getState().activeWorkspace?.id ?? "";
 }
 
+/**
+ * 工作区数据与文件编辑流程的状态容器。
+ *
+ * 初始状态：没有缓存目录、没有打开文件、只读模式、草稿为空。
+ */
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   tree: {},
   expanded: {},
@@ -53,6 +107,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   doc: null,
   docLoading: false,
 
+  // 根目录与 Git 状态并行拉取；Git 状态失败不影响文件树，退化为空映射。
   async loadRoot() {
     const id = workspaceID();
     if (!id) {
@@ -65,6 +120,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => ({ tree: { ...state.tree, ".": nodes }, git }));
   },
 
+  // 懒加载单个目录：只覆盖该路径下的缓存，其余目录保持不动。
   async loadDir(path) {
     const id = workspaceID();
     if (!id) {
@@ -74,6 +130,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => ({ tree: { ...state.tree, [path]: nodes } }));
   },
 
+  // 先翻转展开状态；只有当目录刚被展开且还没有缓存时才去请求子节点，
+  // 再次展开不会重复请求。
   async toggleDir(path) {
     const expanded = { ...get().expanded, [path]: !get().expanded[path] };
     set({ expanded });
@@ -86,6 +144,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ filter: value });
   },
 
+  // 打开文件：Office 与 PDF 不在编辑器里显示文本，而是走文档预览；
+  // 文档预览目前只在 Work 模式提供，Code 模式下给出提示而不是静默失败。
   async openFile(path) {
     const id = workspaceID();
     if (!id) {
@@ -108,6 +168,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
     try {
       const content = await api.workspace.readFile(id, path);
+      // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑。
       set({
         selected: path,
         content,
@@ -120,15 +181,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // 先记下目标行号再打开文件，编辑器挂载后据此滚动定位。
   async openFileAt(path, line) {
     set({ targetLine: line });
     await get().openFile(path);
   },
 
+  // 关闭文件时把草稿、模式、定位行一起复位，避免残留到下一个文件。
   closeFile() {
     set({ selected: null, content: null, draft: "", editorMode: "read", targetLine: null });
   },
 
+  // 二进制文件或内容被截断的文件（只读到一部分）进入编辑会导致写回时丢内容，因此直接拒绝。
   setEditorMode(mode) {
     const content = get().content;
     if (mode === "edit" && (content?.binary || content?.truncated)) {
@@ -141,6 +205,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ draft: value });
   },
 
+  // 保存流程：
+  // 1. 带上打开文件时拿到的 hash 写入，后端据此判断文件是否被外部改动；
+  // 2. 成功后重新读取文件，用后端返回的最新内容与 hash 刷新，并回到只读模式；
+  // 3. 若后端报「外部修改」，说明磁盘上的内容已经变了，弹确认框由用户选择是否重新加载；
+  //    重新加载会丢弃当前草稿，所以默认按钮保持危险样式；
+  // 4. 其它错误走 toast 提示，草稿保留以便用户重试。
   async save() {
     const id = workspaceID();
     const content = get().content;
@@ -171,12 +241,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // 打开差异：先让后端计算差异，结果写入 store 后把右侧面板切到差异标签页。
+  // 视图方式沿用上一次的选择，默认统一视图。
   async openDiff(title, oldText, newText) {
     const result = await api.workspace.computeDiff(oldText, newText);
     set({ diff: { title, oldText, newText, result, view: get().diff?.view ?? "unified" } });
     usePanelStore.getState().setTab(useAppStore.getState().mode, "diff");
   },
 
+  // 应用差异属于覆盖写入，必须先确认；确认后整份写入新内容（不带 hash，表示允许覆盖），
+  // 写完重新打开文件，让编辑器显示磁盘上的最新状态。
   async applyDiff() {
     const diff = get().diff;
     const id = workspaceID();
@@ -202,6 +276,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // 只切换视图方式，保留已计算好的差异结果。
   setDiffView(view) {
     const diff = get().diff;
     if (diff) {
@@ -209,6 +284,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // 文档预览期间置 docLoading，让面板显示加载态；失败时清标记并提示。
   async openDocument(path) {
     const id = workspaceID();
     if (!id) {
@@ -224,6 +300,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // 模式切换时整体清空：文件树、展开状态、Git 标记、打开的文件、草稿、差异与文档预览。
   reset() {
     set({ tree: {}, expanded: {}, git: {}, selected: null, content: null, draft: "", diff: null, doc: null, targetLine: null });
   },

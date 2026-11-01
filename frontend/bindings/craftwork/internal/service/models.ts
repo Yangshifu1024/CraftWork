@@ -9,12 +9,39 @@ import * as model$0 from "../model/models.js";
  * AppInfo 是前端启动时读取的构建与运行环境信息。
  */
 export interface AppInfo {
+    /**
+     * Name 是应用名称，固定为 CraftWork。
+     */
     "name": string;
+
+    /**
+     * Version 是构建版本号。
+     */
     "version": string;
+
+    /**
+     * Commit 是构建对应的提交号。
+     */
     "commit": string;
+
+    /**
+     * Build 是构建时间。
+     */
     "buildTime": string;
+
+    /**
+     * Platform 是运行平台，例如 darwin、windows、linux。
+     */
     "platform": string;
+
+    /**
+     * Arch 是运行架构，例如 arm64、amd64。
+     */
     "arch": string;
+
+    /**
+     * DataDir 是数据目录路径，数据库、密钥与备份都在其中。
+     */
     "dataDir": string;
 }
 
@@ -22,9 +49,24 @@ export interface AppInfo {
  * ConnectionResult 是连接测试结果。
  */
 export interface ConnectionResult {
+    /**
+     * OK 表示连接是否成功。
+     */
     "ok": boolean;
+
+    /**
+     * Message 是给用户看的说明。
+     */
     "message": string;
+
+    /**
+     * LatencyMs 是请求耗时（毫秒）。
+     */
     "latencyMs": number;
+
+    /**
+     * Code 是失败时的统一错误码。
+     */
     "code"?: string;
 }
 
@@ -33,15 +75,43 @@ export interface ConnectionResult {
  */
 export interface DocumentPreview {
     /**
-     * docx / xlsx / pdf / text
+     * Kind 是文件类型：docx、xlsx、pdf 或 text。
      */
     "kind": string;
+
+    /**
+     * Path 是相对工作区的路径。
+     */
     "path": string;
+
+    /**
+     * Name 是文件名。
+     */
     "name": string;
+
+    /**
+     * Size 是文件字节数。
+     */
     "size": number;
+
+    /**
+     * Modified 是最后修改时间（毫秒时间戳）。
+     */
     "modified": number;
+
+    /**
+     * Supported 表示当前能否展示文本内容。
+     */
     "supported": boolean;
+
+    /**
+     * Note 是格式限制或读取失败的说明。
+     */
     "note"?: string;
+
+    /**
+     * Text 是可展示的文本内容。
+     */
     "text"?: string;
 }
 
@@ -49,14 +119,49 @@ export interface DocumentPreview {
  * FileContent 是读取文件的结果。
  */
 export interface FileContent {
+    /**
+     * Path 是相对工作区的路径。
+     */
     "path": string;
+
+    /**
+     * Content 是文件文本内容；二进制文件不带内容。
+     */
     "content": string;
+
+    /**
+     * Size 是文件实际字节数。
+     */
     "size": number;
+
+    /**
+     * Binary 表示这是二进制文件，无法在编辑器中查看。
+     */
     "binary": boolean;
+
+    /**
+     * Language 是编辑器高亮使用的语言标识。
+     */
     "language": string;
+
+    /**
+     * Lines 是内容行数。
+     */
     "lines": number;
+
+    /**
+     * Truncated 表示内容超过上限，只返回了前一部分。
+     */
     "truncated": boolean;
+
+    /**
+     * Hash 是原始文件内容的 SHA-256，用于保存时检测外部修改。
+     */
     "hash": string;
+
+    /**
+     * Modified 是最后修改时间（毫秒时间戳）。
+     */
     "modified": number;
 }
 
@@ -64,14 +169,29 @@ export interface FileContent {
  * FileNode 是文件树中的一个节点（单层，按需加载）。
  */
 export interface FileNode {
+    /**
+     * Name 是文件或目录名。
+     */
     "name": string;
+
+    /**
+     * Path 是相对工作区的路径。
+     */
     "path": string;
 
     /**
-     * dir / file
+     * Type 是 dir 或 file。
      */
     "type": string;
+
+    /**
+     * Size 是字节数。
+     */
     "size": number;
+
+    /**
+     * Modified 是最后修改时间（毫秒时间戳）。
+     */
     "modified": number;
 }
 
@@ -79,13 +199,44 @@ export interface FileNode {
  * MCPServerView 是 MCP 服务器的展示结构。
  */
 export interface MCPServerView {
+    /**
+     * ID 是服务器标识。
+     */
     "id": string;
+
+    /**
+     * Name 是服务器名称。
+     */
     "name": string;
+
+    /**
+     * Command 是启动命令。
+     */
     "command": string;
+
+    /**
+     * Args 是启动参数。
+     */
     "args": string[] | null;
+
+    /**
+     * Enabled 表示该服务器是否启用。
+     */
     "enabled": boolean;
+
+    /**
+     * Connected 表示当前是否已连接。
+     */
     "connected": boolean;
+
+    /**
+     * Error 是最近一次连接失败的原因。
+     */
     "error"?: string;
+
+    /**
+     * Tools 是服务器暴露的工具列表。
+     */
     "tools": MCPToolView[] | null;
 }
 
@@ -93,7 +244,14 @@ export interface MCPServerView {
  * MCPToolView 是 MCP 工具的展示结构。
  */
 export interface MCPToolView {
+    /**
+     * Name 是工具在服务器侧的名称。
+     */
     "name": string;
+
+    /**
+     * Description 是工具用途说明。
+     */
     "description": string;
 }
 
@@ -101,10 +259,29 @@ export interface MCPToolView {
  * ModelInput 是模型配置输入。
  */
 export interface ModelInput {
+    /**
+     * ID 是模型标识，不能包含空白。
+     */
     "id": string;
+
+    /**
+     * Name 是展示名称，为空时使用 ID。
+     */
     "name": string;
+
+    /**
+     * ContextK 是上下文窗口，单位千 token，默认 32。
+     */
     "contextK": number;
+
+    /**
+     * MaxTokens 是最大输出 token 数，0 表示不限制。
+     */
     "maxTokens"?: number;
+
+    /**
+     * Caps 是模型能力声明。
+     */
     "caps": model$0.Capabilities;
 }
 
@@ -112,14 +289,49 @@ export interface ModelInput {
  * ModelView 是模型目录的展示结构。
  */
 export interface ModelView {
+    /**
+     * ID 是模型标识。
+     */
     "id": string;
+
+    /**
+     * Name 是模型展示名称。
+     */
     "name": string;
+
+    /**
+     * Provider 是所属提供商标识。
+     */
     "provider": string;
+
+    /**
+     * ProviderName 是所属提供商展示名称。
+     */
     "providerName": string;
+
+    /**
+     * ContextK 是上下文窗口大小，单位为千 token。
+     */
     "contextK": number;
+
+    /**
+     * MaxTokens 是单次最大输出 token 数，0 表示不限制。
+     */
     "maxTokens"?: number;
+
+    /**
+     * Caps 声明模型支持的能力，例如流式输出与工具调用。
+     */
     "caps": model$0.Capabilities;
+
+    /**
+     * Default 表示这是默认模型。
+     */
     "default": boolean;
+
+    /**
+     * Available 表示模型当前可用（提供商可用且密钥已配置）。
+     */
     "available": boolean;
 }
 
@@ -127,11 +339,34 @@ export interface ModelView {
  * ProviderInput 是新增或编辑提供商的输入。
  */
 export interface ProviderInput {
+    /**
+     * ID 为空时自动生成；非空时必须是内置或已存在的提供商。
+     */
     "id": string;
+
+    /**
+     * Name 是提供商名称，不能为空。
+     */
     "name": string;
+
+    /**
+     * Kind 是协议类型，为空时按 openai-compatible 处理。
+     */
     "kind": string;
+
+    /**
+     * Endpoint 是接口地址，为空时尝试使用内置默认值。
+     */
     "endpoint": string;
+
+    /**
+     * KeyRequired 表示是否必须配置密钥。
+     */
     "keyRequired": boolean;
+
+    /**
+     * Models 是至少一个模型配置。
+     */
     "models": ModelInput[] | null;
 }
 
@@ -139,17 +374,64 @@ export interface ProviderInput {
  * ProviderView 是提供商的展示结构，绝不包含明文密钥。
  */
 export interface ProviderView {
+    /**
+     * ID 是提供商标识。
+     */
     "id": string;
+
+    /**
+     * Name 是提供商展示名称。
+     */
     "name": string;
+
+    /**
+     * Kind 是协议类型，例如 openai、anthropic、gemini。
+     */
     "kind": string;
+
+    /**
+     * Endpoint 是接口端点。
+     */
     "endpoint": string;
+
+    /**
+     * Note 是配置说明，例如“自定义提供商”。
+     */
     "note"?: string;
+
+    /**
+     * KeyRequired 表示调用该提供商必须配置密钥。
+     */
     "keyRequired": boolean;
+
+    /**
+     * KeySource 是密钥来源，例如环境变量或本地文件。
+     */
     "keySource": string;
+
+    /**
+     * KeyMasked 是遮罩后的密钥，仅用于界面展示。
+     */
     "keyMasked": string;
+
+    /**
+     * Available 表示提供商当前是否可用。
+     */
     "available": boolean;
+
+    /**
+     * Custom 表示该提供商来自自定义配置。
+     */
     "custom": boolean;
+
+    /**
+     * Overridden 表示内置提供商被自定义配置覆盖。
+     */
     "overridden": boolean;
+
+    /**
+     * Models 是该提供商下的模型列表。
+     */
     "models": ModelView[] | null;
 }
 
@@ -157,20 +439,79 @@ export interface ProviderView {
  * Settings 是前端可读写的应用设置。
  */
 export interface Settings {
+    /**
+     * Theme 是界面主题：dark 或 light。
+     */
     "theme": string;
+
+    /**
+     * Mode 是默认对话模式：code 或 work。
+     */
     "mode": string;
+
+    /**
+     * PanelWidth 是右侧面板宽度（像素）。
+     */
     "panelWidth": number;
+
+    /**
+     * ApprovalLevel 是审批档位：graded、strict 或 readonly。
+     */
     "approvalLevel": string;
+
+    /**
+     * DefaultModel 是默认模型标识。
+     */
     "defaultModel": string;
+
+    /**
+     * FallbackModel 是主模型失败时使用的备用模型，空表示关闭。
+     */
     "fallbackModel": string;
+
+    /**
+     * ActiveWorkspace 是当前活动工作区标识。
+     */
     "activeWorkspace": string;
+
+    /**
+     * Language 是界面语言。
+     */
     "language": string;
+
+    /**
+     * FontSize 是正文与编辑器字号。
+     */
     "fontSize": number;
+
+    /**
+     * CodeTheme 是代码高亮主题。
+     */
     "codeTheme": string;
+
+    /**
+     * TerminalFontSize 是终端字号。
+     */
     "terminalFontSize": number;
+
+    /**
+     * AutoUpdate 表示是否自动检查更新。
+     */
     "autoUpdate": boolean;
+
+    /**
+     * Notifications 表示是否启用系统通知。
+     */
     "notifications": boolean;
+
+    /**
+     * UpdateChannel 是更新通道：stable 等。
+     */
     "updateChannel": string;
+
+    /**
+     * Telemetry 表示是否允许发送匿名用量统计。
+     */
     "telemetry": boolean;
 }
 
@@ -178,9 +519,24 @@ export interface Settings {
  * TerminalView 是终端会话的展示结构。
  */
 export interface TerminalView {
+    /**
+     * ID 是会话标识。
+     */
     "id": string;
+
+    /**
+     * Name 是会话名称。
+     */
     "name": string;
+
+    /**
+     * CWD 是会话启动目录。
+     */
     "cwd": string;
+
+    /**
+     * Running 表示会话进程是否仍在运行。
+     */
     "running": boolean;
 }
 
@@ -188,16 +544,59 @@ export interface TerminalView {
  * ThreadView 是线程列表使用的扁平结构。
  */
 export interface ThreadView {
+    /**
+     * ID 是线程标识。
+     */
     "id": string;
+
+    /**
+     * Mode 是 code 或 work。
+     */
     "mode": string;
+
+    /**
+     * Title 是展示标题。
+     */
     "title": string;
+
+    /**
+     * ModelID 是线程当前使用的模型标识。
+     */
     "modelId": string;
+
+    /**
+     * ModelName 是模型展示名称。
+     */
     "modelName": string;
+
+    /**
+     * WorkspaceID 是线程绑定的工作区。
+     */
     "workspaceId": string;
+
+    /**
+     * Status 是 idle、running 或 awaiting。
+     */
     "status": string;
+
+    /**
+     * Archived 表示线程是否已归档。
+     */
     "archived": boolean;
+
+    /**
+     * Tokens 是该线程累计使用的 token 数。
+     */
     "tokens": number;
+
+    /**
+     * CreatedAt 是创建时间（毫秒时间戳）。
+     */
     "createdAt": number;
+
+    /**
+     * UpdatedAt 是最后更新时间（毫秒时间戳）。
+     */
     "updatedAt": number;
 }
 
@@ -205,10 +604,33 @@ export interface ThreadView {
  * WorkspaceView 是工作区的展示结构。
  */
 export interface WorkspaceView {
+    /**
+     * ID 是工作区标识。
+     */
     "id": string;
+
+    /**
+     * Name 是工作区展示名称，默认取目录名。
+     */
     "name": string;
+
+    /**
+     * Path 是工作区根目录的绝对路径。
+     */
     "path": string;
+
+    /**
+     * Trust 是 trusted 或 restricted。
+     */
     "trust": string;
+
+    /**
+     * CreatedAt 是添加时间（毫秒时间戳）。
+     */
     "createdAt": number;
+
+    /**
+     * LastOpenedAt 是最后一次设为活动工作区的时间。
+     */
     "lastOpenedAt": number;
 }

@@ -1,3 +1,9 @@
+/**
+ * 数据面板。
+ *
+ * 负责：以弹窗形式展示审计记录、用量统计与备份列表，并支持从备份恢复文件。
+ * 三个标签共用同一个弹窗，切换标签时重新读取对应数据。
+ */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../../components/Icon";
@@ -7,6 +13,16 @@ import type { DataTab } from "../../stores/ui";
 import { cn, formatBytes, formatCost, formatTime, formatTokens } from "../../lib/utils";
 import { useUiStore } from "../../stores/ui";
 
+/**
+ * 数据面板组件。
+ *
+ * props：无。关键状态：
+ * - audit / usage / backups：三个标签各自的数据，按当前标签加载；
+ * - filter：审计记录的决定类型筛选；
+ * - loading：读取中标记。
+ *
+ * 数据在弹窗打开或标签切换时读取，并用 alive 标记避免请求返回时组件已关闭。
+ */
 export function DataModal() {
   const open = useUiStore((state) => state.dataOpen);
   const tab = useUiStore((state) => state.dataTab);
@@ -22,6 +38,8 @@ export function DataModal() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // 打开弹窗或切换标签时读取当前标签的数据：
+    // 审计取最近 200 条，备份取最近 50 个，用量是一次聚合查询。
     if (!open) {
       return;
     }
@@ -60,15 +78,21 @@ export function DataModal() {
     return null;
   }
 
+  // 审计记录按「决定」筛选；后端一次最多返回 200 条，这里只做前端过滤。
   const filteredAudit = audit.filter((entry) =>
     filter === "all" ? true : entry.decision === filter,
   );
 
+  // 用量条形图的基准值：取所有模型中最大的 token 总数，至少为 1 以避免除零。
   const maxModelTokens = Math.max(
     1,
     ...(usage?.byModel.map((item) => item.inputTokens + item.outputTokens) ?? [1]),
   );
 
+  /**
+   * 用备份覆盖目标文件。
+   * 属于破坏性操作，先要求二次确认，再调用后端恢复并提示结果。
+   */
   async function restore(backup: Backup) {
     const confirmed = await askConfirm({
       title: "恢复这个备份？",
@@ -93,6 +117,7 @@ export function DataModal() {
       <div className="overlay-backdrop" onClick={close} />
       <div className="data-modal" role="dialog" aria-modal="true" aria-label="数据面板">
         <div className="data-head">
+          {/* 标题随当前标签变化；刷新会重新触发对应标签的数据读取 */}
           <Icon name="database" />
           <h2>{tab === "audit" ? "审计记录" : tab === "usage" ? "用量统计" : "备份与恢复"}</h2>
           <button type="button" className="icon-btn sm" aria-label="刷新" onClick={() => openData(tab)}>
@@ -104,6 +129,7 @@ export function DataModal() {
         </div>
 
         <div className="data-tabs">
+          {/* 三个标签；切换时通过 openData 更新 store 并触发重新读取 */}
           <button type="button" className={cn("data-tab", tab === "audit" && "is-active")} onClick={() => openData("audit")}>
             <Icon name="shield-check" className="ico" />
             审计
@@ -128,6 +154,7 @@ export function DataModal() {
 
           {!loading && tab === "audit" ? (
             <>
+              {/* 审计：决定类型筛选与记录表格 */}
               <div className="audit-filters">
                 {(["all", "auto", "allow", "deny"] as const).map((value) => (
                   <button
@@ -187,6 +214,7 @@ export function DataModal() {
 
           {!loading && tab === "usage" && usage ? (
             <>
+              {/* 用量：今日 / 近 7 天 / 近 30 天概览 */}
               <div className="usage-cards">
                 <UsageCard label="今天" totals={usage.today} />
                 <UsageCard label="近 7 天" totals={usage.week} />
@@ -202,6 +230,7 @@ export function DataModal() {
                 按模型
               </div>
               <div className="usage-bars">
+                {/* 按模型的条形：宽度按最大 token 数归一化，最小保留 4% 以便看见 */}
                 {usage.byModel.length === 0 ? (
                   <div className="sec-desc">还没有用量记录。</div>
                 ) : (
@@ -226,6 +255,7 @@ export function DataModal() {
                 每日趋势
               </div>
               <div className="usage-bars">
+                {/* 每日趋势：每天一行，基准值取这些天里的最大值 */}
                 {usage.byDay.map((day) => {
                   const max = Math.max(1, ...usage.byDay.map((item) => item.inputTokens + item.outputTokens));
                   return (
@@ -255,6 +285,7 @@ export function DataModal() {
           ) : null}
 
           {!loading && tab === "backup" ? (
+            /* 备份列表：显示路径、时间、大小与哈希前 12 位，并可恢复 */
             <div className="backup-list">
               {backups.length === 0 ? (
                 <div className="panel-empty">
@@ -289,6 +320,12 @@ export function DataModal() {
   );
 }
 
+/**
+ * 用量概览卡片。
+ *
+ * @param label 时间段名称，例如「今天」「近 7 天」；
+ * @param totals 该时间段的 token、运行次数与花费。
+ */
 function UsageCard({ label, totals }: { label: string; totals: UsageSummary["today"] }) {
   return (
     <div className="usage-card">
@@ -304,4 +341,5 @@ function UsageCard({ label, totals }: { label: string; totals: UsageSummary["tod
   );
 }
 
+/** 把数据面板的标签类型重新导出，方便其他模块从这里引用。 */
 export type { DataTab };

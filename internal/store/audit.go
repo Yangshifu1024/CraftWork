@@ -1,3 +1,6 @@
+// 本文件负责审计记录、用量统计与备份记录的写入与查询：追加审计、按时间
+// 倒序读取审计、按天/按模型聚合用量，以及备份记录的写入与读取。
+
 package store
 
 import (
@@ -8,10 +11,14 @@ import (
 )
 
 // AddAudit 追加一条审计记录。
+//
+// 记录时间由数据库写入前补齐（未提供时取当前时间），主键由数据库自增生成，
+// 最后回填到入参上。审计记录只追加、不修改，保证可追溯。
 func (db *DB) AddAudit(entry *AuditEntry) error {
 	if entry.TS == 0 {
 		entry.TS = nowMillis()
 	}
+	// 写操作串行化，避免并发写入同一数据库时互相干扰。
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 	result, err := db.sqlDB.Exec(
@@ -27,6 +34,9 @@ func (db *DB) AddAudit(entry *AuditEntry) error {
 }
 
 // ListAudit 按时间倒序返回审计记录。
+//
+// limit 是最多返回条数；小于等于 0 或超过 500 时统一按 200 处理，防止一次
+// 拉取过多数据。可空字段用 COALESCE 转成空字符串，扫描时不必处理 NULL。
 func (db *DB) ListAudit(limit int) ([]AuditEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
@@ -52,7 +62,7 @@ func (db *DB) ListAudit(limit int) ([]AuditEntry, error) {
 	return result, rows.Err()
 }
 
-// AddUsage 记录一次模型调用的用量。
+// AddUsage 记录一次模型调用的用量。记录时间缺失时取当前时间。
 func (db *DB) AddUsage(row *UsageRow) error {
 	if row.TS == 0 {
 		row.TS = nowMillis()
@@ -70,9 +80,14 @@ func (db *DB) AddUsage(row *UsageRow) error {
 }
 
 // UsageSummary 聚合今天、近 7 天、近 30 天的用量。
+//
+// 时间窗口都从本地时区的今天零点开始计算：今天是从零到现在，近 7 天含今天
+// 共 7 个自然日，近 30 天含今天共 30 个自然日；按模型与按天的明细同样取近
+// 30 天，其中按天明细只返回最近 14 天。
 func (db *DB) UsageSummary() (*UsageSummary, error) {
 	now := time.Now()
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+	// day 是一天的毫秒数，用于回推窗口起点。
 	const day = int64(24 * time.Hour / time.Millisecond)
 
 	summary := &UsageSummary{}
@@ -95,6 +110,8 @@ func (db *DB) UsageSummary() (*UsageSummary, error) {
 	return summary, nil
 }
 
+// usageTotals 聚合指定时间之后的用量合计。COALESCE 保证没有记录时返回 0
+// 而不是 NULL。
 func (db *DB) usageTotals(since int64) (UsageTotals, error) {
 	var totals UsageTotals
 	err := db.sqlDB.QueryRow(
@@ -108,6 +125,8 @@ func (db *DB) usageTotals(since int64) (UsageTotals, error) {
 	return totals, nil
 }
 
+// usageByModel 按模型聚合指定时间之后的用量，结果按输入加输出的 token 总量
+// 从高到低排列，方便界面直接展示用量最多的模型。
 func (db *DB) usageByModel(since int64) ([]ModelUsage, error) {
 	rows, err := db.sqlDB.Query(
 		`SELECT model_id, COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
@@ -131,6 +150,8 @@ func (db *DB) usageByModel(since int64) ([]ModelUsage, error) {
 	return result, rows.Err()
 }
 
+// usageByDay 按本地自然日聚合指定时间之后的用量。毫秒时间戳先除以 1000 转成
+// 秒，再交给 SQLite 的日期函数按本地时区分组，结果按日期升序。
 func (db *DB) usageByDay(since int64) ([]DailyUsage, error) {
 	rows, err := db.sqlDB.Query(
 		`SELECT date(ts / 1000, 'unixepoch', 'localtime') AS day,
@@ -186,6 +207,8 @@ func (db *DB) GetBackup(id string) (*Backup, error) {
 }
 
 // ListBackups 按时间倒序返回备份记录。
+//
+// limit 小于等于 0 或超过 200 时按 50 处理，避免一次返回过多记录。
 func (db *DB) ListBackups(limit int) ([]Backup, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50

@@ -23,6 +23,10 @@ export function Add(name: string, commandLine: string): $CancellablePromise<$mod
 
 /**
  * Connect 启动服务器、握手并注册工具。
+ * 
+ * 连接失败或工具列表读取失败时，把服务器标记为停用并保存错误信息，
+ * 下次启动不会反复尝试连接同一台坏掉的服务器。成功时替换旧连接，
+ * 并把每个工具的适配器注册到工具注册表。
  */
 export function Connect(serverID: string): $CancellablePromise<$models.MCPServerView> {
     return $Call.ByID(3286009253, serverID);

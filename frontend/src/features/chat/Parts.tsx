@@ -1,3 +1,14 @@
+/**
+ * 聊天消息中的各类结构化卡片部件。
+ *
+ * 这些组件由 MessageView 的部件注册表按 `data-cw-*` 名称挂载：
+ * 工具调用、审批请求、任务清单、错误、草稿、提示、系统通知与附件列表。
+ *
+ * 共同约定：
+ * - 每个组件只接收一个 `data` prop，内容来自后端消息部件，不在本地保存业务状态。
+ * - 纯展示类卡片不发起请求；需要写操作的卡片（审批决定、重试）通过 store 触发。
+ * - 所有用户可见文案使用中文，风险等级、状态与档位都直接展示原始值。
+ */
 import { useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
 import { copyText } from "../../lib/clipboard";
@@ -16,12 +27,17 @@ import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
 
+/** 审批档位到中文标签的映射，用于卡片上的档位徽标。 */
 const levelLabel: Record<string, string> = {
   graded: "分级",
   strict: "严格",
   readonly: "只读",
 };
 
+/**
+ * 后端工具名到图标的映射。
+ * 未登记的工具统一用闪电图标，保证新增工具也能正常显示。
+ */
 function toolIcon(name: string): IconName {
   switch (name) {
     case "fs_read":
@@ -47,6 +63,10 @@ function toolIcon(name: string): IconName {
   }
 }
 
+/**
+ * 把工具参数值转成可读字符串。
+ * 字符串原样显示；对象与数组尝试 JSON 序列化；循环引用等异常时退回 String。
+ */
 function formatArg(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -58,12 +78,25 @@ function formatArg(value: unknown): string {
   }
 }
 
+/**
+ * 工具执行状态的展示配置。
+ * `spin` 表示图标需要旋转，只有运行中需要。
+ */
 const statusMap: Record<string, { cls: string; label: string; icon: IconName; spin?: boolean }> = {
   running: { cls: "running", label: "运行中", icon: "loader", spin: true },
   done: { cls: "done", label: "完成", icon: "check" },
   error: { cls: "error", label: "失败", icon: "x" },
 };
 
+/**
+ * 工具调用卡片。
+ *
+ * @param data 工具部件数据：名称、摘要、风险等级、参数、输出、耗时与状态。
+ *
+ * 关键状态：`open` 控制详情展开。
+ * 默认展开仅用于失败的工具，方便直接看到错误输出；成功的工具默认收起。
+ * 参数最多展示前 6 项，避免长参数列表撑高消息。
+ */
 export function ToolCard({ data }: { data: ToolPartData }) {
   const [open, setOpen] = useState(data.status === "error");
   const status = statusMap[data.status] ?? statusMap.done;
@@ -115,6 +148,13 @@ export function ToolCard({ data }: { data: ToolPartData }) {
   );
 }
 
+/**
+ * 推理内容块。
+ *
+ * @param text 模型输出的思考文本，可能为空。
+ *
+ * 关键状态：`open` 控制展开，默认收起，避免推理内容挤占正文空间。
+ */
 export function ReasoningBlock({ text }: { text?: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -129,6 +169,13 @@ export function ReasoningBlock({ text }: { text?: string }) {
   );
 }
 
+/**
+ * 任务清单卡片。
+ *
+ * @param data 清单项数组，每项包含文本与状态（待办 / 进行中 / 已完成）。
+ *
+ * 数量与进度条由已完成项数实时计算；没有任何项时进度为 0。
+ */
 export function TodoCard({ data }: { data: TodoPartData }) {
   const items = data.items ?? [];
   const done = items.filter((item) => item.status === "done").length;
@@ -159,6 +206,10 @@ export function TodoCard({ data }: { data: TodoPartData }) {
   );
 }
 
+/**
+ * 生成审批卡片的差异预览行：旧文本前 6 行标为删除，新文本前 6 行标为新增。
+ * 这里只是摘要，完整差异由“查看完整差异”按钮打开差异面板查看。
+ */
 function previewLines(oldText: string, newText: string) {
   const oldLines = oldText.split("\n").slice(0, 6);
   const newLines = newText.split("\n").slice(0, 6);
@@ -168,6 +219,29 @@ function previewLines(oldText: string, newText: string) {
   ];
 }
 
+/**
+ * 审批卡片：展示一次工具调用的审批请求，并收集用户的决定。
+ *
+ * @param data 审批部件数据，包含审批 ID、工具名、风险等级、目标路径、
+ *   参数、事实列表、当前状态、已授权范围与是否允许永久授权。
+ *
+ * 关键状态（全部由 `data.status` 驱动，组件本身不保存决定结果）：
+ * - `waiting`：显示按钮组，等待用户决定。
+ * - `approved`：显示已允许及授权范围，并标注已写入审计。
+ * - `denied` / `canceled`：显示已拒绝或已取消，提示未执行任何修改。
+ *
+ * 永久允许的显示条件（与服务端校验一致）：
+ * `allowPermanent` 为真、风险等级为 R1/R2、且当前是“分级”档位。
+ * 受限工作区、R3/R4 或严格档位下不会出现“本会话允许 / 本工作区始终允许”。
+ *
+ * 预览规则：
+ * - `fs_edit` / `doc_edit`：展示旧文本与新文本的文本级差异预览。
+ * - `shell_exec`：展示将要执行的命令与目标。
+ * - `apply_patch`：展示补丁内容前 60 行。
+ *
+ * 交互细节：拒绝按钮默认聚焦，按 Esc 或直接回车都按拒绝处理；
+ * 所有决定都通过 `decide` 走跨 IPC 命令，由 Go 侧校验范围后落审计。
+ */
 export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const decide = useThreadStore((state) => state.decide);
   const level = useAppStore((state) => state.settings.approvalLevel);
@@ -175,11 +249,13 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const waiting = data.status === "waiting";
   const approved = data.status === "approved";
   const denied = data.status === "denied" || data.status === "canceled";
+  // 三个条件同时满足才显示永久授权按钮：后端允许、风险不超过 R2、档位为分级。
   const permanentAllowed =
     Boolean(data.allowPermanent) &&
     (data.risk === "R1" || data.risk === "R2") &&
     level === "graded";
 
+  // 不同工具用不同的参数名承载旧/新文本，这里统一取出用于差异预览。
   const args = data.args ?? {};
   const oldText =
     typeof args.old_string === "string"
@@ -199,6 +275,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const isPatch = data.tool === "apply_patch" && Boolean(patchText);
   const previewLinesValue = hasDiffPreview ? previewLines(oldText, newText) : [];
 
+  // 档位说明跟随设置变化，告诉用户当前档位会如何影响这次决定。
   const note =
     level === "strict"
       ? "严格档位：所有写入与执行逐次询问，不提供永久允许"
@@ -298,6 +375,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
         ) : null}
       </div>
 
+      {/* 等待决定时显示按钮组；“拒绝”自动聚焦，回车与 Esc 都会走拒绝分支。 */}
       {waiting ? (
         <>
           <div className="approval-actions">
@@ -308,6 +386,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
             <button type="button" className="btn" onClick={() => void decide(data.approvalId, true, "once")}>
               允许一次
             </button>
+            {/* 永久授权按钮只在允许条件下出现，范围为 session 或 workspace。 */}
             {permanentAllowed ? (
               <>
                 <button type="button" className="btn ghost" onClick={() => void decide(data.approvalId, true, "session")}>
@@ -328,6 +407,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
         </>
       ) : null}
 
+      {/* 决定完成后用结果条替换按钮，保留授权范围与审计提示。 */}
       {approved ? (
         <div className="approval-result approved">
           <Icon name="check-circle" />
@@ -346,6 +426,11 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   );
 }
 
+/**
+ * 模型错误码到处理建议的映射。
+ * 后端统一返回这些错误码，前端根据码给出可操作的中文提示；
+ * 未登记的错误码只显示原始信息，不猜测原因。
+ */
 const errorHints: Record<string, string> = {
   auth: "密钥无效或权限不足：请在设置 → 模型 → 提供商中重新保存 API Key，并确认该 Key 允许调用模型。",
   rate_limit: "请求被限流或额度不足：请稍后重试，或在设置中切换其他模型。",
@@ -357,6 +442,14 @@ const errorHints: Record<string, string> = {
   canceled: "本次生成已取消。",
 };
 
+/**
+ * 错误卡片。
+ *
+ * @param data 错误部件数据：错误码与可读信息。
+ *
+ * 展示错误码、原始信息，并在错误码有对应建议时补充处理办法。
+ * 提供“重试”（触发重新生成）与“复制错误”两个操作。
+ */
 export function ErrorCard({ data }: { data: ErrorPartData }) {
   const regenerate = useThreadStore((state) => state.regenerate);
   const toast = useUiStore((state) => state.toast);
@@ -392,6 +485,13 @@ export function ErrorCard({ data }: { data: ErrorPartData }) {
   );
 }
 
+/**
+ * 邮件草稿卡片。
+ *
+ * @param data 草稿数据：收件人、主题与正文。
+ *
+ * 草稿只在应用内展示，不会自动发送；用户只能复制内容后自行处理。
+ */
 export function DraftCard({ data }: { data: DraftPartData }) {
   const toast = useUiStore((state) => state.toast);
   return (
@@ -432,6 +532,13 @@ export function DraftCard({ data }: { data: DraftPartData }) {
   );
 }
 
+/**
+ * 提示条卡片。
+ *
+ * @param data 文本与语气：`warn` 警告、`ok` 成功，其余按普通信息处理。
+ *
+ * 语气只影响图标与配色，不改变文案。
+ */
 export function CalloutCard({ data }: { data: CalloutPartData }) {
   const variant = data.tone === "warn" ? "warn" : data.tone === "ok" ? "ok" : "";
   return (
@@ -444,6 +551,13 @@ export function CalloutCard({ data }: { data: CalloutPartData }) {
   );
 }
 
+/**
+ * 系统通知卡片。
+ *
+ * @param data 主文本与可选摘要；摘要折叠在“查看摘要”里，默认不打扰阅读。
+ *
+ * 用于展示上下文压缩、模型切换等由系统产生的说明。
+ */
 export function NoticeCard({ data }: { data: NoticePartData }) {
   return (
     <div className="blk sys-note">
@@ -461,6 +575,13 @@ export function NoticeCard({ data }: { data: NoticePartData }) {
   );
 }
 
+/**
+ * 用户消息的附件列表。
+ *
+ * @param attachments 附件路径数组；为空时组件不渲染任何内容。
+ *
+ * 只显示文件名（取路径最后一段），完整路径留在 title 里由上层按需展示。
+ */
 export function AttachmentChips({ attachments }: { attachments: string[] }) {
   if (!attachments?.length) {
     return null;
@@ -477,6 +598,12 @@ export function AttachmentChips({ attachments }: { attachments: string[] }) {
   );
 }
 
+/**
+ * 审批卡片里的一条“文件事实”，显示路径与可选大小。
+ *
+ * @param path 文件路径。
+ * @param size 字节数；缺省时只显示路径。
+ */
 export function FileFact({ path, size }: { path: string; size?: number }) {
   return (
     <span className="approval-fact">

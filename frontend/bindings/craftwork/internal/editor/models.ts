@@ -5,7 +5,15 @@
  * Hunk 是一组连续的差异行。
  */
 export interface Hunk {
+    /**
+     * Header 是差异块头，格式与统一差异格式一致，例如
+     * “@@ -1,3 +1,4 @@”。两个数字分别是起始行号与行数。
+     */
     "header": string;
+
+    /**
+     * Lines 是差异块内的行，包含变更行与前后若干上下文行。
+     */
     "lines": Line[] | null;
 }
 
@@ -14,11 +22,24 @@ export interface Hunk {
  */
 export interface Line {
     /**
+     * Kind 是行类型：ctx 表示上下文、add 表示新增、del 表示删除。
      * ctx / add / del
      */
     "kind": string;
+
+    /**
+     * Old 是这一行在旧文本中的行号，从 1 开始；新增行为 0。
+     */
     "old"?: number;
+
+    /**
+     * New 是这一行在新文本中的行号，从 1 开始；删除行为 0。
+     */
     "new"?: number;
+
+    /**
+     * Text 是行内容，不含换行符。
+     */
     "text": string;
 }
 
@@ -26,8 +47,23 @@ export interface Line {
  * Result 是完整的差异结果。
  */
 export interface Result {
+    /**
+     * Additions 是新增行总数。
+     */
     "additions": number;
+
+    /**
+     * Deletions 是删除行总数。
+     */
     "deletions": number;
+
+    /**
+     * Hunks 是按原文顺序排列的差异块。
+     */
     "hunks": Hunk[] | null;
+
+    /**
+     * Truncated 表示文本过大，未计算差异；此时 Hunks 为空。
+     */
     "truncated": boolean;
 }

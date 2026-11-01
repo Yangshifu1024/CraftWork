@@ -1,3 +1,9 @@
+/**
+ * 图标登记表与统一图标组件。
+ *
+ * 全应用只允许通过 `<Icon name="..." />` 使用图标，不允许在业务组件里手写 SVG 路径。
+ * 这样图标的默认尺寸、描边宽度与无障碍属性只有一个来源，替换图标库时也只需改这一处。
+ */
 import type { LucideProps } from "lucide-react";
 import {
   Archive,
@@ -81,10 +87,14 @@ import {
 } from "lucide-react";
 
 /**
+ * 图标登记表：把原型里使用的图标名映射到 lucide 组件。
+ *
  * 原型里 81 个 SVG symbol 的对应 lucide 组件。
  *
  * 这里只登记实际用到的图标，Vite 会按需 tree-shake。
  * 新增图标时直接在此表追加，不要在组件里手写 path。
+ * 键就是业务代码里书写的 `name`，因此同一个图标可以登记多个别名
+ * （例如 `git-branch` 与 `branch` 都指向 GitBranch）。
  */
 export const icons = {
   code: Code,
@@ -169,15 +179,32 @@ export const icons = {
   undo: Undo2,
 } as const;
 
+/** 图标名称的联合类型，直接由登记表的键推导，保证 `name` 不会写错。 */
 export type IconName = keyof typeof icons;
 
+/**
+ * 图标组件的属性。
+ *
+ * 在 lucide 原生属性基础上收紧了尺寸与描边：统一由 `size` 与 `strokeWidth` 控制，
+ * 其余属性（className、style、onClick 等）原样透传。
+ */
 export interface IconProps extends Omit<LucideProps, "size" | "strokeWidth"> {
+  /** 登记表里的图标名。 */
   name: IconName;
+  /** 图标边长（像素），默认 16。 */
   size?: number;
+  /** 描边宽度，默认 1.75。 */
   strokeWidth?: number;
 }
 
-/** 统一图标入口：默认 16px、描边 1.75，颜色跟随 currentColor。 */
+/**
+ * 统一图标入口。
+ *
+ * 负责：按名称取出图标组件，套上默认尺寸与描边宽度。
+ * props：`name` 必填，`size` 默认 16px，`strokeWidth` 默认 1.75，其余属性透传。
+ * 关键约定：颜色跟随 `currentColor`；`aria-hidden` 固定为真，因为图标只是视觉辅助，
+ * 文字说明由使用方提供，避免读屏重复朗读。
+ */
 export function Icon({ name, size = 16, strokeWidth = 1.75, ...rest }: IconProps) {
   const Component = icons[name];
   return <Component size={size} strokeWidth={strokeWidth} aria-hidden {...rest} />;

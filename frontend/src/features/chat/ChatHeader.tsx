@@ -1,3 +1,13 @@
+/**
+ * 聊天区顶部工具栏。
+ *
+ * 职责：
+ * - 展示当前线程标题、所属模式（Code / Work）与运行状态徽标。
+ * - 提供右侧面板开关、重命名、复制、归档、更多操作。
+ * - “更多操作”浮层提供归档与彻底删除，删除前必须二次确认。
+ *
+ * 线程不存在时只渲染一个空的占位头部，保证布局高度稳定。
+ */
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
@@ -7,6 +17,19 @@ import { usePanelStore } from "../../stores/panel";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 
+/**
+ * 聊天区顶部工具栏组件。
+ *
+ * props：无，全部数据来自应用、线程、面板与界面 store。
+ *
+ * 关键状态：
+ * - `moreAnchor`：更多操作浮层的锚点元素，非空即表示浮层打开。
+ * - `thread`：当前模式下的活动线程；找不到时提前返回空头部。
+ *
+ * 操作说明：
+ * - 重命名通过 `askPrompt` 弹出输入框，确认后立即写回。
+ * - 归档只是从列表隐藏，可恢复；删除会连同消息与事件一起删除，需确认。
+ */
 export function ChatHeader() {
   const mode = useAppStore((state) => state.mode);
   const threads = useThreadStore((state) => state.threads[mode]);
@@ -30,6 +53,7 @@ export function ChatHeader() {
     return <div className="chat-head" />;
   }
 
+  // 状态徽标只覆盖需要用户注意的三种状态，其余（空闲、已完成）不额外展示。
   const statusBadge =
     thread.status === "running" ? (
       <span className="badge accent">
@@ -48,6 +72,7 @@ export function ChatHeader() {
       </span>
     ) : null;
 
+  /** 弹出输入框重命名当前线程；用户取消或输入为空时不做修改。 */
   async function handleRename() {
     const next = await askPrompt({
       title: "重命名线程",
@@ -60,6 +85,7 @@ export function ChatHeader() {
     }
   }
 
+  /** 归档当前线程：从当前列表隐藏，但保留数据，可在归档中恢复。 */
   async function handleArchive() {
     if (!thread) {
       return;
@@ -68,6 +94,11 @@ export function ChatHeader() {
     toast({ title: "线程已归档", tone: "ok" });
   }
 
+  /**
+   * 彻底删除当前线程。
+   * 删除不可恢复，必须先通过确认框；确认后才调用线程 store 的 remove，
+   * 并提示用户消息、事件与审批记录都已一并删除。
+   */
   async function handleDelete() {
     if (!thread) {
       return;
@@ -130,6 +161,7 @@ export function ChatHeader() {
         </button>
       </div>
 
+      {/* 更多操作浮层：归档可恢复，删除不可恢复，两者都从这里进入。 */}
       <Popover anchor={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)} align="right">
         <button
           type="button"

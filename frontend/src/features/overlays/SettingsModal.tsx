@@ -1,3 +1,11 @@
+/**
+ * 设置弹窗。
+ *
+ * 负责：按分组展示并修改应用设置（通用、模式、模型与提供商、工具与权限、MCP、外观、高级），
+ * 同时承载提供商密钥管理、连接测试、MCP 服务器增删与连接，以及跳转到数据面板。
+ *
+ * 布局为左侧分组导航 + 右侧内容区；所有设置修改都通过 saveSettings 立即保存并生效。
+ */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
@@ -8,6 +16,7 @@ import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
 import { useUiStore, type SettingsTab } from "../../stores/ui";
 import { ProviderEditor } from "./ProviderEditor";
 
+/** 左侧导航的分组定义；id 与 settingsTab 对应，图标取自 Icon 组件。 */
 const groups: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
   { id: "general", label: "通用", icon: "settings" },
   { id: "mode", label: "模式", icon: "layers" },
@@ -18,12 +27,14 @@ const groups: Array<{ id: SettingsTab; label: string; icon: IconName }> = [
   { id: "advanced", label: "高级", icon: "sliders" },
 ];
 
+/** 三种审批档位的展示信息；实际策略由后端按档位与风险等级计算。 */
 const approvalOptions: Array<{ id: ApprovalLevel; label: string; description: string; icon: IconName }> = [
   { id: "graded", label: "分级", description: "R0 自动；R1–R3 询问；R4 阻止", icon: "shield" },
   { id: "strict", label: "严格", description: "写入与执行逐次询问，不提供永久允许", icon: "alert" },
   { id: "readonly", label: "只读", description: "只允许只读操作", icon: "lock" },
 ];
 
+/** 风险等级说明表，用于在「工具与权限」里解释每一级的默认策略。 */
 const permissions = [
   { level: "R0", name: "只读", policy: "自动允许，记录审计" },
   { level: "R1", name: "写工作区", policy: "每次询问，可本会话 / 本工作区授权" },
@@ -32,12 +43,27 @@ const permissions = [
   { level: "R4", name: "破坏性", policy: "阻止，双重确认也不放行" },
 ];
 
+/** MCP 服务器模板，仅作展示提示；MCP 的完整能力仍是 M4 的留桩。 */
 const mcpTemplates = [
   { name: "Gmail", description: "只读邮件、生成应用内草稿", icon: "mail" as IconName },
   { name: "Google Calendar", description: "只读日历、生成日程草稿", icon: "calendar" as IconName },
   { name: "PostgreSQL", description: "只读查询与表结构浏览", icon: "database" as IconName },
 ];
 
+/**
+ * 设置弹窗组件。
+ *
+ * props：无。数据来源：
+ * - useUiStore：弹窗开关、当前分组，以及确认框 / 输入框 / 提示；
+ * - useAppStore：设置值、应用信息与提供商列表，修改统一走 saveSettings。
+ *
+ * 本地状态：
+ * - query：分组搜索关键字；
+ * - expanded：当前展开的提供商卡片 ID；
+ * - testing：正在测试连接的提供商 ID；
+ * - mcpServers / mcpBusy：MCP 服务器列表与正在处理的服务器；
+ * - providerEditor：提供商编辑器是否打开以及编辑对象。
+ */
 export function SettingsModal() {
   const open = useUiStore((state) => state.settingsOpen);
   const tab = useUiStore((state) => state.settingsTab);
@@ -62,6 +88,7 @@ export function SettingsModal() {
   const [providerEditor, setProviderEditor] = useState<{ provider: ProviderView | null } | null>(null);
 
   useEffect(() => {
+    // 只有打开弹窗并停留在 MCP 分组时才读取服务器列表，其他分组不做请求。
     if (open && tab === "mcp") {
       void refreshMCP();
     }
@@ -70,12 +97,14 @@ export function SettingsModal() {
   }, [open, tab]);
 
   useEffect(() => {
+    // 关闭时收起提供商编辑器，避免下次打开残留上一次的编辑状态。
     if (!open) {
       setProviderEditor(null);
     }
   }, [open]);
 
   useEffect(() => {
+    // 每次打开都刷新提供商列表，保证密钥状态与可用性是最新的。
     if (open) {
       void refreshProviders();
     }
@@ -85,14 +114,24 @@ export function SettingsModal() {
     return null;
   }
 
+  // 分组搜索只匹配分组名称，不深入具体设置项。
   const visibleGroups = groups.filter(
     (group) => !query.trim() || group.label.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
+  /**
+   * 保存部分设置。
+   * 这里不等待结果，后端保存成功后 store 会同步最新值并触发界面更新。
+   */
   function update(patch: Partial<Settings>) {
     void saveSettings(patch);
   }
 
+  /**
+   * 设置提供商密钥。
+   * 通过输入框取得密钥后写入本地 keys.json（不会进入日志、数据库或对话），
+   * 再刷新提供商列表，让模型可用状态立即更新。
+   */
   async function setProviderKey(provider: ProviderView) {
     const key = await askPrompt({
       title: `设置 ${provider.name} 密钥`,
@@ -108,6 +147,10 @@ export function SettingsModal() {
     toast({ title: "密钥已保存", description: provider.name, tone: "ok" });
   }
 
+  /**
+   * 清除提供商密钥，需要二次确认；
+   * 清除后该提供商的模型会变为不可用。
+   */
   async function clearProviderKey(provider: ProviderView) {
     const confirmed = await askConfirm({
       title: `清除 ${provider.name} 密钥？`,
@@ -123,6 +166,11 @@ export function SettingsModal() {
     toast({ title: "密钥已清除", tone: "warn" });
   }
 
+  /**
+   * 测试提供商连接。
+   * 测试期间把提供商 ID 记到 testing，用来禁用对应卡片的按钮；
+   * 结果通过提示条展示，成功时附带延迟。
+   */
   async function testProvider(provider: ProviderView) {
     setTesting(provider.id);
     try {
@@ -139,6 +187,10 @@ export function SettingsModal() {
     }
   }
 
+  /**
+   * 读取已保存的 MCP 服务器列表。
+   * 失败时给出提示但不阻塞界面，列表保持上一次的内容。
+   */
   async function refreshMCP() {
     try {
       setMcpServers(await api.mcp.list());
@@ -147,6 +199,11 @@ export function SettingsModal() {
     }
   }
 
+  /**
+   * 添加 MCP 服务器。
+   * 分两步收集名称与启动命令，然后保存并尝试连接；
+   * 即使连接失败也保留配置，只在卡片上显示错误。
+   */
   async function addMCPServer() {
     const name = await askPrompt({
       title: "添加 MCP 服务器",
@@ -182,6 +239,7 @@ export function SettingsModal() {
     }
   }
 
+  /** 连接指定的 MCP 服务器，并刷新列表以拿到工具清单。 */
   async function connectMCP(server: MCPServerView) {
     setMcpBusy(server.id);
     try {
@@ -199,6 +257,7 @@ export function SettingsModal() {
     }
   }
 
+  /** 断开指定的 MCP 服务器连接，配置保留，可再次连接。 */
   async function disconnectMCP(server: MCPServerView) {
     setMcpBusy(server.id);
     try {
@@ -211,6 +270,9 @@ export function SettingsModal() {
     }
   }
 
+  /**
+   * 移除 MCP 服务器：需要二次确认，移除后已注册的工具立即失效。
+   */
   async function removeMCP(server: MCPServerView) {
     const confirmed = await askConfirm({
       title: `移除 ${server.name}？`,
@@ -229,6 +291,11 @@ export function SettingsModal() {
     }
   }
 
+  /**
+   * 删除提供商或恢复内置配置。
+   * 对内置提供商的覆盖配置，删除等价于恢复默认（API Key 保留）；
+   * 对自定义提供商，则删除配置并同时删除密钥。
+   */
   async function deleteProvider(provider: ProviderView) {
     const overridden = provider.overridden;
     const confirmed = await askConfirm({
@@ -256,6 +323,7 @@ export function SettingsModal() {
       <div className="overlay-backdrop" onClick={close} />
       <div className="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
         <div className="settings-head">
+          {/* 顶栏：标题、分组搜索与关闭按钮；搜索只过滤左侧分组 */}
           <Icon name="settings" />
           <h2>设置</h2>
           <div className="settings-search">
@@ -273,6 +341,7 @@ export function SettingsModal() {
 
         <div className="settings-body">
           <nav className="settings-nav">
+            {/* 设置分组导航；搜索无匹配时这里的列表会变短甚至为空 */}
             <div className="settings-nav-group">设置</div>
             {visibleGroups.map((group) => (
               <button
@@ -286,6 +355,7 @@ export function SettingsModal() {
               </button>
             ))}
             <div className="settings-nav-group">数据</div>
+            {/* 数据入口直接打开数据面板弹窗，不在这里内嵌展示 */}
             <button type="button" className="settings-nav-item" onClick={() => openData("usage")}>
               <Icon name="zap" className="ico" />
               用量统计
@@ -301,6 +371,7 @@ export function SettingsModal() {
           </nav>
 
           <div className="settings-content">
+            {/* 搜索有输入但没有任何分组匹配时给出空状态 */}
             {query.trim() && visibleGroups.length === 0 ? (
               <div className="panel-empty">
                 <Icon name="search" size={20} />
@@ -310,6 +381,7 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "general" ? (
+              /* 通用分组：启动模式、更新偏好、系统通知与数据目录 */
               <SettingsSection title="通用" desc="启动行为、语言与本地数据。">
                 <Row label="界面语言" desc="当前版本固定为简体中文；完整国际化需要消息编号表。">
                   <select className="select" value="zh-CN" disabled>
@@ -355,6 +427,7 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "mode" ? (
+              /* 模式分组：默认模式，以及两种模式各自的能力范围说明 */
               <SettingsSection title="模式" desc="Code 与 Work 共用同一套工作区与审批策略，只改变界面和可用工具。">
                 <Row label="默认模式" desc="新建窗口与新建线程时使用。">
                   <div className="radio-cards">
@@ -381,6 +454,7 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "models" ? (
+              /* 模型与提供商分组：默认模型、失败转移模型，以及提供商列表或编辑器 */
               <SettingsSection title="模型与提供商" desc="密钥只保存在本地；切换模型只影响后续 run。">
                 <Row label="默认模型" desc="新线程使用的模型。">
                   <select
@@ -424,6 +498,7 @@ export function SettingsModal() {
                 </Row>
 
                 {providerEditor ? (
+                  /* 编辑器打开时替换整个提供商列表，聚焦单个提供商的配置 */
                   <ProviderEditor
                     provider={providerEditor.provider}
                     onCancel={() => setProviderEditor(null)}
@@ -450,6 +525,7 @@ export function SettingsModal() {
                     {providers.map((provider) => (
                   <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
                     <div className="provider-head">
+                      {/* 提供商摘要：名称、可用状态、自定义 / 覆盖标记与操作按钮 */}
                       <div className="provider-logo">{provider.name.slice(0, 2)}</div>
                       <div className="provider-main">
                         <div className="provider-name">
@@ -506,6 +582,7 @@ export function SettingsModal() {
                       </div>
                     </div>
                     {expanded === provider.id ? (
+                      /* 展开内容：密钥来源与设置入口，以及该提供商下各模型的能力表 */
                       <div className="provider-body">
                         <div className="key-line">
                           <Icon name="key" className="ico" />
@@ -558,8 +635,10 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "tools" ? (
+              /* 工具与权限分组：审批档位、风险等级说明与当前限制 */
               <SettingsSection title="工具与权限" desc="审批档位与风险分级共同决定一次工具调用是否执行。">
                 <Row label="审批档位" desc="与输入框底部的盾牌按钮双向同步。">
+                  {/* 三个档位单选：分级、严格、只读，选中项立即保存 */}
                   <div className="radio-cards">
                     {approvalOptions.map((option) => (
                       <button
@@ -576,6 +655,7 @@ export function SettingsModal() {
                   </div>
                 </Row>
                 <div className="set-row" style={{ display: "block" }}>
+                  {/* 风险等级表：说明 R0–R4 的判定与默认策略 */}
                   <table className="perm-table">
                     <thead>
                       <tr>
@@ -607,8 +687,10 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "mcp" ? (
+              /* MCP 分组：已配置服务器、操作按钮与模板提示 */
               <SettingsSection title="MCP 服务器" desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。">
                 <div className="mcp-toolbar">
+                  {/* 添加服务器需要依次输入名称与启动命令；刷新重新读取列表 */}
                   <button
                     type="button"
                     className="btn sm"
@@ -632,6 +714,7 @@ export function SettingsModal() {
                 ) : null}
 
                 {mcpServers.map((server) => (
+                  /* 每个服务器卡片：连接状态、启动命令、错误信息、工具清单与操作 */
                   <div key={server.id} className="mcp-card">
                     <div className="mcp-head">
                       <div className="mcp-icon">
@@ -700,6 +783,7 @@ export function SettingsModal() {
                 </div>
 
                 {mcpTemplates.map((template) => (
+                  /* 模板只是说明性示例，不提供一键添加 */
                   <div key={template.name} className="mcp-card">
                     <div className="provider-head" style={{ padding: 0 }}>
                       <div className="provider-logo">
@@ -717,8 +801,10 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "appearance" ? (
+              /* 外观分组：主题与字号；未接线的控件保持禁用并标注里程碑 */
               <SettingsSection title="外观" desc="主题与字体只影响本地界面。">
                 <Row label="主题" desc="深色 / 浅色两套 token；代码主题独立。">
+                  {/* 主题卡片：用缩略块预览侧栏、主区与强调色的比例 */}
                   <div className="theme-cards">
                     {(["dark", "light"] as const).map((theme) => (
                       <button
@@ -772,6 +858,7 @@ export function SettingsModal() {
             ) : null}
 
             {tab === "advanced" ? (
+              /* 高级分组：版本信息、备份入口、导出留桩、重置设置与许可证 */
               <SettingsSection title="高级" desc="本地数据、版本与恢复。">
                 <Row label="版本" desc="构建信息">
                   <span className="mono">
@@ -795,6 +882,7 @@ export function SettingsModal() {
                   </button>
                 </Row>
                 <Row label="重置设置" desc="恢复默认设置，不删除会话与工作区。">
+                  {/* 重置前二次确认；确认后写回 DEFAULT_SETTINGS */}
                   <button
                     type="button"
                     className="btn sm ghost"
@@ -824,6 +912,7 @@ export function SettingsModal() {
         </div>
 
         <div className="settings-foot">
+          {/* 底部：本地保存说明与关闭按钮 */}
           <span className="settings-tip">
             <Icon name="lock" />
             设置保存在本地，不随对话上传。
@@ -839,6 +928,14 @@ export function SettingsModal() {
   );
 }
 
+/**
+ * 设置分组的通用外壳。
+ *
+ * @param title 分组标题；
+ * @param desc 分组说明；
+ * @param children 分组内的设置项。
+ * 每个分组都用它包裹，保证标题、说明与间距一致。
+ */
 function SettingsSection({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
     <section className="settings-section">
@@ -849,6 +946,13 @@ function SettingsSection({ title, desc, children }: { title: string; desc: strin
   );
 }
 
+/**
+ * 单条设置项。
+ *
+ * @param label 设置名称；
+ * @param desc 可选的补充说明；
+ * @param children 右侧的控件。
+ */
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="set-row">
@@ -861,6 +965,13 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
   );
 }
 
+/**
+ * 开关控件。
+ *
+ * @param on 当前是否开启；
+ * @param onChange 状态变化回调，参数是切换后的值；
+ * @param disabled 为 true 时点击不改变状态。
+ */
 function Switch({ on, onChange, disabled }: { on: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
   return (
     <button
@@ -877,6 +988,11 @@ function Switch({ on, onChange, disabled }: { on: boolean; onChange: (value: boo
   );
 }
 
+/**
+ * 模型能力表格里的单元格。
+ *
+ * @param yes 是否支持该项能力；支持显示对勾，不支持显示短横线。
+ */
 function Cap({ yes }: { yes: boolean }) {
   return (
     <td>

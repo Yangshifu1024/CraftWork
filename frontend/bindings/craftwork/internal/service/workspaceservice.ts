@@ -27,6 +27,9 @@ export function Active(): $CancellablePromise<$models.WorkspaceView | null> {
 
 /**
  * Add 添加工作区并设为当前活动工作区。
+ * 
+ * 输入路径会先转成绝对路径并解析符号链接，确保之后的所有边界判断
+ * 都基于真实的目录位置，而不是可能被替换的链接。
  */
 export function Add(path: string, trust: string): $CancellablePromise<$models.WorkspaceView> {
     return $Call.ByID(2808863931, path, trust);
@@ -69,6 +72,9 @@ export function PickFolder(): $CancellablePromise<string> {
 
 /**
  * ReadFile 读取工作区文件。
+ * 
+ * 目录、超过 10 MB 的文件会被拒绝；二进制文件只返回元数据，
+ * 文本超过 2 MB 时截断并标记 Truncated。
  */
 export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<$models.FileContent> {
     return $Call.ByID(2217031978, workspaceID, rel);
@@ -76,6 +82,9 @@ export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<
 
 /**
  * Remove 移除工作区记录，不删除磁盘文件。
+ * 
+ * 如果移除的是当前活动工作区，同时清空设置、策略引擎与工具注册表
+ * 中的路径，避免后续调用继续指向已不存在的工作区。
  */
 export function Remove(workspaceID: string): $CancellablePromise<void> {
     return $Call.ByID(3321404048, workspaceID);
@@ -97,6 +106,9 @@ export function SetTrust(workspaceID: string, trust: string): $CancellablePromis
 
 /**
  * WriteFile 保存编辑器内容。写入前备份，并在外部修改时拒绝覆盖。
+ * 
+ * expectedHash 是前端打开文件时拿到的哈希；非空且与磁盘内容不一致，
+ * 说明文件已被其他程序修改，此时返回错误让用户重新加载，避免覆盖。
  */
 export function WriteFile(workspaceID: string, rel: string, content: string, expectedHash: string): $CancellablePromise<void> {
     return $Call.ByID(3400523337, workspaceID, rel, content, expectedHash);

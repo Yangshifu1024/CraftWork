@@ -24,6 +24,9 @@ export function Close(sessionID: string): $CancellablePromise<void> {
 
 /**
  * Create 新建一个终端会话。
+ * 
+ * 启动目录同样经过工作区边界校验；Shell 取自 SHELL 环境变量，
+ * 未设置时回退到 /bin/zsh。
  */
 export function Create(name: string, cwd: string): $CancellablePromise<$models.TerminalView> {
     return $Call.ByID(3388481061, name, cwd);

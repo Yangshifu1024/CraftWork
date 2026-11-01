@@ -1,7 +1,24 @@
+/**
+ * 文档面板（Work 模式）。
+ *
+ * 负责：展示 Word / Excel / PDF 提取出的文本预览与文件基本信息，
+ * 并提供「在编辑器中打开」或「重新加载预览」的入口。
+ *
+ * 当前只做文本级能力：Word 仅替换同格式片段内的文本，
+ * Excel 不计算公式，PDF 只读文本层，不做 OCR 与编辑。
+ */
 import { Icon } from "../../components/Icon";
 import { formatBytes, formatTime } from "../../lib/utils";
 import { useWorkspaceStore } from "../../stores/workspace";
 
+/**
+ * 文档预览组件。
+ *
+ * props：无。状态全部来自 workspace store：
+ * - doc：提取后的文本、类型（docx / xlsx / pdf）、是否可预览与补充说明；
+ * - docLoading：是否正在读取；
+ * - supported 且 kind 为 text 时可以在编辑器中打开，否则只能重新加载预览。
+ */
 export function DocumentPanel() {
   const doc = useWorkspaceStore((state) => state.doc);
   const loading = useWorkspaceStore((state) => state.docLoading);
@@ -31,12 +48,14 @@ export function DocumentPanel() {
     );
   }
 
+  // 只有能提取文本的文档才提供编辑器入口；其余类型只能重新加载预览。
   const editable = doc.supported && doc.kind === "text";
 
   return (
     <div className="panel-scroll">
       <div className="doc-wrap">
         <div className="doc-toolbar">
+          {/* 头部：文件名、类型徽标、大小与修改时间，以及主操作按钮 */}
           <Icon name="file-text" className="ico" />
           <span className="doc-title" title={doc.path}>
             {doc.name}
@@ -50,6 +69,7 @@ export function DocumentPanel() {
             type="button"
             className="tool-btn"
             onClick={() => {
+              // 可编辑文本进编辑器；其他类型重新向后端请求预览
               if (editable) {
                 void openFile(doc.path);
               } else {
@@ -63,6 +83,7 @@ export function DocumentPanel() {
         </div>
 
         <div className="doc-badge-bar">
+          {/* 预览能力提示；note 解释无法预览或文本受限的原因 */}
           {doc.supported ? (
             <span className="badge ok">
               <Icon name="check-circle" />
@@ -78,8 +99,10 @@ export function DocumentPanel() {
         </div>
 
         {doc.supported && doc.text ? (
+          /* 提取出的纯文本按原样展示，不做富文本样式还原 */
           <pre className="doc-text">{doc.text}</pre>
         ) : (
+          /* 无可展示文本时给出图标与原因说明 */
           <div className="panel-empty">
             <Icon name={doc.kind === "xlsx" ? "table" : "file-text"} size={24} />
             <div>没有可提取的文本</div>

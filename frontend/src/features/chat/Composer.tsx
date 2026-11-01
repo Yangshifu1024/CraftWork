@@ -1,3 +1,14 @@
+/**
+ * 消息输入区（Composer）。
+ *
+ * 职责：
+ * - 使用 assistant-ui 的 ComposerPrimitive 管理输入框、提交与发送按钮。
+ * - 展示并管理待发送附件：添加、移除；图片入口在不支持视觉的模型上禁用。
+ * - 提供审批档位切换与模型切换两个浮层，改动即时保存到设置或线程。
+ * - 显示上下文用量估算，以及运行中把发送按钮替换成停止按钮。
+ *
+ * 说明：这里只负责输入与选择，真正的发送、取消由 runtime 转给线程 store。
+ */
 import { useMemo, useState } from "react";
 import { ComposerPrimitive } from "@assistant-ui/react";
 import { Icon } from "../../components/Icon";
@@ -9,20 +20,38 @@ import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 
+/** 当前打开的浮层类型；null 表示没有浮层。 */
 type PopoverKind = "approval" | "model" | null;
 
+/** 审批档位选项：标签、说明与最终写入设置的档位 ID。 */
 const approvalOptions: Array<{ id: ApprovalLevel; label: string; description: string }> = [
   { id: "graded", label: "分级", description: "R0 自动；R1–R3 询问；R4 阻止" },
   { id: "strict", label: "严格", description: "写入与执行逐次询问，不提供永久允许" },
   { id: "readonly", label: "只读", description: "只允许只读操作，写入与执行直接拒绝" },
 ];
 
+/** 审批档位的中文短标签，用于输入区工具条上的当前档位显示。 */
 const levelLabel: Record<string, string> = {
   graded: "分级",
   strict: "严格",
   readonly: "只读",
 };
 
+/**
+ * 消息输入区组件。
+ *
+ * props：无，模式、设置、线程与附件都来自全局 store。
+ *
+ * 关键状态：
+ * - `popover`：当前浮层类型与锚点元素，同一时间只开一个浮层。
+ * - `models`：所有提供商下可用的模型，供模型切换浮层使用。
+ * - `estimate`：上下文用量的粗略估算，等于后端已记录的 token 数
+ *   加上当前消息文本按每 4 个字符约 1 个 token 的估算值。
+ *
+ * 说明：
+ * - 图片按钮在模型不支持视觉时禁用，避免选完附件才被拒绝。
+ * - 审批档位写入设置，影响后续所有 run；模型只写入当前线程，影响后续 run。
+ */
 export function Composer() {
   const mode = useAppStore((state) => state.mode);
   const settings = useAppStore((state) => state.settings);
@@ -46,14 +75,17 @@ export function Composer() {
   });
 
   const thread = threads.find((item) => item.id === activeID);
+  // 只保留可用模型；线程未绑定模型时退回列表第一个。
   const models = useMemo(
     () => providers.flatMap((provider) => provider.models).filter((model) => model.available),
     [providers],
   );
   const currentModel = models.find((model) => model.id === thread?.modelId) ?? models[0];
+  // contextK 缺省按 32k 处理，保证没有模型信息时界面仍有合理的分母。
   const contextK = currentModel?.contextK ?? 32;
   const supportsVision = currentModel?.caps.vision ?? false;
 
+  // 上下文估算：后端累计 token + 当前消息文本长度除以 4；只用于提示，不参与实际截断。
   const estimate = useMemo(() => {
     const characters = messages.reduce((total, message) => {
       return (
@@ -67,6 +99,7 @@ export function Composer() {
     return (thread?.tokens ?? 0) + Math.round(characters / 4);
   }, [messages, thread?.tokens]);
 
+  /** 打开系统文件选择框，把选中的文件加入待发送附件；失败时提示原因。 */
   async function pickFiles() {
     try {
       const paths = await api.app.pickFiles();
@@ -78,6 +111,7 @@ export function Composer() {
     }
   }
 
+  /** 关闭当前浮层并清空锚点。 */
   function closePopover() {
     setPopover({ kind: null, anchor: null });
   }
@@ -85,6 +119,7 @@ export function Composer() {
   return (
     <div className="composer-wrap">
       <ComposerPrimitive.Root className="composer">
+        {/* 待发送附件条：点击叉号只从列表移除，不会删除磁盘文件。 */}
         {attachments.length > 0 ? (
           <div className="attach-strip">
             {attachments.map((attachment) => (
@@ -119,6 +154,7 @@ export function Composer() {
             <button type="button" className="icon-btn sm" title="添加附件" aria-label="添加附件" onClick={() => void pickFiles()}>
               <Icon name="paperclip" className="ico" />
             </button>
+            {/* 图片入口在不支持视觉的模型上禁用，并在提示里说明原因。 */}
             <button
               type="button"
               className="icon-btn sm"
@@ -130,6 +166,7 @@ export function Composer() {
               <Icon name="image" className="ico" />
             </button>
             <span className="composer-sep" aria-hidden="true" />
+            {/* 审批档位入口：点击打开浮层，选择后立即保存到设置。 */}
             <button
               type="button"
               className="composer-approval"
@@ -144,6 +181,7 @@ export function Composer() {
           </div>
 
           <div className="composer-send">
+            {/* 上下文用量只是估算提示，悬停可看到具体数值与模型上限。 */}
             <span className="ctx-hint" title={`上下文约 ${formatTokens(estimate)} / ${contextK}k`}>
               ≈ {formatTokens(estimate)} / {contextK}k
             </span>
@@ -159,6 +197,7 @@ export function Composer() {
               <Icon name="chevron-down" className="ico chev" />
             </button>
 
+            {/* 运行中显示停止按钮，空闲时显示发送按钮，两者占同一位置。 */}
             {running ? (
               <button type="button" className="stop-btn" title="停止生成 Esc" aria-label="停止生成" onClick={() => void cancel()}>
                 <Icon name="stop" className="ico" />
@@ -172,6 +211,7 @@ export function Composer() {
         </div>
       </ComposerPrimitive.Root>
 
+      {/* 输入区下方的快捷键与安全提示，文案随模式变化。 */}
       <div className="composer-foot">
         <span className="kbd">⌘↵</span> 发送
         <span className="foot-sep" />
@@ -183,6 +223,7 @@ export function Composer() {
         </span>
       </div>
 
+      {/* 审批档位浮层：与设置页共用同一份设置，改动双向同步。 */}
       <Popover anchor={popover.anchor} open={popover.kind === "approval"} onClose={closePopover} align="left">
         <div className="popover-label">审批档位</div>
         {approvalOptions.map((option) => (
@@ -210,6 +251,7 @@ export function Composer() {
         <div className="popover-note">档位与设置 · 工具与权限双向同步。</div>
       </Popover>
 
+      {/* 模型切换浮层：选择只写入当前线程，下一轮 run 生效。 */}
       <Popover anchor={popover.anchor} open={popover.kind === "model"} onClose={closePopover} align="right">
         <div className="popover-label">切换模型</div>
         {models.length === 0 ? <div className="popover-note">没有可用模型，请先在设置中配置密钥。</div> : null}
@@ -233,6 +275,15 @@ export function Composer() {
   );
 }
 
+/**
+ * 模型切换浮层里的一行。
+ *
+ * @param model 模型视图数据：名称、提供商、上下文长度与能力标记。
+ * @param active 是否为当前线程正在使用的模型，用于显示勾选与高亮圆点。
+ * @param onSelect 点击后切换模型并关闭浮层。
+ *
+ * 能力标记只把已支持项拼成一行中文说明，全部不支持时省略该段。
+ */
 function ModelItem({ model, active, onSelect }: { model: ModelView; active: boolean; onSelect: () => void }) {
   const caps: string[] = [];
   if (model.caps.tools) caps.push("工具");

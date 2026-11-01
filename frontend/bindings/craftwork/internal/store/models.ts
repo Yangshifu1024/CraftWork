@@ -5,23 +5,56 @@
  * Approval 是一次工具审批。
  */
 export interface Approval {
+    /**
+     * ID 是审批的唯一标识。
+     */
     "id": string;
+
+    /**
+     * ThreadID 是所属线程。
+     */
     "threadId": string;
+
+    /**
+     * RunID 是触发审批的那次运行。
+     */
     "runId": string;
+
+    /**
+     * ToolCallID 是模型给出的工具调用标识。
+     */
     "toolCallId": string;
+
+    /**
+     * Tool 是工具名称。
+     */
     "tool": string;
+
+    /**
+     * Risk 是风险评估等级的文字形式。
+     */
     "risk": string;
 
     /**
+     * Decision 是用户决定：空表示等待中，取值为 allow / deny / canceled。
      * 空表示等待中；allow / deny / canceled
      */
     "decision": string;
 
     /**
+     * Scope 是授权范围，取值为 once / session / workspace。
      * once / session / workspace
      */
     "scope": string;
+
+    /**
+     * RequestedAt 是发起审批的时间，毫秒时间戳。
+     */
     "requestedAt": number;
+
+    /**
+     * DecidedAt 是作出决定的时间；未决定时为零。
+     */
     "decidedAt"?: number;
 }
 
@@ -29,14 +62,49 @@ export interface Approval {
  * AuditEntry 是不可变的审计记录。
  */
 export interface AuditEntry {
+    /**
+     * ID 是自增主键，由数据库生成。
+     */
     "id": number;
+
+    /**
+     * TS 是记录时间，毫秒时间戳。
+     */
     "ts": number;
+
+    /**
+     * ThreadID 是所属线程，可为空。
+     */
     "threadId": string;
+
+    /**
+     * RunID 是所属运行，可为空。
+     */
     "runId": string;
+
+    /**
+     * Tool 是工具名称。
+     */
     "tool": string;
+
+    /**
+     * Risk 是风险评估等级。
+     */
     "risk": string;
+
+    /**
+     * Decision 是最终决定，取值为 allow / deny / canceled。
+     */
     "decision": string;
+
+    /**
+     * Scope 是授权范围。
+     */
     "scope": string;
+
+    /**
+     * Detail 是补充说明，例如操作摘要或“用户审批”。
+     */
     "detail": string;
 }
 
@@ -44,11 +112,34 @@ export interface AuditEntry {
  * Backup 是一条文件写入前的备份记录。
  */
 export interface Backup {
+    /**
+     * ID 是备份的唯一标识。
+     */
     "id": string;
+
+    /**
+     * Path 是被备份文件的原始路径。
+     */
     "path": string;
+
+    /**
+     * BackupPath 是备份文件在备份目录中的路径。
+     */
     "backupPath": string;
+
+    /**
+     * Hash 是备份内容的哈希，用于校验与去重。
+     */
     "hash": string;
+
+    /**
+     * Size 是备份文件大小，单位是字节。
+     */
     "size": number;
+
+    /**
+     * CreatedAt 是备份时间，毫秒时间戳。
+     */
     "createdAt": number;
 }
 
@@ -56,30 +147,66 @@ export interface Backup {
  * DailyUsage 是按天聚合的用量。
  */
 export interface DailyUsage {
+    /**
+     * Day 是日期，格式为 YYYY-MM-DD。
+     */
     "day": string;
+
+    /**
+     * InputTokens 是当天输入 token 合计。
+     */
     "inputTokens": number;
+
+    /**
+     * OutputTokens 是当天输出 token 合计。
+     */
     "outputTokens": number;
+
+    /**
+     * CostMicros 是当天费用合计。
+     */
     "costMicros": number;
+
+    /**
+     * Runs 是当天调用次数。
+     */
     "runs": number;
 }
 
 /**
- * Message 是从事件表物化出来的消息，直接返回给前端。
+ * Message 是从事件表重建出来的消息，直接返回给前端。
  */
 export interface Message {
+    /**
+     * ID 是消息标识，同时用于把事件归组。
+     */
     "id": string;
+
+    /**
+     * ThreadID 是所属线程。
+     */
     "threadId": string;
 
     /**
+     * Role 是消息角色，取值为 user / assistant。
      * user / assistant
      */
     "role": string;
 
     /**
+     * Status 是消息状态，取值为 streaming / complete / incomplete / error。
      * streaming / complete / incomplete / error
      */
     "status": string;
+
+    /**
+     * CreatedAt 是消息创建时间，毫秒时间戳。
+     */
     "createdAt": number;
+
+    /**
+     * Parts 是消息中的内容块，按事件序号排列。
+     */
     "parts": Part[] | null;
 }
 
@@ -87,10 +214,29 @@ export interface Message {
  * ModelUsage 是按模型聚合的用量。
  */
 export interface ModelUsage {
+    /**
+     * ModelID 是模型标识。
+     */
     "modelId": string;
+
+    /**
+     * InputTokens 是输入 token 合计。
+     */
     "inputTokens": number;
+
+    /**
+     * OutputTokens 是输出 token 合计。
+     */
     "outputTokens": number;
+
+    /**
+     * CostMicros 是费用合计。
+     */
     "costMicros": number;
+
+    /**
+     * Runs 是调用次数。
+     */
     "runs": number;
 }
 
@@ -99,9 +245,24 @@ export interface ModelUsage {
  * 与 internal/events 中的事件载荷保持一致。
  */
 export interface Part {
+    /**
+     * ID 是部件的唯一标识，也是对应事件的 ID。
+     */
     "id": string;
+
+    /**
+     * Kind 是部件类型，例如 text、reasoning、tool、approval。
+     */
     "kind": string;
+
+    /**
+     * Seq 是事件在线程内的序号，前端用它排序与断点续传。
+     */
     "seq": number;
+
+    /**
+     * Data 是部件的具体内容，形状由 Kind 决定。
+     */
     "data": any;
 }
 
@@ -109,9 +270,24 @@ export interface Part {
  * Snapshot 是线程的完整视图：线程本身、消息与事件序号。
  */
 export interface Snapshot {
+    /**
+     * Thread 是线程本身的属性。
+     */
     "thread": Thread;
+
+    /**
+     * Messages 是按创建顺序排列的消息，每条消息都带有部件。
+     */
     "messages": Message[] | null;
+
+    /**
+     * LastSeq 是当前线程最大的事件序号，前端据此接续增量事件。
+     */
     "lastSeq": number;
+
+    /**
+     * Approvals 是线程内尚未决定的审批。
+     */
     "approvals": Approval[] | null;
 
     /**
@@ -129,19 +305,55 @@ export interface Snapshot {
  * Thread 是一个对话线程。mode 取 code / work。
  */
 export interface Thread {
+    /**
+     * ID 是线程的唯一标识。
+     */
     "id": string;
+
+    /**
+     * Mode 是线程所属模式，取值为 code 或 work。
+     */
     "mode": string;
+
+    /**
+     * Title 是侧边栏展示的标题。
+     */
     "title": string;
+
+    /**
+     * ModelID 是当前使用的模型标识。
+     */
     "modelId": string;
+
+    /**
+     * WorkspaceID 是绑定的工作区标识，可为空。
+     */
     "workspaceId": string;
 
     /**
+     * Status 是线程运行状态，取值为 idle / running / awaiting / error。
      * idle / running / awaiting / error
      */
     "status": string;
+
+    /**
+     * Archived 表示线程是否已归档。
+     */
     "archived": boolean;
+
+    /**
+     * Tokens 是该线程累计消耗的 token 数。
+     */
     "tokens": number;
+
+    /**
+     * CreatedAt 是创建时间，毫秒时间戳。
+     */
     "createdAt": number;
+
+    /**
+     * UpdatedAt 是最近活动时间，毫秒时间戳。
+     */
     "updatedAt": number;
 }
 
@@ -149,10 +361,29 @@ export interface Thread {
  * UsageSummary 是设置页与审计面板使用的聚合。
  */
 export interface UsageSummary {
+    /**
+     * Today 是今天的合计。
+     */
     "today": UsageTotals;
+
+    /**
+     * Week 是最近七天的合计。
+     */
     "week": UsageTotals;
+
+    /**
+     * Month 是最近三十天的合计。
+     */
     "month": UsageTotals;
+
+    /**
+     * ByModel 是按模型拆分的用量。
+     */
     "byModel": ModelUsage[] | null;
+
+    /**
+     * ByDay 是按天拆分的用量。
+     */
     "byDay": DailyUsage[] | null;
 }
 
@@ -160,9 +391,28 @@ export interface UsageSummary {
  * UsageTotals 是某个时间段的合计。
  */
 export interface UsageTotals {
+    /**
+     * InputTokens 是输入 token 合计。
+     */
     "inputTokens": number;
+
+    /**
+     * OutputTokens 是输出 token 合计。
+     */
     "outputTokens": number;
+
+    /**
+     * CacheTokens 是缓存 token 合计。
+     */
     "cacheTokens": number;
+
+    /**
+     * CostMicros 是费用合计。
+     */
     "costMicros": number;
+
+    /**
+     * Runs 是模型调用次数。
+     */
     "runs": number;
 }

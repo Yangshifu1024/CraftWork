@@ -23,6 +23,9 @@ export function Get(): $CancellablePromise<$models.Settings> {
 
 /**
  * Save 校验并保存设置，返回保存后的完整设置。
+ * 
+ * 非法取值不会报错，而是回退到当前值或默认值，保证前端不会因为
+ * 一个坏字段就整体保存失败；涉及工作区与模型时才做真实校验。
  */
 export function Save(next: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(2201703545, next);
