@@ -49,7 +49,7 @@ const settings: Settings = {
   fallbackModel: "",
   activeWorkspace: "ws_demo",
   language: "zh-CN",
-  fontSize: 13,
+  fontSize: 14,
   codeTheme: "dark",
   terminalFontSize: 12,
   autoUpdate: true,

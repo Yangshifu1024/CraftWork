@@ -240,6 +240,7 @@ docs/                    需求、界面、技术方案、原型
 - 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
 - `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。
 - `npm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
+- `scrollbar-gutter: stable` 的预留宽度在两个内核不一致：Chromium 按自定义 `::-webkit-scrollbar` 宽度预留且与滚动条本体不叠加；WKWebView 按系统滚动条宽度（约 11px）预留并与滚动条叠加。本项目桌面（WKWebView）与 server 浏览器（Chromium）会因此出现约 11px 的内容宽度差，**不要在布局里依赖 `scrollbar-gutter`**；滚动条占位以 `::-webkit-scrollbar` 自定义宽度为准（见 `.thread-list`）。
 
 ## 8. 验证清单
 

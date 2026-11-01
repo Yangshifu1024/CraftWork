@@ -926,8 +926,12 @@ export function SettingsModal() {
                     ))}
                   </div>
                 </Row>
-                <Row label="界面字号" desc="影响消息、侧栏与设置；字号缩放与全局 token 在 M1 接入。">
-                  <select className="select" value={settings.fontSize} disabled title="M1 接入">
+                <Row label="界面字号" desc="界面基准字号，影响消息、侧栏、面板与浮层；终端、编辑器与代码块使用独立字号。">
+                  <select
+                    className="select"
+                    value={settings.fontSize}
+                    onChange={(event) => update({ fontSize: Number(event.target.value) })}
+                  >
                     {[12, 13, 14, 15].map((size) => (
                       <option key={size} value={size}>
                         {size}px

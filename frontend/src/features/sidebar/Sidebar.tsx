@@ -241,7 +241,7 @@ export function Sidebar() {
               {activeWorkspace?.name ?? "选择工作区"}
               <span
                 className={cn("badge", mode === "work" ? "work" : "accent")}
-                style={{ height: 15, fontSize: 9 }}
+                style={{ height: 15, fontSize: "var(--text-ui-xs)" }}
               >
                 {mode === "work" ? "Work" : "Code"}
               </span>
@@ -353,7 +353,7 @@ export function Sidebar() {
               <>
                 没有匹配的会话
                 <br />
-                <span style={{ fontSize: 10, color: "var(--text-4)" }}>试试更短的关键词</span>
+                <span style={{ fontSize: "var(--text-ui-sm)", color: "var(--text-4)" }}>试试更短的关键词</span>
               </>
             ) : (
               <>
@@ -601,17 +601,11 @@ function ThreadItem({
       }}
     >
       <span className="thread-title">{highlight(thread.title, query)}</span>
-      <span className="thread-time">{formatTime(thread.updatedAt)}</span>
       <span className="thread-sub">
-        <span className="model-name">{thread.modelName || thread.modelId}</span>
-        <span className="dot-sep">·</span>
-        {hit ? (
-          <span style={{ color: "var(--warn)" }}>内容命中</span>
-        ) : (
-          <span>{formatTokens(thread.tokens)} tokens</span>
-        )}
+        <span className="thread-time">{formatTime(thread.updatedAt)}</span>
+        {hit ? <span className="thread-hit">内容命中</span> : null}
+        {statusNode}
       </span>
-      {statusNode}
     </button>
   );
 }

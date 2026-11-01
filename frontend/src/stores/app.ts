@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fallbackModel: "",
   activeWorkspace: "",
   language: "zh-CN",
-  fontSize: 13,
+  fontSize: 14,
   codeTheme: "dark",
   terminalFontSize: 12,
   autoUpdate: true,
@@ -77,6 +77,16 @@ function applyMode(mode: Mode): void {
   document.documentElement.dataset.mode = mode;
 }
 
+/**
+ * 把界面基准字号写到根元素的 CSS 变量上。
+ *
+ * 全站 UI 字号都由 --ui-font-size 派生（见 styles/base.css 的 --text-ui-* 档位），
+ * 这里只改这一个变量，图标、间距等几何尺寸不受影响；取值范围由后端校验兜底。
+ */
+function applyFontSize(size: number): void {
+  document.documentElement.style.setProperty("--ui-font-size", `${size}px`);
+}
+
 /** 事件总线是否已经订阅过，防止重复注册监听。 */
 let eventsConnected = false;
 
@@ -99,6 +109,7 @@ function connectEvents(): void {
         // 事件里可能缺少主题或模式字段，缺失时退回默认值，保证根元素属性始终有值。
         applyTheme((settings.theme as Theme) ?? "system");
         applyMode((settings.mode as Mode) ?? "code");
+        applyFontSize(settings.fontSize ?? DEFAULT_SETTINGS.fontSize);
         useAppStore.setState({
           settings,
           theme: (settings.theme as Theme) ?? "system",
@@ -193,6 +204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ]);
       applyTheme(settings.theme as Theme);
       applyMode(settings.mode as Mode);
+      applyFontSize(settings.fontSize ?? DEFAULT_SETTINGS.fontSize);
       // macOS 与 Linux / Windows 需要不同的窗口细节样式，这里把平台写到根元素；
       // web 表示浏览器预览，不需要桌面平台标记。
       if (info.platform === "darwin") {
@@ -260,6 +272,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     if (patch.mode) {
       applyMode(patch.mode as Mode);
+    }
+    if (patch.fontSize) {
+      applyFontSize(patch.fontSize);
     }
     set({
       settings: next,
@@ -342,6 +357,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const settings = await api.settings.get();
     applyTheme(settings.theme as Theme);
     applyMode(settings.mode as Mode);
+    applyFontSize(settings.fontSize ?? DEFAULT_SETTINGS.fontSize);
     set({
       settings,
       theme: (settings.theme as Theme) ?? "dark",

@@ -695,7 +695,7 @@ export interface Settings {
     "language": string;
 
     /**
-     * FontSize 是正文与编辑器字号。
+     * FontSize 是界面基准字号，驱动前端 --ui-font-size 缩放（styles/base.css 的 --text-ui-* 档位）。
      */
     "fontSize": number;
 

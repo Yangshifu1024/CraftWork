@@ -35,7 +35,7 @@ type Settings struct {
 	ActiveWorkspace string `json:"activeWorkspace"`
 	// Language 是界面语言。
 	Language string `json:"language"`
-	// FontSize 是正文与编辑器字号。
+	// FontSize 是界面基准字号，驱动前端 --ui-font-size 缩放（styles/base.css 的 --text-ui-* 档位）。
 	FontSize int `json:"fontSize"`
 	// CodeTheme 是代码高亮主题。
 	CodeTheme string `json:"codeTheme"`
@@ -63,7 +63,7 @@ func DefaultSettings() Settings {
 		ApprovalLevel:    string(policy.LevelGraded),
 		DefaultModel:     "",
 		Language:         "zh-CN",
-		FontSize:         13,
+		FontSize:         14,
 		CodeTheme:        "dark",
 		TerminalFontSize: 12,
 		AutoUpdate:       true,
@@ -168,7 +168,7 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 		next.PanelWidth = 760
 	}
 	if next.FontSize < 11 || next.FontSize > 18 {
-		next.FontSize = 13
+		next.FontSize = 14
 	}
 	if next.TerminalFontSize < 10 || next.TerminalFontSize > 20 {
 		next.TerminalFontSize = 12
