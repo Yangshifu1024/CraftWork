@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 )
 
@@ -98,7 +99,7 @@ func (t *applyPatchTool) Execute(_ context.Context, call Call) Result {
 	if info, statErr := os.Stat(abs); statErr == nil {
 		mode = info.Mode().Perm()
 	}
-	if err := writeAtomic(abs, []byte(updated), mode); err != nil {
+	if err := platform.WriteFileAtomic(abs, []byte(updated), mode); err != nil {
 		return errorResult("写入失败: %v", err)
 	}
 	return Result{

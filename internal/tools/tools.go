@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 )
 
@@ -360,11 +361,11 @@ func (r *Registry) backup(absPath string, data []byte) error {
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return fmt.Errorf("创建备份目录: %w", err)
 	}
-	backupPath := filepath.Join(backupDir, backupName(absPath))
+	backupPath := filepath.Join(backupDir, platform.BackupName(absPath))
 	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
 		return fmt.Errorf("写入备份: %w", err)
 	}
-	hash := sha256Hex(data)
+	hash := platform.Sha256Hex(data)
 	if record != nil {
 		if err := record(absPath, backupPath, hash, int64(len(data))); err != nil {
 			return fmt.Errorf("记录备份: %w", err)

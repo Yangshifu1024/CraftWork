@@ -87,6 +87,7 @@ internal/service/        Wails 绑定层（App / Settings / Thread / Chat /
                          Workspace / Provider / Audit / Terminal / Document）
 internal/agent/          Run 循环、审批状态机、授权缓存
 internal/record/         事件写入与广播（落库 + 推送的唯一出口）
+internal/platform/       原子写、哈希、环境清洗、子进程执行
 internal/tools/          fs_* / shell_exec / git_status / todo_write
 internal/policy/         风险分级、审批档位、路径解析、命令分类
 internal/model/          统一 Client、提供商目录、Mock、OpenAI 兼容 SSE

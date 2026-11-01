@@ -1,4 +1,4 @@
-package mcp
+package platform
 
 import (
 	"os"
@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// sanitizedEnv 只向 MCP 服务器传递必要的环境变量，避免把模型密钥泄漏给第三方进程。
-func sanitizedEnv() []string {
+// SanitizedEnv 只传递必要的环境变量，避免把模型密钥泄漏给子进程。
+func SanitizedEnv() []string {
 	keep := map[string]bool{
 		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true,
 		"SHELL": true, "LANG": true, "TERM": true, "TMPDIR": true,

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 )
 
@@ -140,8 +141,8 @@ func (t *fsReadTool) Execute(_ context.Context, call Call) Result {
 	if err != nil {
 		return errorResult("读取文件失败: %v", err)
 	}
-	if isBinary(data) {
-		return Result{Output: fmt.Sprintf("二进制文件 %s\n大小: %s\nSHA-256: %s", display, humanSize(info.Size()), sha256Hex(data))}
+	if platform.IsBinary(data) {
+		return Result{Output: fmt.Sprintf("二进制文件 %s\n大小: %s\nSHA-256: %s", display, humanSize(info.Size()), platform.Sha256Hex(data))}
 	}
 
 	text := string(data)
@@ -309,7 +310,7 @@ func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
 			return nil
 		}
 		data, err := os.ReadFile(path)
-		if err != nil || isBinary(data) {
+		if err != nil || platform.IsBinary(data) {
 			return nil
 		}
 		rel := displayPath(call.Workspace, path)
@@ -380,7 +381,7 @@ func (t *fsWriteTool) Execute(_ context.Context, call Call) Result {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return errorResult("创建目录失败: %v", err)
 	}
-	if err := writeAtomic(abs, []byte(content), mode); err != nil {
+	if err := platform.WriteFileAtomic(abs, []byte(content), mode); err != nil {
 		return errorResult("写入失败: %v", err)
 	}
 	return Result{
@@ -442,7 +443,7 @@ func (t *fsEditTool) Execute(_ context.Context, call Call) Result {
 	if info, statErr := os.Stat(abs); statErr == nil {
 		mode = info.Mode().Perm()
 	}
-	if err := writeAtomic(abs, []byte(updated), mode); err != nil {
+	if err := platform.WriteFileAtomic(abs, []byte(updated), mode); err != nil {
 		return errorResult("写入失败: %v", err)
 	}
 	return Result{

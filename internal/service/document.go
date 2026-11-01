@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"craftwork/internal/doc"
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 	"craftwork/internal/store"
 )
@@ -79,7 +80,7 @@ func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, err
 		if readErr != nil {
 			return preview, fmt.Errorf("读取文件: %w", readErr)
 		}
-		if isBinaryData(data) {
+		if platform.IsBinary(data) {
 			preview.Supported = false
 			preview.Note = "二进制文件，无法预览。"
 			return preview, nil

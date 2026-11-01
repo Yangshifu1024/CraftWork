@@ -1,8 +1,6 @@
 package service
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,11 +8,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"craftwork/internal/editor"
 	"craftwork/internal/events"
 	"craftwork/internal/id"
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 	"craftwork/internal/store"
 	"craftwork/internal/tools"
@@ -289,10 +287,10 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 		Path:     display,
 		Size:     info.Size(),
 		Language: languageOf(abs),
-		Hash:     sha256Hex(data),
+		Hash:     platform.Sha256Hex(data),
 		Modified: info.ModTime().UnixMilli(),
 	}
-	if isBinaryData(data) {
+	if platform.IsBinary(data) {
 		result.Binary = true
 		return result, nil
 	}
@@ -318,7 +316,7 @@ func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash str
 
 	mode := os.FileMode(0o644)
 	if existing, readErr := os.ReadFile(abs); readErr == nil {
-		if expectedHash != "" && sha256Hex(existing) != expectedHash {
+		if expectedHash != "" && platform.Sha256Hex(existing) != expectedHash {
 			return errors.New("文件已被外部修改，请重新加载后再保存")
 		}
 		if info, statErr := os.Stat(abs); statErr == nil {
@@ -331,7 +329,7 @@ func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash str
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return fmt.Errorf("创建目录: %w", err)
 	}
-	if err := writeFileAtomic(abs, []byte(content), mode); err != nil {
+	if err := platform.WriteFileAtomic(abs, []byte(content), mode); err != nil {
 		return err
 	}
 	_ = s.db.AddAudit(&store.AuditEntry{
@@ -406,12 +404,11 @@ func (s *WorkspaceService) backup(absPath string, data []byte) error {
 	if err := os.MkdirAll(s.backupDir, 0o700); err != nil {
 		return fmt.Errorf("创建备份目录: %w", err)
 	}
-	backupPath := filepath.Join(s.backupDir,
-		fmt.Sprintf("%s.%s", filepath.Base(absPath), time.Now().Format("20060102-150405.000")))
+	backupPath := filepath.Join(s.backupDir, platform.BackupName(absPath))
 	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
 		return fmt.Errorf("写入备份: %w", err)
 	}
-	hash := sha256Hex(data)
+	hash := platform.Sha256Hex(data)
 	return s.db.AddBackup(&store.Backup{
 		ID:         id.New("bk"),
 		Path:       absPath,
@@ -430,48 +427,6 @@ func toWorkspaceView(workspace store.Workspace) WorkspaceView {
 		CreatedAt:    workspace.CreatedAt,
 		LastOpenedAt: workspace.LastOpenedAt,
 	}
-}
-
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func isBinaryData(data []byte) bool {
-	limit := len(data)
-	if limit > 8000 {
-		limit = 8000
-	}
-	for _, value := range data[:limit] {
-		if value == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".craftwork-*.tmp")
-	if err != nil {
-		return fmt.Errorf("创建临时文件: %w", err)
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := temp.Chmod(mode); err != nil {
-		temp.Close()
-		return fmt.Errorf("设置临时文件权限: %w", err)
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return fmt.Errorf("写入临时文件: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("关闭临时文件: %w", err)
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("替换文件: %w", err)
-	}
-	return nil
 }
 
 func languageOf(path string) string {

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"craftwork/internal/platform"
 )
 
 const (
@@ -24,7 +26,7 @@ type Client struct {
 	command *exec.Cmd
 	stdin   io.WriteCloser
 	scanner *bufio.Scanner
-	stderr  *limitedBuffer
+	stderr  *platform.LimitedBuffer
 
 	writeMu   sync.Mutex
 	mu        sync.Mutex
@@ -64,8 +66,8 @@ func Start(ctx context.Context, config ServerConfig) (*Client, error) {
 		return nil, fmt.Errorf("MCP 服务器命令不能为空")
 	}
 	command := exec.Command(config.Command, config.Args...)
-	command.Env = sanitizedEnv()
-	command.SysProcAttr = processGroupAttr()
+	command.Env = platform.SanitizedEnv()
+	command.SysProcAttr = platform.ProcessGroupAttr()
 
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -87,7 +89,7 @@ func Start(ctx context.Context, config ServerConfig) (*Client, error) {
 		command: command,
 		stdin:   stdin,
 		scanner: bufio.NewScanner(stdout),
-		stderr:  &limitedBuffer{limit: 8192},
+		stderr:  platform.NewLimitedBuffer(8192),
 		pending: map[int64]chan rpcResponse{},
 		done:    make(chan struct{}),
 	}
@@ -184,7 +186,7 @@ func (c *Client) Close() error {
 		_ = c.stdin.Close()
 		c.closeDone()
 		if c.command.Process != nil {
-			if err := killProcessGroup(c.command); err != nil {
+			if err := platform.KillProcessGroup(c.command); err != nil {
 				closeErr = err
 			}
 		}
@@ -277,38 +279,4 @@ func (c *Client) closeDone() {
 		close(c.done)
 	}
 	c.mu.Unlock()
-}
-
-type limitedBuffer struct {
-	mu       sync.Mutex
-	buffer   bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (b *limitedBuffer) Write(data []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	remaining := b.limit - b.buffer.Len()
-	if remaining <= 0 {
-		b.overflow = true
-		return len(data), nil
-	}
-	if len(data) > remaining {
-		b.buffer.Write(data[:remaining])
-		b.overflow = true
-		return len(data), nil
-	}
-	b.buffer.Write(data)
-	return len(data), nil
-}
-
-func (b *limitedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	text := b.buffer.String()
-	if b.overflow {
-		text += "…"
-	}
-	return text
 }

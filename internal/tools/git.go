@@ -2,12 +2,11 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 )
 
@@ -220,33 +219,8 @@ func (t *gitCommitTool) gitAdd(ctx context.Context, workspace string, paths []st
 
 // runGit 直接执行 git 子命令，不经过 shell，避免参数注入。
 func runGit(parent context.Context, dir string, timeout time.Duration, args ...string) (string, int, bool, error) {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = sanitizedEnv()
-	cmd.SysProcAttr = processGroupAttr()
-	cmd.Cancel = func() error {
-		return killProcessGroup(cmd)
-	}
-	cmd.WaitDelay = 2 * time.Second
-
-	buffer := &limitedBuffer{limit: maxOutputBytes}
-	cmd.Stdout = buffer
-	cmd.Stderr = buffer
-
-	err := cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return buffer.String(), -1, true, ctx.Err()
-	}
-	exitCode := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			err = nil
-		}
-	}
-	return buffer.String(), exitCode, false, err
+	result := platform.Run(parent, platform.RunSpec{
+		Path: "git", Args: args, Dir: dir, Timeout: timeout, OutputLimit: maxOutputBytes,
+	})
+	return result.Output, result.ExitCode, result.TimedOut, result.Err
 }

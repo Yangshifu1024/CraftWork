@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 	"craftwork/internal/store"
 )
@@ -51,7 +52,7 @@ func (s *AuditService) Restore(backupID string) error {
 	if err := os.MkdirAll(filepath.Dir(backup.Path), 0o755); err != nil {
 		return fmt.Errorf("创建目标目录: %w", err)
 	}
-	if err := writeFileAtomic(backup.Path, data, mode); err != nil {
+	if err := platform.WriteFileAtomic(backup.Path, data, mode); err != nil {
 		return err
 	}
 	return s.db.AddAudit(&store.AuditEntry{

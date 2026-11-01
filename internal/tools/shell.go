@@ -1,16 +1,13 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"sort"
 	"strings"
 	"time"
 
+	"craftwork/internal/platform"
 	"craftwork/internal/policy"
 )
 
@@ -53,24 +50,34 @@ func (t *shellExecTool) Execute(ctx context.Context, call Call) Result {
 	}
 
 	start := time.Now()
-	output, exitCode, timedOut, err := runShell(ctx, cwd, command, time.Duration(timeoutSeconds)*time.Second)
+	run := platform.Run(ctx, platform.RunSpec{
+		Path: shellPath(), Args: []string{"-c", command}, Dir: cwd,
+		Timeout: time.Duration(timeoutSeconds) * time.Second, OutputLimit: maxOutputBytes,
+	})
 	duration := time.Since(start).Round(time.Millisecond)
-	if timedOut {
-		return errorResult("命令超时（%s）：%s", duration, output)
+	if run.TimedOut {
+		return errorResult("命令超时（%s）：%s", duration, run.Output)
 	}
-	if err != nil && exitCode < 0 {
-		return errorResult("执行命令失败: %v", err)
+	if run.Err != nil && run.ExitCode < 0 {
+		return errorResult("执行命令失败: %v", run.Err)
 	}
-	output = strings.TrimRight(output, "\n")
+	output := strings.TrimRight(run.Output, "\n")
 	if output == "" {
 		output = "(无输出)"
 	}
-	text := fmt.Sprintf("$ %s\n%s\n[退出码 %d · %s]", command, output, exitCode, duration)
-	result := Result{Output: text, Meta: map[string]any{"exitCode": exitCode}}
-	if exitCode != 0 {
+	text := fmt.Sprintf("$ %s\n%s\n[退出码 %d · %s]", command, output, run.ExitCode, duration)
+	result := Result{Output: text, Meta: map[string]any{"exitCode": run.ExitCode}}
+	if run.ExitCode != 0 {
 		result.IsError = true
 	}
 	return result
+}
+
+func shellPath() string {
+	if _, err := os.Stat("/bin/sh"); err == nil {
+		return "/bin/sh"
+	}
+	return "sh"
 }
 
 type gitStatusTool struct{}
@@ -86,126 +93,22 @@ func (t *gitStatusTool) Spec() Spec {
 }
 
 func (t *gitStatusTool) Execute(ctx context.Context, call Call) Result {
-	output, exitCode, timedOut, err := runShell(ctx, call.Workspace, "git status --short --branch", 20*time.Second)
-	if timedOut {
+	run := platform.Run(ctx, platform.RunSpec{
+		Path: "git", Args: []string{"status", "--short", "--branch"}, Dir: call.Workspace,
+		Timeout: 20 * time.Second, OutputLimit: maxOutputBytes,
+	})
+	if run.TimedOut {
 		return errorResult("git status 超时")
 	}
-	if err != nil && exitCode < 0 {
-		return errorResult("执行 git status 失败: %v", err)
+	if run.Err != nil && run.ExitCode < 0 {
+		return errorResult("执行 git status 失败: %v", run.Err)
 	}
-	output = strings.TrimSpace(output)
+	output := strings.TrimSpace(run.Output)
 	if output == "" {
 		return Result{Output: "工作区干净（没有未提交的改动）"}
 	}
-	if exitCode != 0 {
+	if run.ExitCode != 0 {
 		return Result{Output: output, IsError: true}
 	}
 	return Result{Output: output}
-}
-
-// runShell 在工作目录中执行命令，返回合并输出、退出码与是否超时。
-func runShell(parent context.Context, dir, command string, timeout time.Duration) (string, int, bool, error) {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-
-	shell := "/bin/sh"
-	if _, err := os.Stat(shell); err != nil {
-		shell = "sh"
-	}
-	cmd := exec.CommandContext(ctx, shell, "-c", command)
-	cmd.Dir = dir
-	cmd.Env = sanitizedEnv()
-	cmd.SysProcAttr = processGroupAttr()
-	cmd.Cancel = func() error {
-		return killProcessGroup(cmd)
-	}
-	cmd.WaitDelay = 2 * time.Second
-
-	buffer := &limitedBuffer{limit: maxOutputBytes}
-	cmd.Stdout = buffer
-	cmd.Stderr = buffer
-
-	err := cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return buffer.String(), -1, true, ctx.Err()
-	}
-	exitCode := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			err = nil
-		}
-	}
-	return buffer.String(), exitCode, false, err
-}
-
-type limitedBuffer struct {
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (b *limitedBuffer) Write(data []byte) (int, error) {
-	if b.buffer.Len() >= b.limit {
-		b.truncated = true
-		return len(data), nil
-	}
-	remaining := b.limit - b.buffer.Len()
-	if len(data) > remaining {
-		b.buffer.Write(data[:remaining])
-		b.truncated = true
-		return len(data), nil
-	}
-	b.buffer.Write(data)
-	return len(data), nil
-}
-
-func (b *limitedBuffer) String() string {
-	text := b.buffer.String()
-	if b.truncated {
-		text += "\n…（输出已截断）"
-	}
-	return text
-}
-
-// sanitizedEnv 移除可能把密钥泄漏给子进程的环境变量。
-func sanitizedEnv() []string {
-	keep := map[string]bool{
-		"PATH": true, "HOME": true, "USER": true, "LOGNAME": true,
-		"SHELL": true, "LANG": true, "TERM": true, "TMPDIR": true,
-		"TZ": true, "PWD": true, "COLORTERM": true, "SSH_AUTH_SOCK": true,
-	}
-	var result []string
-	for _, entry := range os.Environ() {
-		key := entry
-		if index := strings.Index(entry, "="); index >= 0 {
-			key = entry[:index]
-		}
-		upper := strings.ToUpper(key)
-		if keep[key] || strings.HasPrefix(key, "LC_") {
-			result = append(result, entry)
-			continue
-		}
-		if strings.Contains(upper, "API_KEY") || strings.Contains(upper, "TOKEN") ||
-			strings.Contains(upper, "SECRET") || strings.Contains(upper, "PASSWORD") ||
-			strings.Contains(upper, "CREDENTIAL") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(upper, "AWS_"),
-			strings.HasPrefix(upper, "GITHUB_"),
-			strings.HasPrefix(upper, "GH_"),
-			strings.HasPrefix(upper, "OPENAI_"),
-			strings.HasPrefix(upper, "ANTHROPIC_"),
-			strings.HasPrefix(upper, "DEEPSEEK_"),
-			strings.HasPrefix(upper, "ZHIPU_"),
-			strings.HasPrefix(upper, "DASHSCOPE_"):
-			continue
-		}
-		result = append(result, entry)
-	}
-	result = append(result, "CRAFTWORK=1")
-	sort.Strings(result)
-	return result
 }
