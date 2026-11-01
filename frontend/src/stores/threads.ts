@@ -39,6 +39,8 @@ interface ThreadState {
   messages: ChatMessage[];
   /** 当前会话是否有正在进行的运行。 */
   running: boolean;
+  /** 取消确认已就绪：双击 Esc 的第一击已按下，再次按 Esc 才会真正取消。 */
+  interruptArmed: boolean;
   /** 正在流式输出的 assistant 消息 id，事件处理靠它定位目标消息。 */
   runningMessageID: string | null;
   /** 是否正在读取会话快照，界面据此显示加载状态。 */
@@ -81,6 +83,10 @@ interface ThreadState {
   send(text: string, attachments?: string[]): Promise<void>;
   /** 取消当前会话正在进行的运行。 */
   cancel(): Promise<void>;
+  /** 标记取消确认就绪（双击 Esc 的第一击）。 */
+  armInterrupt(): void;
+  /** 解除取消确认标记。 */
+  disarmInterrupt(): void;
   /** 让当前会话的最后一轮回复重新生成。 */
   regenerate(): Promise<void>;
   /** 提交审批决定。 */
@@ -112,6 +118,8 @@ function normalizeMessages(threadID: string, snapshot: ThreadSnapshot): ChatMess
     role: message.role as ChatMessage["role"],
     status: (message.status as ChatMessage["status"]) ?? "complete",
     createdAt: message.createdAt,
+    // 后端回填的运行工时（「已工作 N」的事实来源），可选字段直接透传。
+    ...(message.workDurationMs ? { workDurationMs: message.workDurationMs } : {}),
     parts: (message.parts ?? []).map((part) => ({
       id: part.id,
       kind: part.kind as ChatPart["kind"],
@@ -145,6 +153,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   activeID: { code: null, work: null },
   messages: [],
   running: false,
+  interruptArmed: false,
   runningMessageID: null,
   loading: false,
   pendingApprovals: [],
@@ -458,7 +467,15 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       return;
     }
     await api.chat.cancel(threadID);
-    set({ running: false });
+    set({ running: false, interruptArmed: false });
+  },
+
+  armInterrupt() {
+    set({ interruptArmed: true });
+  },
+
+  disarmInterrupt() {
+    set({ interruptArmed: false });
   },
 
   /**

@@ -41,7 +41,22 @@ const imagePattern = /\.(png|jpe?g|gif|webp)$/i;
  */
 export function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
   const content: any[] = [];
-  for (const part of message.parts) {
+  // 流式中的判定依据：消息还在生成且该部件是消息的最后一个部件——
+  // 最后一个部件还在增长说明它正在流式输出，「正在思考」状态由它驱动。
+  const lastIndex = message.parts.length - 1;
+  // 「最终总结」取最后一个正文部件；它之前的正文视为过程内容，转成
+  // history-text 数据部件参与折叠。这样工具间隙的说明文字不会把
+  // 相邻的过程部件切成多段折叠区，最终回复始终只有最后一段。
+  let finalTextIndex = -1;
+  if (message.role === "assistant") {
+    for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+      if (message.parts[index].kind === "text") {
+        finalTextIndex = index;
+        break;
+      }
+    }
+  }
+  message.parts.forEach((part, index) => {
     if (part.kind === "text") {
       const attachments = Array.isArray(part.data?.attachments) ? part.data.attachments : [];
       if (message.role === "user" && attachments.length > 0) {
@@ -50,23 +65,42 @@ export function convertMessage(message: ChatMessage, reasoningEnabled: boolean):
           data: { partId: `${part.id}_attachments`, attachments },
         });
       }
+      if (message.role === "assistant" && index !== finalTextIndex) {
+        content.push({
+          type: "data-cw-history-text",
+          data: { partId: part.id, text: String(part.data?.text ?? "") },
+        });
+        return;
+      }
       content.push({ type: "text", text: String(part.data?.text ?? "") });
-      continue;
+      return;
     }
     if (part.kind === "reasoning") {
       // 能力矩阵：当前模型不支持推理时不渲染推理块。
       if (!reasoningEnabled) {
-        continue;
+        return;
       }
-      content.push({ type: "reasoning", text: String(part.data?.text ?? "") });
-      continue;
+      content.push({
+        // 推理块走自定义数据部件而不是 assistant-ui 内置的 reasoning 类型：
+        // 需要携带思考时长与流式状态等扩展字段，data 部件的载荷不受类型约束。
+        type: "data-cw-reasoning",
+        data: {
+          ...part.data,
+          partId: part.id,
+          streaming:
+            message.role === "assistant" &&
+            message.status === "streaming" &&
+            index === lastIndex,
+        },
+      });
+      return;
     }
     content.push({
       // 非文本部件统一转成自定义数据部件；partId 用于 React 列表的稳定标识。
       type: `data-cw-${part.kind}`,
       data: { ...part.data, partId: part.id },
     });
-  }
+  });
 
   // assistant-ui 的状态模型只有 running / incomplete / complete 三类，
   // 这里把后端的四种状态折叠过去，并保留“出错”与“已取消”的区分。

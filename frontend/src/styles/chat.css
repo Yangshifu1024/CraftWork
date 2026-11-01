@@ -445,6 +445,8 @@ html[data-theme="light"] .tok-type { color: #0b7c74; }
 .reasoning-head .r-dur { color: var(--text-4); font-size: var(--text-ui-xs); }
 .reasoning-body {
   display: none;
+  max-height: 240px;
+  overflow-y: auto;
   padding: 2px 12px 10px;
   color: var(--text-2);
   font-size: var(--text-ui-sm);
@@ -453,6 +455,63 @@ html[data-theme="light"] .tok-type { color: #0b7c74; }
   white-space: pre-wrap;
 }
 .reasoning.is-open .reasoning-body { display: block; }
+/* 流式中的思考块：触发行「正在思考」带扫光，右侧浮现最新思考行。 */
+.reasoning-head .reasoning-label { min-width: 0; }
+.reasoning-head .r-thinking {
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--accent) 50%, var(--text-3) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cw-reasoning-sweep 2.2s linear infinite;
+}
+@keyframes cw-reasoning-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.r-sep { color: var(--text-4); }
+/* 摘要行：单行溢出，两侧渐变遮罩让旧文字淡出；JS 把滚动推到最右呈现最新内容。 */
+.reasoning-head .r-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-4);
+  font-size: var(--text-ui-xs);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+.r-summary-text { display: inline-block; min-width: max-content; }
+
+/* --------------------------------------------------------------------------
+   5.1 工作过程折叠（「已工作 N」）
+   -------------------------------------------------------------------------- */
+/* 最终总结之前的过程区容器；运行中不渲染本组件，因此只有收起/展开两态。 */
+.work-history-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 2px;
+  color: var(--text-3);
+  font-size: var(--text-ui-sm);
+  text-align: left;
+}
+.work-history-head:hover { color: var(--text-2); }
+.work-history-head .chev { width: 12px; height: 12px; color: var(--text-4); transition: transform var(--dur) var(--ease); }
+.work-history.is-open .work-history-head .chev { transform: rotate(90deg); }
+.work-history-tag { color: var(--warn); }
+.work-history-body {
+  display: none;
+  margin: 2px 0 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.work-history.is-open .work-history-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 /* 工具调用卡片 */
 .tool-card {
@@ -1023,13 +1082,50 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
   color: var(--text-4);
 }
 .attach-chip button:hover { background: var(--bg-hover); color: var(--text); }
-.attach-thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, var(--purple-soft), var(--accent-soft));
-  border: 1px solid var(--border);
+/* 图片附件条目：缩略图 + 移除按钮的纵向组合。 */
+.attach-entry {
+  position: relative;
+  display: inline-flex;
 }
+.attach-entry .attach-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  box-shadow: var(--shadow-sm);
+  z-index: 1;
+}
+.attach-entry .attach-remove:hover { color: var(--danger); border-color: var(--danger); }
+/* 图片缩略图按钮：小尺寸方形预览，点击打开放大浮层。 */
+.attach-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg-panel);
+  cursor: zoom-in;
+  transition: border-color var(--dur) var(--ease);
+}
+.attach-thumb:hover { border-color: color-mix(in srgb, var(--mode-accent) 55%, var(--border)); }
+.attach-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 消息附件列表里的缩略图可以稍大，便于看清内容。 */
+.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.msg-attachments .attach-thumb { width: 72px; height: 72px; }
 
 .composer-input-row { padding: 10px 12px 2px; }
 #composer-input {
@@ -1205,6 +1301,17 @@ html[data-theme="light"] .diff-line.del { color: #a12a2a; }
 .send-btn .ico { width: 15px; height: 15px; }
 .stop-btn { background: var(--bg-active); color: var(--text); border: 1px solid var(--border-strong); }
 .stop-btn:hover { background: var(--danger-soft); color: var(--danger); }
+/* 双击 Esc 的待确认态：危险色高亮 + 轻微脉冲，提示「再按一次 Esc」。 */
+.stop-btn.is-armed {
+  background: var(--danger);
+  color: var(--on-mode-accent);
+  border-color: var(--danger);
+  animation: cw-stop-armed 1s var(--ease) infinite;
+}
+@keyframes cw-stop-armed {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
+  50% { box-shadow: 0 0 0 5px var(--danger-soft); }
+}
 
 .composer-foot {
   max-width: 880px;

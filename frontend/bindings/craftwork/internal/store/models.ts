@@ -205,6 +205,12 @@ export interface Message {
     "createdAt": number;
 
     /**
+     * WorkDurationMs 是产生本条消息的那次运行的耗时（毫秒），取运行起止时间差。
+     * 运行尚未结束时为 0；前端用它把过程部件折叠成「已工作 N」。
+     */
+    "workDurationMs"?: number;
+
+    /**
      * Parts 是消息中的内容块，按事件序号排列。
      */
     "parts": Part[] | null;

@@ -203,6 +203,11 @@ func (db *DB) Snapshot(threadID string) (*Snapshot, error) {
 		default:
 			message.Status = "complete"
 		}
+		// 运行结束（含取消与失败）后把起止时间差作为工时事实回填给消息，
+		// 前端据此显示「已工作 N」；运行中没有结束时间，保持为 0。
+		if run.FinishedAt > run.StartedAt {
+			message.WorkDurationMs = run.FinishedAt - run.StartedAt
+		}
 	}
 
 	messages := make([]Message, 0, len(order))

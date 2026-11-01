@@ -9,15 +9,18 @@
  * - 纯展示类卡片不发起请求；需要写操作的卡片（审批决定、重试）通过 store 触发。
  * - 所有用户可见文案使用中文，风险等级、状态与档位都直接展示原始值。
  */
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
 import { copyText } from "../../lib/clipboard";
+import { api } from "../../lib/api";
+import { basename, isImagePath } from "../../lib/utils";
 import type {
   ApprovalPartData,
   CalloutPartData,
   DraftPartData,
   ErrorPartData,
   NoticePartData,
+  ReasoningPartData,
   TodoPartData,
   ToolPartData,
 } from "../../lib/types";
@@ -152,20 +155,135 @@ export function ToolCard({ data }: { data: ToolPartData }) {
 /**
  * 推理内容块。
  *
- * @param text 模型输出的思考文本，可能为空。
+ * 三种形态（对齐 ZCode 的思考块）：
+ * - 流式中收起：触发行显示扫光的「正在思考」，右侧浮现思考文本的最后一个非空行；
+ * - 流式中展开：只显示「正在思考 · N 秒」，内容区吸底跟随最新思考；
+ * - 结束：触发行定格为「思考过程 · 持续了 N 秒」，点击展开回顾。
  *
- * 关键状态：`open` 控制展开，默认收起，避免推理内容挤占正文空间。
+ * @param data 部件数据：思考文本、后端落库的思考时长（durationMs），
+ *   以及由转换层标注的流式标记（streaming：消息生成中且该部件是最后一个部件）。
+ *
+ * 关键状态：
+ * - `open` 控制展开，默认收起，避免推理内容挤占正文空间；
+ * - `interacted` 记录用户是否手动展开/收起过——手动操作后流式结束不再自动收起；
+ * - `elapsed` 只在「展开且流式中」每秒更新，收起态不为隐藏的耗时触发重渲染。
  */
-export function ReasoningBlock({ text }: { text?: string }) {
+export function ReasoningBlock({ data }: { data?: ReasoningPartData & { streaming?: boolean } }) {
+  const text = String(data?.text ?? "");
+  const streaming = data?.streaming === true;
+  const durationMs = Number(data?.durationMs ?? 0);
   const [open, setOpen] = useState(false);
+  const [interacted, setInteracted] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // 流式中（含中途挂载）没有持久化时长，本地记一个起点供展开态的秒数跳动。
+  const startRef = useRef<number | null>(streaming ? Date.now() : null);
+  if (streaming && startRef.current === null) {
+    startRef.current = Date.now();
+  }
+
+  // 流式结束自动收起；用户手动操作过则尊重用户的选择，不再自动干预。
+  const prevStreaming = useRef(streaming);
+  useEffect(() => {
+    if (prevStreaming.current && !streaming && !interacted) {
+      setOpen(false);
+    }
+    prevStreaming.current = streaming;
+  }, [streaming, interacted]);
+
+  // 展开且流式中：每秒刷新一次耗时显示。
+  useEffect(() => {
+    if (!streaming || !open) {
+      return;
+    }
+    const update = () => {
+      if (startRef.current !== null) {
+        setElapsed(Math.max(1, Math.ceil((Date.now() - startRef.current) / 1000)));
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [streaming, open]);
+
+  // 流式摘要：从后往前找第一个非空行，让触发行「浮现」最新思考内容。
+  const streamingSummary = useMemo(() => {
+    if (!streaming || open) {
+      return null;
+    }
+    const lines = text.split("\n");
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index]?.trim();
+      if (line) {
+        return line;
+      }
+    }
+    return null;
+  }, [streaming, open, text]);
+
+  // 摘要行每次内容增长后滚到最右：旧文字向左滑出，最新 token 始终可见。
+  const summaryRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const el = summaryRef.current;
+    if (el) {
+      el.scrollLeft = el.scrollWidth;
+    }
+  }, [streamingSummary]);
+
+  // 内容区吸底跟随：流式追加时保持滚到底部；用户上滚后暂停，滚回底部再恢复。
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const followRef = useRef(true);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || !open) {
+      return;
+    }
+    if (followRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [open, text]);
+
+  function toggle() {
+    setInteracted(true);
+    setOpen((current) => !current);
+  }
+
+  const seconds = durationMs > 0 ? Math.ceil(durationMs / 1000) : 0;
+  const headLabel = streaming
+    ? open && startRef.current !== null
+      ? `正在思考 · ${Math.max(1, elapsed)} 秒`
+      : "正在思考"
+    : durationMs <= 0
+      ? "思考过程"
+      : seconds < 1
+        ? "思考过程 · 持续了几秒"
+        : `思考过程 · 持续了 ${seconds} 秒`;
+
   return (
-    <div className={cn("blk reasoning", open && "is-open")}>
-      <button type="button" className="reasoning-head" onClick={() => setOpen(!open)}>
+    <div className={cn("blk reasoning", open && "is-open", streaming && "is-streaming")}>
+      <button type="button" className="reasoning-head" onClick={toggle}>
         <Icon name="chevron-right" className="chev" />
         <Icon name="sparkles" />
-        <span>思考过程</span>
+        <span className={cn("reasoning-label", streaming && !open && "r-thinking")}>{headLabel}</span>
+        {streamingSummary ? (
+          <>
+            <span className="r-sep">·</span>
+            <span className="r-summary" ref={summaryRef}>
+              <span className="r-summary-text">{streamingSummary}</span>
+            </span>
+          </>
+        ) : null}
       </button>
-      <div className="reasoning-body">{text ?? ""}</div>
+      <div
+        className="reasoning-body"
+        ref={bodyRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+        }}
+      >
+        {text}
+      </div>
     </div>
   );
 }
@@ -588,23 +706,82 @@ export function NoticeCard({ data }: { data: NoticePartData }) {
 }
 
 /**
+ * 单个附件的可点击形态：图片显示缩略图，其他文件显示文件名 chip。
+ *
+ * 图片通过后端的附件读取接口拿到 data URL（lib 层有会话内缓存），
+ * 点击后打开放大预览浮层；读取失败时回退成普通文件 chip，不打断展示。
+ * 供输入区附件条与消息附件列表共用，保证两处形态一致。
+ *
+ * @param path 附件绝对路径。
+ * @param name 展示名，缺省取路径最后一段。
+ */
+export function AttachmentItem({ path, name }: { path: string; name?: string }) {
+  const displayName = name ?? basename(path);
+  const [thumb, setThumb] = useState<string | null>(null);
+  const openImagePreview = useUiStore((state) => state.openImagePreview);
+  const image = isImagePath(path);
+
+  useEffect(() => {
+    if (!image) {
+      return;
+    }
+    let alive = true;
+    void api.app.readAttachment(path).then((url) => {
+      if (alive && url) {
+        setThumb(url);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [image, path]);
+
+  if (!image) {
+    return (
+      <span className="attach-chip" title={path}>
+        <Icon name="file" />
+        {displayName}
+      </span>
+    );
+  }
+  if (!thumb) {
+    // 缩略图尚未读到（或读取失败）时先展示文件形态，加载完成自动替换。
+    return (
+      <span className="attach-chip" title={path}>
+        <Icon name="file" />
+        {displayName}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="attach-thumb"
+      title={`${displayName}（点击放大）`}
+      onClick={() => openImagePreview({ url: thumb, name: displayName })}
+    >
+      <img src={thumb} alt={displayName} />
+    </button>
+  );
+}
+
+/**
  * 用户消息的附件列表。
  *
- * @param attachments 附件路径数组；为空时组件不渲染任何内容。
+ * @param data 部件数据，其中的 attachments 是附件路径数组；为空时组件不渲染。
  *
- * 只显示文件名（取路径最后一段），完整路径留在 title 里由上层按需展示。
+ * 部件组件收到的 props 是整个部件对象，路径数组挂在 `data.attachments` 上。
+ * 图片附件显示缩略图并支持点击放大，其他文件只显示文件名 chip。
  */
-export function AttachmentChips({ attachments }: { attachments: string[] }) {
-  if (!attachments?.length) {
+export function AttachmentChips({ data }: { data?: { attachments?: string[] } }) {
+  const attachments = data?.attachments ?? [];
+  if (!attachments.length) {
     return null;
   }
   return (
     <div className="msg-attachments">
       {attachments.map((path) => (
-        <span key={path} className="attach-chip">
-          <Icon name="file" />
-          {path.split("/").pop() ?? path}
-        </span>
+        <AttachmentItem key={path} path={path} />
       ))}
     </div>
   );

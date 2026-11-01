@@ -164,6 +164,8 @@ export interface ChatMessage {
   role: MessageRole;
   status: MessageStatus;
   createdAt: number;
+  /** 本轮运行耗时（毫秒）。运行结束（含取消/失败）后由后端回填；运行中为 0。 */
+  workDurationMs?: number;
   parts: ChatPart[];
 }
 
@@ -177,6 +179,8 @@ export interface TextPartData {
 export interface ReasoningPartData {
   partId?: string;
   text: string;
+  /** 本次思考持续的毫秒数；由后端在流式结束时随部件数据落库，旧数据可能缺失。 */
+  durationMs?: number;
 }
 
 /** 工具调用部件的数据：记录工具名、参数、风险级别、执行状态与输出。 */

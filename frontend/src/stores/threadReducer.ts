@@ -300,15 +300,26 @@ function appendFromEvent(
 /**
  * 收尾一次运行。
  *
- * 依次做三件事：给当前消息写入终态、清空运行标记、把会话状态改成终态；
- * 最后标记需要刷新列表，让侧边栏的排序与统计跟上数据库里的最新结果。
+ * 依次做四件事：给当前消息写入终态、把事件携带的运行时长回填为「已工作」工时、
+ * 清空运行标记、把会话状态改成终态；最后标记需要刷新列表，
+ * 让侧边栏的排序与统计跟上数据库里的最新结果。
  */
 function finishRun(
   draft: Draft,
   messageStatus: ChatMessage["status"],
   threadStatus: string,
+  event: Envelope,
 ): void {
   draft.messages = setMessageStatus(draft.messages, draft.runningMessageID, messageStatus);
+  // 运行结束事件带后端计算的耗时，回填给消息用于「已工作 N」折叠显示；
+  // 与历史快照的回填字段一致，两条路径拿到的都是持久化事实。
+  const durationMs = Number(event.data?.durationMs ?? 0);
+  if (durationMs > 0 && draft.runningMessageID) {
+    const messageID = draft.runningMessageID;
+    draft.messages = draft.messages.map((message) =>
+      message.id === messageID ? { ...message, workDurationMs: durationMs } : message,
+    );
+  }
   draft.running = false;
   draft.runningMessageID = null;
   if (draft.activeThreadID) {
@@ -386,9 +397,9 @@ const handlers: Record<EventType, Handler> = {
   // 错误事件：写成错误部件，交给消息组件展示错误码与可读文案。
   [EVENT.error]: (draft, event) => upsertFromEvent(draft, "error", event),
   // 三种运行终态：分别对应完成、取消、失败。
-  [EVENT.runCompleted]: (draft) => finishRun(draft, "complete", "idle"),
-  [EVENT.runCanceled]: (draft) => finishRun(draft, "incomplete", "idle"),
-  [EVENT.runFailed]: (draft) => finishRun(draft, "error", "error"),
+  [EVENT.runCompleted]: (draft, event) => finishRun(draft, "complete", "idle", event),
+  [EVENT.runCanceled]: (draft, event) => finishRun(draft, "incomplete", "idle", event),
+  [EVENT.runFailed]: (draft, event) => finishRun(draft, "error", "error", event),
   [EVENT.threadUpdated]: (draft, event) => {
     // 事件带整条会话时直接合并；只带状态时更新当前会话的状态字段。
     if (event.data?.thread) {

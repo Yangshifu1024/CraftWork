@@ -59,6 +59,9 @@ type Message struct {
 	Status string `json:"status"` // streaming / complete / incomplete / error
 	// CreatedAt 是消息创建时间，毫秒时间戳。
 	CreatedAt int64 `json:"createdAt"`
+	// WorkDurationMs 是产生本条消息的那次运行的耗时（毫秒），取运行起止时间差。
+	// 运行尚未结束时为 0；前端用它把过程部件折叠成「已工作 N」。
+	WorkDurationMs int64 `json:"workDurationMs,omitempty"`
 	// Parts 是消息中的内容块，按事件序号排列。
 	Parts []Part `json:"parts"`
 }

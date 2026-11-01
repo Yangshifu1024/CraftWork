@@ -64,6 +64,71 @@ func TestThreadAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestSnapshotWorkDuration(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := NowMillis()
+	thread := &Thread{ID: "th_work", Mode: "code", Title: "工时", ModelID: "openai/gpt-5.1",
+		Status: "running", CreatedAt: now, UpdatedAt: now}
+	if err := db.CreateThread(thread); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AppendEvent(&EventRecord{
+		ID: "p_user", ThreadID: "th_work", MessageID: "msg_user",
+		Kind: "user_message", Payload: map[string]any{"text": "跑个任务"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 推理部件带思考时长，快照应原样带回给前端。
+	if _, err := db.AppendEvent(&EventRecord{
+		ID: "p_reason", ThreadID: "th_work", MessageID: "msg_assistant",
+		Kind: "reasoning", Payload: map[string]any{"text": "想一想", "durationMs": int64(5200)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRun(&Run{
+		ID: "run_work", ThreadID: "th_work", MessageID: "msg_assistant",
+		Status: "running", ModelID: "openai/gpt-5.1", StartedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	running, err := db.Snapshot("th_work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assistant := running.Messages[1]
+	if assistant.Status != "streaming" {
+		t.Fatalf("运行中消息状态应为 streaming，实际 %s", assistant.Status)
+	}
+	if assistant.WorkDurationMs != 0 {
+		t.Fatalf("运行中的消息不应带工时，实际 %d", assistant.WorkDurationMs)
+	}
+	reasoning, ok := assistant.Parts[0].Data.(map[string]any)
+	if !ok || reasoning["durationMs"] != float64(5200) {
+		t.Fatalf("推理部件应携带思考时长: %+v", assistant.Parts[0].Data)
+	}
+
+	if err := db.FinishRun("run_work", "done", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	done, err := db.Snapshot("th_work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := done.Messages[1]
+	if finished.Status != "complete" {
+		t.Fatalf("结束后消息状态应为 complete，实际 %s", finished.Status)
+	}
+	if finished.WorkDurationMs <= 0 {
+		t.Fatalf("结束后消息应带回正数工时，实际 %d", finished.WorkDurationMs)
+	}
+}
+
 func TestInterruptStaleRuns(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

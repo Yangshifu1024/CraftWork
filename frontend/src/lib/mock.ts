@@ -211,14 +211,22 @@ const gitStatuses: Record<string, string> = {
  * 组装一条已完成的助手消息，供初始示例数据复用。
  *
  * 所有示例助手消息的时间都相同、状态都是 complete，避免列表里出现不一致的「进行中」。
+ * 带过程部件的消息附带 workDurationMs 与推理时长，让纯 UI 预览也能看到
+ * 「已工作 N」折叠与「思考过程 · 持续了 N 秒」的最终形态。
  */
-function assistantMessage(id: string, threadId: string, parts: ChatPart[]): ChatMessage {
+function assistantMessage(
+  id: string,
+  threadId: string,
+  parts: ChatPart[],
+  workDurationMs?: number,
+): ChatMessage {
   return {
     id,
     threadId,
     role: "assistant",
     status: "complete",
     createdAt: now - 110000,
+    ...(workDurationMs ? { workDurationMs } : {}),
     parts,
   };
 }
@@ -232,14 +240,19 @@ const messages: Record<string, ChatMessage[]> = {
       role: "user",
       status: "complete",
       createdAt: now - 180000,
-      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "登录后 15 分钟刷新令牌就超时了，帮我看看 `internal/auth/session.go` 里的刷新逻辑。" } }],
+      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "登录后 15 分钟刷新令牌就超时了，帮我看看 `internal/auth/session.go` 里的刷新逻辑。", attachments: ["~/.craftwork/attachments/att_demo_报错截图.png"] } }],
     },
-    assistantMessage("m1_assistant", "th_code_1", [
-      { id: "p2", kind: "reasoning", seq: 2, data: { text: "先确认 session.go 的刷新判断，再看测试覆盖。" } },
+    assistantMessage(
+      "m1_assistant",
+      "th_code_1",
+      [
+      { id: "p2", kind: "reasoning", seq: 2, data: { text: "先确认 session.go 的刷新判断，再看测试覆盖。", durationMs: 8400 } },
       { id: "p3", kind: "text", seq: 3, data: { text: "我先读取 `internal/auth/session.go`，确认刷新窗口的计算方式。\n\n关键代码在 `internal/auth/session.go:12`：\n\n```go\nconst refreshWindow = 10 * time.Minute\n\nfunc (s *Session) NeedsRefresh(now time.Time) bool {\n\treturn now.Sub(s.RefreshedAt) > refreshWindow\n}\n```\n\n`refreshWindow` 固定为 10 分钟，而令牌实际有效期是 15 分钟，所以第 11 分钟就会误判为过期。" } },
       { id: "p4", kind: "tool", seq: 4, data: { partId: "p4", toolCallId: "call_read", name: "fs_read", args: { path: "internal/auth/session.go" }, risk: "R0", status: "done", output: "internal/auth/session.go 共 22 行，已读取。", isError: false, durationMs: 32, summary: "internal/auth/session.go" } },
       { id: "p5", kind: "text", seq: 5, data: { text: "建议把刷新窗口改为令牌有效期的 80%（12 分钟），并在刷新失败时回退到重新登录。改动集中在 `internal/auth/session.go:6` 与对应单测。" } },
-    ]),
+      ],
+      96500,
+    ),
   ],
   th_code_2: [
     {
@@ -450,6 +463,7 @@ function snapshot(threadID: string): ThreadSnapshot {
       role: message.role,
       status: message.status,
       createdAt: message.createdAt,
+      ...(message.workDurationMs ? { workDurationMs: message.workDurationMs } : {}),
       parts: message.parts.map((part) => ({ id: part.id, kind: part.kind, seq: part.seq, data: part.data })),
     })),
     lastSeq: list.reduce((total, message) => total + message.parts.length, 0),
@@ -742,6 +756,12 @@ export const mockApi: Api = {
     /** 模拟粘贴附件落盘：返回附件目录中的假路径，纯 UI 预览不会真正读取。 */
     savePastedAttachment: async (name) =>
       `~/.craftwork/attachments/${name || "pasted-file"}`,
+    /** 模拟图片预览：没有真实文件，返回一张占位图让缩略图形态可见。 */
+    readAttachment: async (path) => {
+      const name = path.split("/").pop() ?? "image";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="100%" height="100%" fill="#dbe4f0"/><text x="50%" y="46%" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#5b6478">${name}</text><text x="50%" y="60%" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#8b94a5">Mock 图片预览</text></svg>`;
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+    },
     /** 写入剪贴板；浏览器不支持时静默忽略，仍返回 true 表示调用已完成。 */
     writeClipboard: async (text) => {
       await navigator.clipboard?.writeText(text);

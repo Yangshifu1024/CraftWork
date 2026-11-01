@@ -32,7 +32,7 @@ describe("消息转换", () => {
     expect(hidden.content.map((part: any) => part.type)).toEqual(["text"]);
 
     const visible = convertMessage(source, true) as any;
-    expect(visible.content.map((part: any) => part.type)).toEqual(["text", "reasoning"]);
+    expect(visible.content.map((part: any) => part.type)).toEqual(["text", "data-cw-reasoning"]);
   });
 
   it("映射消息状态与数据部件", () => {
@@ -60,5 +60,33 @@ describe("消息转换", () => {
     expect(converted.status).toBeUndefined();
     expect(converted.content[0].type).toBe("data-cw-attachments");
     expect(converted.content[1]).toMatchObject({ type: "text", text: "看看附件" });
+  });
+
+  it("推理部件携带流式标记与思考时长，仅最后一个部件在流式中标记为正在思考", () => {
+    const source = message("assistant", "streaming", [
+      { id: "p1", kind: "reasoning", seq: 1, data: { text: "前面的思考", durationMs: 5200 } },
+      { id: "p2", kind: "reasoning", seq: 2, data: { text: "最新的思考" } },
+    ]);
+    const converted = convertMessage(source, true) as any;
+    expect(converted.content[0].data).toMatchObject({ streaming: false, durationMs: 5200 });
+    expect(converted.content[1].data).toMatchObject({ streaming: true });
+
+    // 消息结束后流式标记消失。
+    const done = convertMessage({ ...source, status: "complete" }, true) as any;
+    expect(done.content[1].data.streaming).toBe(false);
+  });
+
+  it("推理部件携带流式标记与思考时长，仅最后一个部件在流式中标记为正在思考", () => {
+    const source = message("assistant", "streaming", [
+      { id: "p1", kind: "reasoning", seq: 1, data: { text: "前面的思考", durationMs: 5200 } },
+      { id: "p2", kind: "reasoning", seq: 2, data: { text: "最新的思考" } },
+    ]);
+    const converted = convertMessage(source, true) as any;
+    expect(converted.content[0].data).toMatchObject({ streaming: false, durationMs: 5200 });
+    expect(converted.content[1].data).toMatchObject({ streaming: true });
+
+    // 消息结束后流式标记消失。
+    const done = convertMessage({ ...source, status: "complete" }, true) as any;
+    expect(done.content[1].data.streaming).toBe(false);
   });
 });

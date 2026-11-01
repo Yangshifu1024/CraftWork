@@ -195,6 +195,8 @@ func (r *Runner) IsRunning(threadID string) bool {
 
 // execute 是运行的主循环：重建历史、反复请求模型、执行工具，直到结束。
 func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messageID, mode string) {
+	// 运行起点作为工时事实的基准：结束事件与历史快照都用它计算「已工作」时长。
+	startedAt := time.Now()
 	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
 	// 激活状态会随用户切换、新建或移除工作区而漂移，一旦与运行中的会话
 	// 错位，工具就会拿到空路径或错误路径（表现为所有文件工具报「工作区未设置」，
@@ -206,7 +208,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		workspace, err := r.db.GetWorkspace(thread.WorkspaceID)
 		if err != nil {
 			r.fail(thread, runID, messageID, "workspace_missing",
-				"会话绑定的工作区不存在或已被移除，请在侧栏重新选择工作区后重试", false)
+				"会话绑定的工作区不存在或已被移除，请在侧栏重新选择工作区后重试", false, startedAt)
 			return
 		}
 		r.tools.SetWorkspace(workspace.Path)
@@ -222,7 +224,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 	history, err := r.history(thread)
 	if err != nil {
-		r.fail(thread, runID, messageID, "history_failed", err.Error(), true)
+		r.fail(thread, runID, messageID, "history_failed", err.Error(), true, startedAt)
 		return
 	}
 
@@ -236,7 +238,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	for iteration := 0; limit <= 0 || iteration < limit; iteration++ {
 		// 每轮迭代先检查取消，用户取消后不再发起新的模型请求。
 		if ctx.Err() != nil {
-			r.canceled(thread, runID, messageID)
+			r.canceled(thread, runID, messageID, startedAt)
 			return
 		}
 		if !compressionChecked {
@@ -247,6 +249,8 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		// 本轮流式回复的累积状态：文本与推理各自一个部件，工具调用按到达顺序收集。
 		textPartID := ""
 		reasoningPartID := ""
+		// 推理首片段的到达时刻，用于在部件数据里记录「思考持续了多久」。
+		reasoningStart := time.Time{}
 		var textBuilder, reasoningBuilder strings.Builder
 		var toolCalls []model.ToolCall
 		var usage *model.Usage
@@ -257,10 +261,10 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		if err != nil {
 			// 建立流之前就被取消，按取消处理；否则是真正的模型错误。
 			if ctx.Err() != nil {
-				r.canceled(thread, runID, messageID)
+				r.canceled(thread, runID, messageID, startedAt)
 				return
 			}
-			r.failWithError(thread, runID, messageID, "model_error", err)
+			r.failWithError(thread, runID, messageID, "model_error", err, startedAt)
 			return
 		}
 
@@ -276,16 +280,17 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			if chunk.Err != nil {
 				session.cancel()
 				if ctx.Err() != nil {
-					r.canceled(thread, runID, messageID)
+					r.canceled(thread, runID, messageID, startedAt)
 					return
 				}
-				r.failWithError(thread, runID, messageID, "model_stream_error", chunk.Err)
+				r.failWithError(thread, runID, messageID, "model_stream_error", chunk.Err, startedAt)
 				return
 			}
 			if chunk.Reasoning != "" {
 				// 同一条回复里的推理增量共用一个部件 ID，前端据此合并展示。
 				if reasoningPartID == "" {
 					reasoningPartID = id.New("part")
+					reasoningStart = time.Now()
 				}
 				reasoningBuilder.WriteString(chunk.Reasoning)
 				r.records.Emit(events.TypeReasoningDelta, thread.ID, runID, events.TextDelta{
@@ -315,24 +320,29 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		session.cancel()
 
 		if ctx.Err() != nil {
-			r.canceled(thread, runID, messageID)
+			r.canceled(thread, runID, messageID, startedAt)
 			return
 		}
 		if errors.Is(streamErr, context.DeadlineExceeded) {
 			r.failWithError(thread, runID, messageID, "model_timeout",
-				model.WrapError(model.CodeTimeout, "模型服务", "模型响应超时，请稍后重试或精简上下文", streamErr))
+				model.WrapError(model.CodeTimeout, "模型服务", "模型响应超时，请稍后重试或精简上下文", streamErr), startedAt)
 			return
 		}
 		if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
 			r.failWithError(thread, runID, messageID, "model_stream_error",
-				model.TransportError("模型服务", streamErr))
+				model.TransportError("模型服务", streamErr), startedAt)
 			return
 		}
 
 		// 把本轮流式累积的内容整体写入数据库一次，事件表保存的是完整部件而不是增量。
+		// 推理部件附带思考时长：历史快照与实时完成事件都从这里拿到「持续了 N 秒」。
 		if reasoningPartID != "" {
 			text := reasoningBuilder.String()
-			r.persist(thread.ID, messageID, runID, reasoningPartID, "reasoning", map[string]any{"text": text})
+			reasoningPayload := map[string]any{"text": text}
+			if !reasoningStart.IsZero() {
+				reasoningPayload["durationMs"] = time.Since(reasoningStart).Milliseconds()
+			}
+			r.persist(thread.ID, messageID, runID, reasoningPartID, "reasoning", reasoningPayload)
 		}
 		if textPartID != "" {
 			text := textBuilder.String()
@@ -347,7 +357,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			if textBuilder.Len() > 0 {
 				history = append(history, model.Message{Role: "assistant", Content: textBuilder.String()})
 			}
-			r.complete(thread, runID, messageID)
+			r.complete(thread, runID, messageID, startedAt)
 			return
 		}
 
@@ -366,7 +376,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			results = append(results, result)
 		}
 		if aborted {
-			r.canceled(thread, runID, messageID)
+			r.canceled(thread, runID, messageID, startedAt)
 			return
 		}
 
@@ -376,7 +386,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 	// 循环耗尽仍未结束，通常是模型反复调用工具，按可重试错误提示用户。
 	r.fail(thread, runID, messageID, "max_iterations",
-		fmt.Sprintf("达到模型调用上限（%d 轮），已停止本次运行", limit), false)
+		fmt.Sprintf("达到模型调用上限（%d 轮），已停止本次运行", limit), false, startedAt)
 }
 
 // openSession 选择模型并建立流。
@@ -626,26 +636,38 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 }
 
 // complete 结束一次成功运行：标记运行完成、会话回到空闲并广播完成事件。
-func (r *Runner) complete(thread store.Thread, runID, messageID string) {
+//
+// startedAt 是运行起点，用于在完成事件里带上「已工作」时长（毫秒）。
+func (r *Runner) complete(thread store.Thread, runID, messageID string, startedAt time.Time) {
 	_ = r.db.FinishRun(runID, "done", "", "")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
-	r.records.Emit(events.TypeRunCompleted, thread.ID, runID, map[string]any{"status": "done"})
+	r.records.Emit(events.TypeRunCompleted, thread.ID, runID, map[string]any{
+		"status":     "done",
+		"durationMs": time.Since(startedAt).Milliseconds(),
+	})
 	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
 // canceled 结束一次被取消的运行：记录取消原因，并把会话状态恢复为空闲。
-func (r *Runner) canceled(thread store.Thread, runID, messageID string) {
+//
+// startedAt 的含义与 complete 一致，取消事件同样携带已进行的时长，
+// 让前端把被中断的一轮折叠成「已工作 N · 已停止」。
+func (r *Runner) canceled(thread store.Thread, runID, messageID string, startedAt time.Time) {
 	_ = r.db.FinishRun(runID, "canceled", "canceled", "用户取消")
 	_ = r.records.SetThreadStatus(thread.ID, runID, "idle")
-	r.records.Emit(events.TypeRunCanceled, thread.ID, runID, map[string]any{"status": "canceled"})
+	r.records.Emit(events.TypeRunCanceled, thread.ID, runID, map[string]any{
+		"status":     "canceled",
+		"durationMs": time.Since(startedAt).Milliseconds(),
+	})
 	r.records.Flush(thread.ID)
 }
 
 // fail 结束一次失败的运行：写错误事件让界面显示可重试的错误卡片，并发送系统通知。
 //
 // retryable 表示用户是否可以原样重试；false 通常意味着需要调整配置或输入。
-func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool) {
+// startedAt 的含义与 complete 一致，失败事件同样携带已进行的时长。
+func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool, startedAt time.Time) {
 	_ = r.db.FinishRun(runID, "error", code, message)
 	_ = r.records.SetThreadStatus(thread.ID, runID, "error")
 
@@ -658,9 +680,10 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 	}
 	r.persist(thread.ID, messageID, runID, partID, "error", payload)
 	r.records.Emit(events.TypeRunFailed, thread.ID, runID, map[string]any{
-		"status":  "error",
-		"code":    code,
-		"message": message,
+		"status":     "error",
+		"code":       code,
+		"message":    message,
+		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
 	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
@@ -670,7 +693,7 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 //
 // 无法识别错误码时使用 fallbackCode，保证前端拿到的永远是统一错误码，
 // 而不是原始 HTTP 状态或底层错误文本。
-func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCode string, err error) {
+func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCode string, err error, startedAt time.Time) {
 	if err == nil {
 		err = errors.New("未知模型错误")
 	}
@@ -678,7 +701,7 @@ func (r *Runner) failWithError(thread store.Thread, runID, messageID, fallbackCo
 	if code == "" || code == string(model.CodeUnknown) {
 		code = fallbackCode
 	}
-	r.fail(thread, runID, messageID, code, err.Error(), model.Retryable(err))
+	r.fail(thread, runID, messageID, code, err.Error(), model.Retryable(err), startedAt)
 }
 
 // recordUsage 写入一次模型调用的用量，并累加到会话的 token 总数。

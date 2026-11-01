@@ -13,7 +13,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import type { Components } from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/core";
 import go from "highlight.js/lib/languages/go";
@@ -370,5 +370,22 @@ export function MarkdownText() {
       preprocess={preprocess}
       smooth={false}
     />
+  );
+}
+
+/**
+ * 受控 Markdown 渲染：直接渲染给定的文本，不依赖 assistant-ui 的部件上下文。
+ *
+ * 用在「工作过程折叠区」里的中间正文（data-cw-history-text）——这些文本
+ * 在运行时里是 data 部件，没有内置 Text 部件的上下文可取，因此走 react-markdown
+ * 渲染；安全策略（链接确认、图片不加载、代码高亮、本地引用链接）与正文完全一致。
+ */
+export function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <div className="blk md">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {preprocess(text)}
+      </ReactMarkdown>
+    </div>
   );
 }
