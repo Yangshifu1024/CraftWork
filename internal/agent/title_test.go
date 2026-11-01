@@ -67,21 +67,39 @@ func TestAutoTitleUsesModel(t *testing.T) {
 	}
 }
 
-func TestAutoTitleFallsBackOnTimeout(t *testing.T) {
-	original := titleRequestTimeout
-	titleRequestTimeout = 20 * time.Millisecond
-	t.Cleanup(func() { titleRequestTimeout = original })
-
-	h := newHarnessWithFactory(t, fakeFactory{client: blockingTitleClient{}})
-	thread := h.createTitleThread(t, "帮我修复登录刷新超时")
+func TestAutoTitleUsesShortTextWithoutModel(t *testing.T) {
+	// 模型会返回一个明显不同的标题；最终标题仍是原文，说明没有发起请求。
+	h := newHarnessWithFactory(t, fakeFactory{client: titleClient{text: "模型生成的标题"}})
+	text := "帮我修复登录刷新超时"
+	thread := h.createTitleThread(t, text)
 	h.runner.autoTitle(thread, "test/fake")
 
 	stored, err := h.db.GetThread(thread.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Title != "帮我修复登录刷新超时" {
-		t.Fatalf("超时后应使用降级标题: %+v", stored)
+	if stored.Title != text || stored.TitleAuto {
+		t.Fatalf("短消息应直接使用原文: %+v", stored)
+	}
+}
+
+func TestAutoTitleFallsBackOnTimeout(t *testing.T) {
+	original := titleRequestTimeout
+	titleRequestTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { titleRequestTimeout = original })
+
+	// 超过 20 个字符才会进入模型路径，超时后应降级为首条消息的截断标题。
+	longText := "登录后 15 分钟刷新令牌就超时了，帮我看看 internal/auth/session.go 里的刷新逻辑。"
+	h := newHarnessWithFactory(t, fakeFactory{client: blockingTitleClient{}})
+	thread := h.createTitleThread(t, longText)
+	h.runner.autoTitle(thread, "test/fake")
+
+	stored, err := h.db.GetThread(thread.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := title.Derive(longText, nil); stored.Title != want {
+		t.Fatalf("超时后应使用降级标题: got %q want %q", stored.Title, want)
 	}
 }
 
@@ -90,16 +108,17 @@ func TestAutoTitleFallsBackWhenStreamNeverCloses(t *testing.T) {
 	titleRequestTimeout = 20 * time.Millisecond
 	t.Cleanup(func() { titleRequestTimeout = original })
 
+	longText := "帮我整理这份季度会议纪要，并列出所有待办事项和负责人"
 	h := newHarnessWithFactory(t, fakeFactory{client: neverClosingTitleClient{}})
-	thread := h.createTitleThread(t, "整理季度会议纪要")
+	thread := h.createTitleThread(t, longText)
 	h.runner.autoTitle(thread, "test/fake")
 
 	stored, err := h.db.GetThread(thread.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Title != "整理季度会议纪要" {
-		t.Fatalf("流未关闭时也应在超时后降级: %+v", stored)
+	if want := title.Derive(longText, nil); stored.Title != want {
+		t.Fatalf("流未关闭时也应在超时后降级: got %q want %q", stored.Title, want)
 	}
 }
 

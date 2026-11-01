@@ -38,6 +38,21 @@ func Derive(text string, attachments []string) string {
 	return Limit(candidate)
 }
 
+// Short 判断首条消息能否直接作为标题。
+//
+// 清洗后不超过 MaxRunes 个字符时返回该文本，表示标题已经是用户原话的
+// 合理概括，调用方不需要再请求模型；超过上限或没有有效内容时返回空字符串。
+func Short(text string) string {
+	value := Normalize(text)
+	if value == "" || !HasContent(value) {
+		return ""
+	}
+	if len([]rune(value)) > MaxRunes {
+		return ""
+	}
+	return value
+}
+
 // Normalize 清理 Markdown 前缀、多余空白、引号与首尾标点。
 func Normalize(value string) string {
 	value = strings.TrimSpace(value)

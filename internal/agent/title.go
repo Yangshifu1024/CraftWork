@@ -61,8 +61,11 @@ func (r *Runner) autoTitle(thread store.Thread, modelRef string) {
 
 	var generated string
 	var usage *model.Usage
-	// 纯附件消息没有可读文本，直接使用文件名降级，避免无意义的模型请求。
-	if strings.TrimSpace(userText) != "" {
+	// 短消息本身就是合适的标题：直接使用清洗后的原文，省掉一次模型请求。
+	// 纯附件消息没有可读文本，跳过模型分支，交给下面的文件名降级。
+	if short := title.Short(userText); short != "" {
+		generated = short
+	} else if strings.TrimSpace(userText) != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), titleRequestTimeout)
 		defer cancel()
 		generated, usage = r.generateTitle(ctx, modelRef, userText)

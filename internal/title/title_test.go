@@ -41,6 +41,23 @@ func TestLimitKeepsMaxRunes(t *testing.T) {
 	}
 }
 
+func TestShortUsesOriginalTextWithinLimit(t *testing.T) {
+	exact := strings.Repeat("超", MaxRunes)
+	cases := map[string]string{
+		"帮我修复登录刷新超时":      "帮我修复登录刷新超时",
+		"## 排查终端问题\n多余内容": "排查终端问题",
+		"  “整理季度会议纪要”  ":  "整理季度会议纪要",
+		"！！！":             "",
+		exact:             exact,
+		exact + "超":       "",
+	}
+	for input, want := range cases {
+		if got := Short(input); got != want {
+			t.Fatalf("Short(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestNormalizeModelOutput(t *testing.T) {
 	cases := map[string]string{
 		"  “修复登录刷新超时”  ": "修复登录刷新超时",
