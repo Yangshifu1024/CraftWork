@@ -235,6 +235,7 @@ docs/                    需求、界面、技术方案、原型
 - server 模式生产构建的 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）；如果浏览器拦截同源 WebSocket 导致事件不刷新，显式放行 `ws://`。
 - `wails3 dev` / `wails3 build` 只产出桌面窗口；server 模式走 Taskfile 的 `build:server`（本质是 `go build -tags server`）。
 - `frontend/bindings` 不要手改；重新生成即可。
+- xterm 通过 canvas 渲染，`fontFamily` 不能使用 `var(--font-mono)` 这类 CSS 变量，必须传具体字体栈，并在末尾补 Nerd Font 回退。
 - 应用没有任何内置提供商；不要写死 `openai`、`gemini` 等提供商分支，也不要提供“推荐模型”。
 - 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
 - `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。

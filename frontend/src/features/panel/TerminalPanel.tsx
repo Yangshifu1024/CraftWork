@@ -78,6 +78,32 @@ function terminalTheme(theme: string) {
 }
 
 /**
+ * xterm 的字体栈。
+ *
+ * xterm 通过 canvas 渲染文字，不能解析 CSS 变量；这里必须给出具体字体名。
+ * 前半段是常见等宽字体，后半段是 Nerd Font，保证 shell 提示符里的分支、
+ * 目录等图标有回退字体可用，而不是显示成方框。
+ */
+const TERMINAL_FONT_FAMILY = [
+  '"SF Mono"',
+  '"Menlo"',
+  '"Monaco"',
+  '"Cascadia Code"',
+  '"Consolas"',
+  '"DejaVu Sans Mono"',
+  '"Lilex Nerd Font Mono"',
+  '"MesloLGS NF"',
+  '"MesloLGS Nerd Font"',
+  '"JetBrainsMono Nerd Font"',
+  '"Hack Nerd Font"',
+  '"FiraCode Nerd Font"',
+  '"CaskaydiaCove Nerd Font"',
+  '"Symbols Nerd Font Mono"',
+  '"Symbols Nerd Font"',
+  "monospace",
+].join(", ");
+
+/**
  * 终端面板组件。
  *
  * props：无。关键状态：
@@ -134,7 +160,7 @@ export function TerminalPanel() {
     }
     const term = new Terminal({
       fontSize: settings.terminalFontSize,
-      fontFamily: "var(--font-mono)",
+      fontFamily: TERMINAL_FONT_FAMILY,
       cursorBlink: true,
       convertEol: false,
       scrollback: 10000,
