@@ -52,7 +52,7 @@ func (c *scriptedClient) Stream(_ context.Context, _ model.Request) (<-chan mode
 type harness struct {
 	runner    *Runner
 	db        *store.DB
-	broker    *Broker
+	approvals *Approvals
 	workspace string
 	thread    store.Thread
 }
@@ -86,8 +86,8 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 		},
 	})
 	engine := policy.New(policy.LevelGraded, workspace)
-	broker := NewBroker(db, bus)
-	runner := NewRunner(db, bus, registry, engine, broker, factory)
+	approvals := NewApprovals(db, bus)
+	runner := NewRunner(db, bus, registry, engine, approvals, factory)
 
 	thread := store.Thread{
 		ID: "th_1", Mode: "code", Title: "测试", ModelID: "fake",
@@ -103,7 +103,7 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 		t.Fatal(err)
 	}
 
-	return &harness{runner: runner, db: db, broker: broker, workspace: workspace, thread: thread}
+	return &harness{runner: runner, db: db, approvals: approvals, workspace: workspace, thread: thread}
 }
 
 func (h *harness) start(t *testing.T) {
@@ -128,7 +128,7 @@ func TestRunnerApprovalAllow(t *testing.T) {
 	if approval.Tool != "fs_write" || approval.Risk != "R1" {
 		t.Fatalf("审批内容不符: %+v", approval)
 	}
-	if err := h.broker.Resolve(approval.ID, Decision{Allow: true, Scope: "once"}); err != nil {
+	if err := h.approvals.Resolve(approval.ID, Decision{Allow: true, Scope: "once"}); err != nil {
 		t.Fatal(err)
 	}
 	waitStatus(t, h.db, "th_1", "idle")
@@ -148,7 +148,7 @@ func TestRunnerApprovalDeny(t *testing.T) {
 	h.start(t)
 
 	approval := waitApproval(t, h.db, "th_1")
-	if err := h.broker.Resolve(approval.ID, Decision{Allow: false}); err != nil {
+	if err := h.approvals.Resolve(approval.ID, Decision{Allow: false}); err != nil {
 		t.Fatal(err)
 	}
 	waitStatus(t, h.db, "th_1", "idle")

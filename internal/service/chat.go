@@ -12,15 +12,15 @@ import (
 
 // ChatService 处理发送、取消、重新生成与审批决定。
 type ChatService struct {
-	db     *store.DB
-	bus    *events.Bus
-	runner *agent.Runner
-	broker *agent.Broker
+	db        *store.DB
+	bus       *events.Bus
+	runner    *agent.Runner
+	approvals *agent.Approvals
 }
 
 // NewChatService 创建对话服务。
-func NewChatService(db *store.DB, bus *events.Bus, runner *agent.Runner, broker *agent.Broker) *ChatService {
-	return &ChatService{db: db, bus: bus, runner: runner, broker: broker}
+func NewChatService(db *store.DB, bus *events.Bus, runner *agent.Runner, approvals *agent.Approvals) *ChatService {
+	return &ChatService{db: db, bus: bus, runner: runner, approvals: approvals}
 }
 
 // Send 写入用户消息并启动一次 run，返回 runID。
@@ -97,19 +97,14 @@ func (s *ChatService) Cancel(threadID string) (bool, error) {
 }
 
 // DecideApproval 回传用户对审批的决定。
+//
+// scope 的合法性与“拒绝时强制一次”等状态机规则由审批模块负责，
+// 服务层只做 IPC 参数的非空校验。
 func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string) error {
 	if strings.TrimSpace(approvalID) == "" {
 		return errors.New("approvalID 不能为空")
 	}
-	if !allow {
-		scope = "once"
-	}
-	switch scope {
-	case "once", "session", "workspace":
-	default:
-		return errors.New("无效的授权范围")
-	}
-	return s.broker.Resolve(approvalID, agent.Decision{Allow: allow, Scope: scope})
+	return s.approvals.Resolve(approvalID, agent.Decision{Allow: allow, Scope: scope})
 }
 
 func (s *ChatService) startRun(thread store.Thread) (string, error) {

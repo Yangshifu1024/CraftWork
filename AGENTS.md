@@ -85,7 +85,7 @@ main.go                  入口：embed frontend/dist，交给 internal/app
 internal/app/            窗口、单实例、CSP、服务装配、关闭钩子
 internal/service/        Wails 绑定层（App / Settings / Thread / Chat /
                          Workspace / Provider / Audit / Terminal / Document）
-internal/agent/          Run 循环、审批 Broker、授权缓存
+internal/agent/          Run 循环、审批状态机、授权缓存
 internal/tools/          fs_* / shell_exec / git_status / todo_write
 internal/policy/         风险分级、审批档位、路径解析、命令分类
 internal/model/          统一 Client、提供商目录、Mock、OpenAI 兼容 SSE

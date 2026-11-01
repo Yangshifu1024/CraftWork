@@ -43,7 +43,7 @@ type Runner struct {
 	bus           *events.Bus
 	tools         *tools.Registry
 	policy        *policy.Engine
-	broker        *Broker
+	approvals     *Approvals
 	models        ModelFactory
 	maxIterations int
 
@@ -54,17 +54,19 @@ type Runner struct {
 
 // NewRunner 创建运行器。
 func NewRunner(db *store.DB, bus *events.Bus, registry *tools.Registry,
-	engine *policy.Engine, broker *Broker, models ModelFactory) *Runner {
-	return &Runner{
+	engine *policy.Engine, approvals *Approvals, models ModelFactory) *Runner {
+	runner := &Runner{
 		db:            db,
 		bus:           bus,
 		tools:         registry,
 		policy:        engine,
-		broker:        broker,
+		approvals:     approvals,
 		models:        models,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
 	}
+	approvals.SetRecorder(runner.persist)
+	return runner
 }
 
 // SetNotifier 设置系统通知回调。宿主通常在这里判断窗口是否聚焦。
@@ -386,7 +388,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		case policy.ActionDeny:
 			denied = "当前审批档位拒绝该操作"
 		case policy.ActionAsk:
-			if r.policy.Restricted() || !r.broker.Grants().Allowed(call.Name, assessment.Target) {
+			if r.policy.Restricted() || !r.approvals.Allowed(call.Name, assessment.Target) {
 				approvalID := id.New("ap")
 				approvalPartID := id.New("part")
 				allowPermanent := r.policy.AllowsPermanent(assessment.Risk)
@@ -397,33 +399,13 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					}
 				}
 
-				payload := map[string]any{
-					"partId":         approvalPartID,
-					"approvalId":     approvalID,
-					"toolCallId":     call.ID,
-					"tool":           call.Name,
-					"risk":           assessment.Risk.String(),
-					"title":          title,
-					"target":         assessment.Target,
-					"detail":         assessment.Reason,
-					"facts":          facts,
-					"args":           call.Args,
-					"allowPermanent": allowPermanent,
-					"status":         "waiting",
-				}
-				r.persist(thread.ID, messageID, runID, approvalPartID, "approval", payload)
-				_ = r.db.SetThreadStatus(thread.ID, "awaiting")
-				r.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-					"threadId": thread.ID,
-					"status":   "awaiting",
-				})
 				r.sendNotification("需要审批", title+" · "+summary)
-
-				decision, err := r.broker.Ask(ctx, ApprovalRequest{
+				outcome, err := r.approvals.Request(ctx, ApprovalRequest{
 					ID:             approvalID,
 					PartID:         approvalPartID,
 					ThreadID:       thread.ID,
 					RunID:          runID,
+					MessageID:      messageID,
 					ToolCallID:     call.ID,
 					Tool:           call.Name,
 					Risk:           assessment.Risk.String(),
@@ -434,36 +416,15 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 					Args:           call.Args,
 					AllowPermanent: allowPermanent,
 				})
-
-				_ = r.db.SetThreadStatus(thread.ID, "running")
-				r.bus.Publish(events.TypeThreadUpdated, thread.ID, runID, map[string]any{
-					"threadId": thread.ID,
-					"status":   "running",
-				})
-
-				status := "approved"
-				decisionText := "allow"
 				switch {
 				case err != nil:
-					status = "canceled"
-					decisionText = "canceled"
 					denied = "审批已取消"
 					aborted = errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-				case !decision.Allow:
-					status = "denied"
-					decisionText = "deny"
+				case !outcome.Allow:
 					denied = "用户拒绝了该操作"
 				default:
-					scope = decision.Scope
+					scope = outcome.Scope
 				}
-
-				r.persist(thread.ID, messageID, runID, id.New("ev"), "approval_resolved", map[string]any{
-					"partId":     approvalPartID,
-					"approvalId": approvalID,
-					"status":     status,
-					"decision":   decisionText,
-					"scope":      scope,
-				})
 			}
 		}
 	}

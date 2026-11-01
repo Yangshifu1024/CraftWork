@@ -108,12 +108,12 @@ func Run(frontend embed.FS, build version.Info) error {
 	modelFactory.SetFallbackResolver(func(string) string {
 		return settingsService.Get().FallbackModel
 	})
-	broker := agent.NewBroker(db, bus)
-	runner := agent.NewRunner(db, bus, registry, engine, broker, modelFactory)
+	approvals := agent.NewApprovals(db, bus)
+	runner := agent.NewRunner(db, bus, registry, engine, approvals, modelFactory)
 
 	appService := service.NewAppService(dataDir, build)
 	threadService := service.NewThreadService(db, bus)
-	chatService := service.NewChatService(db, bus, runner, broker)
+	chatService := service.NewChatService(db, bus, runner, approvals)
 	workspaceService := service.NewWorkspaceService(db, bus, engine, registry, filepath.Join(dataDir, "backups"))
 	providerService := service.NewProviderService(db, secrets)
 	auditService := service.NewAuditService(db)
