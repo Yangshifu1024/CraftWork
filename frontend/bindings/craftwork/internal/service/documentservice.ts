@@ -4,8 +4,8 @@
 /**
  * DocumentService 提供文档预览。
  * 
- * 当前版本只返回文件信息与纯文本预览；docx / xlsx / pdf 的结构化解析
- * 在 M3 接入。界面仍然按正式渲染路径展示，避免后续返工。
+ * docx / xlsx / pdf 走 internal/doc 的文本级解析；其他文本文件直接预览。
+ * 写入由 Agent 的 doc_edit / xlsx_set_cell 工具完成，并经过审批与备份。
  * @module
  */
 

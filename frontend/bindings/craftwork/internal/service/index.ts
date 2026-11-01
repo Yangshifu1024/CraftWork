@@ -5,6 +5,7 @@ import * as AppService from "./appservice.js";
 import * as AuditService from "./auditservice.js";
 import * as ChatService from "./chatservice.js";
 import * as DocumentService from "./documentservice.js";
+import * as MCPService from "./mcpservice.js";
 import * as ProviderService from "./providerservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as TerminalService from "./terminalservice.js";
@@ -15,6 +16,7 @@ export {
     AuditService,
     ChatService,
     DocumentService,
+    MCPService,
     ProviderService,
     SettingsService,
     TerminalService,
@@ -28,6 +30,8 @@ export type {
     DocumentPreview,
     FileContent,
     FileNode,
+    MCPServerView,
+    MCPToolView,
     ModelView,
     ProviderView,
     Settings,

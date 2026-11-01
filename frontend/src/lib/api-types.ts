@@ -7,6 +7,7 @@ import type {
   DocumentPreview,
   FileContent,
   FileNode,
+  MCPServerView,
   ProviderView,
   Settings,
   TerminalView,
@@ -66,6 +67,13 @@ export interface Api {
     setKey(providerID: string, key: string): Promise<void>;
     clearKey(providerID: string): Promise<void>;
     test(providerID: string): Promise<ConnectionResult>;
+  };
+  mcp: {
+    list(): Promise<MCPServerView[]>;
+    add(name: string, command: string): Promise<MCPServerView>;
+    remove(serverID: string): Promise<void>;
+    connect(serverID: string): Promise<MCPServerView>;
+    disconnect(serverID: string): Promise<void>;
   };
   audit: {
     list(limit: number): Promise<AuditEntry[]>;

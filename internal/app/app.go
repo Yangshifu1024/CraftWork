@@ -119,6 +119,7 @@ func Run(frontend embed.FS, build version.Info) error {
 	auditService := service.NewAuditService(db)
 	terminalService := service.NewTerminalService(bus, registry.Workspace)
 	documentService := service.NewDocumentService(db)
+	mcpService := service.NewMCPService(db, registry)
 
 	// 启动时恢复活动工作区与审批档位。
 	settings := settingsService.Get()
@@ -149,6 +150,7 @@ func Run(frontend embed.FS, build version.Info) error {
 			application.NewService(auditService),
 			application.NewService(terminalService),
 			application.NewService(documentService),
+			application.NewService(mcpService),
 		},
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(frontend),
@@ -196,6 +198,8 @@ func Run(frontend embed.FS, build version.Info) error {
 		}
 		notify.Send(title, message)
 	})
+
+	go mcpService.Restore()
 
 	return wailsApp.Run()
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Result 是工具执行结果。
@@ -47,6 +48,7 @@ type Options struct {
 
 // Registry 持有当前工作区可用的工具集合。
 type Registry struct {
+	mu    sync.RWMutex
 	opts  Options
 	tools map[string]Tool
 }
@@ -79,22 +81,48 @@ func NewRegistry(opts Options) *Registry {
 
 // SetWorkspace 切换工作区。
 func (r *Registry) SetWorkspace(workspace string) {
+	r.mu.Lock()
 	r.opts.Workspace = workspace
+	r.mu.Unlock()
 }
 
 // Workspace 返回当前工作区。
 func (r *Registry) Workspace() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.opts.Workspace
 }
 
 // Get 按名称取工具。
 func (r *Registry) Get(name string) (Tool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	tool, ok := r.tools[name]
 	return tool, ok
 }
 
+// Register 动态注册工具（用于 MCP）。同名工具会被替换。
+func (r *Registry) Register(tool Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tools[tool.Name()] = tool
+}
+
+// Unregister 移除动态注册的工具。
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
 // Specs 返回所有工具定义，按名称排序保证提示词稳定。
 func (r *Registry) Specs() []Spec {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.specsLocked()
+}
+
+func (r *Registry) specsLocked() []Spec {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)
@@ -120,13 +148,15 @@ var workModeTools = map[string]bool{
 //
 // Work 模式只提供文件、文档与任务清单工具，不暴露 Shell、Git 与终端相关能力。
 func (r *Registry) SpecsForMode(mode string) []Spec {
-	specs := r.Specs()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	specs := r.specsLocked()
 	if mode != "work" {
 		return specs
 	}
 	filtered := make([]Spec, 0, len(specs))
 	for _, spec := range specs {
-		if workModeTools[spec.Name] {
+		if workModeTools[spec.Name] || strings.HasPrefix(spec.Name, "mcp__") {
 			filtered = append(filtered, spec)
 		}
 	}
@@ -138,7 +168,7 @@ func (r *Registry) Allows(mode, name string) bool {
 	if mode != "work" {
 		return true
 	}
-	return workModeTools[name]
+	return workModeTools[name] || strings.HasPrefix(name, "mcp__")
 }
 
 const (

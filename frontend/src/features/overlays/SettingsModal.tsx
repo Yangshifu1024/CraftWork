@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
 import { api } from "../../lib/api";
-import type { ApprovalLevel, ProviderView, Settings } from "../../lib/types";
+import type { ApprovalLevel, MCPServerView, ProviderView, Settings } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
 import { useUiStore, type SettingsTab } from "../../stores/ui";
@@ -56,6 +56,16 @@ export function SettingsModal() {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+  const [mcpServers, setMcpServers] = useState<MCPServerView[]>([]);
+  const [mcpBusy, setMcpBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && tab === "mcp") {
+      void refreshMCP();
+    }
+    // refreshMCP 只在打开 MCP 标签时读取服务器列表。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tab]);
 
   useEffect(() => {
     if (open) {
@@ -118,6 +128,96 @@ export function SettingsModal() {
       toast({ title: "连接测试失败", description: String(error), tone: "danger" });
     } finally {
       setTesting(null);
+    }
+  }
+
+  async function refreshMCP() {
+    try {
+      setMcpServers(await api.mcp.list());
+    } catch (error) {
+      toast({ title: "读取 MCP 服务器失败", description: String(error), tone: "danger" });
+    }
+  }
+
+  async function addMCPServer() {
+    const name = await askPrompt({
+      title: "添加 MCP 服务器",
+      label: "给服务器起一个名称，例如 filesystem。",
+      placeholder: "filesystem",
+      confirmText: "下一步",
+    });
+    if (!name) {
+      return;
+    }
+    const command = await askPrompt({
+      title: `${name} 的启动命令`,
+      label: "命令以当前用户权限在本地运行；模型密钥会从环境变量中过滤。",
+      placeholder: "npx -y @modelcontextprotocol/server-filesystem .",
+      confirmText: "添加并连接",
+    });
+    if (!command) {
+      return;
+    }
+    setMcpBusy("add");
+    try {
+      const server = await api.mcp.add(name, command);
+      toast({
+        title: server.error ? "服务器已保存，但连接失败" : "MCP 服务器已连接",
+        description: server.error ?? `${server.name} · ${(server.tools ?? []).length} 个工具`,
+        tone: server.error ? "warn" : "ok",
+      });
+      await refreshMCP();
+    } catch (error) {
+      toast({ title: "添加 MCP 服务器失败", description: String(error), tone: "danger" });
+    } finally {
+      setMcpBusy(null);
+    }
+  }
+
+  async function connectMCP(server: MCPServerView) {
+    setMcpBusy(server.id);
+    try {
+      const updated = await api.mcp.connect(server.id);
+      toast({
+        title: updated.error ? "连接失败" : "已连接",
+        description: updated.error ?? `${updated.name} · ${(updated.tools ?? []).length} 个工具`,
+        tone: updated.error ? "danger" : "ok",
+      });
+      await refreshMCP();
+    } catch (error) {
+      toast({ title: "连接 MCP 服务器失败", description: String(error), tone: "danger" });
+    } finally {
+      setMcpBusy(null);
+    }
+  }
+
+  async function disconnectMCP(server: MCPServerView) {
+    setMcpBusy(server.id);
+    try {
+      await api.mcp.disconnect(server.id);
+      await refreshMCP();
+    } catch (error) {
+      toast({ title: "断开 MCP 服务器失败", description: String(error), tone: "danger" });
+    } finally {
+      setMcpBusy(null);
+    }
+  }
+
+  async function removeMCP(server: MCPServerView) {
+    const confirmed = await askConfirm({
+      title: `移除 ${server.name}？`,
+      description: "会断开连接并删除服务器配置；已注册的工具立即失效。",
+      confirmText: "移除",
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await api.mcp.remove(server.id);
+      await refreshMCP();
+    } catch (error) {
+      toast({ title: "移除 MCP 服务器失败", description: String(error), tone: "danger" });
     }
   }
 
@@ -417,19 +517,105 @@ export function SettingsModal() {
                 <Row label="工作区授权" desc="选择「本会话 / 本工作区」后记录在这里；R3 / R4 永远不会出现。">
                   <span className="badge neutral">暂无永久授权</span>
                 </Row>
-                <Row label="沙箱" desc="macOS Seatbelt 与 Windows 受限令牌在 M4 接入；当前版本依赖审批与路径校验。">
+                <Row label="沙箱" desc="macOS Seatbelt 与 Windows 受限令牌尚未实现；当前依赖审批与路径校验。">
                   <span className="badge warn">未启用</span>
                 </Row>
               </SettingsSection>
             ) : null}
 
             {tab === "mcp" ? (
-              <SettingsSection title="MCP 服务器" desc="MCP 客户端与服务器管理在 M4 接入；下面是推荐模板。">
-                <div className="panel-empty" style={{ padding: "18px 0 22px" }}>
-                  <Icon name="globe" size={22} />
-                  <div>还没有已连接的 MCP 服务器</div>
-                  <div className="panel-empty-hint">MCP 工具会以 mcp__服务器__工具 命名，并在首次连接时展示权限。</div>
+              <SettingsSection title="MCP 服务器" desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。">
+                <div className="mcp-toolbar">
+                  <button
+                    type="button"
+                    className="btn sm"
+                    disabled={mcpBusy === "add"}
+                    onClick={() => void addMCPServer()}
+                  >
+                    {mcpBusy === "add" ? <Icon name="loader" className="ico spin" /> : <Icon name="plus" className="ico" />}
+                    添加服务器
+                  </button>
+                  <button type="button" className="btn sm ghost" onClick={() => void refreshMCP()}>
+                    刷新
+                  </button>
                 </div>
+
+                {mcpServers.length === 0 ? (
+                  <div className="panel-empty" style={{ padding: "18px 0 22px" }}>
+                    <Icon name="globe" size={22} />
+                    <div>还没有已连接的 MCP 服务器</div>
+                    <div className="panel-empty-hint">添加本地命令后，服务器工具会在下一次对话中可用。</div>
+                  </div>
+                ) : null}
+
+                {mcpServers.map((server) => (
+                  <div key={server.id} className="mcp-card">
+                    <div className="mcp-head">
+                      <div className="mcp-icon">
+                        <Icon name="globe" />
+                      </div>
+                      <div className="mcp-main">
+                        <div className="mcp-name">
+                          {server.name}
+                          <span className={cn("badge", server.connected ? "ok" : server.error ? "danger" : "neutral")}>
+                            {server.connected ? "已连接" : server.error ? "连接失败" : "未连接"}
+                          </span>
+                        </div>
+                        <div className="mcp-sub">{[server.command, ...(server.args ?? [])].join(" ")}</div>
+                        {server.error ? (
+                          <div className="mcp-sub" style={{ color: "var(--danger)", whiteSpace: "normal" }}>
+                            {server.error}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="provider-actions">
+                        {server.connected ? (
+                          <button
+                            type="button"
+                            className="btn sm ghost"
+                            disabled={mcpBusy === server.id}
+                            onClick={() => void disconnectMCP(server)}
+                          >
+                            断开
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn sm"
+                            disabled={mcpBusy === server.id}
+                            onClick={() => void connectMCP(server)}
+                          >
+                            连接
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="icon-btn sm"
+                          aria-label={`移除 ${server.name}`}
+                          onClick={() => void removeMCP(server)}
+                        >
+                          <Icon name="trash" />
+                        </button>
+                      </div>
+                    </div>
+                    {(server.tools ?? []).length > 0 ? (
+                      <div className="mcp-tools">
+                        <div className="mcp-tool-chips">
+                          {(server.tools ?? []).map((tool) => (
+                            <span key={tool.name} className="mcp-tool-chip" title={tool.description}>
+                              {tool.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+
+                <div className="sec-desc" style={{ marginTop: 10 }}>
+                  服务器以当前用户权限运行；模型密钥与常见令牌会从环境变量中过滤。
+                </div>
+
                 {mcpTemplates.map((template) => (
                   <div key={template.name} className="mcp-card">
                     <div className="provider-head" style={{ padding: 0 }}>
@@ -440,7 +626,7 @@ export function SettingsModal() {
                         <div className="provider-name">{template.name}</div>
                         <div className="provider-sub">{template.description}</div>
                       </div>
-                      <span className="badge neutral">M4 接入</span>
+                      <span className="badge neutral">模板</span>
                     </div>
                   </div>
                 ))}

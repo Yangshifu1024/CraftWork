@@ -12,6 +12,7 @@ import type {
   DiffResult,
   DocumentPreview,
   FileNode,
+  MCPServerView,
   Mode,
   ProviderView,
   Settings,
@@ -271,6 +272,8 @@ const backups: Backup[] = [
   { id: "bk_demo", path: "季度会议纪要.docx", backupPath: "~/.craftwork/backups/季度会议纪要.docx.20261031-142210", hash: "9f2c", size: 48120, createdAt: now - 1900000 },
   { id: "bk_demo2", path: "内部/auth/session.go", backupPath: "~/.craftwork/backups/session.go.20261031-143002", hash: "a17d", size: 420, createdAt: now - 120000 },
 ];
+
+const mcpServers: MCPServerView[] = [];
 
 const providers: ProviderView[] = [
   {
@@ -718,8 +721,7 @@ export const mockApi: Api = {
     gitStatuses: async () => ({ ...gitStatuses }),
   },
   providers: {
-    list: async () => providers.map((provider) => ({ ...provider })),
-    warnings: async () => [],
+    list: async () => providers.map((provider) => ({ ...provider })),    warnings: async () => [],
     setKey: async (providerID, key) => {
       const provider = providers.find((item) => item.id === providerID);
       if (provider) {
@@ -741,6 +743,63 @@ export const mockApi: Api = {
     test: async (providerID) => {
       const provider = providers.find((item) => item.id === providerID);
       return { ok: Boolean(provider?.available), message: provider?.available ? "连接正常" : "尚未配置密钥", latencyMs: 128 };
+    },
+  },
+  mcp: {
+    list: async () =>
+      mcpServers.map((server) => ({
+        ...server,
+        args: [...(server.args ?? [])],
+        tools: (server.tools ?? []).map((tool) => ({ ...tool })),
+      })),
+    add: async (name, command) => {
+      const server: MCPServerView = {
+        id: uid("mcp"),
+        name,
+        command,
+        args: [],
+        enabled: true,
+        connected: true,
+        tools: [
+          { name: "echo", description: "演示 MCP 工具：回显输入" },
+          { name: "list_resources", description: "演示 MCP 工具：列出资源" },
+        ],
+      };
+      mcpServers.push(server);
+      return {
+        ...server,
+        args: [...(server.args ?? [])],
+        tools: (server.tools ?? []).map((tool) => ({ ...tool })),
+      };
+    },
+    remove: async (serverID) => {
+      const index = mcpServers.findIndex((server) => server.id === serverID);
+      if (index >= 0) {
+        mcpServers.splice(index, 1);
+      }
+    },
+    connect: async (serverID) => {
+      const server = mcpServers.find((item) => item.id === serverID);
+      if (!server) {
+        throw new Error("MCP 服务器不存在");
+      }
+      server.connected = true;
+      server.error = "";
+      server.enabled = true;
+      server.tools = [{ name: "echo", description: "演示 MCP 工具：回显输入" }];
+      return {
+        ...server,
+        args: [...(server.args ?? [])],
+        tools: (server.tools ?? []).map((tool) => ({ ...tool })),
+      };
+    },
+    disconnect: async (serverID) => {
+      const server = mcpServers.find((item) => item.id === serverID);
+      if (server) {
+        server.connected = false;
+        server.enabled = false;
+        server.tools = [];
+      }
     },
   },
   audit: {

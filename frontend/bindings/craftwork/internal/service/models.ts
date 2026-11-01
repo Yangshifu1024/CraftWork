@@ -76,6 +76,28 @@ export interface FileNode {
 }
 
 /**
+ * MCPServerView 是 MCP 服务器的展示结构。
+ */
+export interface MCPServerView {
+    "id": string;
+    "name": string;
+    "command": string;
+    "args": string[] | null;
+    "enabled": boolean;
+    "connected": boolean;
+    "error"?: string;
+    "tools": MCPToolView[] | null;
+}
+
+/**
+ * MCPToolView 是 MCP 工具的展示结构。
+ */
+export interface MCPToolView {
+    "name": string;
+    "description": string;
+}
+
+/**
  * ModelView 是模型目录的展示结构。
  */
 export interface ModelView {

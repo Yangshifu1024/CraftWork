@@ -2,6 +2,7 @@ import * as AppService from "../../bindings/craftwork/internal/service/appservic
 import * as AuditService from "../../bindings/craftwork/internal/service/auditservice";
 import * as ChatService from "../../bindings/craftwork/internal/service/chatservice";
 import * as DocumentService from "../../bindings/craftwork/internal/service/documentservice";
+import * as MCPService from "../../bindings/craftwork/internal/service/mcpservice";
 import * as ProviderService from "../../bindings/craftwork/internal/service/providerservice";
 import * as SettingsService from "../../bindings/craftwork/internal/service/settingsservice";
 import * as TerminalService from "../../bindings/craftwork/internal/service/terminalservice";
@@ -99,6 +100,13 @@ export const desktopApi: Api = {
     setKey: (providerID, key) => ProviderService.SetKey(providerID, key),
     clearKey: (providerID) => ProviderService.ClearKey(providerID),
     test: (providerID) => ProviderService.Test(providerID),
+  },
+  mcp: {
+    list: async () => (await MCPService.List()) ?? [],
+    add: (name, command) => MCPService.Add(name, command),
+    remove: (serverID) => MCPService.Remove(serverID),
+    connect: (serverID) => MCPService.Connect(serverID),
+    disconnect: (serverID) => MCPService.Disconnect(serverID),
   },
   audit: {
     list: async (limit) => (await AuditService.List(limit)) ?? [],
