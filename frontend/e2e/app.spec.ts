@@ -26,6 +26,9 @@ test("发送消息、工具调用与审批闭环", async ({ page }) => {
   await allowButton.click();
 
   await expect(page.getByText("已完成修改：把刷新窗口从 10 分钟调整为 12 分钟。").first()).toBeVisible();
+  // 回复结束后过程部件（含审批结果）折叠进本轮的「已工作」；页面可能存在
+  // 历史轮次的折叠头，取最后一个（本轮）展开后结果条可见。
+  await page.locator(".work-history-head").last().click();
   await expect(page.getByText("已允许", { exact: false }).first()).toBeVisible();
 });
 
