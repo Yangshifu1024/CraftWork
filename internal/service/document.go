@@ -60,8 +60,7 @@ func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, err
 		Modified: info.ModTime().UnixMilli(),
 	}
 
-	switch strings.ToLower(filepath.Ext(abs)) {
-	case ".docx", ".xlsx", ".pdf":
+	if doc.Supported(abs) {
 		document, readErr := doc.ReadFile(abs)
 		if readErr != nil {
 			preview.Note = readErr.Error()
@@ -74,7 +73,7 @@ func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, err
 		if document.Truncated {
 			preview.Note = strings.TrimSpace(preview.Note + " 文本已截断。")
 		}
-	default:
+	} else {
 		preview.Supported = true
 		data, readErr := os.ReadFile(abs)
 		if readErr != nil {

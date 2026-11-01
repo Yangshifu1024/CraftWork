@@ -63,7 +63,7 @@ func TestReadDOCX(t *testing.T) {
 
 func TestReplaceDOCXText(t *testing.T) {
 	path := docxFixture(t)
-	if err := ReplaceDOCXText(path, "你好", "您好"); err != nil {
+	if err := Replace(path, Edit{Kind: "text", Old: "你好", New: "您好"}); err != nil {
 		t.Fatal(err)
 	}
 	document, err := ReadFile(path)
@@ -73,7 +73,7 @@ func TestReplaceDOCXText(t *testing.T) {
 	if !strings.Contains(document.Text, "您好世界") {
 		t.Fatalf("替换结果不符: %q", document.Text)
 	}
-	if err := ReplaceDOCXText(path, "不存在", "x"); err == nil {
+	if err := Replace(path, Edit{Kind: "text", Old: "不存在", New: "x"}); err == nil {
 		t.Fatal("不存在的文本应报错")
 	}
 }
@@ -115,13 +115,13 @@ func TestReadXLSX(t *testing.T) {
 
 func TestSetXLSXCell(t *testing.T) {
 	path := xlsxFixture(t)
-	if err := SetXLSXCell(path, "Sheet1", "B2", "4"); err != nil {
+	if err := Replace(path, Edit{Kind: "cell", Sheet: "Sheet1", Cell: "B2", Value: "4"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetXLSXCell(path, "", "C3", "汇总"); err != nil {
+	if err := Replace(path, Edit{Kind: "cell", Sheet: "", Cell: "C3", Value: "汇总"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetXLSXCell(path, "Sheet1", "D3", "=SUM(B2:B3)"); err != nil {
+	if err := Replace(path, Edit{Kind: "cell", Sheet: "Sheet1", Cell: "D3", Value: "=SUM(B2:B3)"}); err != nil {
 		t.Fatal(err)
 	}
 	document, err := ReadFile(path)

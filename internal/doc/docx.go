@@ -103,11 +103,11 @@ func docxText(data []byte) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// ReplaceDOCXText 在 word/document.xml 中替换唯一一段文本。
+// replaceDOCXText 在 word/document.xml 中替换唯一一段文本。
 //
 // 只支持完整位于同一个 <w:t> 节点内的文本；如果被拆分成多个 run，
 // 会返回可读错误，提示改用更短的片段。写入保留其余 ZIP 部件不变。
-func ReplaceDOCXText(path, oldText, newText string) error {
+func replaceDOCXText(path, oldText, newText string) error {
 	if oldText == "" {
 		return fmt.Errorf("old_text 不能为空")
 	}

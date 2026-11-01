@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"craftwork/internal/doc"
@@ -86,9 +85,6 @@ func (t *docEditTool) Execute(_ context.Context, call Call) Result {
 		return errorResult("old_text 不能为空")
 	}
 	abs, display := call.Target, call.Display
-	if strings.ToLower(filepath.Ext(abs)) != ".docx" {
-		return errorResult("doc_edit 只支持 .docx；Excel 请使用 xlsx_set_cell，PDF 不支持编辑")
-	}
 	original, err := os.ReadFile(abs)
 	if err != nil {
 		return errorResult("读取文档失败: %v", err)
@@ -96,7 +92,7 @@ func (t *docEditTool) Execute(_ context.Context, call Call) Result {
 	if err := call.Backup(original); err != nil {
 		return errorResult("写入前备份失败: %v", err)
 	}
-	if err := doc.ReplaceDOCXText(abs, oldText, newText); err != nil {
+	if err := doc.Replace(abs, doc.Edit{Kind: "text", Old: oldText, New: newText}); err != nil {
 		return errorResult("%v", err)
 	}
 	return Result{
@@ -134,9 +130,6 @@ func (t *xlsxSetCellTool) Spec() Spec {
 func (t *xlsxSetCellTool) Execute(_ context.Context, call Call) Result {
 	args := call.Args
 	abs, display := call.Target, call.Display
-	if strings.ToLower(filepath.Ext(abs)) != ".xlsx" {
-		return errorResult("xlsx_set_cell 只支持 .xlsx 文件")
-	}
 	cell := stringArg(args, "cell")
 	value := stringArg(args, "value")
 	if strings.TrimSpace(cell) == "" {
@@ -149,7 +142,9 @@ func (t *xlsxSetCellTool) Execute(_ context.Context, call Call) Result {
 	if err := call.Backup(original); err != nil {
 		return errorResult("写入前备份失败: %v", err)
 	}
-	if err := doc.SetXLSXCell(abs, stringArg(args, "sheet"), cell, value); err != nil {
+	if err := doc.Replace(abs, doc.Edit{
+		Kind: "cell", Sheet: stringArg(args, "sheet"), Cell: cell, Value: value,
+	}); err != nil {
 		return errorResult("%v", err)
 	}
 	return Result{

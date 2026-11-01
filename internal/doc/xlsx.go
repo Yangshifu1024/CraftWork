@@ -328,8 +328,8 @@ func xlsxRows(data []byte, shared []string) (map[int]map[string]string, error) {
 	return rows, nil
 }
 
-// SetXLSXCell 修改一个单元格的值或公式，保留其余 ZIP 部件与样式。
-func SetXLSXCell(filePath, sheetName, ref, value string) error {
+// setXLSXCell 修改一个单元格的值或公式，保留其余 ZIP 部件与样式。
+func setXLSXCell(filePath, sheetName, ref, value string) error {
 	ref = strings.ToUpper(strings.TrimSpace(ref))
 	if !cellRefPattern.MatchString(ref) {
 		return fmt.Errorf("无效的单元格引用：%s", ref)

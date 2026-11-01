@@ -7,6 +7,7 @@
 package doc
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,49 @@ type Document struct {
 	Truncated bool   `json:"truncated"`
 }
 
+// ErrReadOnly 表示该格式只支持读取，不支持文本级写入。
+var ErrReadOnly = errors.New("该格式不支持编辑")
+
+// Edit 描述一次文本级写入。
+type Edit struct {
+	Kind  string // text 或 cell
+	Old   string
+	New   string
+	Sheet string
+	Cell  string
+	Value string
+}
+
+// Format 是文档格式适配器。
+//
+// 读、写与扩展名都由格式自己声明；新增格式只需实现这个接口并注册。
+type Format interface {
+	Exts() []string
+	Read(path string) (Document, error)
+	Replace(path string, edit Edit) error
+}
+
+var formats = map[string]Format{}
+
+// legacyNotes 是只读目录里可以直接解释的旧格式。
+var legacyNotes = map[string]string{
+	".doc": "旧版 Office 格式请先转换为 .docx / .xlsx 后再读取。",
+	".xls": "旧版 Office 格式请先转换为 .docx / .xlsx 后再读取。",
+}
+
+// Register 注册一个文档格式。
+func Register(format Format) {
+	for _, ext := range format.Exts() {
+		formats[strings.ToLower(ext)] = format
+	}
+}
+
+// Supported 判断路径是否为已注册的文档格式。
+func Supported(path string) bool {
+	_, ok := formats[strings.ToLower(filepath.Ext(path))]
+	return ok
+}
+
 // ReadFile 按扩展名读取文档文本。
 func ReadFile(path string) (Document, error) {
 	info, err := os.Stat(path)
@@ -40,21 +84,23 @@ func ReadFile(path string) (Document, error) {
 	if info.Size() > MaxFileBytes {
 		return Document{}, fmt.Errorf("文件过大（%d MB），暂不支持解析", info.Size()/1024/1024)
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".docx":
-		return readDOCX(path)
-	case ".xlsx":
-		return readXLSX(path)
-	case ".pdf":
-		return readPDF(path)
-	case ".doc", ".xls":
-		return Document{
-			Kind: strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."),
-			Note: "旧版 Office 格式请先转换为 .docx / .xlsx 后再读取。",
-		}, nil
-	default:
-		return Document{}, fmt.Errorf("不支持的文档类型：%s", filepath.Ext(path))
+	ext := strings.ToLower(filepath.Ext(path))
+	if format, ok := formats[ext]; ok {
+		return format.Read(path)
 	}
+	if note, ok := legacyNotes[ext]; ok {
+		return Document{Kind: strings.TrimPrefix(ext, "."), Note: note}, nil
+	}
+	return Document{}, fmt.Errorf("不支持的文档类型：%s", filepath.Ext(path))
+}
+
+// Replace 对文档执行一次文本级写入，格式差异由适配器负责。
+func Replace(path string, edit Edit) error {
+	format, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return fmt.Errorf("不支持的文档类型：%s", filepath.Ext(path))
+	}
+	return format.Replace(path, edit)
 }
 
 func truncateText(text string) (string, bool) {
