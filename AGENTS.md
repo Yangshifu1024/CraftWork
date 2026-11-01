@@ -12,7 +12,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成
 
 - Wails3 v3.0.0 桌面外壳 + 系统 WebView。
 - 同一份代码支持 **server 模式**（`-tags server`）：不创建窗口，由 Go 提供 HTTP 服务，可在浏览器里运行完整应用（见第 2 节）。
-- Go 1.26 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
+- Go 1.27.3 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
 - React 19 + TypeScript 前端：三栏界面、聊天、面板、浮层。
 - 已打通：多提供商（OpenAI、Anthropic、OpenAI 兼容）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
 - 提供商与模型完全由用户添加；目录来自 models.dev 的构建期快照，应用不内置任何提供商。
@@ -24,7 +24,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | 层 | 选型 |
 | --- | --- |
 | 桌面外壳 | Wails3 v3.0.0（系统 WebView，不打包 Chromium） |
-| 后端 | Go 1.26、SQLite（modernc.org/sqlite）、creack/pty |
+| 后端 | Go 1.27.3、SQLite（modernc.org/sqlite）、creack/pty |
 | 前端 | React 19、TypeScript 5、Vite 8 |
 | 对话界面 | @assistant-ui/react 0.15（headless primitives） |
 | 编辑器 / 终端 | CodeMirror 6 / xterm.js 6 |
@@ -34,8 +34,8 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 
 | 工具 | 版本 | 说明 |
 | --- | --- | --- |
-| Go | 1.26+ | 以 `go.mod` 的 `go` 指令为准 |
-| Node.js | 24+ | 以 Vite / `package.json` 要求为准 |
+| Go | 1.27.3+ | 以 `go.mod` 的 `go` 指令为准 |
+| Node.js | 24.22.2+ | 以 Vite / `package.json` 要求为准 |
 | Wails3 CLI | v3.0.0 | 需在 PATH 中；用 `wails3 doctor` 检查环境 |
 | 前端依赖 | — | `cd frontend && npm install` |
 

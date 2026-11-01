@@ -8,8 +8,8 @@
 
 | 依赖 | 版本 | 说明 |
 | --- | --- | --- |
-| Go | 1.26+ | 以 `go.mod` 中的 `go` 指令为准 |
-| Node.js | 24+ | 以 Vite 8 与 `package.json` 为准，npm 随 Node.js 安装 |
+| Go | 1.27.3+ | 以 `go.mod` 中的 `go` 指令为准 |
+| Node.js | 24.22.2+ | 以 Vite 8 与 `package.json` 为准，npm 随 Node.js 安装 |
 | Wails3 CLI | v3.0.0 | 桌面开发、构建与生成绑定 |
 
 安装 Wails3 CLI：

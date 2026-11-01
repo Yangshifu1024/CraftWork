@@ -120,8 +120,8 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 
 ### 环境要求
 
-- Go 1.26+（以 `go.mod` 的 `go` 指令为准）
-- Node.js 24+（Vite 8 要求；npm 随 Node.js 提供）
+- Go 1.27.3+（以 `go.mod` 的 `go` 指令为准）
+- Node.js 24.22.2+（Vite 8 要求；npm 随 Node.js 提供）
 - Wails3 CLI v3.0.0
 
 安装或升级 Wails3 CLI：
