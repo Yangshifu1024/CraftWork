@@ -279,6 +279,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 | 改动 | 需要同步 |
 | --- | --- |
 | 技术栈、分层、IPC、安全策略 | `docs/技术设计方案.md` |
+| 系统提示词分节、缓存层级、文案与测试约束 | `docs/系统提示词契约.md` |
 | 产品定位、约束、功能验收、指标 | `docs/产品需求文档.md` |
 | 布局、组件、交互、图标、视觉 | `docs/界面设计方案.md` |
 | 原型行为或模块映射 | `docs/prototype/README.md` |
