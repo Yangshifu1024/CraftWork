@@ -93,6 +93,9 @@ type Message struct {
 	// Attachments 是用户消息携带的附件内容。Text 为文本内容，Data 为图片
 	// 的 base64 数据；Skipped 表示未读取的原因。
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// ID 是消息在事件表里的标识，仅供 Agent 循环内部去重（例如运行中引导
+	// 与历史重建的衔接），不会序列化给模型提供商。
+	ID string `json:"-"`
 }
 
 // Attachment 是随用户消息发送给模型的附件。

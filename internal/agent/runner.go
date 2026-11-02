@@ -33,6 +33,9 @@ const (
 	// modelRequestTimeout 是单次模型请求（包含流式接收全过程）的最长等待时间，
 	// 超过后按超时错误结束本轮运行。
 	modelRequestTimeout = 3 * time.Minute
+	// maxSteerQueue 是单个会话排队中的运行中引导上限，超出直接拒绝，
+	// 避免运行卡住时用户连续追加导致队列无限增长。
+	maxSteerQueue = 10
 )
 
 // ModelFactory 根据模型标识创建客户端，便于测试注入假模型。
@@ -53,6 +56,16 @@ type streamSession struct {
 	cancel context.CancelFunc
 	// chunks 是模型客户端返回的片段通道；通道关闭表示本次回复结束。
 	chunks <-chan model.Chunk
+}
+
+// SteerItem 是一条排队中的运行中引导消息。
+//
+// 服务层在入队前已把消息写入事件表，这里只是投递前的内存队列条目；
+// MessageID 供投递时与历史重建结果去重，避免接力运行把同一句话发给模型两次。
+type SteerItem struct {
+	MessageID   string
+	Text        string
+	Attachments []string
 }
 
 // Runner 负责一次 Agent 执行的完整循环。
@@ -76,10 +89,12 @@ type Runner struct {
 	// 注入 maxIterationsFn 后以回调返回值为准。
 	maxIterations int
 
-	// mu 保护 cancels 与 notify，保证启动、取消与读取通知回调时不发生竞争。
+	// mu 保护 cancels、steers 与 notify，保证启动、取消、入队与读取通知回调时不发生竞争。
 	mu sync.Mutex
 	// cancels 记录每个会话当前运行的取消函数，以会话 ID 为键。
 	cancels map[string]context.CancelFunc
+	// steers 保存每个会话排队中的运行中引导（steer），以会话 ID 为键。
+	steers map[string][]SteerItem
 	// titlePending 标记正在进行自动命名的会话，避免并发消息重复请求模型。
 	titlePending map[string]bool
 	// notify 是系统通知回调，未设置时为 nil。
@@ -107,6 +122,7 @@ func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 		dataDir:       dataDir,
 		maxIterations: defaultMaxIterations,
 		cancels:       map[string]context.CancelFunc{},
+		steers:        map[string][]SteerItem{},
 		titlePending:  map[string]bool{},
 	}
 }
@@ -162,10 +178,16 @@ func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	r.cancels[thread.ID] = cancel
 	r.mu.Unlock()
 
-	// 运行结束后无论成功、失败还是取消，都要清理取消函数登记。
+	// 运行结束后无论成功、失败还是取消，都要清理取消函数登记，并丢弃
+	// 未投递的排队引导：引导在服务层已写入事件表，留在会话记录里，
+	// 下一次运行重建历史时模型仍然可见。
 	go func() {
 		defer func() {
+			// 丢弃剩余引导与注销登记必须在同一个临界区完成：引导以
+			// cancels 的存在为准入条件，两步分开会出现入队成功却无人
+			// 消费的窗口（见 TrySteer）。
 			r.mu.Lock()
+			delete(r.steers, thread.ID)
 			delete(r.cancels, thread.ID)
 			r.mu.Unlock()
 			cancel()
@@ -198,9 +220,51 @@ func (r *Runner) IsRunning(threadID string) bool {
 	return ok
 }
 
-// execute 是运行的主循环：重建历史、反复请求模型、执行工具，直到结束。
+// TrySteer 尝试把运行中引导挂到会话当前运行的投递队列上。
+//
+// 返回 (false, nil) 表示会话没有正在进行的 run，调用方应回退为普通发送；
+// 返回非 nil error 表示明确拒绝（例如队列已满）。入队与运行收尾互斥：
+// 收尾在同一个临界区里丢弃剩余引导并注销登记，之后到达的引导必然入队失败，
+// 不会出现入队成功却无人消费的悬空消息。
+func (r *Runner) TrySteer(threadID string, item SteerItem) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.cancels[threadID]; !ok {
+		return false, nil
+	}
+	if len(r.steers[threadID]) >= maxSteerQueue {
+		return false, fmt.Errorf("排队引导已达上限（%d 条），请等当前步骤完成后再发", maxSteerQueue)
+	}
+	r.steers[threadID] = append(r.steers[threadID], item)
+	return true, nil
+}
+
+// takeSteers 取走会话全部待投递的引导，用于投递或收尾丢弃。
+func (r *Runner) takeSteers(threadID string) []SteerItem {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := r.steers[threadID]
+	delete(r.steers, threadID)
+	return items
+}
+
+// hasSteers 判断会话是否还有待投递的运行中引导。
+func (r *Runner) hasSteers(threadID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.steers[threadID]) > 0
+}
+
+// execute 是运行链的驱动器：先完成工作区装配，然后反复执行 run，直到一次
+// 运行正常结束且没有排队中的运行中引导（steer）为止。
+//
+// 一次 run 内部按“模型回复 → 工具调用 → 把工具结果回填给模型”的顺序反复
+// 迭代，直到模型不再请求工具、达到迭代上限，或者用户主动取消。运行正常
+// 结束后若仍有排队引导，就开一个接力 run 继续执行；接力复用同一个
+// goroutine 与取消上下文，用户此时取消会连同后续接力一起停止。
 func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messageID, mode string) {
 	// 运行起点作为工时事实的基准：结束事件与历史快照都用它计算「已工作」时长。
+	// 接力运行会重置起点，各 run 的已工作时长独立统计。
 	startedAt := time.Now()
 	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
 	// 激活状态会随用户切换、新建或移除工作区而漂移，一旦与运行中的会话
@@ -221,6 +285,33 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		r.policy.SetRestricted(workspace.Trust != "trusted")
 	}
 
+	// 自动命名只随运行链的第一次 run 触发，接力运行不再重新命名。
+	titled := false
+	for {
+		if !r.executeRun(ctx, thread, runID, messageID, mode, startedAt, &titled) {
+			// 取消、失败或达到上限：结束事件与会话状态已由 executeRun 写过。
+			return
+		}
+		// 排队的引导不必在这里清空：它们在服务层已写入事件表，接力运行的
+		// history 重建会原样恢复，投递时按消息 ID 去重避免重复发送。
+		if !r.hasSteers(thread.ID) {
+			return
+		}
+		runID, messageID = r.beginFollowupRun(thread)
+		if runID == "" {
+			return
+		}
+		startedAt = time.Now()
+	}
+}
+
+// executeRun 执行一次 run：广播运行开始、重建历史、反复请求模型并执行工具。
+//
+// 返回 true 表示运行正常结束（模型给出最终回答）；取消、失败与达到上限
+// 返回 false，此时结束事件与会话状态已由本函数写入。titled 由运行链持有，
+// 保证接力运行不会重复触发自动命名。
+func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, messageID, mode string,
+	startedAt time.Time, titled *bool) bool {
 	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
@@ -230,7 +321,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	history, historySeqs, err := r.history(thread)
 	if err != nil {
 		r.fail(thread, runID, messageID, "history_failed", err.Error(), true, startedAt)
-		return
+		return false
 	}
 
 	// 系统提示词由分节组装器生成：稳定块与动态块各自带缓存标记，
@@ -259,8 +350,25 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		// 每轮迭代先检查取消，用户取消后不再发起新的模型请求。
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID, startedAt)
-			return
+			return false
 		}
+
+		// 运行中引导（steer）投递点：排队的用户指令在这里并入历史，
+		// 随下一次模型请求生效。已随接力运行的历史重建进入上下文的条目
+		// 按消息 ID 跳过，保证同一句话只发给模型一次。
+		for _, item := range r.takeSteers(thread.ID) {
+			if historyHasMessage(history, item.MessageID) {
+				continue
+			}
+			_, modelInfo, _ := model.Resolve(thread.ModelID)
+			history = append(history, model.Message{
+				Role:        "user",
+				Content:     item.Text,
+				Attachments: loadAttachments(r.tools.Workspace(), r.attachmentDir, item.Attachments, modelInfo.Caps),
+				ID:          item.MessageID,
+			})
+		}
+
 		if !compressionChecked {
 			history = r.maybeCompress(ctx, thread, runID, messageID, history, historySeqs)
 			compressionChecked = true
@@ -282,15 +390,16 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 			// 建立流之前就被取消，按取消处理；否则是真正的模型错误。
 			if ctx.Err() != nil {
 				r.canceled(thread, runID, messageID, startedAt)
-				return
+				return false
 			}
 			r.failWithError(thread, runID, messageID, "model_error", err, startedAt)
-			return
+			return false
 		}
 
 		// 第一轮请求建立后立即并行生成标题，与正文流式消费同时进行。
-		// 标题只依赖首条用户消息，不等待助手回复。
-		if iteration == 0 && thread.TitleAuto {
+		// 标题只依赖首条用户消息，不等待助手回复；接力运行不再重复命名。
+		if iteration == 0 && !*titled && thread.TitleAuto {
+			*titled = true
 			go r.autoTitle(thread, session.modelID)
 		}
 
@@ -301,10 +410,10 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				session.cancel()
 				if ctx.Err() != nil {
 					r.canceled(thread, runID, messageID, startedAt)
-					return
+					return false
 				}
 				r.failWithError(thread, runID, messageID, "model_stream_error", chunk.Err, startedAt)
-				return
+				return false
 			}
 			if chunk.Reasoning != "" {
 				// 同一条回复里的推理增量共用一个部件 ID，前端据此合并展示。
@@ -341,17 +450,17 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 
 		if ctx.Err() != nil {
 			r.canceled(thread, runID, messageID, startedAt)
-			return
+			return false
 		}
 		if errors.Is(streamErr, context.DeadlineExceeded) {
 			r.failWithError(thread, runID, messageID, "model_timeout",
 				model.WrapError(model.CodeTimeout, "模型服务", "模型响应超时，请稍后重试或精简上下文", streamErr), startedAt)
-			return
+			return false
 		}
 		if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
 			r.failWithError(thread, runID, messageID, "model_stream_error",
 				model.TransportError("模型服务", streamErr), startedAt)
-			return
+			return false
 		}
 
 		// 把本轮流式累积的内容整体写入数据库一次，事件表保存的是完整部件而不是增量。
@@ -378,7 +487,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				history = append(history, model.Message{Role: "assistant", Content: textBuilder.String()})
 			}
 			r.complete(thread, runID, messageID, startedAt)
-			return
+			return true
 		}
 
 		// 有工具调用时逐个执行，把结果组装成 tool 消息追加到历史，进入下一轮模型请求。
@@ -397,7 +506,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		}
 		if aborted {
 			r.canceled(thread, runID, messageID, startedAt)
-			return
+			return false
 		}
 
 		history = append(history, assistant)
@@ -407,6 +516,49 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	// 循环耗尽仍未结束，通常是模型反复调用工具，按可重试错误提示用户。
 	r.fail(thread, runID, messageID, "max_iterations",
 		fmt.Sprintf("达到模型调用上限（%d 轮），已停止本次运行", limit), false, startedAt)
+	return false
+}
+
+// beginFollowupRun 为接力运行创建运行记录并把会话切回运行中。
+//
+// 写入序列与服务层的 startRun（internal/service/chat.go）保持一致：先建
+// 运行行，再更新会话状态。失败时返回空 runID，调用方直接结束运行链；
+// 此时排队的引导由 Start 的收尾统一丢弃，消息已落在事件表里不会丢失。
+func (r *Runner) beginFollowupRun(thread store.Thread) (string, string) {
+	runID := id.New("run")
+	messageID := id.New("msg")
+	if err := r.db.CreateRun(&store.Run{
+		ID:        runID,
+		ThreadID:  thread.ID,
+		MessageID: messageID,
+		Status:    "running",
+		ModelID:   thread.ModelID,
+		StartedAt: store.NowMillis(),
+	}); err != nil {
+		slog.Warn("创建接力运行失败", "thread", thread.ID, "err", err)
+		return "", ""
+	}
+	if err := r.records.SetThreadStatus(thread.ID, runID, "running"); err != nil {
+		slog.Warn("接力运行切换会话状态失败", "thread", thread.ID, "err", err)
+		return "", ""
+	}
+	return runID, messageID
+}
+
+// historyHasMessage 判断重建后的历史里是否已存在指定标识的消息。
+//
+// 运行中引导在服务层写入事件表后，可能已经随接力运行开始时的 history
+// 重建进入上下文；投递前按消息 ID 去重，保证同一句话只发给模型一次。
+func historyHasMessage(history []model.Message, messageID string) bool {
+	if messageID == "" {
+		return false
+	}
+	for _, message := range history {
+		if message.ID == messageID {
+			return true
+		}
+	}
+	return false
 }
 
 // openSession 选择模型并建立流。
@@ -887,9 +1039,10 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, []int64, error) 
 				Role:        "user",
 				Content:     text,
 				Attachments: loadAttachments(workspace, r.attachmentDir, paths, modelInfo.Caps),
+				ID:          message.ID,
 			}, maxSeq)
 		case "assistant":
-			current := model.Message{Role: "assistant"}
+			current := model.Message{Role: "assistant", ID: message.ID}
 			var content strings.Builder
 			for _, part := range message.Parts {
 				switch part.Kind {
