@@ -58,7 +58,7 @@ func (t *applyPatchTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path", "patch"},
 			"properties": map[string]any{
-				"path":    map[string]any{"type": "string", "description": "要修改的文件（相对工作区）"},
+				"path":    map[string]any{"type": "string", "description": "要修改的文件（相对主要目录或附加目录）"},
 				"patch":   map[string]any{"type": "string", "description": "统一 diff，包含一个或多个 @@ 块"},
 				"dry_run": map[string]any{"type": "boolean", "description": "只预演，不写入文件"},
 				"hunks": map[string]any{

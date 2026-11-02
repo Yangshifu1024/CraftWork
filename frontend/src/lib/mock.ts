@@ -73,6 +73,7 @@ const workspaces: WorkspaceView[] = [
     purpose: "conversation",
     createdAt: now - 86400000 * 12,
     lastOpenedAt: now - 30000,
+    folders: [{ id: "wfo_conv", path: "~/.craftwork/workspace/default", primary: true }],
   },
   {
     id: "ws_demo",
@@ -82,6 +83,10 @@ const workspaces: WorkspaceView[] = [
     purpose: "project",
     createdAt: now - 86400000 * 12,
     lastOpenedAt: now - 60000,
+    folders: [
+      { id: "wfo_demo", path: "~/Code/craftwork", primary: true },
+      { id: "wfo_demo_docs", path: "~/Code/craftwork-docs", primary: false },
+    ],
   },
 ];
 
@@ -1335,6 +1340,23 @@ export const mockApi: Api = {
         purpose: "project",
         createdAt: Date.now(),
         lastOpenedAt: Date.now(),
+        folders: [{ id: uid("wfo"), path, primary: true }],
+      };
+      workspaces.unshift(workspace);
+      return { ...workspace };
+    },
+    /** 创建多文件夹项目：主要目录取第一个，名称空缺时从目录名推导。 */
+    addProject: async (name, folders, trust) => {
+      const primary = folders[0] ?? "";
+      const workspace: WorkspaceView = {
+        id: uid("ws"),
+        name: name.trim() || basename(primary),
+        path: primary,
+        trust,
+        purpose: "project",
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
+        folders: folders.map((path, index) => ({ id: uid("wfo"), path, primary: index === 0 })),
       };
       workspaces.unshift(workspace);
       return { ...workspace };
@@ -1357,10 +1379,10 @@ export const mockApi: Api = {
         workspace.trust = trust;
       }
     },
-    /** 列出某个目录的子节点；没有缓存的目录返回空数组。 */
-    listDir: async (_workspaceID, path) => (tree[path || "."] ?? []).map((node) => ({ ...node })),
+    /** 列出某个源文件夹下目录的子节点；没有缓存的目录返回空数组。 */
+    listDir: async (_workspaceID, _folderID, path) => (tree[path || "."] ?? []).map((node) => ({ ...node })),
     /** 读取文件：返回内容与语言、行数、哈希等元信息，未登记的文件返回空内容。 */
-    readFile: async (workspaceID, path) => {
+    readFile: async (workspaceID, folderID, path) => {
       const content = files[path] ?? "";
       return {
         path,
@@ -1373,25 +1395,26 @@ export const mockApi: Api = {
         hash: String(content.length),
         modified: now,
         workspaceId: workspaceID,
+        folderId: folderID,
       };
     },
     /** 写入文件：直接覆盖内存中的内容，不模拟哈希校验与「外部修改」冲突。 */
-    writeFile: async (_workspaceID, path, content) => {
+    writeFile: async (_workspaceID, _folderID, path, content) => {
       files[path] = content;
     },
     /** 按文件名或路径后缀在已登记的文件里找唯一匹配，模拟后端的短路径解析。 */
     locateFile: async (_workspaceID, path) => {
       const clean = path.replace(/^\.\//, "").replace(/^\//, "");
       if (clean in files) {
-        return clean;
+        return { folderId: "", path: clean };
       }
       const bySuffix = Object.keys(files).filter((key) => key.endsWith(`/${clean}`) || key === clean);
       const byName = Object.keys(files).filter((key) => key.split("/").pop() === clean.split("/").pop());
       if (bySuffix.length === 1) {
-        return bySuffix[0];
+        return { folderId: "", path: bySuffix[0] };
       }
       if (byName.length === 1) {
-        return byName[0];
+        return { folderId: "", path: byName[0] };
       }
       throw new Error(bySuffix.length > 1 || byName.length > 1 ? `路径 ${path} 匹配到多个文件` : `找不到 ${path}`);
     },
@@ -1656,7 +1679,7 @@ export const mockApi: Api = {
   /** 文档预览：Office / PDF 只返回文件信息，文本文件返回完整内容。 */
   documents: {
     /** 按扩展名区分文档类型；Office / PDF 标记为暂不支持结构化解析。 */
-    preview: async (_workspaceID, path): Promise<DocumentPreview> => {
+    preview: async (_workspaceID, _folderID, path): Promise<DocumentPreview> => {
       const extension = path.split(".").pop() ?? "";
       if (["docx", "xlsx", "pdf"].includes(extension)) {
         return {

@@ -61,7 +61,6 @@ export function Sidebar() {
   const threads = useThreadStore((state) => state.threads[mode]);
   const activeID = useThreadStore((state) => state.activeID[mode]);
   const selectThread = useThreadStore((state) => state.select);
-  const createThread = useThreadStore((state) => state.create);
 
   const toast = useUiStore((state) => state.toast);
   const askConfirm = useUiStore((state) => state.askConfirm);
@@ -200,19 +199,12 @@ export function Sidebar() {
   }
 
   /**
-   * 「项目会话」区头的 + ：创建项目。
-   * 选择目录后新工作区会自动激活，紧接着在该项目下新建一个会话，
-   * 让「添加项目」与「开始干活」一步完成。
+   * 「项目会话」区头的 + ：打开「创建项目」对话框。
+   * 名称、源文件夹与信任确认都在对话框内完成；创建成功后的
+   * 「重同步视图 + 新建会话」编排由对话框自己驱动。
    */
-  async function handleCreateProject() {
-    try {
-      await pickAndAddWorkspace();
-      await resyncWorkspaceViews();
-      await createThread();
-      toast({ title: "已创建项目", description: "新会话已就绪", tone: "ok" });
-    } catch (error) {
-      toast({ title: "创建项目失败", description: String(error), tone: "danger" });
-    }
+  function handleCreateProject() {
+    useUiStore.getState().openCreateProject();
   }
 
   return (

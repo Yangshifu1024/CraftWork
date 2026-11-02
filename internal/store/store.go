@@ -114,6 +114,11 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("执行数据库迁移 v5: %w", err)
 		}
 	}
+	if version < 6 {
+		if _, err := tx.Exec(schemaV6); err != nil {
+			return fmt.Errorf("执行数据库迁移 v6: %w", err)
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("写入数据库版本: %w", err)
 	}
@@ -124,7 +129,29 @@ func (db *DB) migrate() error {
 }
 
 // schemaVersion 是当前数据库结构版本，对应 PRAGMA user_version。
-const schemaVersion = 5
+const schemaVersion = 6
+
+// schemaV6 是第 6 版数据库结构：工作区支持挂载多个源文件夹。
+//
+// 一个工作区（项目）可以包含多个目录：第一个是「主要目录」，作为会话的
+// 工作目录；其余是「附加目录」，同样纳入 Agent 的可访问范围。历史工作区
+// 的主目录原样迁移为 position = 0 的一条；workspaces.path 列保留并继续
+// 表示主要目录，供去重与内置临时目录逻辑沿用。
+//
+// folder 路径同样唯一：同一目录不能既是 A 工作区的主目录又是 B 工作区的
+// 附加目录，避免两套授权范围交叉。
+const schemaV6 = `
+CREATE TABLE IF NOT EXISTS workspace_folders (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  path TEXT NOT NULL UNIQUE,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workspace_folders_ws ON workspace_folders(workspace_id, position);
+INSERT INTO workspace_folders (id, workspace_id, path, position, created_at)
+  SELECT 'wfo_' || id, id, path, 0, created_at FROM workspaces;
+`
 
 // schemaV3 是第 3 版数据库结构：给用量表加会话维度索引。
 //

@@ -73,13 +73,54 @@ type SteerItem struct {
 // 审批门控），不再读写任何进程级副本——并行运行的不同会话因此互不
 // 覆盖路径边界与信任状态。
 type RunEnv struct {
-	// WorkspacePath 是会话绑定工作区的绝对路径；会话未绑定工作区时为空，
-	// 所有路径类工具会因「工作区未设置」失败。
+	// WorkspacePath 是会话绑定工作区主要目录的绝对路径；会话未绑定工作区
+	// 时为空，所有路径类工具会因「工作区未设置」失败。Git 与环境上下文
+	// 只使用主要目录。
 	WorkspacePath string
+	// Roots 是工作区挂载的全部源文件夹（第一个是主要目录），路径类工具
+	// 按此列表解析边界；只有主要目录时与 WorkspacePath 单元素等价。
+	Roots []string
 	// Restricted 表示该工作区未受信任：R3 直接拒绝，不提供永久授权。
 	Restricted bool
 	// Purpose 是工作区用途（store.WorkspacePurpose*），供系统提示词区分内置临时目录。
 	Purpose string
+}
+
+// folderPaths 从工作区记录取出全部源文件夹路径；文件夹列表缺失时退化为
+// 仅主要目录，保证历史数据与异常数据仍有可用的单根边界。
+func folderPaths(workspace *store.Workspace) []string {
+	if len(workspace.Folders) > 0 {
+		paths := make([]string, 0, len(workspace.Folders))
+		for _, folder := range workspace.Folders {
+			if folder.Path != "" {
+				paths = append(paths, folder.Path)
+			}
+		}
+		if len(paths) > 0 {
+			return paths
+		}
+	}
+	return []string{workspace.Path}
+}
+
+// envRoots 返回运行环境的路径边界列表；未绑定工作区时返回 nil（路径类
+// 工具会因「工作区未设置」失败）。
+func envRoots(env RunEnv) []string {
+	if len(env.Roots) > 0 {
+		return env.Roots
+	}
+	if env.WorkspacePath != "" {
+		return []string{env.WorkspacePath}
+	}
+	return nil
+}
+
+// additionalFolders 返回提示词用的附加目录列表（不含主要目录）。
+func additionalFolders(env RunEnv) []string {
+	if len(env.Roots) > 1 {
+		return env.Roots[1:]
+	}
+	return nil
 }
 
 // Runner 负责一次 Agent 执行的完整循环。
@@ -338,6 +379,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		}
 		env = RunEnv{
 			WorkspacePath: workspace.Path,
+			Roots:         folderPaths(workspace),
 			Restricted:    workspace.Trust != "trusted",
 			Purpose:       workspace.Purpose,
 		}
@@ -389,11 +431,12 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 	// 读取失败一律降级省略，不阻断运行。
 	envContext := collectEnvContext(ctx, r.dataDir, env.WorkspacePath)
 	system, promptStats := prompt.Build(prompt.Input{
-		Mode:             mode,
-		Workspace:        env.WorkspacePath,
-		WorkspacePurpose: env.Purpose,
-		Restricted:       env.Restricted,
-		EnvContext:       envContext,
+		Mode:              mode,
+		Workspace:         env.WorkspacePath,
+		AdditionalFolders: additionalFolders(env),
+		WorkspacePurpose:  env.Purpose,
+		Restricted:        env.Restricted,
+		EnvContext:        envContext,
 	})
 	slog.Debug("系统提示词已组装",
 		"thread", thread.ID,
@@ -705,7 +748,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 	// 先做只读评估：得到风险等级、解析后的调用参数与工具是否存在。
 	// 真正的执行放在审批之后，避免评估阶段产生副作用。
 	partID := id.New("part")
-	assessment, prepared, exists := r.tools.Assess(env.WorkspacePath, call.Name, call.Args)
+	assessment, prepared, exists := r.tools.Assess(envRoots(env), call.Name, call.Args)
 	spec, _ := r.tools.SpecFor(call.Name)
 	summary := spec.SummaryOf(call.Args)
 	title := spec.TitleOf()

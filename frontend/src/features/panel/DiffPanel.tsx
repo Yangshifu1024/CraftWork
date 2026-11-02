@@ -126,7 +126,7 @@ export function DiffPanel() {
           {result.additions} 行新增 · {result.deletions} 行删除
         </span>
         <span className="spacer" />
-        <button type="button" onClick={() => void openFile(diff.title)}>
+        <button type="button" onClick={() => void openFile("", diff.title)}>
           <Icon name="file-code" className="ico" />
           在编辑器中打开
         </button>

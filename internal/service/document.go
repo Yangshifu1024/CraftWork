@@ -20,8 +20,10 @@ import (
 type DocumentPreview struct {
 	// Kind 是文件类型：docx、xlsx、pdf 或 text。
 	Kind string `json:"kind"`
-	// Path 是相对工作区的路径。
+	// Path 是相对所属源文件夹的路径。
 	Path string `json:"path"`
+	// FolderID 是该文件所属源文件夹的标识；空值表示主要目录。
+	FolderID string `json:"folderId,omitempty"`
 	// Name 是文件名。
 	Name string `json:"name"`
 	// Size 是文件字节数。
@@ -54,12 +56,27 @@ func NewDocumentService(db *store.DB) *DocumentService {
 //
 // docx、xlsx、pdf 由 internal/doc 提取文本层；其他文件按纯文本读取，
 // 二进制文件只返回元数据。文本超过 8000 字节时截断并提示。
-func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, error) {
+func (s *DocumentService) Preview(workspaceID, folderID, rel string) (DocumentPreview, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
 		return DocumentPreview{}, err
 	}
-	abs, err := policy.Resolve(workspace.Path, rel)
+	// folderID 限定目标源文件夹（空值表示主要目录），与文件树的分段渲染一致。
+	root := workspace.Path
+	if folderID != "" {
+		matched := false
+		for _, folder := range workspace.Folders {
+			if folder.ID == folderID {
+				root = folder.Path
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return DocumentPreview{}, fmt.Errorf("源文件夹不存在或已被移除")
+		}
+	}
+	abs, err := policy.Resolve(root, rel)
 	if err != nil {
 		return DocumentPreview{}, err
 	}
@@ -70,7 +87,8 @@ func (s *DocumentService) Preview(workspaceID, rel string) (DocumentPreview, err
 
 	preview := DocumentPreview{
 		Kind:     "text",
-		Path:     policy.Relative(workspace.Path, abs),
+		Path:     policy.Relative(root, abs),
+		FolderID: folderID,
 		Name:     filepath.Base(abs),
 		Size:     info.Size(),
 		Modified: info.ModTime().UnixMilli(),

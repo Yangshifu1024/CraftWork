@@ -23,6 +23,6 @@ import * as $models from "./models.js";
  * docx、xlsx、pdf 由 internal/doc 提取文本层；其他文件按纯文本读取，
  * 二进制文件只返回元数据。文本超过 8000 字节时截断并提示。
  */
-export function Preview(workspaceID: string, rel: string): $CancellablePromise<$models.DocumentPreview> {
-    return $Call.ByID(3099938467, workspaceID, rel);
+export function Preview(workspaceID: string, folderID: string, rel: string): $CancellablePromise<$models.DocumentPreview> {
+    return $Call.ByID(3099938467, workspaceID, folderID, rel);
 }

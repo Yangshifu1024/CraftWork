@@ -105,10 +105,14 @@ type Call struct {
 	Args map[string]any
 	// Target 是路径参数解析后的绝对路径；工具没有路径参数时为空。
 	Target string
-	// Display 是相对工作区的展示路径，只用于输出与审批卡。
+	// Display 是相对命中根（主要目录或附加目录）的展示路径，只用于输出与审批卡。
 	Display string
-	// Workspace 是调用发生时的工作区根目录，用于相对路径换算。
+	// Workspace 是主要目录根，供 git 工具等「主目录语义」的调用方使用。
 	Workspace string
+	// Roots 是本次调用的全部源文件夹，第一个是主要目录；路径解析按此顺序命中。
+	Roots []string
+	// TargetRoot 是 Target 命中根的真实路径；搜索类工具用它换算相对展示路径。
+	TargetRoot string
 	// Err 表示路径解析失败；非空时 Registry 不会执行工具。
 	Err error
 	// backup 由注册表注入，写入前用它保存原文件内容。
@@ -128,18 +132,29 @@ func (c Call) Backup(data []byte) error {
 	return c.backup(c.Target, data)
 }
 
-// Resolve 解析额外路径（例如 git_commit 的 paths 列表），仍然限制在工作区内。
+// Resolve 解析额外路径（例如 git_commit 的 paths 列表），仍然限制在源文件夹范围内。
 //
-// rel 为空时按当前工作区根目录处理；返回绝对路径与相对展示路径。
+// rel 为空时按主要目录根目录处理；返回绝对路径与相对命中根的展示路径。
+// git 工具保持「主要目录仓库」语义：路径命中附加目录时明确报错，而不是
+// 把附加目录的路径交给主目录仓库的 git 命令。
 func (c Call) Resolve(rel string) (abs string, display string, err error) {
 	if strings.TrimSpace(rel) == "" {
 		rel = "."
 	}
-	abs, err = resolvePath(c.Workspace, rel)
+	roots := c.Roots
+	if len(roots) == 0 {
+		roots = []string{c.Workspace}
+	}
+	// git 的路径参数指向已经存在的文件，用「存在优先」解析避免主根里
+	// 尚不存在的同名路径抢走命中。
+	resolved, err := policy.ResolveExisting(roots, rel)
 	if err != nil {
 		return "", "", err
 	}
-	return abs, displayPath(c.Workspace, abs), nil
+	if resolved.RootIndex != 0 {
+		return "", "", fmt.Errorf("%s 属于附加目录，Git 操作仅支持主要目录", resolved.Rel)
+	}
+	return resolved.Abs, resolved.Rel, nil
 }
 
 // Options 是工具注册表的配置。
@@ -280,16 +295,20 @@ func (r *Registry) Allows(mode, name string) bool {
 
 // Assess 解析调用目标并给出策略结论。
 //
-// workspace 是本次调用的工作区根目录，由调用方（Runner 从会话绑定的
-// 工作区解析而来）显式传入，解析结果固定进返回的 Call。返回的 Call
-// 可以直接交给 Execute，路径只解析一次。exists 为 false 表示工具未
-// 注册，调用方应拒绝执行。
-func (r *Registry) Assess(workspace, name string, args map[string]any) (policy.Assessment, Call, bool) {
+// roots 是本次调用的源文件夹列表（第一个是主要目录），由调用方（Runner
+// 从会话绑定的工作区解析而来）显式传入，解析结果固定进返回的 Call。返回
+// 的 Call 可以直接交给 Execute，路径只解析一次。exists 为 false 表示工具
+// 未注册，调用方应拒绝执行。
+func (r *Registry) Assess(roots []string, name string, args map[string]any) (policy.Assessment, Call, bool) {
 	r.mu.RLock()
 	tool, exists := r.tools[name]
 	r.mu.RUnlock()
 
-	call := Call{Name: name, Args: args, Workspace: workspace}
+	// 空列表退化为单根，保证直接构造 Registry 的测试与调用方仍可工作。
+	if len(roots) == 0 {
+		roots = []string{""}
+	}
+	call := Call{Name: name, Args: args, Workspace: roots[0], Roots: roots}
 	if !exists {
 		// 未注册的工具一律按最高常见风险处理，交由上层拒绝，避免绕过策略。
 		return policy.Assessment{Risk: policy.R2, Reason: "执行命令"}, call, false
@@ -312,19 +331,28 @@ func (r *Registry) Assess(workspace, name string, args map[string]any) (policy.A
 		if path == "" {
 			path = "."
 		}
-		resolved, err := resolvePath(workspace, path)
+		resolved, err := resolvePathAny(roots, path)
 		if err != nil {
 			assessment.Risk = policy.R3
-			assessment.Reason = "路径超出工作区"
+			assessment.Reason = "路径超出工作区及附加目录"
 			call.Err = err
 			return assessment, call, true
 		}
-		call.Target = resolved
-		call.Display = displayPath(workspace, resolved)
+		// git 工具保持「主要目录仓库」语义：附加目录不在主目录仓库的
+		// 跟踪范围内，明确报错而不是让 git 输出难懂的 pathspec 错误。
+		if strings.HasPrefix(spec.Name, "git_") && resolved.RootIndex != 0 {
+			assessment.Risk = policy.R3
+			assessment.Reason = "路径属于附加目录"
+			call.Err = fmt.Errorf("%s 属于附加目录，Git 操作仅支持主要目录", resolved.Rel)
+			return assessment, call, true
+		}
+		call.Target = resolved.Abs
+		call.Display = resolved.Rel
+		call.TargetRoot = resolved.Root
 		call.backup = r.backup
 		// 同时带命令参数时，审批目标保留命令本身而不是工作目录。
 		if spec.CommandArg == "" {
-			assessment.Target = resolved
+			assessment.Target = resolved.Abs
 		}
 		return assessment, call, true
 	}

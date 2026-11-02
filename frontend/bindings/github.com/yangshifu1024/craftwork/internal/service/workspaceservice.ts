@@ -39,6 +39,18 @@ export function Add(path: string, trust: string): $CancellablePromise<$models.Wo
 }
 
 /**
+ * AddProject 创建一个多文件夹项目并设为当前活动工作区。
+ * 
+ * folders 是用户在「创建项目」对话框选择的源文件夹，第一个是主要目录
+ * （会话工作目录），其余是附加目录（同样纳入 Agent 可访问范围）。name
+ * 为空时用主要目录的目录名推导；与现有项目重名时自动追加序号。trust
+ * 由前端在「信任此文件夹」确认通过后传 "trusted"，否则受限。
+ */
+export function AddProject(name: string, folders: string[] | null, trust: string): $CancellablePromise<$models.WorkspaceView> {
+    return $Call.ByID(3177693835, name, folders, trust);
+}
+
+/**
  * ComputeDiff 计算两段文本的行级差异。
  */
 export function ComputeDiff(oldText: string, newText: string): $CancellablePromise<editor$0.Result> {
@@ -60,22 +72,25 @@ export function List(): $CancellablePromise<$models.WorkspaceView[] | null> {
 }
 
 /**
- * ListDir 读取目录的一层内容。
+ * ListDir 读取某个源文件夹下目录的一层内容。
+ * 
+ * folderID 为空表示主要目录；文件树按文件夹分段渲染，每段显式传入
+ * 所属文件夹，避免多根之间的同名相对路径歧义。
  */
-export function ListDir(workspaceID: string, rel: string): $CancellablePromise<$models.FileNode[] | null> {
-    return $Call.ByID(2659619366, workspaceID, rel);
+export function ListDir(workspaceID: string, folderID: string, rel: string): $CancellablePromise<$models.FileNode[] | null> {
+    return $Call.ByID(2659619366, workspaceID, folderID, rel);
 }
 
 /**
- * LocateFile 把正文引用里可能不完整的相对路径解析成工作区内的真实文件。
+ * LocateFile 把正文引用里可能不完整的相对路径解析成源文件夹内的真实文件。
  * 
  * 模型输出引用时常写短路径（如 policy.go 指代 internal/policy/policy.go），
- * 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历工作区查找
- * 「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
+ * 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历全部源文件夹
+ * 查找「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
  * 零个或多个命中都返回错误，宁可打不开也不打开错误的文件。
  * .git、node_modules 等依赖与产物目录不参与匹配。
  */
-export function LocateFile(workspaceID: string, rel: string): $CancellablePromise<string> {
+export function LocateFile(workspaceID: string, rel: string): $CancellablePromise<$models.LocatedFile> {
     return $Call.ByID(1893214031, workspaceID, rel);
 }
 
@@ -87,13 +102,13 @@ export function PickFolder(): $CancellablePromise<string> {
 }
 
 /**
- * ReadFile 读取工作区文件。
+ * ReadFile 读取工作区文件。folderID 为空表示主要目录。
  * 
  * 目录、超过 10 MB 的文件会被拒绝；二进制文件只返回元数据，
  * 文本超过 2 MB 时截断并标记 Truncated。
  */
-export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<$models.FileContent> {
-    return $Call.ByID(4000951485, workspaceID, rel);
+export function ReadFile(workspaceID: string, folderID: string, rel: string): $CancellablePromise<$models.FileContent> {
+    return $Call.ByID(4000951485, workspaceID, folderID, rel);
 }
 
 /**
@@ -124,9 +139,10 @@ export function SetTrust(workspaceID: string, trust: string): $CancellablePromis
 /**
  * WriteFile 保存编辑器内容。写入前备份，并在外部修改时拒绝覆盖。
  * 
- * expectedHash 是前端打开文件时拿到的哈希；非空且与磁盘内容不一致，
- * 说明文件已被其他程序修改，此时返回错误让用户重新加载，避免覆盖。
+ * folderID 限定目标源文件夹（空值表示主要目录）；expectedHash 是前端
+ * 打开文件时拿到的哈希，非空且与磁盘内容不一致时说明文件已被其他程序
+ * 修改，此时返回错误让用户重新加载，避免覆盖。
  */
-export function WriteFile(workspaceID: string, rel: string, content: string, expectedHash: string): $CancellablePromise<void> {
-    return $Call.ByID(2758923268, workspaceID, rel, content, expectedHash);
+export function WriteFile(workspaceID: string, folderID: string, rel: string, content: string, expectedHash: string): $CancellablePromise<void> {
+    return $Call.ByID(2758923268, workspaceID, folderID, rel, content, expectedHash);
 }

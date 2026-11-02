@@ -113,3 +113,99 @@ func TestCreateRejectsMissingWorkspace(t *testing.T) {
 		t.Fatalf("空工作区创建会话不应报错: %v", err)
 	}
 }
+
+func TestAddProjectMultiFolder(t *testing.T) {
+	db, service := newWorkspaceService(t)
+	// 内置临时目录先存在，验证 AddProject 的内置目录守卫。
+	if _, err := EnsureConversationWorkspace(db, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	primary := t.TempDir()
+	additional := t.TempDir()
+	// macOS 的 /var 是 /private/var 的别名：归一化后再断言绝对路径。
+	if canonical, err := filepath.EvalSymlinks(primary); err == nil {
+		primary = canonical
+	}
+	if canonical, err := filepath.EvalSymlinks(additional); err == nil {
+		additional = canonical
+	}
+	conversation, err := EnsureConversationWorkspace(db, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 空文件夹列表拒绝。
+	if _, err := service.AddProject("", nil, "trusted"); err == nil {
+		t.Fatal("没有源文件夹时应拒绝")
+	}
+	// 内置临时目录作为源文件夹拒绝。
+	if _, err := service.AddProject("", []string{conversation.Path}, "trusted"); err == nil {
+		t.Fatal("内置临时目录作为源文件夹应拒绝")
+	}
+
+	view, err := service.AddProject("", []string{primary, additional}, "trusted")
+	if err != nil {
+		t.Fatalf("创建项目失败: %v", err)
+	}
+	// 名称从主要目录推导，信任档位与主要目录正确。
+	if view.Name != filepath.Base(primary) {
+		t.Fatalf("名称应为主要目录名，实际 %q", view.Name)
+	}
+	if view.Trust != "trusted" || view.Path != primary {
+		t.Fatalf("信任与主要目录不符: %+v", view)
+	}
+	if len(view.Folders) != 2 {
+		t.Fatalf("应挂载两个源文件夹，实际 %d", len(view.Folders))
+	}
+	if !view.Folders[0].Primary || view.Folders[0].Path != primary {
+		t.Fatalf("第一条应是主要目录: %+v", view.Folders[0])
+	}
+	if view.Folders[1].Primary {
+		t.Fatal("第二条不应是主要目录")
+	}
+
+	// 重名自动追加序号。
+	another := t.TempDir()
+	renamed, err := service.AddProject(view.Name, []string{another}, "trusted")
+	if err != nil {
+		t.Fatalf("重名创建失败: %v", err)
+	}
+	if renamed.Name != view.Name+" (2)" {
+		t.Fatalf("重名应追加序号，实际 %q", renamed.Name)
+	}
+
+	// 附加目录被其他项目占用时拒绝。
+	if _, err := service.AddProject("third", []string{t.TempDir(), primary}, "trusted"); err == nil {
+		t.Fatal("源文件夹已被其他工作区使用时应拒绝")
+	}
+
+	// 文件读写按 folderID 限定根。
+	content := "hello project"
+	if err := os.WriteFile(filepath.Join(additional, "note.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := service.ReadFile(view.ID, view.Folders[1].ID, "note.txt")
+	if err != nil {
+		t.Fatalf("按 folderID 读取失败: %v", err)
+	}
+	if file.Content != content || file.FolderID != view.Folders[1].ID {
+		t.Fatalf("读取结果不符: %+v", file)
+	}
+	// 空 folderID 表示主要目录：文件不存在应报错而不是落到附加目录。
+	if _, err := service.ReadFile(view.ID, "", "note.txt"); err == nil {
+		t.Fatal("主要目录下不存在的文件应报错，而不是落到附加目录")
+	}
+
+	// 未知 folderID 报错。
+	if _, err := service.ReadFile(view.ID, "wfo_missing", "note.txt"); err == nil {
+		t.Fatal("未知 folderID 应报错")
+	}
+}
+
+func TestAddProjectDuplicateFolderRejected(t *testing.T) {
+	_, service := newWorkspaceService(t)
+	folder := t.TempDir()
+	if _, err := service.AddProject("dup", []string{folder, folder}, "trusted"); err == nil {
+		t.Fatal("重复的源文件夹应拒绝")
+	}
+}

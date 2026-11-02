@@ -37,7 +37,7 @@ type Workspace struct {
 	ID string `json:"id"`
 	// Name 是展示名称，默认取目录名。
 	Name string `json:"name"`
-	// Path 是目录的绝对路径，在表中唯一。
+	// Path 是主要目录的绝对路径，在表中唯一。
 	Path string `json:"path"`
 	// Trust 是信任级别，取值为 trusted / restricted。
 	Trust string `json:"trust"` // trusted / restricted
@@ -48,6 +48,26 @@ type Workspace struct {
 	CreatedAt int64 `json:"createdAt"`
 	// LastOpenedAt 是最近打开时间，用于排序。
 	LastOpenedAt int64 `json:"lastOpenedAt"`
+	// Folders 是工作区挂载的全部源文件夹，按 position 排序，第一条是主要目录。
+	// 读取接口（List / Get）会装配该字段；仅包含主要目录的工作区也有一条记录。
+	Folders []WorkspaceFolder `json:"folders,omitempty"`
+}
+
+// WorkspaceFolder 是工作区挂载的一个源文件夹。
+//
+// 主要目录（position = 0）同时也是 Workspace.Path；其余是附加目录，
+// 与主要目录一起构成 Agent 的可访问范围。
+type WorkspaceFolder struct {
+	// ID 是文件夹记录的唯一标识。
+	ID string `json:"id"`
+	// WorkspaceID 是所属工作区标识。
+	WorkspaceID string `json:"workspaceId"`
+	// Path 是目录的绝对路径，在表中唯一。
+	Path string `json:"path"`
+	// Position 是排序位置，0 表示主要目录。
+	Position int64 `json:"position"`
+	// CreatedAt 是挂载时间，毫秒时间戳。
+	CreatedAt int64 `json:"createdAt"`
 }
 
 // 工作区用途取值。

@@ -154,7 +154,7 @@ interface Batch {
 - 模型调用往返上限可配置（`maxIterations`，默认 300，0 不限制）；单次模型请求超时 180 秒。
 - 一个 run 的文本与工具调用合并为一条 assistant 消息；工具结果作为独立 `tool` 消息回填；推理内容不回传模型。
 - 事件写入与广播统一经 `record.Recorder`；run 生命周期状态以 `runs` 表为准。运行正常结束后若仍有排队中的运行中引导，Runner 自动接力开启新 run（见 6.4）。
-- **RunEnv 值化**：运行开始时由 Runner 从会话绑定的工作区一次性解析 `agent.RunEnv{WorkspacePath, Restricted, Purpose}`，沿 executeRun → history/prompt → 工具 Assess/Execute 与审批门控作为值下发；策略引擎、工具注册表与设置中都不保存工作区副本，并行运行互不覆盖，终端等 UI 动作按激活工作区显式解析。
+- **RunEnv 值化**：运行开始时由 Runner 从会话绑定的工作区一次性解析 `agent.RunEnv{WorkspacePath, Roots, Restricted, Purpose}`（Roots 是全部源文件夹，第一个为主要目录），沿 executeRun → history/prompt → 工具 Assess/Execute 与审批门控作为值下发；策略引擎、工具注册表与设置中都不保存工作区副本，并行运行互不覆盖，终端等 UI 动作按激活工作区显式解析。
 
 ### 6.2 上下文与历史
 
@@ -202,6 +202,7 @@ type Tool interface {
 - 风险分级与档位见 ADR-0003；`policy.Engine` 只持有审批档位（真实全局设置），`Action` / `AllowsPermanent` 显式接收 `restricted` 参数，工作区状态来自 `RunEnv` 值传递而非全局副本。自由档位一律 `allow`（优先于只读、严格与受限判断），但 `AllowsPermanent` 仍为 false。
 - 受限工作区：R3 直接拒绝；R1/R2 逐次审批；不提供永久授权，已有授权不生效。
 - 路径解析 `policy.Resolve`：工作区 `EvalSymlinks` → 以工作区为根拼接 → 词法校验越界 → `EvalSymlinks` 后二次校验阻止符号链接逃逸 → 新文件解析父目录。拒绝路径穿越、符号链接逃逸、UNC 路径；前端传入的路径不是可信输入。
+- 多根解析 `policy.ResolveAny` / `ResolveExisting`：按根顺序（主要目录优先）逐根做同样的词法与符号链接校验；主要目录不可用时报错，附加目录不可用时跳过；「存在优先」变体在目标真实存在于某个根时命中该根，全部不存在时回落词法判定（新建文件落主要目录）。链接逃逸直接拒绝，不尝试后续根。
 - 命令分类：危险命令 R4；联网命令 R3；普通命令 R2；解析失败默认询问或拒绝。
 - Shell 前缀授权：取前两个片段（第二段是选项时只取第一段）；含管道、重定向、串联或 `sudo` / `bash -c` 包装的命令只允许精确匹配一次。
 - 审计：每次工具调用写 `audit_log`（时间、会话、run、工具、风险、决定、范围、详情）；审批决定同时写 `approvals` 与 `audit_log`；审计面板读最近 200 条、可按决定过滤。

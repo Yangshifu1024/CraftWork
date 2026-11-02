@@ -20,6 +20,7 @@ import type {
   DocumentPreview,
   FileContent,
   FileNode,
+  LocatedFile,
   MCPServerView,
   MCPToolView,
   ModelInput,
@@ -28,6 +29,7 @@ import type {
   Settings,
   TerminalView,
   ThreadView,
+  WorkspaceFolderView,
   WorkspaceView,
 } from "../../bindings/github.com/yangshifu1024/craftwork/internal/service";
 import type {
@@ -59,6 +61,7 @@ export type {
   DocumentPreview,
   FileContent,
   FileNode,
+  LocatedFile,
   MCPServerView,
   MCPToolView,
   ModelInput,
@@ -69,6 +72,7 @@ export type {
   TerminalView,
   ThreadView,
   UsageTotals,
+  WorkspaceFolderView,
   WorkspaceView,
 };
 

@@ -3,23 +3,60 @@
  * 差异预览与应用、Office / PDF 文档预览。
  *
  * 所有数据都按「当前激活工作区」请求，工作区来自 app store；模式切换时由 App.tsx 调用 reset() 清空。
+ *
+ * 多文件夹：一个工作区可以挂载多个源文件夹（第一个是主要目录）。文件树
+ * 按文件夹分段渲染，内部缓存的键是「文件夹 ID + 相对路径」的组合键，
+ * 避免不同根之间的同名相对路径互相覆盖；读写接口显式携带 folderId
+ * （空值表示主要目录），定位永远准确。
  */
 import { create } from "zustand";
 import { api } from "../lib/api";
-import type { DiffResult, DocumentPreview, FileContent, FileNode } from "../lib/types";
+import type { DiffResult, DocumentPreview, FileContent, FileNode, WorkspaceView } from "../lib/types";
 import { useAppStore } from "./app";
 import { usePanelStore } from "./panel";
 import { useUiStore } from "./ui";
 
 /**
- * 工作区 store 的状态与操作。
+ * 源文件夹的组合键：树缓存与展开状态都以它为键。
+ * folderId 为空表示主要目录（兼容尚未挂载文件夹列表的工作区）。
+ */
+export function folderKey(folderID: string, path: string): string {
+  return `${folderID}|${path}`;
+}
+
+/**
+ * 从组合键拆出文件夹 ID 与相对路径。
+ * 组合键中的路径可能包含「|」吗？相对路径来自文件系统，理论上可以包含
+ * 任意字符；这里约定以第一个「|」为分隔，因为 folderID（wfo_xxx）不含该字符。
+ */
+export function splitFolderKey(key: string): { folderID: string; path: string } {
+  const index = key.indexOf("|");
+  if (index < 0) {
+    return { folderID: "", path: key };
+  }
+  return { folderID: key.slice(0, index), path: key.slice(index + 1) };
+}
+
+/** 取出当前激活工作区；没有时返回 null。 */
+function activeWorkspace(): WorkspaceView | null {
+  return useAppStore.getState().activeWorkspace;
+}
+
+/** 取出当前激活工作区的 ID；没有激活工作区时返回空字符串。 */
+function workspaceID(): string {
+  return activeWorkspace()?.id ?? "";
+}
+
+/**
+ * 工作区状态与操作。
  *
  * 关键状态说明：
- * - `tree`：按目录路径缓存的子节点列表，`"."` 是根目录；展开目录时才按需拉取；
- * - `expanded`：目录是否展开；
+ * - `tree`：按「文件夹 ID + 目录路径」缓存的子节点列表，每段根目录是 `"."`；
+ * - `expanded`：按组合键记录目录是否展开；
  * - `filter`：文件树过滤关键字；
- * - `git`：文件路径到 Git 状态字母的映射，用于在树上显示标记；
- * - `selected` / `content`：当前打开的文件路径与内容，`content` 为 null 表示没有打开文件；
+ * - `git`：主要目录内文件路径到 Git 状态字母的映射（Git 语义只覆盖主要目录）；
+ * - `selected` / `content`：当前打开的文件路径与内容，`content` 携带所属
+ *   文件夹 ID，保存时显式传回；
  * - `editorMode`：只读或编辑；
  * - `draft`：编辑中的文本，保存成功前不写回 `content`；
  * - `targetLine`：从搜索或差异跳转时要定位到的行号；
@@ -27,17 +64,17 @@ import { useUiStore } from "./ui";
  * - `doc` / `docLoading`：文档预览内容与加载中标记。
  */
 interface WorkspaceState {
-  /** 目录路径到子节点列表的缓存，`"."` 表示根目录。 */
+  /** 「文件夹 ID + 目录路径」到子节点列表的缓存，目录路径 "." 表示该段根目录。 */
   tree: Record<string, FileNode[]>;
-  /** 目录路径到是否展开的映射。 */
+  /** 组合键到是否展开的映射。 */
   expanded: Record<string, boolean>;
   /** 文件树过滤关键字。 */
   filter: string;
-  /** 文件路径到 Git 状态字母的映射。 */
+  /** 主要目录内文件路径到 Git 状态字母的映射。 */
   git: Record<string, string>;
-  /** 当前打开的文件路径；null 表示没有打开文件。 */
+  /** 当前打开的文件路径（相对所属源文件夹）；null 表示没有打开文件。 */
   selected: string | null;
-  /** 当前打开文件的内容与元信息。 */
+  /** 当前打开文件的内容与元信息，folderId 标识所属源文件夹。 */
   content: FileContent | null;
   /** 编辑器模式：只读或编辑。 */
   editorMode: "read" | "edit";
@@ -58,17 +95,17 @@ interface WorkspaceState {
   doc: DocumentPreview | null;
   /** 文档是否正在加载。 */
   docLoading: boolean;
-  /** 加载根目录文件树与 Git 状态。 */
+  /** 加载全部源文件夹的根目录文件树与主要目录的 Git 状态。 */
   loadRoot(): Promise<void>;
-  /** 按需加载某个目录的子节点。 */
-  loadDir(path: string): Promise<void>;
+  /** 按需加载某个源文件夹内目录的子节点。 */
+  loadDir(folderID: string, path: string): Promise<void>;
   /** 展开或收起目录；首次展开时才请求子节点。 */
-  toggleDir(path: string): Promise<void>;
+  toggleDir(folderID: string, path: string): Promise<void>;
   /** 设置文件树过滤关键字。 */
   setFilter(value: string): void;
   /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容。 */
-  openFile(path: string, options?: { quiet?: boolean }): Promise<boolean>;
-  /** 打开文件并定位到指定行。 */
+  openFile(folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
+  /** 打开文件并定位到指定行；路径先按主要目录解析，失败时跨源文件夹唯一匹配。 */
   openFileAt(path: string, line: number | null): Promise<void>;
   /** 关闭当前文件并清空草稿。 */
   closeFile(): void;
@@ -85,14 +122,9 @@ interface WorkspaceState {
   /** 切换差异视图（统一 / 并排）。 */
   setDiffView(view: "unified" | "side"): void;
   /** 加载文档预览。 */
-  openDocument(path: string): Promise<void>;
+  openDocument(folderID: string, path: string): Promise<void>;
   /** 清空所有工作区数据，模式切换时调用。 */
   reset(): void;
-}
-
-/** 取出当前激活工作区的 ID；没有激活工作区时返回空字符串。 */
-function workspaceID(): string {
-  return useAppStore.getState().activeWorkspace?.id ?? "";
 }
 
 /**
@@ -114,36 +146,49 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   doc: null,
   docLoading: false,
 
-  // 根目录与 Git 状态并行拉取；Git 状态失败不影响文件树，退化为空映射。
+  // 各源文件夹的根目录并行拉取；Git 状态只属于主要目录，失败不影响文件树。
   async loadRoot() {
-    const id = workspaceID();
-    if (!id) {
+    const workspace = activeWorkspace();
+    if (!workspace) {
       return;
     }
-    const [nodes, git] = await Promise.all([
-      api.workspace.listDir(id, "."),
-      api.workspace.gitStatuses(id).catch(() => ({})),
+    const folders = workspace.folders?.length ? workspace.folders : [{ id: "", path: workspace.path, primary: true }];
+    const [rootEntries, git] = await Promise.all([
+      Promise.all(
+        folders.map(async (folder) => {
+          const nodes = await api.workspace.listDir(workspace.id, folder.id, ".");
+          return [folderKey(folder.id, "."), nodes] as const;
+        }),
+      ),
+      api.workspace.gitStatuses(workspace.id).catch(() => ({})),
     ]);
-    set((state) => ({ tree: { ...state.tree, ".": nodes }, git }));
+    set((state) => {
+      const tree = { ...state.tree };
+      for (const [key, nodes] of rootEntries) {
+        tree[key] = nodes;
+      }
+      return { tree, git };
+    });
   },
 
-  // 懒加载单个目录：只覆盖该路径下的缓存，其余目录保持不动。
-  async loadDir(path) {
+  // 懒加载单个目录：只覆盖该组合键下的缓存，其余目录保持不动。
+  async loadDir(folderID, path) {
     const id = workspaceID();
     if (!id) {
       return;
     }
-    const nodes = await api.workspace.listDir(id, path);
-    set((state) => ({ tree: { ...state.tree, [path]: nodes } }));
+    const nodes = await api.workspace.listDir(id, folderID, path);
+    set((state) => ({ tree: { ...state.tree, [folderKey(folderID, path)]: nodes } }));
   },
 
   // 先翻转展开状态；只有当目录刚被展开且还没有缓存时才去请求子节点，
   // 再次展开不会重复请求。
-  async toggleDir(path) {
-    const expanded = { ...get().expanded, [path]: !get().expanded[path] };
+  async toggleDir(folderID, path) {
+    const key = folderKey(folderID, path);
+    const expanded = { ...get().expanded, [key]: !get().expanded[key] };
     set({ expanded });
-    if (expanded[path] && !get().tree[path]) {
-      await get().loadDir(path);
+    if (expanded[key] && !get().tree[key]) {
+      await get().loadDir(folderID, path);
     }
   },
 
@@ -154,7 +199,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 打开文件：Office 与 PDF 不在编辑器里显示文本，而是走文档预览；
   // 文档预览目前只在 Work 模式提供，Code 模式下给出提示而不是静默失败。
   // 返回是否成功打开，供带行号定位的入口决定是否走短路径解析兜底。
-  async openFile(path, options) {
+  async openFile(folderID, path, options) {
     const id = workspaceID();
     if (!id) {
       return false;
@@ -163,7 +208,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (lower.endsWith(".docx") || lower.endsWith(".xlsx") || lower.endsWith(".pdf")) {
       const mode = useAppStore.getState().mode;
       if (mode === "work") {
-        await get().openDocument(path);
+        await get().openDocument(folderID, path);
         usePanelStore.getState().setTab("work", "document");
         return true;
       }
@@ -175,7 +220,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return false;
     }
     try {
-      const content = await api.workspace.readFile(id, path);
+      const content = await api.workspace.readFile(id, folderID, path);
       // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑。
       // targetLine 在这里复位：正常打开文件不需要定位；带行号的入口
       // （openFileAt）会在内容就绪后重新设置。
@@ -206,17 +251,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 反过来先设行号会被 openFile 的复位清掉，滚动从不发生。
   //
   // 模型输出的引用常是短路径（policy.go 指代 internal/policy/policy.go），
-  // 直接读取失败时调用后端的 locateFile 按文件名或路径后缀解析唯一匹配，
-  // 解析结果唯一才重试打开；仍失败则保持第一次的错误提示。
+  // 直接读取失败时调用后端的 locateFile 按文件名或路径后缀在全部源文件夹
+  // 中解析唯一匹配，解析结果唯一才重试打开；仍失败则保持第一次的错误提示。
   async openFileAt(path, line) {
-    let opened = await get().openFile(path, { quiet: true });
+    let opened = await get().openFile("", path, { quiet: true });
     if (!opened) {
       const id = workspaceID();
       if (id) {
         try {
+          // locateFile 在全部源文件夹中做唯一匹配，返回所属文件夹与相对路径；
+          // 即使路径相同，命中的文件夹也可能不是主要目录，重试仍有意义。
           const resolved = await api.workspace.locateFile(id, path);
-          if (resolved && resolved !== path) {
-            opened = await get().openFile(resolved);
+          if (resolved) {
+            opened = await get().openFile(resolved.folderId ?? "", resolved.path);
           }
         } catch {
           // 解析失败：沿用第一次尝试的错误路径，由下方统一提示。
@@ -245,7 +292,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (mode === "edit" && (content?.binary || content?.truncated)) {
       return;
     }
-    set({ editorMode: mode, draft: content?.content ?? get().draft });
+    set({ editorMode: "edit", draft: content?.content ?? get().draft });
   },
 
   setDraft(value) {
@@ -253,8 +300,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   // 保存流程：
-  // 1. 写入目标是打开文件时记录的工作区（content.workspaceId），而不是
-  //    「当前激活工作区」——切换工作区后保存不会把内容写进错误的目录；
+  // 1. 写入目标是打开文件时记录的工作区与源文件夹（content.workspaceId /
+  //    content.folderId），而不是「当前激活工作区」——切换工作区后保存
+  //    不会把内容写进错误的目录；
   // 2. 带上打开文件时拿到的 hash 写入，后端据此判断文件是否被外部改动；
   // 3. 成功后重新读取文件，用后端返回的最新内容与 hash 刷新，并回到只读模式；
   // 4. 若后端报「外部修改」，说明磁盘上的内容已经变了，弹确认框由用户选择是否重新加载；
@@ -266,9 +314,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!id || !content) {
       return;
     }
+    const folderID = content.folderId ?? "";
     try {
-      await api.workspace.writeFile(id, content.path, get().draft, content.hash);
-      const refreshed = await api.workspace.readFile(id, content.path);
+      await api.workspace.writeFile(id, folderID, content.path, get().draft, content.hash);
+      const refreshed = await api.workspace.readFile(id, folderID, content.path);
       set({ content: refreshed, draft: refreshed.content, editorMode: "read" });
       useUiStore.getState().toast({ title: "已保存", description: content.path, tone: "ok" });
     } catch (error) {
@@ -282,7 +331,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           danger: true,
         });
         if (reload) {
-          await get().openFile(content.path);
+          await get().openFile(folderID, content.path);
         }
         return;
       }
@@ -310,6 +359,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   // 应用差异属于覆盖写入，必须先确认；确认后整份写入新内容（不带 hash，表示允许覆盖），
   // 写完重新打开文件，让编辑器显示磁盘上的最新状态。
+  // 差异标题是相对主要目录的路径：审批差异来自事件载荷，目前固定按主要
+  // 目录解析，附加目录文件的差异应用是已知限制。
   async applyDiff() {
     const diff = get().diff;
     const id = diff?.workspaceId ?? "";
@@ -327,9 +378,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return;
     }
     try {
-      await api.workspace.writeFile(id, diff.title, diff.newText, "");
+      await api.workspace.writeFile(id, "", diff.title, diff.newText, "");
       useUiStore.getState().toast({ title: "已应用修改", description: diff.title, tone: "ok" });
-      await get().openFile(diff.title);
+      await get().openFile("", diff.title);
     } catch (error) {
       useUiStore.getState().toast({ title: "应用失败", description: String(error), tone: "danger" });
     }
@@ -344,14 +395,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   // 文档预览期间置 docLoading，让面板显示加载态；失败时清标记并提示。
-  async openDocument(path) {
+  async openDocument(folderID, path) {
     const id = workspaceID();
     if (!id) {
       return;
     }
     set({ docLoading: true });
     try {
-      const doc = await api.documents.preview(id, path);
+      const doc = await api.documents.preview(id, folderID, path);
       set({ doc, docLoading: false });
     } catch (error) {
       set({ docLoading: false });

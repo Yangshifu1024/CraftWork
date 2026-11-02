@@ -34,6 +34,10 @@ const DataModal = lazy(() =>
   import("../features/overlays/DataModal").then((module) => ({ default: module.DataModal })),
 );
 
+const CreateProjectDialog = lazy(() =>
+  import("../features/overlays/CreateProjectDialog").then((module) => ({ default: module.CreateProjectDialog })),
+);
+
 /**
  * 三栏布局与全局浮层的容器组件，不接收 props。
  *
@@ -54,6 +58,7 @@ export function AppShell() {
   const paletteOpen = useUiStore((state) => state.paletteOpen);
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const dataOpen = useUiStore((state) => state.dataOpen);
+  const createProjectOpen = useUiStore((state) => state.createProjectOpen);
 
   // 面板宽度由 store 管理，样式层通过 CSS 变量读取，宽度一变布局立刻跟随。
   useEffect(() => {
@@ -204,6 +209,11 @@ export function AppShell() {
       {dataOpen ? (
         <Suspense fallback={null}>
           <DataModal />
+        </Suspense>
+      ) : null}
+      {createProjectOpen ? (
+        <Suspense fallback={null}>
+          <CreateProjectDialog />
         </Suspense>
       ) : null}
       {/* 确认框、输入框与图片预览常驻挂载，由 store 里的请求对象决定是否显示 */}

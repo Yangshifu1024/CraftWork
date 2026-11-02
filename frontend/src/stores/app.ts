@@ -173,6 +173,8 @@ interface AppState {
   setActiveWorkspace(workspaceID: string): Promise<void>;
   /** 按路径添加工作区并设为当前工作区。 */
   addWorkspace(path: string, trust: string): Promise<void>;
+  /** 创建多文件夹项目（第一个文件夹是主要目录）并设为当前工作区。 */
+  addProject(name: string, folders: string[], trust: string): Promise<void>;
   /** 弹出系统目录选择框，选中后以受限信任级别添加工作区。 */
   pickAndAddWorkspace(): Promise<void>;
   /** 重新拉取提供商列表。 */
@@ -332,6 +334,19 @@ export const useAppStore = create<AppState>((set, get) => ({
    */
   async addWorkspace(path, trust) {
     const workspace = await api.workspace.add(path, trust);
+    set({ activeWorkspace: workspace });
+    await get().saveSettings({ activeWorkspace: workspace.id });
+    await get().refreshWorkspaces();
+  },
+
+  /**
+   * 创建多文件夹项目并设为当前工作区。
+   *
+   * 「创建项目」对话框的提交通道：name 为空时由后端从主要目录名推导，
+   * 重名自动追加序号；trust 由对话框的信任确认给出（通过即 trusted）。
+   */
+  async addProject(name: string, folders: string[], trust: string): Promise<void> {
+    const workspace = await api.workspace.addProject(name, folders, trust);
     set({ activeWorkspace: workspace });
     await get().saveSettings({ activeWorkspace: workspace.id });
     await get().refreshWorkspaces();

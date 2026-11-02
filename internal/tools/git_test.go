@@ -41,7 +41,7 @@ func TestGitTools(t *testing.T) {
 	registry := NewRegistry(Options{})
 	run := func(name string, args map[string]any) Result {
 		t.Helper()
-		_, call, exists := registry.Assess(repo, name, args)
+		_, call, exists := registry.Assess([]string{repo}, name, args)
 		if !exists {
 			t.Fatalf("%s 未注册", name)
 		}

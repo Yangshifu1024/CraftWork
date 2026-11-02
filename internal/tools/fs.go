@@ -35,7 +35,7 @@ func (t *fsListTool) Spec() Spec {
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":  map[string]any{"type": "string", "description": "相对工作区的路径，默认为 ."},
+				"path":  map[string]any{"type": "string", "description": "相对主要目录或附加目录的路径，默认为主要目录根"},
 				"depth": map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "递归深度，默认 1"},
 			},
 		},
@@ -128,7 +128,7 @@ func (t *fsReadTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path"},
 			"properties": map[string]any{
-				"path":   map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"path":   map[string]any{"type": "string", "description": "相对主要目录或附加目录的文件路径"},
 				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "起始行，从 0 开始"},
 				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": maxReadLines, "description": "读取行数，默认 2000"},
 			},
@@ -211,7 +211,7 @@ func (t *fsGlobTool) Spec() Spec {
 			"required": []string{"pattern"},
 			"properties": map[string]any{
 				"pattern": map[string]any{"type": "string", "description": "通配符模式，例如 **/*.go"},
-				"path":    map[string]any{"type": "string", "description": "起始目录，默认工作区根"},
+				"path":    map[string]any{"type": "string", "description": "起始目录（相对主要目录或附加目录），默认主要目录根"},
 			},
 		},
 	}
@@ -238,7 +238,7 @@ func (t *fsGlobTool) Execute(_ context.Context, call Call) Result {
 			}
 			return nil
 		}
-		rel := displayPath(call.Workspace, path)
+		rel := displayPath(call.TargetRoot, path)
 		if matchGlob(pattern, rel) {
 			matches = append(matches, rel)
 			if len(matches) >= 200 {
@@ -297,7 +297,7 @@ func (t *fsGrepTool) Spec() Spec {
 			"required": []string{"pattern"},
 			"properties": map[string]any{
 				"pattern": map[string]any{"type": "string", "description": "要搜索的字符串或正则"},
-				"path":    map[string]any{"type": "string", "description": "搜索目录，默认工作区根"},
+				"path":    map[string]any{"type": "string", "description": "搜索目录（相对主要目录或附加目录），默认主要目录根"},
 				"regex":   map[string]any{"type": "boolean", "description": "是否按正则解释，默认 false"},
 			},
 		},
@@ -343,7 +343,7 @@ func (t *fsGrepTool) Execute(_ context.Context, call Call) Result {
 		if err != nil || platform.IsBinary(data) {
 			return nil
 		}
-		rel := displayPath(call.Workspace, path)
+		rel := displayPath(call.TargetRoot, path)
 		for index, line := range strings.Split(string(data), "\n") {
 			matched := false
 			if matcher != nil {
@@ -389,7 +389,7 @@ func (t *fsWriteTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path", "content"},
 			"properties": map[string]any{
-				"path":    map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"path":    map[string]any{"type": "string", "description": "相对主要目录或附加目录的文件路径"},
 				"content": map[string]any{"type": "string", "description": "完整文件内容"},
 			},
 		},
@@ -444,7 +444,7 @@ func (t *fsEditTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path", "old_string", "new_string"},
 			"properties": map[string]any{
-				"path":       map[string]any{"type": "string", "description": "相对工作区的文件路径"},
+				"path":       map[string]any{"type": "string", "description": "相对主要目录或附加目录的文件路径"},
 				"old_string": map[string]any{"type": "string", "description": "要被替换的原文，必须唯一"},
 				"new_string": map[string]any{"type": "string", "description": "替换后的文本"},
 			},

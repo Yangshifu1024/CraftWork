@@ -101,6 +101,8 @@ interface UiState {
   dataOpen: boolean;
   /** 数据弹窗当前分区。 */
   dataTab: DataTab;
+  /** 「创建项目」对话框是否打开。 */
+  createProjectOpen: boolean;
   /** 当前待确认的确认框请求；null 表示没有确认框。 */
   confirm: ConfirmRequest | null;
   /** 确认框的 Promise 落点；用户选择后由 `resolveConfirm` 调用。 */
@@ -131,6 +133,10 @@ interface UiState {
   openData(tab?: DataTab): void;
   /** 关闭数据弹窗。 */
   closeData(): void;
+  /** 打开「创建项目」对话框。 */
+  openCreateProject(): void;
+  /** 关闭「创建项目」对话框。 */
+  closeCreateProject(): void;
   /** 弹出确认框，返回用户是否点了确认。 */
   askConfirm(request: ConfirmRequest): Promise<boolean>;
   /** 结束确认流程，把结果交还给 `askConfirm` 的调用方。 */
@@ -161,6 +167,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   settingsTab: "general",
   dataOpen: false,
   dataTab: "audit",
+  createProjectOpen: false,
   confirm: null,
   confirmResolver: null,
   prompt: null,
@@ -200,6 +207,12 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   closeData() {
     set({ dataOpen: false });
+  },
+  openCreateProject() {
+    set({ createProjectOpen: true });
+  },
+  closeCreateProject() {
+    set({ createProjectOpen: false });
   },
 
   // 确认流程：把 resolve 存进 store，让 Promise 悬停；等 ConfirmDialog 调用

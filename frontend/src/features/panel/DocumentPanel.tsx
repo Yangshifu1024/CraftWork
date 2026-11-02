@@ -69,11 +69,12 @@ export function DocumentPanel() {
             type="button"
             className="tool-btn"
             onClick={() => {
-              // 可编辑文本进编辑器；其他类型重新向后端请求预览
+              // 可编辑文本进编辑器；其他类型重新向后端请求预览。
+              // doc.folderId 记录了文件所属源文件夹，空值表示主要目录。
               if (editable) {
-                void openFile(doc.path);
+                void openFile(doc.folderId ?? "", doc.path);
               } else {
-                void openDocument(doc.path);
+                void openDocument(doc.folderId ?? "", doc.path);
               }
             }}
           >

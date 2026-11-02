@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +27,7 @@ func TestAssessMarksPathOutsideWorkspace(t *testing.T) {
 	registry := NewRegistry(Options{})
 	workspace := t.TempDir()
 
-	assessment, call, exists := registry.Assess(workspace, "fs_read", map[string]any{"path": "../secret"})
+	assessment, call, exists := registry.Assess([]string{workspace}, "fs_read", map[string]any{"path": "../secret"})
 	if !exists {
 		t.Fatal("fs_read 应已注册")
 	}
@@ -43,11 +45,11 @@ func TestAssessMarksPathOutsideWorkspace(t *testing.T) {
 func TestAssessClassifiesCommands(t *testing.T) {
 	registry := NewRegistry(Options{})
 
-	network, _, _ := registry.Assess(t.TempDir(), "shell_exec", map[string]any{"command": "curl https://example.com"})
+	network, _, _ := registry.Assess([]string{t.TempDir()}, "shell_exec", map[string]any{"command": "curl https://example.com"})
 	if network.Risk != policy.R3 {
 		t.Fatalf("联网命令应为 R3，实际 %s", network.Risk)
 	}
-	destructive, _, _ := registry.Assess(t.TempDir(), "shell_exec", map[string]any{"command": "rm -rf /"})
+	destructive, _, _ := registry.Assess([]string{t.TempDir()}, "shell_exec", map[string]any{"command": "rm -rf /"})
 	if destructive.Risk != policy.R4 {
 		t.Fatalf("破坏性命令应为 R4，实际 %s", destructive.Risk)
 	}
@@ -60,7 +62,7 @@ func TestExecuteTruncatesDynamicToolOutput(t *testing.T) {
 		output: strings.Repeat("a", maxOutputBytes+100),
 	})
 
-	_, call, exists := registry.Assess(t.TempDir(), "mcp__demo__big", map[string]any{})
+	_, call, exists := registry.Assess([]string{t.TempDir()}, "mcp__demo__big", map[string]any{})
 	if !exists {
 		t.Fatal("动态工具应已注册")
 	}
@@ -101,4 +103,62 @@ func TestSpecDrivesSummaryTitleAndWorkMode(t *testing.T) {
 
 func registerStub(registry *Registry) {
 	registry.Register(&stubTool{spec: Spec{Name: "mcp__demo__echo", Risk: policy.R2}})
+}
+
+func TestAssessResolvesAdditionalRoot(t *testing.T) {
+	registry := NewRegistry(Options{})
+	primary := t.TempDir()
+	additional := t.TempDir()
+	// macOS 的 /var 是 /private/var 的别名：归一化后再断言绝对路径。
+	if canonical, err := filepath.EvalSymlinks(additional); err == nil {
+		additional = canonical
+	}
+	target := filepath.Join(additional, "note.md")
+	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 附加目录内的路径应命中并解析为绝对路径，展示路径相对附加根。
+	assessment, call, exists := registry.Assess([]string{primary, additional}, "fs_read", map[string]any{"path": "note.md"})
+	if !exists || call.Err != nil {
+		t.Fatalf("附加目录内的路径应正常解析: %v", call.Err)
+	}
+	if call.Target != target {
+		t.Fatalf("Target 应为附加目录内绝对路径: %s", call.Target)
+	}
+	if call.Display != "note.md" {
+		t.Fatalf("Display 应相对附加根: %s", call.Display)
+	}
+	if call.TargetRoot != additional {
+		t.Fatalf("TargetRoot 应为附加根: %s", call.TargetRoot)
+	}
+	if assessment.Risk != policy.R0 {
+		t.Fatalf("读取文件应为 R0，实际 %s", assessment.Risk)
+	}
+
+	// git 工具保持主目录仓库语义：附加目录路径直接报错。
+	_, call, _ = registry.Assess([]string{primary, additional}, "git_diff", map[string]any{"path": "note.md"})
+	if call.Err == nil {
+		t.Fatal("git 工具命中附加目录应报错")
+	}
+}
+
+func TestCallResolveRejectsAdditionalRootForGit(t *testing.T) {
+	registry := NewRegistry(Options{})
+	primary := t.TempDir()
+	additional := t.TempDir()
+
+	_, call, _ := registry.Assess([]string{primary, additional}, "git_commit", map[string]any{"message": "x"})
+	// 相对路径会按根顺序先命中主根，这是正确行为；用附加根内实际存在的
+	// 文件验证「命中附加根时报错」。
+	if err := os.WriteFile(filepath.Join(additional, "tracked.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := call.Resolve("tracked.txt"); err == nil {
+		t.Fatal("git_commit 的 paths 命中附加目录应报错")
+	}
+	// 主根路径不受影响。
+	if _, _, err := call.Resolve("."); err != nil {
+		t.Fatalf("主根路径应正常解析: %v", err)
+	}
 }

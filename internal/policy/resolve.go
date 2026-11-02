@@ -7,13 +7,26 @@ package policy
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// ErrOutsideWorkspace 表示路径解析后落在工作区之外。
-var ErrOutsideWorkspace = errors.New("路径超出工作区")
+// ErrOutsideWorkspace 表示路径解析后落在全部工作区目录之外。
+var ErrOutsideWorkspace = errors.New("路径超出工作区及附加目录")
+
+// Resolved 是多根解析的结果：命中哪个根、解析后的绝对路径与相对该根的展示路径。
+type Resolved struct {
+	// RootIndex 是命中的根在传入列表中的下标，0 即主要目录。
+	RootIndex int
+	// Root 是命中根归一化（EvalSymlinks）之后的真实绝对路径。
+	Root string
+	// Abs 是解析后的真实绝对路径，调用方应使用它访问文件系统。
+	Abs string
+	// Rel 是相对命中根的展示路径。
+	Rel string
+}
 
 // Resolve 把用户或模型给出的相对路径解析为工作区内的真实绝对路径。
 //
@@ -28,21 +41,111 @@ func Resolve(workspace, rel string) (string, error) {
 	if workspace == "" {
 		return "", errors.New("工作区未设置")
 	}
-	// 工作区先转绝对路径，再解析符号链接，得到用于最终比较的真实根目录。
+	lexRoot, realRoot, err := evalRoot(workspace)
+	if err != nil {
+		return "", err
+	}
+	return resolveAt(lexRoot, realRoot, rel)
+}
+
+// ResolveAny 把路径解析到多个源文件夹之一，第一个根是主要目录。
+//
+// 解析按根顺序进行：取第一个词法命中且符号链接校验通过的根；链接逃逸
+// 直接拒绝，不尝试后续根。某个根不存在或不可达时跳过该根（例如附加目录
+// 事后被删除），只有全部根都不可用或路径都未命中时才报错。rel 为空串时
+// 返回第一个可用根本身。
+func ResolveAny(roots []string, rel string) (Resolved, error) {
+	return resolveMulti(roots, rel, false)
+}
+
+// ResolveExisting 在 ResolveAny 的基础上优先命中目标真实存在的根。
+//
+// 适用「路径必须已经存在」的场景（例如 git 的文件参数）：主根里同名路径
+// 尚不存在、而附加根里真实存在时，应命中附加根而不是把主根的虚构路径
+// 交给调用方。全部根都不存在时回落到词法判定（新建文件的合法场景）。
+func ResolveExisting(roots []string, rel string) (Resolved, error) {
+	return resolveMulti(roots, rel, true)
+}
+
+// resolveMulti 是 ResolveAny 与 ResolveExisting 的共同实现。
+//
+// preferExisting 为 true 时，词法命中的结果先不返回，等到 Stat 确认目标
+// 真实存在才命中；全程没有真实存在的目标时，返回第一个词法命中的根。
+func resolveMulti(roots []string, rel string, preferExisting bool) (Resolved, error) {
+	var lexical Resolved
+	haveLexical := false
+	for index, workspace := range roots {
+		if workspace == "" {
+			continue
+		}
+		lexRoot, realRoot, err := evalRoot(workspace)
+		if err != nil {
+			// 主要目录不可用仍要报错（没有它工作区失去意义）；附加目录
+			// 不可用则跳过，不拖垮整体解析。
+			if index == 0 {
+				return Resolved{}, err
+			}
+			continue
+		}
+		abs, err := resolveAt(lexRoot, realRoot, rel)
+		// 未命中（越界）或路径在该根下不存在（例如主根没有这个目录，而
+		// 附加根有）都继续尝试下一根；其余错误（权限等）视为硬失败。
+		if errors.Is(err, ErrOutsideWorkspace) || errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return Resolved{}, err
+		}
+		resolved := Resolved{RootIndex: index, Root: realRoot, Abs: abs, Rel: relativeTo(realRoot, abs)}
+		if !preferExisting {
+			return resolved, nil
+		}
+		if _, statErr := os.Stat(abs); statErr == nil {
+			return resolved, nil
+		}
+		if !haveLexical {
+			lexical, haveLexical = resolved, true
+		}
+	}
+	if haveLexical {
+		return lexical, nil
+	}
+	return Resolved{}, ErrOutsideWorkspace
+}
+
+// relativeTo 返回 abs 相对 root 的展示路径；越界或计算失败时原样返回。
+func relativeTo(root, abs string) string {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return abs
+	}
+	return rel
+}
+
+// evalRoot 返回工作区目录的两个绝对形式：lexRoot 用于词法校验（保留符号
+// 链接别名，绝对路径以别名形式给出时仍能通过词法检查），realRoot 用于
+// 最终比较（解析符号链接后的真实路径，例如 macOS 的 /var 与 /private/var）。
+func evalRoot(workspace string) (string, string, error) {
 	absRoot, err := filepath.Abs(workspace)
 	if err != nil {
-		return "", fmt.Errorf("解析工作区: %w", err)
+		return "", "", fmt.Errorf("解析工作区: %w", err)
 	}
-	root, err := filepath.EvalSymlinks(absRoot)
+	realRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
-		return "", fmt.Errorf("解析工作区符号链接: %w", err)
+		return "", "", fmt.Errorf("解析工作区符号链接: %w", err)
 	}
+	return absRoot, realRoot, nil
+}
 
+// resolveAt 在单个根目录内解析路径，是 Resolve 与 ResolveAny 共用的核心：
+// 词法校验（基于 lexRoot）挡住 ../ 越界，符号链接解析挡住链接逃逸，目标
+// 不存在时解析其父目录再拼回文件名，最终与 realRoot 比较确认未逃逸。
+func resolveAt(lexRoot, realRoot, rel string) (string, error) {
 	// 相对路径以工作区为根拼接；绝对路径保持原样；最后清理 . 与 .. 等
 	// 路径片段，得到词法上的规范形式。
 	candidate := rel
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(absRoot, candidate)
+		candidate = filepath.Join(lexRoot, candidate)
 	}
 	candidate = filepath.Clean(candidate)
 
@@ -52,7 +155,7 @@ func Resolve(workspace, rel string) (string, error) {
 	}
 
 	// 先做词法校验：即使目标不存在，也不能接受 ../ 之类的越界路径。
-	if !within(absRoot, candidate) {
+	if !within(lexRoot, candidate) {
 		return "", ErrOutsideWorkspace
 	}
 
@@ -73,7 +176,7 @@ func Resolve(workspace, rel string) (string, error) {
 	}
 
 	// 用解析后的真实路径与真实根目录比较，符号链接逃逸会在这里被拦下。
-	if !within(root, resolved) {
+	if !within(realRoot, resolved) {
 		return "", ErrOutsideWorkspace
 	}
 	return resolved, nil

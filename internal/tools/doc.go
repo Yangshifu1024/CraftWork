@@ -32,7 +32,7 @@ func (t *docReadTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path"},
 			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "相对工作区的文档路径"},
+				"path": map[string]any{"type": "string", "description": "相对主要目录或附加目录的文档路径"},
 			},
 		},
 	}
@@ -78,7 +78,7 @@ func (t *docEditTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path", "old_text", "new_text"},
 			"properties": map[string]any{
-				"path":     map[string]any{"type": "string", "description": "相对工作区的 .docx 路径"},
+				"path":     map[string]any{"type": "string", "description": "相对主要目录或附加目录的 .docx 路径"},
 				"old_text": map[string]any{"type": "string", "description": "要替换的原文，必须唯一"},
 				"new_text": map[string]any{"type": "string", "description": "替换后的文本"},
 			},
@@ -130,7 +130,7 @@ func (t *xlsxSetCellTool) Spec() Spec {
 			"type":     "object",
 			"required": []string{"path", "cell", "value"},
 			"properties": map[string]any{
-				"path":  map[string]any{"type": "string", "description": "相对工作区的 .xlsx 路径"},
+				"path":  map[string]any{"type": "string", "description": "相对主要目录或附加目录的 .xlsx 路径"},
 				"sheet": map[string]any{"type": "string", "description": "工作表名称或序号（从 1 开始），默认第一个"},
 				"cell":  map[string]any{"type": "string", "description": "单元格引用，例如 B8"},
 				"value": map[string]any{"type": "string", "description": "新值；以 = 开头时写入公式"},

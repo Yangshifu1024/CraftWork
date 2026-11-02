@@ -87,8 +87,11 @@ type EnvContextSnapshot struct {
 type Input struct {
 	// Mode 是会话模式："code" 或 "work"。
 	Mode string
-	// Workspace 是会话绑定的工作区绝对路径。
+	// Workspace 是会话绑定的工作区主要目录绝对路径。
 	Workspace string
+	// AdditionalFolders 是工作区挂载的附加目录绝对路径列表（不含主要目录）。
+	// 它们与主要目录一起构成 Agent 的可访问范围，逐行列进会话规则。
+	AdditionalFolders []string
 	// WorkspacePurpose 是工作区用途："project"（用户项目目录）或
 	// "conversation"（应用内置的临时会话目录），为空按 project 处理。
 	WorkspacePurpose string
@@ -204,6 +207,10 @@ func buildModeRulesSection(in Input) Section {
 	lines := []string{
 		fmt.Sprintf("当前模式：%s。", label),
 		workspaceLine,
+	}
+	// 多文件夹项目：附加目录与主要目录一起构成可读写范围，逐行告知模型。
+	for _, folder := range in.AdditionalFolders {
+		lines = append(lines, fmt.Sprintf("附加目录：%s（与工作区主要目录一起构成可读写范围；Git 操作仅支持主要目录）", folder))
 	}
 	if in.Mode == "work" {
 		lines = append(lines, "- Work 模式只提供文件、文档与任务清单能力，没有 shell 与 Git；需要执行命令或查看版本状态时，请用户切换到 Code 模式。")

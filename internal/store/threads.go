@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/yangshifu1024/craftwork/internal/id"
 )
 
 // MarshalPayload 把事件载荷编码为 JSON 文本。
@@ -237,7 +239,7 @@ func (db *DB) UpsertWorkspace(workspace *Workspace) error {
 	return nil
 }
 
-// ListWorkspaces 按最近打开时间列出工作区。
+// ListWorkspaces 按最近打开时间列出工作区，并装配各自的源文件夹列表。
 func (db *DB) ListWorkspaces() ([]Workspace, error) {
 	rows, err := db.sqlDB.Query(
 		`SELECT id, name, path, trust, purpose, created_at, last_opened_at FROM workspaces ORDER BY last_opened_at DESC`)
@@ -255,10 +257,21 @@ func (db *DB) ListWorkspaces() ([]Workspace, error) {
 		}
 		result = append(result, workspace)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 工作区数量有限，逐个装配文件夹即可，不为少量行引入 join 复杂度。
+	for index := range result {
+		folders, err := db.ListWorkspaceFolders(result[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		result[index].Folders = folders
+	}
+	return result, nil
 }
 
-// GetWorkspace 读取单个工作区。
+// GetWorkspace 读取单个工作区，并装配其源文件夹列表。
 func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	var workspace Workspace
 	err := db.sqlDB.QueryRow(
@@ -271,7 +284,95 @@ func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取工作区: %w", err)
 	}
+	folders, err := db.ListWorkspaceFolders(id)
+	if err != nil {
+		return nil, err
+	}
+	workspace.Folders = folders
 	return &workspace, nil
+}
+
+// ListWorkspaceFolders 按挂载顺序列出工作区的全部源文件夹。
+//
+// 兼容性兜底：保证返回列表的第一条是 workspaces.path 指向的主要目录。
+// 正常数据里 position = 0 的记录就是它；v6 迁移前的存量行或异常数据缺失
+// 时，用 workspaces.path 补一条，保证「第一条是主要目录」的约定恒成立。
+func (db *DB) ListWorkspaceFolders(workspaceID string) ([]WorkspaceFolder, error) {
+	rows, err := db.sqlDB.Query(
+		`SELECT id, workspace_id, path, position, created_at FROM workspace_folders WHERE workspace_id = ? ORDER BY position`, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("列出工作区文件夹: %w", err)
+	}
+	defer rows.Close()
+
+	var result []WorkspaceFolder
+	for rows.Next() {
+		var folder WorkspaceFolder
+		if err := rows.Scan(&folder.ID, &folder.WorkspaceID, &folder.Path, &folder.Position, &folder.CreatedAt); err != nil {
+			return nil, fmt.Errorf("扫描工作区文件夹: %w", err)
+		}
+		result = append(result, folder)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var primaryPath string
+	err = db.sqlDB.QueryRow(`SELECT path FROM workspaces WHERE id = ?`, workspaceID).Scan(&primaryPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		// 工作区本身已删除：原样返回空列表，由调用方处理。
+		return result, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取工作区主目录: %w", err)
+	}
+	if len(result) == 0 || result[0].Path != primaryPath {
+		result = append([]WorkspaceFolder{{
+			ID:          id.New("wfo"),
+			WorkspaceID: workspaceID,
+			Path:        primaryPath,
+			Position:    0,
+		}}, result...)
+	}
+	return result, nil
+}
+
+// ReplaceWorkspaceFolders 在事务内整体替换工作区的源文件夹列表。
+//
+// paths 按给定顺序重写，第一条即主要目录（position = 0），同时同步主目录
+// 到 workspaces.path 保持两者一致。目录数据由服务层先行校验（存在、是
+// 目录、去重），这里只负责持久化。
+func (db *DB) ReplaceWorkspaceFolders(workspaceID string, paths []string) error {
+	if len(paths) == 0 {
+		return errors.New("工作区至少需要一个源文件夹")
+	}
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	tx, err := db.sqlDB.Begin()
+	if err != nil {
+		return fmt.Errorf("开始替换文件夹事务: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM workspace_folders WHERE workspace_id = ?`, workspaceID); err != nil {
+		return fmt.Errorf("清空工作区文件夹: %w", err)
+	}
+	now := nowMillis()
+	for index, path := range paths {
+		if _, err := tx.Exec(
+			`INSERT INTO workspace_folders (id, workspace_id, path, position, created_at) VALUES (?, ?, ?, ?, ?)`,
+			id.New("wfo"), workspaceID, path, index, now); err != nil {
+			return fmt.Errorf("写入工作区文件夹: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`UPDATE workspaces SET path = ? WHERE id = ?`, paths[0], workspaceID); err != nil {
+		return fmt.Errorf("同步主目录: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交替换文件夹: %w", err)
+	}
+	return nil
 }
 
 // BackfillThreadWorkspaces 把没有绑定工作区的会话归入指定工作区。

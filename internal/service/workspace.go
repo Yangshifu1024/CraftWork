@@ -30,7 +30,7 @@ type WorkspaceView struct {
 	ID string `json:"id"`
 	// Name 是工作区展示名称，默认取目录名。
 	Name string `json:"name"`
-	// Path 是工作区根目录的绝对路径。
+	// Path 是主要目录的绝对路径。
 	Path string `json:"path"`
 	// Trust 是 trusted 或 restricted。
 	Trust string `json:"trust"`
@@ -41,6 +41,21 @@ type WorkspaceView struct {
 	CreatedAt int64 `json:"createdAt"`
 	// LastOpenedAt 是最后一次设为活动工作区的时间。
 	LastOpenedAt int64 `json:"lastOpenedAt"`
+	// Folders 是工作区挂载的全部源文件夹，按挂载顺序排列，第一条是主要目录。
+	Folders []WorkspaceFolderView `json:"folders,omitempty"`
+}
+
+// WorkspaceFolderView 是工作区挂载的一个源文件夹。
+//
+// 前端文件树按文件夹分段渲染，读写接口以 FolderID 限定目标根
+// （空值表示主要目录）。
+type WorkspaceFolderView struct {
+	// ID 是文件夹记录标识，读写接口用它限定目标根。
+	ID string `json:"id"`
+	// Path 是目录的绝对路径。
+	Path string `json:"path"`
+	// Primary 表示这是主要目录（position = 0），即会话的工作目录。
+	Primary bool `json:"primary"`
 }
 
 // FileNode 是文件树中的一个节点（单层，按需加载）。
@@ -59,7 +74,7 @@ type FileNode struct {
 
 // FileContent 是读取文件的结果。
 type FileContent struct {
-	// Path 是相对工作区的路径。
+	// Path 是相对所属源文件夹的路径。
 	Path string `json:"path"`
 	// Content 是文件文本内容；二进制文件不带内容。
 	Content string `json:"content"`
@@ -80,6 +95,18 @@ type FileContent struct {
 	// WorkspaceID 是读取该文件的工作区标识；保存时显式传回，保存目标
 	// 不依赖前端「当前激活工作区」的环境状态。
 	WorkspaceID string `json:"workspaceId"`
+	// FolderID 是该文件所属源文件夹的标识；保存时显式传回以限定目标根，
+	// 空值表示主要目录。
+	FolderID string `json:"folderId,omitempty"`
+}
+
+// LocatedFile 是 LocateFile 的解析结果：正文引用的短路径在多个源文件夹
+// 中唯一命中后，返回所属文件夹与相对路径。
+type LocatedFile struct {
+	// FolderID 是命中文件所属的源文件夹标识；空值表示主要目录。
+	FolderID string `json:"folderId,omitempty"`
+	// Path 是相对该源文件夹的路径。
+	Path string `json:"path"`
 }
 
 // WorkspaceService 管理工作区、文件树、文件读写与差异计算。
@@ -135,34 +162,12 @@ func (s *WorkspaceService) PickFolder() (string, error) {
 // 输入路径会先转成绝对路径并解析符号链接，确保之后的所有边界判断
 // 都基于真实的目录位置，而不是可能被替换的链接。
 func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return WorkspaceView{}, errors.New("路径不能为空")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("解析路径: %w", err)
-	}
-	abs, err = filepath.EvalSymlinks(abs)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("解析路径: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("读取路径: %w", err)
-	}
-	if !info.IsDir() {
-		return WorkspaceView{}, errors.New("请选择文件夹")
-	}
-	// 内置临时会话目录由应用管理，不允许作为项目工作区重复添加。
-	existing, err := s.db.ListWorkspaces()
+	abs, err := normalizeFolder(path)
 	if err != nil {
 		return WorkspaceView{}, err
 	}
-	for _, workspace := range existing {
-		if workspace.Path == abs && isConversation(&workspace) {
-			return WorkspaceView{}, errors.New("该目录是内置的临时会话目录，无需添加为工作区")
-		}
+	if err := s.rejectConversationPath(abs); err != nil {
+		return WorkspaceView{}, err
 	}
 	if trust != "trusted" {
 		trust = "restricted"
@@ -183,6 +188,139 @@ func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
 		return WorkspaceView{}, err
 	}
 	return toWorkspaceView(*workspace), nil
+}
+
+// AddProject 创建一个多文件夹项目并设为当前活动工作区。
+//
+// folders 是用户在「创建项目」对话框选择的源文件夹，第一个是主要目录
+// （会话工作目录），其余是附加目录（同样纳入 Agent 可访问范围）。name
+// 为空时用主要目录的目录名推导；与现有项目重名时自动追加序号。trust
+// 由前端在「信任此文件夹」确认通过后传 "trusted"，否则受限。
+func (s *WorkspaceService) AddProject(name string, folders []string, trust string) (WorkspaceView, error) {
+	if len(folders) == 0 {
+		return WorkspaceView{}, errors.New("请至少选择一个源文件夹")
+	}
+	// 逐个规范化：绝对路径 + 符号链接解析 + 必须是目录 + 去重 + 拒绝内置目录。
+	normalized := make([]string, 0, len(folders))
+	seen := map[string]bool{}
+	for _, folder := range folders {
+		abs, err := normalizeFolder(folder)
+		if err != nil {
+			return WorkspaceView{}, err
+		}
+		if seen[abs] {
+			return WorkspaceView{}, fmt.Errorf("源文件夹重复：%s", abs)
+		}
+		seen[abs] = true
+		if err := s.rejectConversationPath(abs); err != nil {
+			return WorkspaceView{}, err
+		}
+		normalized = append(normalized, abs)
+	}
+	// 任一文件夹已是其他工作区的源文件夹时拒绝，避免两套授权范围交叉。
+	existing, err := s.db.ListWorkspaces()
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	for _, workspace := range existing {
+		for _, folder := range workspace.Folders {
+			if seen[folder.Path] {
+				return WorkspaceView{}, fmt.Errorf("目录已被工作区「%s」使用", workspace.Name)
+			}
+		}
+	}
+
+	if trust != "trusted" {
+		trust = "restricted"
+	}
+	// 名称推导：空名称用主要目录的目录名；重名自动追加序号。
+	if strings.TrimSpace(name) == "" {
+		name = filepath.Base(normalized[0])
+	}
+	name = uniqueWorkspaceName(name, existing)
+
+	now := store.NowMillis()
+	workspace := &store.Workspace{
+		ID:           id.New("ws"),
+		Name:         name,
+		Path:         normalized[0],
+		Trust:        trust,
+		Purpose:      store.WorkspacePurposeProject,
+		CreatedAt:    now,
+		LastOpenedAt: now,
+	}
+	if err := s.db.UpsertWorkspace(workspace); err != nil {
+		return WorkspaceView{}, err
+	}
+	if err := s.db.ReplaceWorkspaceFolders(workspace.ID, normalized); err != nil {
+		return WorkspaceView{}, err
+	}
+	if err := s.activate(workspace); err != nil {
+		return WorkspaceView{}, err
+	}
+	// 重新读取以装配文件夹列表，返回值与 List 接口口径一致。
+	saved, err := s.db.GetWorkspace(workspace.ID)
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	return toWorkspaceView(*saved), nil
+}
+
+// normalizeFolder 把用户输入的目录路径规范化：转绝对路径、解析符号链接、
+// 确认存在且是目录。
+func normalizeFolder(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("路径不能为空")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("解析路径: %w", err)
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("解析路径: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("读取路径: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("请选择文件夹")
+	}
+	return abs, nil
+}
+
+// rejectConversationPath 拒绝把内置临时会话目录添加为项目源文件夹：
+// 它由应用自管，不允许混进用户项目的授权范围。
+func (s *WorkspaceService) rejectConversationPath(abs string) error {
+	existing, err := s.db.ListWorkspaces()
+	if err != nil {
+		return err
+	}
+	for _, workspace := range existing {
+		if workspace.Path == abs && isConversation(&workspace) {
+			return errors.New("该目录是内置的临时会话目录，无需添加为工作区")
+		}
+	}
+	return nil
+}
+
+// uniqueWorkspaceName 在现有项目名中去重：重名时追加 " (2)"、"(3)" 序号。
+func uniqueWorkspaceName(name string, existing []store.Workspace) string {
+	taken := map[string]bool{}
+	for _, workspace := range existing {
+		taken[workspace.Name] = true
+	}
+	if !taken[name] {
+		return name
+	}
+	for index := 2; ; index++ {
+		candidate := fmt.Sprintf("%s (%d)", name, index)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
 }
 
 // SetActive 切换当前活动工作区。
@@ -332,14 +470,35 @@ func (s *WorkspaceService) Remove(workspaceID string) error {
 	return nil
 }
 
-// ListDir 读取目录的一层内容。
-func (s *WorkspaceService) ListDir(workspaceID, rel string) ([]FileNode, error) {
+// folderRoot 返回 folderID 指定的源文件夹路径；folderID 为空表示主要目录。
+// folderID 无法匹配时返回错误，避免把路径解析到错误的根。
+func folderRoot(workspace *store.Workspace, folderID string) (string, error) {
+	if folderID == "" {
+		return workspace.Path, nil
+	}
+	for _, folder := range workspace.Folders {
+		if folder.ID == folderID {
+			return folder.Path, nil
+		}
+	}
+	return "", fmt.Errorf("源文件夹不存在或已被移除")
+}
+
+// ListDir 读取某个源文件夹下目录的一层内容。
+//
+// folderID 为空表示主要目录；文件树按文件夹分段渲染，每段显式传入
+// 所属文件夹，避免多根之间的同名相对路径歧义。
+func (s *WorkspaceService) ListDir(workspaceID, folderID, rel string) ([]FileNode, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	// 目录路径同样必须落在工作区内。
-	abs, err := policy.Resolve(workspace.Path, rel)
+	root, err := folderRoot(workspace, folderID)
+	if err != nil {
+		return nil, err
+	}
+	// 目录路径同样必须落在该源文件夹内。
+	abs, err := policy.Resolve(root, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +526,7 @@ func (s *WorkspaceService) ListDir(workspaceID, rel string) ([]FileNode, error) 
 		}
 		nodes = append(nodes, FileNode{
 			Name:     name,
-			Path:     policy.Relative(workspace.Path, filepath.Join(abs, name)),
+			Path:     policy.Relative(root, filepath.Join(abs, name)),
 			Type:     nodeType,
 			Size:     info.Size(),
 			Modified: info.ModTime().UnixMilli(),
@@ -382,16 +541,20 @@ func (s *WorkspaceService) ListDir(workspaceID, rel string) ([]FileNode, error) 
 	return nodes, nil
 }
 
-// ReadFile 读取工作区文件。
+// ReadFile 读取工作区文件。folderID 为空表示主要目录。
 //
 // 目录、超过 10 MB 的文件会被拒绝；二进制文件只返回元数据，
 // 文本超过 2 MB 时截断并标记 Truncated。
-func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error) {
+func (s *WorkspaceService) ReadFile(workspaceID, folderID, rel string) (FileContent, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
 		return FileContent{}, err
 	}
-	abs, err := policy.Resolve(workspace.Path, rel)
+	root, err := folderRoot(workspace, folderID)
+	if err != nil {
+		return FileContent{}, err
+	}
+	abs, err := policy.Resolve(root, rel)
 	if err != nil {
 		return FileContent{}, err
 	}
@@ -410,16 +573,17 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 		return FileContent{}, fmt.Errorf("读取文件: %w", err)
 	}
 
-	display := policy.Relative(workspace.Path, abs)
+	display := policy.Relative(root, abs)
 	result := FileContent{
 		Path:     display,
 		Size:     info.Size(),
 		Language: languageOf(abs),
 		Hash:     platform.Sha256Hex(data),
 		Modified: info.ModTime().UnixMilli(),
-		// 内容自带工作区身份：前端保存时显式传回，不再读取「当前激活
-		// 工作区」环境，避免切换工作区后把内容写进错误的目录。
+		// 内容自带工作区与源文件夹身份：前端保存时显式传回，不再读取
+		// 「当前激活工作区」环境，避免切换工作区后把内容写进错误的目录。
 		WorkspaceID: workspace.ID,
+		FolderID:    folderID,
 	}
 	if platform.IsBinary(data) {
 		result.Binary = true
@@ -434,80 +598,95 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 	return result, nil
 }
 
-// LocateFile 把正文引用里可能不完整的相对路径解析成工作区内的真实文件。
+// LocateFile 把正文引用里可能不完整的相对路径解析成源文件夹内的真实文件。
 //
 // 模型输出引用时常写短路径（如 policy.go 指代 internal/policy/policy.go），
-// 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历工作区查找
-// 「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
+// 直接读取会失败。解析顺序：路径原样可用时直接返回；否则遍历全部源文件夹
+// 查找「文件名完全一致」或「路径以后缀方式匹配」的文件，唯一命中才返回，
 // 零个或多个命中都返回错误，宁可打不开也不打开错误的文件。
 // .git、node_modules 等依赖与产物目录不参与匹配。
-func (s *WorkspaceService) LocateFile(workspaceID, rel string) (string, error) {
+func (s *WorkspaceService) LocateFile(workspaceID, rel string) (LocatedFile, error) {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
-		return "", err
+		return LocatedFile{}, err
 	}
 	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(rel), "./"), "/")
 	if clean == "" {
-		return "", errors.New("路径为空")
+		return LocatedFile{}, errors.New("路径为空")
 	}
-	// 原样路径已存在（且是文件）时无需查找。
-	if abs, err := policy.Resolve(workspace.Path, clean); err == nil {
-		if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
-			return clean, nil
+	folders := workspaceFolders(workspace)
+	// 原样路径已存在（且是文件）时无需查找；按根顺序取第一个命中。
+	for _, folder := range folders {
+		if abs, err := policy.Resolve(folder.Path, clean); err == nil {
+			if info, statErr := os.Stat(abs); statErr == nil && !info.IsDir() {
+				return LocatedFile{FolderID: folder.ID, Path: clean}, nil
+			}
 		}
 	}
 
-	var byName, bySuffix []string
-	root := workspace.Path
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil // 单个目录不可读不中断整体查找。
-		}
-		if entry.IsDir() {
-			name := entry.Name()
-			if path != root && (name == ".git" || name == "node_modules" || name == "dist" || name == "bin" || name == ".task") {
-				return filepath.SkipDir
+	// 逐个文件夹查找，收集（文件夹, 相对路径）候选；唯一命中才返回。
+	type candidate struct {
+		folderID string
+		relPath  string
+	}
+	var byName, bySuffix []candidate
+	for _, folder := range folders {
+		root := folder.Path
+		err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil // 单个目录不可读不中断整体查找。
+			}
+			if entry.IsDir() {
+				name := entry.Name()
+				if path != root && (name == ".git" || name == "node_modules" || name == "dist" || name == "bin" || name == ".task") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			relPath, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+			relPath = filepath.ToSlash(relPath)
+			if entry.Name() == filepath.Base(clean) {
+				byName = append(byName, candidate{folder.ID, relPath})
+			}
+			if strings.HasSuffix(relPath, "/"+clean) || relPath == clean {
+				bySuffix = append(bySuffix, candidate{folder.ID, relPath})
 			}
 			return nil
-		}
-		relPath, err := filepath.Rel(root, path)
+		})
 		if err != nil {
-			return nil
+			return LocatedFile{}, fmt.Errorf("查找文件: %w", err)
 		}
-		relPath = filepath.ToSlash(relPath)
-		if entry.Name() == filepath.Base(clean) {
-			byName = append(byName, relPath)
-		}
-		if strings.HasSuffix(relPath, "/"+clean) || relPath == clean {
-			bySuffix = append(bySuffix, relPath)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("查找文件: %w", err)
 	}
 	// 后缀匹配更精确，优先；两类都要求唯一命中。
-	for _, candidates := range [][]string{bySuffix, byName} {
+	for _, candidates := range [][]candidate{bySuffix, byName} {
 		if len(candidates) == 1 {
-			return candidates[0], nil
+			return LocatedFile{FolderID: candidates[0].folderID, Path: candidates[0].relPath}, nil
 		}
 	}
 	if len(bySuffix) > 1 || len(byName) > 1 {
-		return "", fmt.Errorf("路径 %s 在工作区内匹配到多个文件，请使用更完整的路径", rel)
+		return LocatedFile{}, fmt.Errorf("路径 %s 在工作区内匹配到多个文件，请使用更完整的路径", rel)
 	}
-	return "", fmt.Errorf("工作区内找不到 %s", rel)
+	return LocatedFile{}, fmt.Errorf("工作区内找不到 %s", rel)
 }
 
 // WriteFile 保存编辑器内容。写入前备份，并在外部修改时拒绝覆盖。
 //
-// expectedHash 是前端打开文件时拿到的哈希；非空且与磁盘内容不一致，
-// 说明文件已被其他程序修改，此时返回错误让用户重新加载，避免覆盖。
-func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash string) error {
+// folderID 限定目标源文件夹（空值表示主要目录）；expectedHash 是前端
+// 打开文件时拿到的哈希，非空且与磁盘内容不一致时说明文件已被其他程序
+// 修改，此时返回错误让用户重新加载，避免覆盖。
+func (s *WorkspaceService) WriteFile(workspaceID, folderID, rel, content, expectedHash string) error {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
 		return err
 	}
-	abs, err := policy.Resolve(workspace.Path, rel)
+	root, err := folderRoot(workspace, folderID)
+	if err != nil {
+		return err
+	}
+	abs, err := policy.Resolve(root, rel)
 	if err != nil {
 		return err
 	}
@@ -536,7 +715,7 @@ func (s *WorkspaceService) WriteFile(workspaceID, rel, content, expectedHash str
 		Risk:     policy.R1.String(),
 		Decision: "allow",
 		Scope:    "user",
-		Detail:   policy.Relative(workspace.Path, abs),
+		Detail:   policy.Relative(root, abs),
 	})
 	return nil
 }
@@ -622,8 +801,30 @@ func (s *WorkspaceService) backup(absPath string, data []byte) error {
 	})
 }
 
+// workspaceFolders 返回工作区的全部源文件夹；存储记录缺少文件夹列表时
+// 退化为仅主要目录，保证历史数据可用。
+func workspaceFolders(workspace *store.Workspace) []store.WorkspaceFolder {
+	if len(workspace.Folders) > 0 {
+		return workspace.Folders
+	}
+	return []store.WorkspaceFolder{{
+		ID:          "",
+		WorkspaceID: workspace.ID,
+		Path:        workspace.Path,
+		Position:    0,
+	}}
+}
+
 // toWorkspaceView 把存储层的工作区转换成前端视图。
 func toWorkspaceView(workspace store.Workspace) WorkspaceView {
+	folders := make([]WorkspaceFolderView, 0, len(workspace.Folders))
+	for _, folder := range workspace.Folders {
+		folders = append(folders, WorkspaceFolderView{
+			ID:      folder.ID,
+			Path:    folder.Path,
+			Primary: folder.Position == 0,
+		})
+	}
 	return WorkspaceView{
 		ID:           workspace.ID,
 		Name:         workspace.Name,
@@ -632,6 +833,7 @@ func toWorkspaceView(workspace store.Workspace) WorkspaceView {
 		Purpose:      workspace.Purpose,
 		CreatedAt:    workspace.CreatedAt,
 		LastOpenedAt: workspace.LastOpenedAt,
+		Folders:      folders,
 	}
 }
 

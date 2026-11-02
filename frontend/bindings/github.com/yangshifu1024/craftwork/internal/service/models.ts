@@ -285,9 +285,14 @@ export interface DocumentPreview {
     "kind": string;
 
     /**
-     * Path 是相对工作区的路径。
+     * Path 是相对所属源文件夹的路径。
      */
     "path": string;
+
+    /**
+     * FolderID 是该文件所属源文件夹的标识；空值表示主要目录。
+     */
+    "folderId"?: string;
 
     /**
      * Name 是文件名。
@@ -325,7 +330,7 @@ export interface DocumentPreview {
  */
 export interface FileContent {
     /**
-     * Path 是相对工作区的路径。
+     * Path 是相对所属源文件夹的路径。
      */
     "path": string;
 
@@ -374,6 +379,12 @@ export interface FileContent {
      * 不依赖前端「当前激活工作区」的环境状态。
      */
     "workspaceId": string;
+
+    /**
+     * FolderID 是该文件所属源文件夹的标识；保存时显式传回以限定目标根，
+     * 空值表示主要目录。
+     */
+    "folderId"?: string;
 }
 
 /**
@@ -404,6 +415,22 @@ export interface FileNode {
      * Modified 是最后修改时间（毫秒时间戳）。
      */
     "modified": number;
+}
+
+/**
+ * LocatedFile 是 LocateFile 的解析结果：正文引用的短路径在多个源文件夹
+ * 中唯一命中后，返回所属文件夹与相对路径。
+ */
+export interface LocatedFile {
+    /**
+     * FolderID 是命中文件所属的源文件夹标识；空值表示主要目录。
+     */
+    "folderId"?: string;
+
+    /**
+     * Path 是相对该源文件夹的路径。
+     */
+    "path": string;
 }
 
 /**
@@ -860,6 +887,29 @@ export interface ThreadView {
 }
 
 /**
+ * WorkspaceFolderView 是工作区挂载的一个源文件夹。
+ * 
+ * 前端文件树按文件夹分段渲染，读写接口以 FolderID 限定目标根
+ * （空值表示主要目录）。
+ */
+export interface WorkspaceFolderView {
+    /**
+     * ID 是文件夹记录标识，读写接口用它限定目标根。
+     */
+    "id": string;
+
+    /**
+     * Path 是目录的绝对路径。
+     */
+    "path": string;
+
+    /**
+     * Primary 表示这是主要目录（position = 0），即会话的工作目录。
+     */
+    "primary": boolean;
+}
+
+/**
  * WorkspaceView 是工作区的展示结构。
  */
 export interface WorkspaceView {
@@ -874,7 +924,7 @@ export interface WorkspaceView {
     "name": string;
 
     /**
-     * Path 是工作区根目录的绝对路径。
+     * Path 是主要目录的绝对路径。
      */
     "path": string;
 
@@ -898,4 +948,9 @@ export interface WorkspaceView {
      * LastOpenedAt 是最后一次设为活动工作区的时间。
      */
     "lastOpenedAt": number;
+
+    /**
+     * Folders 是工作区挂载的全部源文件夹，按挂载顺序排列，第一条是主要目录。
+     */
+    "folders"?: WorkspaceFolderView[] | null;
 }

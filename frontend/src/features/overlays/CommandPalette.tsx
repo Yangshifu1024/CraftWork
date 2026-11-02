@@ -14,7 +14,7 @@ import { useAppStore } from "../../stores/app";
 import { usePanelStore } from "../../stores/panel";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
-import { useWorkspaceStore } from "../../stores/workspace";
+import { folderKey, splitFolderKey, useWorkspaceStore } from "../../stores/workspace";
 import { createTempThread } from "../../stores/workspaceFlow";
 
 /** 命令面板里的一行结果：分组、标题、副标题、图标与点击后执行的动作。 */
@@ -139,19 +139,20 @@ export function CommandPalette() {
         run: () => void selectThread(thread.id),
       }));
 
-    const files = Object.values(tree)
-      .flat()
+    const files = Object.entries(tree)
+      // 组合键里携带所属源文件夹，打开时据此定位到正确的根。
+      .flatMap(([key, nodes]) => nodes.map((node) => ({ ...splitFolderKey(key), node })))
       // 只取文件节点（目录不参与搜索），按完整路径匹配关键字。
-      .filter((node) => node.type === "file")
-      .filter((node) => !query || node.path.toLowerCase().includes(query.toLowerCase()))
+      .filter(({ node }) => node.type === "file")
+      .filter(({ node }) => !query || node.path.toLowerCase().includes(query.toLowerCase()))
       .slice(0, 8)
-      .map<PaletteItem>((node) => ({
-        id: `file-${node.path}`,
+      .map<PaletteItem>(({ folderID, node }) => ({
+        id: `file-${folderKey(folderID, node.path)}`,
         group: "文件",
         title: node.name,
         sub: node.path,
         icon: "file-code",
-        run: () => void openFile(node.path),
+        run: () => void openFile(folderID, node.path),
       }));
 
     return [...commands, ...threadItems, ...files].filter((item) => {

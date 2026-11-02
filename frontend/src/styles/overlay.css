@@ -2003,3 +2003,215 @@ html[data-theme="light"] .overlay-backdrop {
   background: var(--bg-hover);
   color: var(--text);
 }
+
+/* --------------------------------------------------------------------------
+   9. 创建项目对话框
+   -------------------------------------------------------------------------- */
+.create-project {
+  position: relative;
+  width: min(520px, calc(100vw - 60px));
+  margin: 14vh auto 0;
+  border-radius: 12px;
+  background: var(--bg-float);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  padding: 16px 20px 16px;
+  animation: rise-in 160ms var(--ease);
+  max-height: 76vh;
+  overflow-y: auto;
+}
+.create-project .cp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.create-project .cp-head h2 {
+  font-size: var(--text-ui-lg, 15px);
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.create-project .cp-field {
+  margin-bottom: 12px;
+}
+.create-project .cp-field > span:first-child {
+  margin-bottom: 6px;
+}
+/* 设备选择器：本地部署只有「此电脑」，展示为不可编辑的单项下拉样式 */
+.create-project .cp-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+.create-project .cp-device .ico {
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+.create-project .cp-device-label {
+  flex: 1;
+  font-size: var(--text-ui-base);
+}
+.create-project .cp-device-caret {
+  width: 13px;
+  height: 13px;
+}
+/* 源文件夹空态：虚线大按钮引导选择第一个文件夹 */
+.create-project .cp-drop {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 26px 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 10px;
+  background: transparent;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.create-project .cp-drop:hover {
+  border-color: var(--accent, var(--text-3));
+  background: var(--bg-hover);
+}
+.create-project .cp-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--bg-active);
+  color: var(--text-2);
+}
+.create-project .cp-drop-icon .ico {
+  width: 18px;
+  height: 18px;
+}
+.create-project .cp-drop-title {
+  font-size: var(--text-ui-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.create-project .cp-drop-hint {
+  font-size: var(--text-ui-sm);
+  color: var(--text-4);
+}
+/* 已选文件夹列表：行式布局，第一项带「主要」徽标 */
+.create-project .cp-folders {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.create-project .cp-folder-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--text-ui-base);
+  background: var(--bg-elevated);
+}
+.create-project .cp-folder-row:last-child {
+  border-bottom: none;
+}
+.create-project .cp-folder-row .ico {
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+.create-project .cp-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.create-project .cp-folder-badge {
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-ui-xs);
+  color: var(--text-3);
+}
+.create-project .cp-folder-add {
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease);
+}
+.create-project .cp-folder-add:hover {
+  background: var(--bg-hover);
+}
+.create-project .cp-folder-row .icon-btn {
+  color: var(--text-4);
+}
+.create-project .cp-folder-row .icon-btn:hover {
+  color: var(--text);
+}
+.create-project .cp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.create-project .cp-actions .spacer {
+  flex: 1;
+}
+/* 信任确认视图：设备名、等宽路径列表与说明文字 */
+.create-project .cp-trust-device {
+  font-size: var(--text-ui-base);
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.create-project .cp-trust-paths {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  color: var(--text-2);
+  word-break: break-all;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.create-project .cp-trust-note {
+  font-size: var(--text-ui-base);
+  color: var(--text-3);
+  line-height: 1.7;
+}
+/* 文件树多段渲染：源文件夹根段头 */
+.tree-section {
+  margin-bottom: 6px;
+}
+.tree-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px 4px;
+  color: var(--text-4);
+  font-size: var(--text-ui-sm);
+  font-weight: 500;
+}
+.tree-section-head .ico {
+  width: 13px;
+  height: 13px;
+}
+.tree-section-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-section-badge {
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-ui-xs);
+  font-weight: 400;
+}

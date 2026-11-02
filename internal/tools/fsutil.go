@@ -17,10 +17,13 @@ var ignoredDirs = map[string]bool{
 	"build": true, ".next": true, ".cache": true,
 }
 
-// resolvePath 把相对路径解析为工作区内的绝对路径，越界时返回错误。
-// 具体的安全校验（词法检查与符号链接解析）由 policy.Resolve 负责。
-func resolvePath(workspace, rel string) (string, error) {
-	return policy.Resolve(workspace, rel)
+// resolvePathAny 把路径解析到多个源文件夹之一，第一个是主要目录。
+//
+// 采用「存在优先」：目标真实存在于某个根时命中该根（按根顺序取最靠前者），
+// 全部根都不存在时按词法命中主根——这样附加根里的同名既有文件不会被
+// 主根的虚构路径抢占，而新建文件仍然落在主要目录。
+func resolvePathAny(roots []string, rel string) (policy.Resolved, error) {
+	return policy.ResolveExisting(roots, rel)
 }
 
 // displayPath 把绝对路径转换成相对工作区的展示路径。

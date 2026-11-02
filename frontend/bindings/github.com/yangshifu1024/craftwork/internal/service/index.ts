@@ -35,6 +35,7 @@ export type {
     DocumentPreview,
     FileContent,
     FileNode,
+    LocatedFile,
     MCPServerView,
     MCPToolView,
     ModelInput,
@@ -44,5 +45,6 @@ export type {
     Settings,
     TerminalView,
     ThreadView,
+    WorkspaceFolderView,
     WorkspaceView
 } from "./models.js";

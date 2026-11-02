@@ -101,14 +101,15 @@ export const desktopApi = {
     list: async () => (await WorkspaceService.List()) ?? [],
     pickFolder: () => WorkspaceService.PickFolder(),
     add: (path, trust) => WorkspaceService.Add(path, trust),
+    addProject: (name, folders, trust) => WorkspaceService.AddProject(name, folders, trust),
     setActive: (workspaceID) => WorkspaceService.SetActive(workspaceID),
     active: () => WorkspaceService.Active(),
     setTrust: (workspaceID, trust) => WorkspaceService.SetTrust(workspaceID, trust),
-    listDir: async (workspaceID, path) => (await WorkspaceService.ListDir(workspaceID, path)) ?? [],
-    readFile: (workspaceID, path) => WorkspaceService.ReadFile(workspaceID, path),
-    locateFile: (workspaceID, path) => WorkspaceService.LocateFile(workspaceID, path),
-    writeFile: (workspaceID, path, content, expectedHash) =>
-      WorkspaceService.WriteFile(workspaceID, path, content, expectedHash),
+    listDir: async (workspaceID, folderID, path) => (await WorkspaceService.ListDir(workspaceID, folderID, path)) ?? [],
+    readFile: (workspaceID, folderID, path) => WorkspaceService.ReadFile(workspaceID, folderID, path),
+    locateFile: async (workspaceID, path) => await WorkspaceService.LocateFile(workspaceID, path),
+    writeFile: (workspaceID, folderID, path, content, expectedHash) =>
+      WorkspaceService.WriteFile(workspaceID, folderID, path, content, expectedHash),
     computeDiff: async (oldText, newText) => {
       const raw = await WorkspaceService.ComputeDiff(oldText, newText);
       // Go 侧的切片可能是 nil，统一成数组再交给差异视图渲染。
@@ -184,7 +185,7 @@ export const desktopApi = {
   },
   /** 文档：读取 Word / Excel / PDF 的文本层预览。 */
   documents: {
-    preview: (workspaceID, path) => DocumentService.Preview(workspaceID, path),
+    preview: (workspaceID, folderID, path) => DocumentService.Preview(workspaceID, folderID, path),
   },
   /** 终端：会话列表、创建、写入、调整尺寸与关闭。 */
   terminal: {

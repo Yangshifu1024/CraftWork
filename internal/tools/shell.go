@@ -34,7 +34,7 @@ func (t *shellExecTool) Spec() Spec {
 			"required": []string{"command"},
 			"properties": map[string]any{
 				"command": map[string]any{"type": "string", "description": "要执行的命令"},
-				"cwd":     map[string]any{"type": "string", "description": "工作目录（相对工作区），默认工作区根"},
+				"cwd":     map[string]any{"type": "string", "description": "工作目录（相对主要目录或附加目录），默认主要目录根"},
 				"timeout": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "超时秒数，默认 120"},
 			},
 		},
