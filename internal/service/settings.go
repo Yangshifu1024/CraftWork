@@ -7,10 +7,10 @@ package service
 import (
 	"fmt"
 
-	"craftwork/internal/events"
-	"craftwork/internal/model"
-	"craftwork/internal/policy"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // settingsKey 是应用整体设置在键值表中的键名。

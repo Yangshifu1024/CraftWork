@@ -190,7 +190,8 @@ const threads: Record<string, ThreadView[]> = {
 
 /** Mock 文件内容：路径到文本内容的映射，读取与写入都直接操作这里。 */
 const files: Record<string, string> = {
-  "README.md": "# craftwork\n\n一个用于演示 CraftWork 的 Go 仓库。\n\n## 常用命令\n\n```bash\ngo test ./...\ngo build ./...\n```\n",
+  "README.md":
+    "# craftwork\n\n一个用于演示 CraftWork 的 Go 仓库。\n\n## 常用命令\n\n```bash\ngo test ./...\ngo build ./...\n```\n",
   "go.mod": "module craftwork\n\ngo 1.26.0\n",
   "internal/auth/session.go": `package auth
 
@@ -233,18 +234,10 @@ const tree: Record<string, FileNode[]> = {
     { name: "app", path: "internal/app", type: "dir", size: 0, modified: now },
     { name: "auth", path: "internal/auth", type: "dir", size: 0, modified: now },
   ],
-  "internal/app": [
-    { name: "app.go", path: "internal/app/app.go", type: "file", size: 48, modified: now },
-  ],
-  "internal/auth": [
-    { name: "session.go", path: "internal/auth/session.go", type: "file", size: 420, modified: now },
-  ],
-  frontend: [
-    { name: "src", path: "frontend/src", type: "dir", size: 0, modified: now },
-  ],
-  "frontend/src": [
-    { name: "App.tsx", path: "frontend/src/App.tsx", type: "file", size: 72, modified: now },
-  ],
+  "internal/app": [{ name: "app.go", path: "internal/app/app.go", type: "file", size: 48, modified: now }],
+  "internal/auth": [{ name: "session.go", path: "internal/auth/session.go", type: "file", size: 420, modified: now }],
+  frontend: [{ name: "src", path: "frontend/src", type: "dir", size: 0, modified: now }],
+  "frontend/src": [{ name: "App.tsx", path: "frontend/src/App.tsx", type: "file", size: 72, modified: now }],
 };
 
 /** Mock 的 Git 状态：文件路径到状态字母（M 表示已修改）。 */
@@ -259,12 +252,7 @@ const gitStatuses: Record<string, string> = {
  * 带过程部件的消息附带 workDurationMs 与推理时长，让纯 UI 预览也能看到
  * 「已工作 N」折叠与「思考过程 · 持续了 N 秒」的最终形态。
  */
-function assistantMessage(
-  id: string,
-  threadId: string,
-  parts: ChatPart[],
-  workDurationMs?: number,
-): ChatMessage {
+function assistantMessage(id: string, threadId: string, parts: ChatPart[], workDurationMs?: number): ChatMessage {
   return {
     id,
     threadId,
@@ -285,16 +273,61 @@ const messages: Record<string, ChatMessage[]> = {
       role: "user",
       status: "complete",
       createdAt: now - 180000,
-      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "登录后 15 分钟刷新令牌就超时了，帮我看看 `internal/auth/session.go` 里的刷新逻辑。", attachments: ["~/.craftwork/attachments/att_demo_报错截图.png"] } }],
+      parts: [
+        {
+          id: "p1",
+          kind: "text",
+          seq: 1,
+          data: {
+            text: "登录后 15 分钟刷新令牌就超时了，帮我看看 `internal/auth/session.go` 里的刷新逻辑。",
+            attachments: ["~/.craftwork/attachments/att_demo_报错截图.png"],
+          },
+        },
+      ],
     },
     assistantMessage(
       "m1_assistant",
       "th_code_1",
       [
-      { id: "p2", kind: "reasoning", seq: 2, data: { text: "先确认 session.go 的刷新判断，再看测试覆盖。", durationMs: 8400 } },
-      { id: "p3", kind: "text", seq: 3, data: { text: "我先读取 `internal/auth/session.go`，确认刷新窗口的计算方式。\n\n关键代码在 `internal/auth/session.go:12`：\n\n```go\nconst refreshWindow = 10 * time.Minute\n\nfunc (s *Session) NeedsRefresh(now time.Time) bool {\n\treturn now.Sub(s.RefreshedAt) > refreshWindow\n}\n```\n\n`refreshWindow` 固定为 10 分钟，而令牌实际有效期是 15 分钟，所以第 11 分钟就会误判为过期。" } },
-      { id: "p4", kind: "tool", seq: 4, data: { partId: "p4", toolCallId: "call_read", name: "fs_read", args: { path: "internal/auth/session.go" }, risk: "R0", status: "done", output: "internal/auth/session.go 共 22 行，已读取。", isError: false, durationMs: 32, summary: "internal/auth/session.go" } },
-      { id: "p5", kind: "text", seq: 5, data: { text: "建议把刷新窗口改为令牌有效期的 80%（12 分钟），并在刷新失败时回退到重新登录。改动集中在 `internal/auth/session.go:6` 与对应单测。" } },
+        {
+          id: "p2",
+          kind: "reasoning",
+          seq: 2,
+          data: { text: "先确认 session.go 的刷新判断，再看测试覆盖。", durationMs: 8400 },
+        },
+        {
+          id: "p3",
+          kind: "text",
+          seq: 3,
+          data: {
+            text: "我先读取 `internal/auth/session.go`，确认刷新窗口的计算方式。\n\n关键代码在 `internal/auth/session.go:12`：\n\n```go\nconst refreshWindow = 10 * time.Minute\n\nfunc (s *Session) NeedsRefresh(now time.Time) bool {\n\treturn now.Sub(s.RefreshedAt) > refreshWindow\n}\n```\n\n`refreshWindow` 固定为 10 分钟，而令牌实际有效期是 15 分钟，所以第 11 分钟就会误判为过期。",
+          },
+        },
+        {
+          id: "p4",
+          kind: "tool",
+          seq: 4,
+          data: {
+            partId: "p4",
+            toolCallId: "call_read",
+            name: "fs_read",
+            args: { path: "internal/auth/session.go" },
+            risk: "R0",
+            status: "done",
+            output: "internal/auth/session.go 共 22 行，已读取。",
+            isError: false,
+            durationMs: 32,
+            summary: "internal/auth/session.go",
+          },
+        },
+        {
+          id: "p5",
+          kind: "text",
+          seq: 5,
+          data: {
+            text: "建议把刷新窗口改为令牌有效期的 80%（12 分钟），并在刷新失败时回退到重新登录。改动集中在 `internal/auth/session.go:6` 与对应单测。",
+          },
+        },
       ],
       96500,
     ),
@@ -309,7 +342,14 @@ const messages: Record<string, ChatMessage[]> = {
       parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "会话搜索现在只能匹配标题，怎么补上消息内容命中？" } }],
     },
     assistantMessage("m2_assistant", "th_code_2", [
-      { id: "p2", kind: "text", seq: 2, data: { text: "搜索入口在 `internal/service/threads.go`，现在只查 `threads.title`。\n\n建议用 `LEFT JOIN events` 对 `payload` 做 `LIKE`，并对 `thread_id + updated_at` 建索引；中文查询不需要额外分词，子串匹配即可满足 F-TH-03。" } },
+      {
+        id: "p2",
+        kind: "text",
+        seq: 2,
+        data: {
+          text: "搜索入口在 `internal/service/threads.go`，现在只查 `threads.title`。\n\n建议用 `LEFT JOIN events` 对 `payload` 做 `LIKE`，并对 `thread_id + updated_at` 建索引；中文查询不需要额外分词，子串匹配即可满足 F-TH-03。",
+        },
+      },
     ]),
   ],
   th_work_1: [
@@ -322,7 +362,14 @@ const messages: Record<string, ChatMessage[]> = {
       parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "把 Q3 会议纪要里的待办整理成表格，并修正人名笔误。" } }],
     },
     assistantMessage("m3_assistant", "th_work_1", [
-      { id: "p2", kind: "text", seq: 2, data: { text: "已读取文档并整理出 4 条待办：\n\n| 负责人 | 事项 | 截止 |\n| --- | --- | --- |\n| 林岚 | 补充预算说明 | 10/24 |\n| 周野 | 对齐发布节奏 | 10/26 |\n| 陈默 | 更新接口文档 | 10/28 |\n\n文档写入需要审批；批准前不会修改原文件。" } },
+      {
+        id: "p2",
+        kind: "text",
+        seq: 2,
+        data: {
+          text: "已读取文档并整理出 4 条待办：\n\n| 负责人 | 事项 | 截止 |\n| --- | --- | --- |\n| 林岚 | 补充预算说明 | 10/24 |\n| 周野 | 对齐发布节奏 | 10/26 |\n| 陈默 | 更新接口文档 | 10/28 |\n\n文档写入需要审批；批准前不会修改原文件。",
+        },
+      },
     ]),
   ],
   th_work_2: [
@@ -332,19 +379,56 @@ const messages: Record<string, ChatMessage[]> = {
       role: "user",
       status: "complete",
       createdAt: now - 7300000,
-      parts: [{ id: "p1", kind: "text", seq: 1, data: { text: "预算表的合计公式错了，B8 / C8 / D8 应该按季度汇总。" } }],
+      parts: [
+        { id: "p1", kind: "text", seq: 1, data: { text: "预算表的合计公式错了，B8 / C8 / D8 应该按季度汇总。" } },
+      ],
     },
     assistantMessage("m4_assistant", "th_work_2", [
-      { id: "p2", kind: "text", seq: 2, data: { text: "检查后确认 `B8` 只汇总了 7 月。建议改为 `=SUM(B2:B7)`，C8、D8 同理。修改前会备份原文件。" } },
+      {
+        id: "p2",
+        kind: "text",
+        seq: 2,
+        data: { text: "检查后确认 `B8` 只汇总了 7 月。建议改为 `=SUM(B2:B7)`，C8、D8 同理。修改前会备份原文件。" },
+      },
     ]),
   ],
 };
 
 /** Mock 审计记录：按时间倒序，供数据面板的审计分区展示。 */
 const audit: AuditEntry[] = [
-  { id: 3, ts: now - 120000, threadId: "th_code_1", runId: "run_demo", tool: "fs_read", risk: "R0", decision: "auto", scope: "auto", detail: "internal/auth/session.go" },
-  { id: 2, ts: now - 180000, threadId: "th_code_1", runId: "run_demo", tool: "todo_write", risk: "R0", decision: "auto", scope: "auto", detail: "更新任务清单" },
-  { id: 1, ts: now - 1900000, threadId: "th_work_1", runId: "run_work", tool: "doc_read", risk: "R0", decision: "auto", scope: "auto", detail: "季度会议纪要.docx" },
+  {
+    id: 3,
+    ts: now - 120000,
+    threadId: "th_code_1",
+    runId: "run_demo",
+    tool: "fs_read",
+    risk: "R0",
+    decision: "auto",
+    scope: "auto",
+    detail: "internal/auth/session.go",
+  },
+  {
+    id: 2,
+    ts: now - 180000,
+    threadId: "th_code_1",
+    runId: "run_demo",
+    tool: "todo_write",
+    risk: "R0",
+    decision: "auto",
+    scope: "auto",
+    detail: "更新任务清单",
+  },
+  {
+    id: 1,
+    ts: now - 1900000,
+    threadId: "th_work_1",
+    runId: "run_work",
+    tool: "doc_read",
+    risk: "R0",
+    decision: "auto",
+    scope: "auto",
+    detail: "季度会议纪要.docx",
+  },
 ];
 
 /** Mock 用量统计：今天 / 本周 / 本月汇总、按模型拆分，以及最近 14 天的趋势。 */
@@ -367,8 +451,22 @@ const usage: UsageSummary = {
 
 /** Mock 备份记录：展示文件写入前的备份时间、大小与哈希。 */
 const backups: Backup[] = [
-  { id: "bk_demo", path: "季度会议纪要.docx", backupPath: "~/.craftwork/backups/季度会议纪要.docx.20261031-142210", hash: "9f2c", size: 48120, createdAt: now - 1900000 },
-  { id: "bk_demo2", path: "内部/auth/session.go", backupPath: "~/.craftwork/backups/session.go.20261031-143002", hash: "a17d", size: 420, createdAt: now - 120000 },
+  {
+    id: "bk_demo",
+    path: "季度会议纪要.docx",
+    backupPath: "~/.craftwork/backups/季度会议纪要.docx.20261031-142210",
+    hash: "9f2c",
+    size: 48120,
+    createdAt: now - 1900000,
+  },
+  {
+    id: "bk_demo2",
+    path: "内部/auth/session.go",
+    backupPath: "~/.craftwork/backups/session.go.20261031-143002",
+    hash: "a17d",
+    size: 420,
+    createdAt: now - 120000,
+  },
 ];
 
 /** Mock 的 MCP 服务器列表，默认为空，添加后才有数据。 */
@@ -382,28 +480,56 @@ const mcpServers: MCPServerView[] = [];
  */
 const providers: ProviderView[] = [
   {
-    id: "openai", name: "OpenAI", kind: "openai", endpoint: "https://api.openai.com/v1",
-    keyRequired: true, keySource: "env", keyMasked: "OPENAI…_KEY", available: true,
+    id: "openai",
+    name: "OpenAI",
+    kind: "openai",
+    endpoint: "https://api.openai.com/v1",
+    keyRequired: true,
+    keySource: "env",
+    keyMasked: "OPENAI…_KEY",
+    available: true,
     models: [
       {
-        id: "gpt-5.1", ref: "openai/gpt-5.1", name: "GPT-5.1", provider: "openai", providerName: "OpenAI",
-        contextK: 400, maxTokens: 128000,
+        id: "gpt-5.1",
+        ref: "openai/gpt-5.1",
+        name: "GPT-5.1",
+        provider: "openai",
+        providerName: "OpenAI",
+        contextK: 400,
+        maxTokens: 128000,
         caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
         cost: { inputPerMTok: 1.25, outputPerMTok: 10, cacheReadPerMTok: 0.125 },
-        status: "", canonicalId: "openai/gpt-5.1", releaseDate: "2025-11-13", available: true,
+        status: "",
+        canonicalId: "openai/gpt-5.1",
+        releaseDate: "2025-11-13",
+        available: true,
       },
     ],
   },
   {
-    id: "openrouter", name: "OpenRouter", kind: "openai-compatible", endpoint: "https://openrouter.ai/api/v1",
-    keyRequired: true, keySource: "", keyMasked: "", available: false,
+    id: "openrouter",
+    name: "OpenRouter",
+    kind: "openai-compatible",
+    endpoint: "https://openrouter.ai/api/v1",
+    keyRequired: true,
+    keySource: "",
+    keyMasked: "",
+    available: false,
     models: [
       {
-        id: "x-ai/grok-4.5", ref: "openrouter/x-ai/grok-4.5", name: "Grok 4.5", provider: "openrouter",
-        providerName: "OpenRouter", contextK: 500, maxTokens: 450000,
+        id: "x-ai/grok-4.5",
+        ref: "openrouter/x-ai/grok-4.5",
+        name: "Grok 4.5",
+        provider: "openrouter",
+        providerName: "OpenRouter",
+        contextK: 500,
+        maxTokens: 450000,
         caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
         cost: { inputPerMTok: 2, outputPerMTok: 6, cacheReadPerMTok: 0.3 },
-        status: "", canonicalId: "xai/grok-4.5", releaseDate: "2026-08-01", available: false,
+        status: "",
+        canonicalId: "xai/grok-4.5",
+        releaseDate: "2026-08-01",
+        available: false,
       },
     ],
   },
@@ -423,12 +549,24 @@ const catalogMeta: CatalogMeta = {
 /** Mock 目录提供商，仅用于纯 UI 预览“从模型目录添加”的流程。 */
 const catalogProviders: CatalogProviderView[] = [
   {
-    id: "groq", name: "Groq", kind: "openai-compatible", endpoint: "https://api.groq.com/openai/v1",
-    doc: "https://console.groq.com/docs/models", env: ["GROQ_API_KEY"], modelCount: 1, added: false,
+    id: "groq",
+    name: "Groq",
+    kind: "openai-compatible",
+    endpoint: "https://api.groq.com/openai/v1",
+    doc: "https://console.groq.com/docs/models",
+    env: ["GROQ_API_KEY"],
+    modelCount: 1,
+    added: false,
   },
   {
-    id: "openrouter", name: "OpenRouter", kind: "openai-compatible", endpoint: "https://openrouter.ai/api/v1",
-    doc: "https://openrouter.ai/models", env: ["OPENROUTER_API_KEY"], modelCount: 1, added: false,
+    id: "openrouter",
+    name: "OpenRouter",
+    kind: "openai-compatible",
+    endpoint: "https://openrouter.ai/api/v1",
+    doc: "https://openrouter.ai/models",
+    env: ["OPENROUTER_API_KEY"],
+    modelCount: 1,
+    added: false,
   },
 ];
 
@@ -436,18 +574,32 @@ const catalogProviders: CatalogProviderView[] = [
 const catalogModels: Record<string, CatalogModelView[]> = {
   groq: [
     {
-      id: "qwen/qwen3.8-27b", ref: "groq/qwen/qwen3.8-27b", name: "Qwen3.8 27B", provider: "groq",
-      providerName: "Groq", contextK: 132, maxTokens: 32768,
+      id: "qwen/qwen3.8-27b",
+      ref: "groq/qwen/qwen3.8-27b",
+      name: "Qwen3.8 27B",
+      provider: "groq",
+      providerName: "Groq",
+      contextK: 132,
+      maxTokens: 32768,
       caps: { stream: true, tools: true, vision: false, reasoning: true, structured: true },
-      cost: { inputPerMTok: 0.8, outputPerMTok: 4 }, status: "", releaseDate: "2026-09-01",
+      cost: { inputPerMTok: 0.8, outputPerMTok: 4 },
+      status: "",
+      releaseDate: "2026-09-01",
     },
   ],
   openrouter: [
     {
-      id: "x-ai/grok-4.5", ref: "openrouter/x-ai/grok-4.5", name: "Grok 4.5", provider: "openrouter",
-      providerName: "OpenRouter", contextK: 500, maxTokens: 450000,
+      id: "x-ai/grok-4.5",
+      ref: "openrouter/x-ai/grok-4.5",
+      name: "Grok 4.5",
+      provider: "openrouter",
+      providerName: "OpenRouter",
+      contextK: 500,
+      maxTokens: 450000,
       caps: { stream: true, tools: true, vision: true, reasoning: true, structured: true },
-      cost: { inputPerMTok: 2, outputPerMTok: 6, cacheReadPerMTok: 0.3 }, status: "", releaseDate: "2026-08-01",
+      cost: { inputPerMTok: 2, outputPerMTok: 6, cacheReadPerMTok: 0.3 },
+      status: "",
+      releaseDate: "2026-08-01",
     },
   ],
 };
@@ -522,7 +674,11 @@ function snapshot(threadID: string): ThreadSnapshot {
 
 /** Mock 没有真实模型可调用，也不复刻后端的降级提取规则：取首行截断即可，标题规则以 Go 为唯一事实源。 */
 function mockAutoTitle(text: string): string {
-  const line = text.split("\n").map((item) => item.trim()).find(Boolean) ?? "";
+  const line =
+    text
+      .split("\n")
+      .map((item) => item.trim())
+      .find(Boolean) ?? "";
   const runes = [...line];
   if (runes.length === 0) {
     return "";
@@ -582,7 +738,9 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
     },
   ];
   thread.status = "running";
-  dispatch(batch(thread.id, [envelope(EVENT.runStarted, thread.id, runID, { messageId: messageID, modelId: thread.modelId })]));
+  dispatch(
+    batch(thread.id, [envelope(EVENT.runStarted, thread.id, runID, { messageId: messageID, modelId: thread.modelId })]),
+  );
 
   const reasoningID = uid("part");
   addPart(thread.id, messageID, { id: reasoningID, kind: "reasoning", seq: 1, data: { text: "" } });
@@ -591,10 +749,19 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
     if (cancelled.has(thread.id)) {
       return;
     }
-    dispatch(batch(thread.id, [envelope(EVENT.reasoningDelta, thread.id, runID, { partId: reasoningID, text: piece })]));
+    dispatch(
+      batch(thread.id, [envelope(EVENT.reasoningDelta, thread.id, runID, { partId: reasoningID, text: piece })]),
+    );
     await sleep(22);
   }
-  dispatch(batch(thread.id, [envelope(EVENT.reasoningCompleted, thread.id, runID, { partId: reasoningID, text: "我先确认工作区的文件结构，再给出结论。" })]));
+  dispatch(
+    batch(thread.id, [
+      envelope(EVENT.reasoningCompleted, thread.id, runID, {
+        partId: reasoningID,
+        text: "我先确认工作区的文件结构，再给出结论。",
+      }),
+    ]),
+  );
 
   const textID = uid("part");
   addPart(thread.id, messageID, { id: textID, kind: "text", seq: 2, data: { text: "" } });
@@ -619,13 +786,50 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   const toolID = uid("part");
   const toolCallID = uid("call");
   addPart(thread.id, messageID, {
-    id: toolID, kind: "tool", seq: 3,
-    data: { partId: toolID, toolCallId: toolCallID, name: "fs_list", args: { path: "." }, risk: "R0", status: "running", summary: "." },
+    id: toolID,
+    kind: "tool",
+    seq: 3,
+    data: {
+      partId: toolID,
+      toolCallId: toolCallID,
+      name: "fs_list",
+      args: { path: "." },
+      risk: "R0",
+      status: "running",
+      summary: ".",
+    },
   });
-  dispatch(batch(thread.id, [envelope(EVENT.toolStarted, thread.id, runID, { partId: toolID, toolCallId: toolCallID, name: "fs_list", args: { path: "." }, risk: "R0", status: "running", summary: "." })]));
+  dispatch(
+    batch(thread.id, [
+      envelope(EVENT.toolStarted, thread.id, runID, {
+        partId: toolID,
+        toolCallId: toolCallID,
+        name: "fs_list",
+        args: { path: "." },
+        risk: "R0",
+        status: "running",
+        summary: ".",
+      }),
+    ]),
+  );
   await sleep(220);
   const output = "frontend/\ninternal/\nREADME.md\ngo.mod";
-  dispatch(batch(thread.id, [envelope(EVENT.toolCompleted, thread.id, runID, { partId: toolID, toolCallId: toolCallID, name: "fs_list", args: { path: "." }, risk: "R0", status: "done", output, isError: false, durationMs: 220, summary: "." })]));
+  dispatch(
+    batch(thread.id, [
+      envelope(EVENT.toolCompleted, thread.id, runID, {
+        partId: toolID,
+        toolCallId: toolCallID,
+        name: "fs_list",
+        args: { path: "." },
+        risk: "R0",
+        status: "done",
+        output,
+        isError: false,
+        durationMs: 220,
+        summary: ".",
+      }),
+    ]),
+  );
 
   // 只有用户消息里出现修改类关键词时才走审批分支，方便预览时分别验证
   // 「只读对话」与「写入并审批」两条路径。
@@ -640,38 +844,78 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
       new_string: "const refreshWindow = 12 * time.Minute",
     };
     addPart(thread.id, messageID, {
-      id: editPartID, kind: "tool", seq: 4,
-      data: { partId: editPartID, toolCallId: editCallID, name: "fs_edit", args, risk: "R1", status: "running", summary: "internal/auth/session.go" },
+      id: editPartID,
+      kind: "tool",
+      seq: 4,
+      data: {
+        partId: editPartID,
+        toolCallId: editCallID,
+        name: "fs_edit",
+        args,
+        risk: "R1",
+        status: "running",
+        summary: "internal/auth/session.go",
+      },
     });
-    dispatch(batch(thread.id, [envelope(EVENT.toolStarted, thread.id, runID, { partId: editPartID, toolCallId: editCallID, name: "fs_edit", args, risk: "R1", status: "running", summary: "internal/auth/session.go" })]));
+    dispatch(
+      batch(thread.id, [
+        envelope(EVENT.toolStarted, thread.id, runID, {
+          partId: editPartID,
+          toolCallId: editCallID,
+          name: "fs_edit",
+          args,
+          risk: "R1",
+          status: "running",
+          summary: "internal/auth/session.go",
+        }),
+      ]),
+    );
 
     addPart(thread.id, messageID, {
-      id: approvalPartID, kind: "approval", seq: 5,
+      id: approvalPartID,
+      kind: "approval",
+      seq: 5,
       data: {
-        partId: approvalPartID, approvalId: approvalID, toolCallId: editCallID,
-        tool: "fs_edit", risk: "R1", title: "修改文件",
-        target: "internal/auth/session.go", detail: "写入工作区",
+        partId: approvalPartID,
+        approvalId: approvalID,
+        toolCallId: editCallID,
+        tool: "fs_edit",
+        risk: "R1",
+        title: "修改文件",
+        target: "internal/auth/session.go",
+        detail: "写入工作区",
         facts: [
           { label: "风险等级", value: "R1" },
           { label: "操作", value: "internal/auth/session.go" },
           { label: "原因", value: "写入工作区" },
         ],
         args,
-        allowPermanent: true, status: "waiting",
+        allowPermanent: true,
+        status: "waiting",
       },
     });
-    dispatch(batch(thread.id, [envelope(EVENT.approvalRequested, thread.id, runID, {
-      partId: approvalPartID, approvalId: approvalID, toolCallId: editCallID,
-      tool: "fs_edit", risk: "R1", title: "修改文件",
-      target: "internal/auth/session.go", detail: "写入工作区",
-      facts: [
-        { label: "风险等级", value: "R1" },
-        { label: "操作", value: "internal/auth/session.go" },
-        { label: "原因", value: "写入工作区" },
-      ],
-      args,
-      allowPermanent: true, status: "waiting",
-    })]));
+    dispatch(
+      batch(thread.id, [
+        envelope(EVENT.approvalRequested, thread.id, runID, {
+          partId: approvalPartID,
+          approvalId: approvalID,
+          toolCallId: editCallID,
+          tool: "fs_edit",
+          risk: "R1",
+          title: "修改文件",
+          target: "internal/auth/session.go",
+          detail: "写入工作区",
+          facts: [
+            { label: "风险等级", value: "R1" },
+            { label: "操作", value: "internal/auth/session.go" },
+            { label: "原因", value: "写入工作区" },
+          ],
+          args,
+          allowPermanent: true,
+          status: "waiting",
+        }),
+      ]),
+    );
 
     // 审批挂起：把 resolve 存进 Map，流程在这里 await 住；
     // 用户在前端点「允许 / 拒绝」时，ChatService.decideApproval 会调用它并把它从 Map 删除。
@@ -681,19 +925,35 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
     });
     approvalResolvers.delete(approvalID);
     // 无论允许还是拒绝都要派发 approvalResolved，界面据此把审批卡片从 waiting 改为最终状态。
-    dispatch(batch(thread.id, [envelope(EVENT.approvalResolved, thread.id, runID, {
-      partId: approvalPartID, approvalId: approvalID,
-      status: approved ? "approved" : "denied",
-      decision: approved ? "allow" : "deny",
-      scope: "once",
-    })]));
+    dispatch(
+      batch(thread.id, [
+        envelope(EVENT.approvalResolved, thread.id, runID, {
+          partId: approvalPartID,
+          approvalId: approvalID,
+          status: approved ? "approved" : "denied",
+          decision: approved ? "allow" : "deny",
+          scope: "once",
+        }),
+      ]),
+    );
 
     // 工具结果跟随审批结论：允许则成功，拒绝则标记为错误并说明原因。
-    dispatch(batch(thread.id, [envelope(EVENT.toolCompleted, thread.id, runID, {
-      partId: editPartID, toolCallId: editCallID, name: "fs_edit", args, risk: "R1",
-      status: approved ? "done" : "error", output: approved ? "已替换 internal/auth/session.go 中的 1 处内容" : "用户拒绝了该操作",
-      isError: !approved, durationMs: 48, summary: "internal/auth/session.go",
-    })]));
+    dispatch(
+      batch(thread.id, [
+        envelope(EVENT.toolCompleted, thread.id, runID, {
+          partId: editPartID,
+          toolCallId: editCallID,
+          name: "fs_edit",
+          args,
+          risk: "R1",
+          status: approved ? "done" : "error",
+          output: approved ? "已替换 internal/auth/session.go 中的 1 处内容" : "用户拒绝了该操作",
+          isError: !approved,
+          durationMs: 48,
+          summary: "internal/auth/session.go",
+        }),
+      ]),
+    );
 
     const finalID = uid("part");
     const finalText = approved
@@ -722,19 +982,21 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
   thread.contextTokens = usageInput + usageOutput;
   thread.contextCacheTokens = usageInput - 200;
   thread.contextSpeed = Math.round((usageOutput / 2.4) * 10) / 10;
-  dispatch(batch(thread.id, [
-    envelope(EVENT.usageUpdated, thread.id, runID, {
-      inputTokens: usageInput,
-      outputTokens: usageOutput,
-      costMicros: 0,
-      contextTokens: usageInput + usageOutput,
-      cacheTokens: usageInput - 200,
-      durationMs: 2400,
-      tokensPerSecond: Math.round((usageOutput / 2.4) * 10) / 10,
-    }),
-    envelope(EVENT.runCompleted, thread.id, runID, { status: "done" }),
-    envelope(EVENT.threadUpdated, thread.id, runID, { threadId: thread.id, status: "idle", thread: { ...thread } }),
-  ]));
+  dispatch(
+    batch(thread.id, [
+      envelope(EVENT.usageUpdated, thread.id, runID, {
+        inputTokens: usageInput,
+        outputTokens: usageOutput,
+        costMicros: 0,
+        contextTokens: usageInput + usageOutput,
+        cacheTokens: usageInput - 200,
+        durationMs: 2400,
+        tokensPerSecond: Math.round((usageOutput / 2.4) * 10) / 10,
+      }),
+      envelope(EVENT.runCompleted, thread.id, runID, { status: "done" }),
+      envelope(EVENT.threadUpdated, thread.id, runID, { threadId: thread.id, status: "idle", thread: { ...thread } }),
+    ]),
+  );
 }
 
 /**
@@ -801,8 +1063,13 @@ export const mockApi: Api = {
   app: {
     /** 应用信息：平台固定为 web，用于界面显示版本与数据目录。 */
     info: async () => ({
-      name: "CraftWork", version: "0.1.0", commit: "mock", buildTime: "",
-      platform: "web", arch: "browser", dataDir: "~/.craftwork",
+      name: "CraftWork",
+      version: "0.1.0",
+      commit: "mock",
+      buildTime: "",
+      platform: "web",
+      arch: "browser",
+      dataDir: "~/.craftwork",
     }),
     /** 打开外链：浏览器环境下直接开新标签页。 */
     openExternal: async (url) => {
@@ -811,8 +1078,7 @@ export const mockApi: Api = {
     /** 模拟系统文件选择器，固定返回一个演示文件。 */
     pickFiles: async () => ["internal/auth/session.go"],
     /** 模拟粘贴附件落盘：返回附件目录中的假路径，纯 UI 预览不会真正读取。 */
-    savePastedAttachment: async (name) =>
-      `~/.craftwork/attachments/${name || "pasted-file"}`,
+    savePastedAttachment: async (name) => `~/.craftwork/attachments/${name || "pasted-file"}`,
     /** 模拟图片预览：没有真实文件，返回一张占位图让缩略图形态可见。 */
     readAttachment: async (path) => {
       const name = path.split("/").pop() ?? "image";
@@ -843,22 +1109,38 @@ export const mockApi: Api = {
     /** 搜索会话：标题命中或任意消息文本命中都算匹配，对应产品需求里的「搜标题 + 搜内容」。 */
     search: async (mode, query) => {
       const keyword = query.trim().toLowerCase();
-      return (threads[mode] ?? []).filter((thread) => {
-        if (thread.title.toLowerCase().includes(keyword)) {
-          return true;
-        }
-        return (messages[thread.id] ?? []).some((message) =>
-          message.parts.some((part) => String(part.data?.text ?? "").toLowerCase().includes(keyword)),
-        );
-      }).map((thread) => ({ ...thread }));
+      return (threads[mode] ?? [])
+        .filter((thread) => {
+          if (thread.title.toLowerCase().includes(keyword)) {
+            return true;
+          }
+          return (messages[thread.id] ?? []).some((message) =>
+            message.parts.some((part) =>
+              String(part.data?.text ?? "")
+                .toLowerCase()
+                .includes(keyword),
+            ),
+          );
+        })
+        .map((thread) => ({ ...thread }));
     },
     /** 新建会话：插到列表最前，默认标题为「新对话」，并初始化空消息列表。 */
     create: async (mode, workspaceID, title) => {
       const thread: ThreadView = {
-        id: uid("th"), mode, title: title || "新对话", modelId: settings.defaultModel,
-        modelName: "GPT-5.1", workspaceId: workspaceID, status: "idle", archived: false,
-        tokens: 0, contextTokens: 0, contextCacheTokens: 0, contextSpeed: 0,
-        createdAt: Date.now(), updatedAt: Date.now(),
+        id: uid("th"),
+        mode,
+        title: title || "新对话",
+        modelId: settings.defaultModel,
+        modelName: "GPT-5.1",
+        workspaceId: workspaceID,
+        status: "idle",
+        archived: false,
+        tokens: 0,
+        contextTokens: 0,
+        contextCacheTokens: 0,
+        contextSpeed: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       };
       threads[mode] = [thread, ...(threads[mode] ?? [])];
       messages[thread.id] = [];
@@ -906,7 +1188,7 @@ export const mockApi: Api = {
       let messages = full.messages ?? [];
       if (beforeSeq > 0) {
         messages = messages.filter((message) => {
-          const last = Math.max(0, ...((message.parts ?? []).map((part) => part.seq)));
+          const last = Math.max(0, ...(message.parts ?? []).map((part) => part.seq));
           return last < beforeSeq;
         });
       }
@@ -932,7 +1214,10 @@ export const mockApi: Api = {
       messages[threadID] = [
         ...(messages[threadID] ?? []),
         {
-          id: uid("msg"), threadId: threadID, role: "user", status: "complete",
+          id: uid("msg"),
+          threadId: threadID,
+          role: "user",
+          status: "complete",
           createdAt: Date.now(),
           parts: [{ id: uid("part"), kind: "text", seq: 0, data: { text, attachments } }],
         },
@@ -973,7 +1258,10 @@ export const mockApi: Api = {
       messages[threadID] = [
         ...(messages[threadID] ?? []),
         {
-          id: messageID, threadId: threadID, role: "user", status: "complete",
+          id: messageID,
+          threadId: threadID,
+          role: "user",
+          status: "complete",
           createdAt: Date.now(),
           parts: [{ id: `${messageID}-text`, kind: "text", seq: 0, data: { text, attachments } }],
         },
@@ -981,11 +1269,16 @@ export const mockApi: Api = {
       const queue = steerQueue.get(threadID) ?? [];
       queue.push({ text, attachments });
       steerQueue.set(threadID, queue);
-      dispatch(batch(threadID, [
-        envelope(EVENT.userMessage, threadID, "", {
-          messageId: messageID, text, attachments, via: "steer",
-        }),
-      ]));
+      dispatch(
+        batch(threadID, [
+          envelope(EVENT.userMessage, threadID, "", {
+            messageId: messageID,
+            text,
+            attachments,
+            via: "steer",
+          }),
+        ]),
+      );
       return messageID;
     },
     /** 重新生成：取最后一条用户消息的文本再跑一次模拟。 */
@@ -1030,7 +1323,13 @@ export const mockApi: Api = {
     /** 添加工作区：名称取路径最后一段，插到列表最前。 */
     add: async (path, trust) => {
       const workspace: WorkspaceView = {
-        id: uid("ws"), name: basename(path), path, trust, purpose: "project", createdAt: Date.now(), lastOpenedAt: Date.now(),
+        id: uid("ws"),
+        name: basename(path),
+        path,
+        trust,
+        purpose: "project",
+        createdAt: Date.now(),
+        lastOpenedAt: Date.now(),
       };
       workspaces.unshift(workspace);
       return { ...workspace };
@@ -1059,10 +1358,15 @@ export const mockApi: Api = {
     readFile: async (workspaceID, path) => {
       const content = files[path] ?? "";
       return {
-        path, content, size: content.length, binary: false,
+        path,
+        content,
+        size: content.length,
+        binary: false,
         language: path.endsWith(".go") ? "go" : path.endsWith(".tsx") ? "typescript" : "text",
         lines: content ? content.split("\n").length : 0,
-        truncated: false, hash: String(content.length), modified: now,
+        truncated: false,
+        hash: String(content.length),
+        modified: now,
         workspaceId: workspaceID,
       };
     },
@@ -1192,9 +1496,7 @@ export const mockApi: Api = {
       return catalogProviders
         .filter(
           (provider) =>
-            !keyword ||
-            provider.id.toLowerCase().includes(keyword) ||
-            provider.name.toLowerCase().includes(keyword),
+            !keyword || provider.id.toLowerCase().includes(keyword) || provider.name.toLowerCase().includes(keyword),
         )
         .map((provider) => ({
           ...provider,
@@ -1353,12 +1655,25 @@ export const mockApi: Api = {
       const extension = path.split(".").pop() ?? "";
       if (["docx", "xlsx", "pdf"].includes(extension)) {
         return {
-          kind: extension, path, name: basename(path), size: 48210, modified: now,
-          supported: false, note: "结构化解析将在 M3 接入；当前仅展示文件信息。",
+          kind: extension,
+          path,
+          name: basename(path),
+          size: 48210,
+          modified: now,
+          supported: false,
+          note: "结构化解析将在 M3 接入；当前仅展示文件信息。",
         };
       }
       const content = files[path] ?? "";
-      return { kind: "text", path, name: basename(path), size: content.length, modified: now, supported: true, text: content };
+      return {
+        kind: "text",
+        path,
+        name: basename(path),
+        size: content.length,
+        modified: now,
+        supported: true,
+        text: content,
+      };
     },
   },
   /** 终端：列表、新建、写入、调整尺寸与关闭；输出同样通过事件批次推送。 */
@@ -1374,17 +1689,21 @@ export const mockApi: Api = {
     create: async (name, cwd) => {
       terminalCounter += 1;
       const session: TerminalView = {
-        id: `term_${terminalCounter}`, name: name || `终端 ${terminalCounter}`,
-        cwd: cwd || "~/Code/craftwork", running: true,
+        id: `term_${terminalCounter}`,
+        name: name || `终端 ${terminalCounter}`,
+        cwd: cwd || "~/Code/craftwork",
+        running: true,
       };
       terminalSessions.push(session);
       window.setTimeout(() => {
-        dispatch(batch(`terminal:${session.id}`, [
-          envelope(EVENT.terminalOutput, `terminal:${session.id}`, "", {
-            sessionId: session.id,
-            data: "craftwork ~/Code/craftwork % ",
-          }),
-        ]));
+        dispatch(
+          batch(`terminal:${session.id}`, [
+            envelope(EVENT.terminalOutput, `terminal:${session.id}`, "", {
+              sessionId: session.id,
+              data: "craftwork ~/Code/craftwork % ",
+            }),
+          ]),
+        );
       }, 120);
       return { ...session };
     },
@@ -1400,20 +1719,25 @@ export const mockApi: Api = {
       if (!session) {
         return;
       }
-      dispatch(batch(`terminal:${sessionID}`, [
-        envelope(EVENT.terminalOutput, `terminal:${sessionID}`, "", { sessionId: sessionID, data }),
-      ]));
+      dispatch(
+        batch(`terminal:${sessionID}`, [
+          envelope(EVENT.terminalOutput, `terminal:${sessionID}`, "", { sessionId: sessionID, data }),
+        ]),
+      );
       if (data.includes("\r")) {
         const command = data.replace("\r", "").trim();
-        const output = command === "git status"
-          ? "On branch main\nChanges not staged for commit:\n  modified: internal/auth/session.go\n"
-          : command === "ls"
-            ? "frontend  internal  README.md  go.mod\n"
-            : `zsh: command not found: ${command}\n`;
+        const output =
+          command === "git status"
+            ? "On branch main\nChanges not staged for commit:\n  modified: internal/auth/session.go\n"
+            : command === "ls"
+              ? "frontend  internal  README.md  go.mod\n"
+              : `zsh: command not found: ${command}\n`;
         await sleep(80);
-        dispatch(batch(`terminal:${sessionID}`, [
-          envelope(EVENT.terminalOutput, `terminal:${sessionID}`, "", { sessionId: sessionID, data: output }),
-        ]));
+        dispatch(
+          batch(`terminal:${sessionID}`, [
+            envelope(EVENT.terminalOutput, `terminal:${sessionID}`, "", { sessionId: sessionID, data: output }),
+          ]),
+        );
       }
     },
     /** 终端尺寸在 Mock 中没有实际意义，保留空实现以对齐接口。 */

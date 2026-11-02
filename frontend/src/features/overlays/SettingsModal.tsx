@@ -383,11 +383,7 @@ export function SettingsModal() {
           <h2>设置</h2>
           <div className="settings-search">
             <Icon name="search" className="ico" />
-            <input
-              value={query}
-              placeholder="搜索设置…"
-              onChange={(event) => setQuery(event.target.value)}
-            />
+            <input value={query} placeholder="搜索设置…" onChange={(event) => setQuery(event.target.value)} />
           </div>
           <button type="button" className="icon-btn sm" aria-label="关闭设置" onClick={close}>
             <Icon name="x" />
@@ -435,7 +431,7 @@ export function SettingsModal() {
                   <div className="panel-empty-hint">试试「模型」「权限」「外观」等关键词。</div>
                 </div>
               ) : null}
-  
+
               {tab === "general" ? (
                 /* 通用分组：启动模式、更新偏好、系统通知与数据目录 */
                 <SettingsSection title="通用" desc="启动行为、语言与本地数据。">
@@ -481,7 +477,7 @@ export function SettingsModal() {
                   </Row>
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "mode" ? (
                 /* 模式分组：默认模式，以及两种模式各自的能力范围说明 */
                 <SettingsSection title="模式" desc="Code 与 Work 共用同一套工作区与审批策略，只改变界面和可用工具。">
@@ -508,56 +504,58 @@ export function SettingsModal() {
                   </Row>
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "models" ? (
                 /* 模型与提供商分组：所有提供商都由用户添加，没有任何内置或推荐条目 */
-                <SettingsSection title="模型与提供商" desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。">
+                <SettingsSection
+                  title="模型与提供商"
+                  desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。"
+                >
                   {catalogOpen || providerEditor ? null : (
                     <>
-                  <Row label="默认模型" desc="新会话使用的模型；没有添加提供商时保持为空。">
-                    <select
-                      className="select"
-                      value={settings.defaultModel}
-                      onChange={(event) => update({ defaultModel: event.target.value })}
-                    >
-                      <option value="">未选择模型</option>
-                      {providers.flatMap((provider) =>
-                        provider.models.map((model) => (
-                          <option key={model.ref} value={model.ref}>
-                            {provider.name} · {model.name}
-                            {model.available ? "" : "（未配置密钥）"}
-                          </option>
-                        )),
-                      )}
-                    </select>
-                  </Row>
-  
-                  <Row
-                    label="失败转移模型"
-                    desc="主模型遇到限流、5xx、超时或连接失败时自动切换；工具执行过程中不切换，未配置密钥的模型不会生效。"
-                  >
-                    <select
-                      className="select"
-                      value={settings.fallbackModel ?? ""}
-                      onChange={(event) => update({ fallbackModel: event.target.value })}
-                    >
-                      <option value="">不自动转移</option>
-                      {providers.flatMap((provider) =>
-                        provider.models
-                          .filter((model) => model.ref !== settings.defaultModel)
-                          .map((model) => (
-                            <option key={model.ref} value={model.ref}>
-                              {provider.name} · {model.name}
-                              {model.available ? "" : "（未配置密钥）"}
-                            </option>
-                          )),
-                      )}
-                    </select>
-                  </Row>
-  
+                      <Row label="默认模型" desc="新会话使用的模型；没有添加提供商时保持为空。">
+                        <select
+                          className="select"
+                          value={settings.defaultModel}
+                          onChange={(event) => update({ defaultModel: event.target.value })}
+                        >
+                          <option value="">未选择模型</option>
+                          {providers.flatMap((provider) =>
+                            provider.models.map((model) => (
+                              <option key={model.ref} value={model.ref}>
+                                {provider.name} · {model.name}
+                                {model.available ? "" : "（未配置密钥）"}
+                              </option>
+                            )),
+                          )}
+                        </select>
+                      </Row>
+
+                      <Row
+                        label="失败转移模型"
+                        desc="主模型遇到限流、5xx、超时或连接失败时自动切换；工具执行过程中不切换，未配置密钥的模型不会生效。"
+                      >
+                        <select
+                          className="select"
+                          value={settings.fallbackModel ?? ""}
+                          onChange={(event) => update({ fallbackModel: event.target.value })}
+                        >
+                          <option value="">不自动转移</option>
+                          {providers.flatMap((provider) =>
+                            provider.models
+                              .filter((model) => model.ref !== settings.defaultModel)
+                              .map((model) => (
+                                <option key={model.ref} value={model.ref}>
+                                  {provider.name} · {model.name}
+                                  {model.available ? "" : "（未配置密钥）"}
+                                </option>
+                              )),
+                          )}
+                        </select>
+                      </Row>
                     </>
                   )}
-  
+
                   {catalogOpen ? (
                     /* 目录浏览器：从 models.dev 快照里选择提供商与模型 */
                     <CatalogBrowser
@@ -598,7 +596,7 @@ export function SettingsModal() {
                           手动添加
                         </button>
                       </div>
-  
+
                       {providers.length === 0 ? (
                         /* 首次启动：没有任何提供商，给出明确的下一步 */
                         <div className="panel-empty">
@@ -609,7 +607,7 @@ export function SettingsModal() {
                           </div>
                         </div>
                       ) : null}
-  
+
                       {providers.map((provider) => (
                         <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
                           <div className="provider-head">
@@ -649,7 +647,11 @@ export function SettingsModal() {
                                 disabled={testing === provider.id}
                                 onClick={() => void testProvider(provider)}
                               >
-                                {testing === provider.id ? <Icon name="loader" className="spin" /> : <Icon name="zap" />}
+                                {testing === provider.id ? (
+                                  <Icon name="loader" className="spin" />
+                                ) : (
+                                  <Icon name="zap" />
+                                )}
                                 测试连接
                               </button>
                               <button
@@ -722,18 +724,18 @@ export function SettingsModal() {
                           ) : null}
                         </div>
                       ))}
-  
+
                       {catalogMeta ? (
                         <div className="sec-desc provider-catalog-foot">
-                          模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount} 个提供商 ·{" "}
-                          {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
+                          模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount}{" "}
+                          个提供商 · {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
                         </div>
                       ) : null}
                     </>
                   )}
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "tools" ? (
                 /* 工具与权限分组：审批档位、风险等级说明与当前限制 */
                 <SettingsSection title="工具与权限" desc="审批档位与风险分级共同决定一次工具调用是否执行。">
@@ -801,10 +803,13 @@ export function SettingsModal() {
                   </Row>
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "mcp" ? (
                 /* MCP 分组：已配置服务器、操作按钮与模板提示 */
-                <SettingsSection title="MCP 服务器" desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。">
+                <SettingsSection
+                  title="MCP 服务器"
+                  desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。"
+                >
                   <div className="mcp-toolbar">
                     {/* 添加服务器需要依次输入名称与启动命令；刷新重新读取列表 */}
                     <button
@@ -813,14 +818,18 @@ export function SettingsModal() {
                       disabled={mcpBusy === "add"}
                       onClick={() => void addMCPServer()}
                     >
-                      {mcpBusy === "add" ? <Icon name="loader" className="ico spin" /> : <Icon name="plus" className="ico" />}
+                      {mcpBusy === "add" ? (
+                        <Icon name="loader" className="ico spin" />
+                      ) : (
+                        <Icon name="plus" className="ico" />
+                      )}
                       添加服务器
                     </button>
                     <button type="button" className="btn sm ghost" onClick={() => void refreshMCP()}>
                       刷新
                     </button>
                   </div>
-  
+
                   {mcpServers.length === 0 ? (
                     <div className="panel-empty" style={{ padding: "18px 0 22px" }}>
                       <Icon name="globe" size={22} />
@@ -828,7 +837,7 @@ export function SettingsModal() {
                       <div className="panel-empty-hint">添加本地命令后，服务器工具会在下一次对话中可用。</div>
                     </div>
                   ) : null}
-  
+
                   {mcpServers.map((server) => (
                     /* 每个服务器卡片：连接状态、启动命令、错误信息、工具清单与操作 */
                     <div key={server.id} className="mcp-card">
@@ -839,7 +848,9 @@ export function SettingsModal() {
                         <div className="mcp-main">
                           <div className="mcp-name">
                             {server.name}
-                            <span className={cn("badge", server.connected ? "ok" : server.error ? "danger" : "neutral")}>
+                            <span
+                              className={cn("badge", server.connected ? "ok" : server.error ? "danger" : "neutral")}
+                            >
                               {server.connected ? "已连接" : server.error ? "连接失败" : "未连接"}
                             </span>
                           </div>
@@ -893,11 +904,11 @@ export function SettingsModal() {
                       ) : null}
                     </div>
                   ))}
-  
+
                   <div className="sec-desc" style={{ marginTop: 10 }}>
                     服务器以当前用户权限运行；模型密钥与常见令牌会从环境变量中过滤。
                   </div>
-  
+
                   {mcpTemplates.map((template) => (
                     /* 模板只是说明性示例，不提供一键添加 */
                     <div key={template.name} className="mcp-card">
@@ -915,7 +926,7 @@ export function SettingsModal() {
                   ))}
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "appearance" ? (
                 /* 外观分组：主题与字号；未接线的控件保持禁用并标注里程碑 */
                 <SettingsSection title="外观" desc="主题与字体只影响本地界面。">
@@ -942,7 +953,10 @@ export function SettingsModal() {
                       ))}
                     </div>
                   </Row>
-                  <Row label="界面字号" desc="界面基准字号，影响消息、侧栏、面板与浮层；终端、编辑器与代码块使用独立字号。">
+                  <Row
+                    label="界面字号"
+                    desc="界面基准字号，影响消息、侧栏、面板与浮层；终端、编辑器与代码块使用独立字号。"
+                  >
                     <select
                       className="select"
                       value={settings.fontSize}
@@ -976,7 +990,7 @@ export function SettingsModal() {
                   </Row>
                 </SettingsSection>
               ) : null}
-  
+
               {tab === "advanced" ? (
                 /* 高级分组：版本信息、备份入口、导出留桩、重置设置与许可证 */
                 <SettingsSection title="高级" desc="本地数据、版本与恢复。">

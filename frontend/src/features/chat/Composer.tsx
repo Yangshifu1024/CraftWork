@@ -70,12 +70,7 @@ const levelLabel: Record<string, string> = {
  * assistant-ui 的提交路径，由 runtime 的 handleNew 分流为 steer，
  * composer 随提交自动清空。空输入时保持停止按钮。
  */
-function SendCluster(props: {
-  running: boolean;
-  hasModel: boolean;
-  interruptArmed: boolean;
-  onCancel: () => void;
-}) {
+function SendCluster(props: { running: boolean; hasModel: boolean; interruptArmed: boolean; onCancel: () => void }) {
   const composerEmpty = useAuiState((state: any) => state.composer?.isEmpty ?? true);
   const aui = useAui();
 
@@ -113,13 +108,7 @@ function SendCluster(props: {
     );
   }
   return (
-    <button
-      type="button"
-      className="send-btn"
-      disabled
-      title="请先在设置中添加提供商并选择模型"
-      aria-label="发送"
-    >
+    <button type="button" className="send-btn" disabled title="请先在设置中添加提供商并选择模型" aria-label="发送">
       <Icon name="arrow-up" className="ico" />
     </button>
   );
@@ -172,9 +161,7 @@ export function Composer() {
     () => providers.flatMap((provider) => provider.models).filter((model) => model.available),
     [providers],
   );
-  const currentModel = models.find(
-    (model) => model.ref === thread?.modelId || model.id === thread?.modelId,
-  );
+  const currentModel = models.find((model) => model.ref === thread?.modelId || model.id === thread?.modelId);
   const visibleModels = useMemo(() => {
     const query = modelQuery.trim().toLowerCase();
     if (!query) {
@@ -357,7 +344,13 @@ export function Composer() {
 
         <div className="composer-bar">
           <div className="composer-tools">
-            <button type="button" className="icon-btn sm" title="添加附件" aria-label="添加附件" onClick={() => void pickFiles()}>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="添加附件"
+              aria-label="添加附件"
+              onClick={() => void pickFiles()}
+            >
               <Icon name="paperclip" className="ico" />
             </button>
             {/* 图片入口在不支持视觉的模型上禁用，并在提示里说明原因。 */}
@@ -491,7 +484,15 @@ export function Composer() {
             }}
           >
             <Icon
-              name={option.id === "readonly" ? "lock" : option.id === "strict" ? "alert" : option.id === "free" ? "zap" : "shield"}
+              name={
+                option.id === "readonly"
+                  ? "lock"
+                  : option.id === "strict"
+                    ? "alert"
+                    : option.id === "free"
+                      ? "zap"
+                      : "shield"
+              }
             />
             <span className="pi-main">
               <div className="pi-title">{option.label}</div>
@@ -546,7 +547,9 @@ export function Composer() {
           </div>
           <div className="ctx-row">
             <span className="ctx-key">最近一轮速度</span>
-            <span className="ctx-val">{(thread?.contextSpeed ?? 0) > 0 ? `${Math.round(thread?.contextSpeed ?? 0)} tok/s` : "—"}</span>
+            <span className="ctx-val">
+              {(thread?.contextSpeed ?? 0) > 0 ? `${Math.round(thread?.contextSpeed ?? 0)} tok/s` : "—"}
+            </span>
           </div>
         </div>
       </Popover>
@@ -568,9 +571,7 @@ export function Composer() {
         {models.length === 0 ? (
           <div className="popover-note">没有可用模型，请先在设置中添加提供商并配置密钥。</div>
         ) : null}
-        {models.length > 0 && visibleModels.length === 0 ? (
-          <div className="popover-note">没有匹配的模型。</div>
-        ) : null}
+        {models.length > 0 && visibleModels.length === 0 ? <div className="popover-note">没有匹配的模型。</div> : null}
         {visibleModels.map((model) => (
           <ModelItem
             key={model.ref}

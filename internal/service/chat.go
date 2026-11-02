@@ -8,12 +8,12 @@ import (
 	"errors"
 	"strings"
 
-	"craftwork/internal/agent"
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/model"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/agent"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // ChatService 处理发送、取消、重新生成与审批决定。

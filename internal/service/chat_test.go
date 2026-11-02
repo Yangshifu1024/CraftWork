@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"craftwork/internal/agent"
-	"craftwork/internal/events"
-	"craftwork/internal/model"
-	"craftwork/internal/policy"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/agent"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 // echoClient 每次请求都直接返回收尾文本；requests 记录到达的请求，
@@ -35,20 +35,6 @@ func (c *echoClient) Stream(_ context.Context, request model.Request) (<-chan mo
 	channel := make(chan model.Chunk, 2)
 	channel <- model.Chunk{Text: "完成"}
 	channel <- model.Chunk{Usage: &model.Usage{}, Done: true}
-	close(channel)
-	return channel, nil
-}
-
-// blockedClient 请求后保持流打开，直到测试放行，用于构造运行中的会话。
-type blockedClient struct {
-	entered chan struct{}
-	gate    chan struct{}
-}
-
-func (c *blockedClient) Stream(context.Context, model.Request) (<-chan model.Chunk, error) {
-	channel := make(chan model.Chunk, 1)
-	close(c.entered)
-	<-c.gate
 	close(channel)
 	return channel, nil
 }

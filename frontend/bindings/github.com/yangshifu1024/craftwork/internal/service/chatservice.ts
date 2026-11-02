@@ -52,5 +52,5 @@ export function Send(threadID: string, text: string, attachments: string[] | nul
  * 在下一个工具批次结束后并入模型历史。会话恰好已结束时回退为普通发送。
  */
 export function Steer(threadID: string, text: string, attachments: string[] | null): $CancellablePromise<string> {
-    return $Call.ByID(2659980360, threadID, text, attachments);
+    return $Call.ByID(535248475, threadID, text, attachments);
 }

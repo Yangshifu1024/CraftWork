@@ -46,7 +46,14 @@ interface WorkspaceState {
   /** 需要在编辑器中定位的行号。 */
   targetLine: number | null;
   /** 差异预览：标题、原文、新文、计算结果、视图方式与所属工作区。 */
-  diff: { title: string; oldText: string; newText: string; result: DiffResult | null; view: "unified" | "side"; workspaceId: string } | null;
+  diff: {
+    title: string;
+    oldText: string;
+    newText: string;
+    result: DiffResult | null;
+    view: "unified" | "side";
+    workspaceId: string;
+  } | null;
   /** 文档（Word / Excel / PDF / 文本）预览内容。 */
   doc: DocumentPreview | null;
   /** 文档是否正在加载。 */
@@ -290,7 +297,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const result = await api.workspace.computeDiff(oldText, newText);
     set({
       diff: {
-        title, oldText, newText, result,
+        title,
+        oldText,
+        newText,
+        result,
         view: get().diff?.view ?? "unified",
         workspaceId: workspaceID(),
       },

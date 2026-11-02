@@ -369,7 +369,8 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 // 返回 false，此时结束事件与会话状态已由本函数写入。titled 由运行链持有，
 // 保证接力运行不会重复触发自动命名。
 func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, messageID, mode string,
-	startedAt time.Time, titled *bool, env RunEnv) bool {
+	startedAt time.Time, titled *bool, env RunEnv,
+) bool {
 	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,

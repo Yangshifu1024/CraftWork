@@ -191,9 +191,7 @@ function clearSteerQueued(messages: ChatMessage[]): ChatMessage[] {
   if (!messages.some((message) => message.steerQueued)) {
     return messages;
   }
-  return messages.map((message) =>
-    message.steerQueued ? { ...message, steerQueued: false } : message,
-  );
+  return messages.map((message) => (message.steerQueued ? { ...message, steerQueued: false } : message));
 }
 
 /**

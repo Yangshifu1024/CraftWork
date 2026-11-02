@@ -109,9 +109,7 @@ export function ChatPane() {
                 <span className="empty-mark">
                   <Icon name={isTempWorkspace ? "zap" : mode === "work" ? "briefcase" : "code"} />
                 </span>
-                <h2>
-                  {isTempWorkspace ? "临时会话已就绪" : mode === "work" ? "Work 模式已就绪" : "Code 模式已就绪"}
-                </h2>
+                <h2>{isTempWorkspace ? "临时会话已就绪" : mode === "work" ? "Work 模式已就绪" : "Code 模式已就绪"}</h2>
                 <p>
                   {isTempWorkspace
                     ? "无需选择工作区，直接提问即可；产生的文件会保存在内置临时目录，随时可在侧栏切回工作区会话。"

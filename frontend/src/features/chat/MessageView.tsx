@@ -120,9 +120,7 @@ export function MessageView() {
           <MessagePrimitive.Parts components={partComponents as any} />
         ) : (
           /* 助手消息：相邻的过程部件合并成一组，结束后折叠为「已工作 N」。 */
-          <MessagePrimitive.GroupedParts
-            groupBy={(part: any) => (isWorkPart(part) ? ["group-work"] : null)}
-          >
+          <MessagePrimitive.GroupedParts groupBy={(part: any) => (isWorkPart(part) ? ["group-work"] : null)}>
             {({ part, children }: any) => {
               if (part.type === "group-work") {
                 // 组内仍在流式输出（含工具执行中）时保持平铺，结束后才折叠。

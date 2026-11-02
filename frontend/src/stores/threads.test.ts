@@ -254,8 +254,13 @@ describe("发送策略 submit", () => {
     hasKey: true,
     models: [
       {
-        id: "gpt-5.1", ref: "openai/gpt-5.1", name: "GPT-5.1", provider: "openai",
-        providerName: "OpenAI", contextK: 32, caps: { stream: true, tools: true, vision: false, reasoning: false },
+        id: "gpt-5.1",
+        ref: "openai/gpt-5.1",
+        name: "GPT-5.1",
+        provider: "openai",
+        providerName: "OpenAI",
+        contextK: 32,
+        caps: { stream: true, tools: true, vision: false, reasoning: false },
       },
     ],
   };

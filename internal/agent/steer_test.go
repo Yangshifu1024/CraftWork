@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"craftwork/internal/model"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // steerGatedClient 第一次请求进入后等待 gate 放行，让测试能在运行途中

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"craftwork/internal/events"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // newWorkspaceService 搭一个带内存总线的最小工作区服务，供测试使用。

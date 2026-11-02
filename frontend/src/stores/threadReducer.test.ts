@@ -200,11 +200,7 @@ describe("reduceThread", () => {
   });
 
   it("user.message 插入待送达的引导消息并按 id 去重", () => {
-    const started = reduceThread(
-      baseState(),
-      batch(envelope(EVENT.runStarted, { messageId: "msg_run" })),
-      "th",
-    );
+    const started = reduceThread(baseState(), batch(envelope(EVENT.runStarted, { messageId: "msg_run" })), "th");
     const steer = (seq: number) =>
       envelope(EVENT.userMessage, { messageId: "msg_steer", text: "补充指令", attachments: [], via: "steer" }, seq);
 
@@ -221,11 +217,7 @@ describe("reduceThread", () => {
   });
 
   it("待送达标记在流式与工具事件到达时清除，审批事件不影响", () => {
-    const started = reduceThread(
-      baseState(),
-      batch(envelope(EVENT.runStarted, { messageId: "msg_run" })),
-      "th",
-    );
+    const started = reduceThread(baseState(), batch(envelope(EVENT.runStarted, { messageId: "msg_run" })), "th");
     const steered = reduceThread(
       started,
       batch(
@@ -240,7 +232,16 @@ describe("reduceThread", () => {
       batch(
         envelope(
           EVENT.approvalRequested,
-          { partId: "p_ap", approvalId: "ap_1", tool: "fs_write", risk: "R1", title: "写入", target: "note.txt", status: "waiting", allowPermanent: true },
+          {
+            partId: "p_ap",
+            approvalId: "ap_1",
+            tool: "fs_write",
+            risk: "R1",
+            title: "写入",
+            target: "note.txt",
+            status: "waiting",
+            allowPermanent: true,
+          },
           3,
         ),
       ),
@@ -266,7 +267,19 @@ describe("reduceThread", () => {
     const tool = reduceThread(
       steered,
       batch(
-        envelope(EVENT.toolStarted, { partId: "p_tool", toolCallId: "c1", name: "fs_list", args: {}, risk: "R0", status: "running", summary: "." }, 3),
+        envelope(
+          EVENT.toolStarted,
+          {
+            partId: "p_tool",
+            toolCallId: "c1",
+            name: "fs_list",
+            args: {},
+            risk: "R0",
+            status: "running",
+            summary: ".",
+          },
+          3,
+        ),
       ),
       "th",
     );
@@ -274,11 +287,7 @@ describe("reduceThread", () => {
 
     // 取消后未投递的引导留在会话里，但不再有「即将投递」语义。
     const steeredAgain = reduceThread(started, batch(steer(2)), "th");
-    const canceled = reduceThread(
-      steeredAgain,
-      batch(envelope(EVENT.runCanceled, { status: "canceled" }, 3)),
-      "th",
-    );
+    const canceled = reduceThread(steeredAgain, batch(envelope(EVENT.runCanceled, { status: "canceled" }, 3)), "th");
     expect(canceled.messages.find((message) => message.id === "msg_steer")?.steerQueued).toBe(false);
   });
 

@@ -87,11 +87,7 @@ export function FreeLevelDialog() {
           这些操作可能造成数据丢失或泄露。请仅在信任任务内容时启用。你可以随时切回其他权限模式。
         </p>
         <label className="free-dialog-ack">
-          <input
-            type="checkbox"
-            checked={acked}
-            onChange={(event) => setAcked(event.target.checked)}
-          />
+          <input type="checkbox" checked={acked} onChange={(event) => setAcked(event.target.checked)} />
           我已了解风险，并对自己的数据安全负责。
         </label>
         <div className="confirm-actions">

@@ -498,16 +498,20 @@ func TestWorkspacePurposePersistsAcrossUpsert(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	workspace := &Workspace{ID: "ws_conv", Name: "临时会话", Path: "/tmp/conv",
-		Trust: "trusted", Purpose: WorkspacePurposeConversation, CreatedAt: now, LastOpenedAt: now}
+	workspace := &Workspace{
+		ID: "ws_conv", Name: "临时会话", Path: "/tmp/conv",
+		Trust: "trusted", Purpose: WorkspacePurposeConversation, CreatedAt: now, LastOpenedAt: now,
+	}
 	if err := db.UpsertWorkspace(workspace); err != nil {
 		t.Fatal(err)
 	}
 
 	// 旧调用方不带用途字段再次保存同一路径：更新分支不写 purpose，
 	// 内置目录的用途不能被改回 project。
-	if err := db.UpsertWorkspace(&Workspace{ID: "ws_other", Name: "临时会话", Path: "/tmp/conv",
-		Trust: "trusted", CreatedAt: now, LastOpenedAt: now}); err != nil {
+	if err := db.UpsertWorkspace(&Workspace{
+		ID: "ws_other", Name: "临时会话", Path: "/tmp/conv",
+		Trust: "trusted", CreatedAt: now, LastOpenedAt: now,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := db.GetWorkspace("ws_conv")
@@ -520,8 +524,10 @@ func TestWorkspacePurposePersistsAcrossUpsert(t *testing.T) {
 
 	// 回填：未绑定工作区的会话统一归入指定工作区，重复执行无副作用。
 	for _, id := range []string{"th_a", "th_b"} {
-		if err := db.CreateThread(&Thread{ID: id, Mode: "code", Title: id,
-			Status: "idle", CreatedAt: now, UpdatedAt: now}); err != nil {
+		if err := db.CreateThread(&Thread{
+			ID: id, Mode: "code", Title: id,
+			Status: "idle", CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
