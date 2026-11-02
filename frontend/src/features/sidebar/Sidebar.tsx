@@ -7,7 +7,6 @@
  * - 底部入口：用量、审计、命令面板与设置，并显示今日用量与审计条数。
  */
 import { useEffect, useState } from "react";
-import { BrandMark } from "../../components/BrandMark";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { api } from "../../lib/api";
@@ -217,14 +216,8 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-head">
-        <a className="brand" href="#" aria-label="CraftWork 首页" onClick={(event) => event.preventDefault()}>
-          <span className="brand-mark">
-            <BrandMark />
-          </span>
-          <span className="brand-text">CraftWork</span>
-        </a>
-      </div>
+      {/* 空标题行：仅承担窗口拖拽区与 macOS 红绿灯占位。 */}
+      <div className="sidebar-head" />
 
       {/* 模式切换：用 tab 语义表达两种模式，滑动指示块由 CSS 根据选中项定位。 */}
       <div className="mode-switch" role="tablist" aria-label="工作模式">
