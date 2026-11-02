@@ -520,25 +520,14 @@ function snapshot(threadID: string): ThreadSnapshot {
   };
 }
 
-/** Mock 没有真实模型可调用，直接使用后端的降级提取规则模拟标题。 */
-function mockAutoTitle(text: string, attachments: string[]): string {
-  const line = text
-    .split("\n")
-    .map((item) => item.trim())
-    .find((item) => item && !item.startsWith("```")) ?? "";
-  let candidate = line.replace(/^[#>*\-`\s]+/, "").split("`").join("").trim();
-  if (!candidate && attachments[0]) {
-    candidate = basename(attachments[0]);
-  }
-  candidate = candidate.replace(/[\s，。！？；：、,.!?;:]+$/g, "");
-  if (!candidate) {
+/** Mock 没有真实模型可调用，也不复刻后端的降级提取规则：取首行截断即可，标题规则以 Go 为唯一事实源。 */
+function mockAutoTitle(text: string): string {
+  const line = text.split("\n").map((item) => item.trim()).find(Boolean) ?? "";
+  const runes = [...line];
+  if (runes.length === 0) {
     return "";
   }
-  const runes = [...candidate];
-  if (runes.length > 20) {
-    candidate = `${runes.slice(0, 19).join("").replace(/[，。！？；：,.!?;:]+$/g, "")}…`;
-  }
-  return candidate;
+  return runes.length > 20 ? `${runes.slice(0, 19).join("")}…` : line;
 }
 
 /** 把事件数组包装成前端约定的批次结构，版本号固定为 1。 */
@@ -949,7 +938,7 @@ export const mockApi: Api = {
         },
       ];
       if (autoTitleThreads.has(threadID) && thread.title === "新对话") {
-        const title = mockAutoTitle(text, attachments);
+        const title = mockAutoTitle(text);
         if (title) {
           thread.title = title;
           thread.updatedAt = Date.now();
@@ -979,25 +968,22 @@ export const mockApi: Api = {
       if (!thread) {
         throw new Error("会话不存在");
       }
-      const trimmed = text.trim();
-      if (!trimmed && attachments.length === 0) {
-        throw new Error("消息不能为空");
-      }
+      // 空消息校验由 store 入口统一负责，mock 不再复刻后端校验。
       const messageID = uid("msg");
       messages[threadID] = [
         ...(messages[threadID] ?? []),
         {
           id: messageID, threadId: threadID, role: "user", status: "complete",
           createdAt: Date.now(),
-          parts: [{ id: `${messageID}-text`, kind: "text", seq: 0, data: { text: trimmed, attachments } }],
+          parts: [{ id: `${messageID}-text`, kind: "text", seq: 0, data: { text, attachments } }],
         },
       ];
       const queue = steerQueue.get(threadID) ?? [];
-      queue.push({ text: trimmed, attachments });
+      queue.push({ text, attachments });
       steerQueue.set(threadID, queue);
       dispatch(batch(threadID, [
         envelope(EVENT.userMessage, threadID, "", {
-          messageId: messageID, text: trimmed, attachments, via: "steer",
+          messageId: messageID, text, attachments, via: "steer",
         }),
       ]));
       return messageID;

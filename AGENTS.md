@@ -240,6 +240,7 @@ docs/                    需求、界面、技术方案、原型
 - 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
 - `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。
 - `npm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
+- Mock 的定位是「伪造数据，不复刻行为规则」：分页切片、事件编排（simulateRun）、diff 呈现与搜索命中是**已知且有意的近似**，e2e 跑在 Mock 上，失败时先区分是产品 bug 还是 Mock 演砸。行为规则以 Go 为唯一事实源；新增后端校验/规则时不要在 mock.ts 里复刻一遍（空消息校验、标题提取等此前都复刻过，已删）。端口类型由 `desktopApi` 推导（81531bb 的既定决策），不要改成手写第二份接口签名。
 - `scrollbar-gutter: stable` 的预留宽度在两个内核不一致：Chromium 按自定义 `::-webkit-scrollbar` 宽度预留且与滚动条本体不叠加；WKWebView 按系统滚动条宽度（约 11px）预留并与滚动条叠加。本项目桌面（WKWebView）与 server 浏览器（Chromium）会因此出现约 11px 的内容宽度差，**不要在布局里依赖 `scrollbar-gutter`**；滚动条占位以 `::-webkit-scrollbar` 自定义宽度为准（见 `.thread-list`）。
 
 ## 8. 验证清单
