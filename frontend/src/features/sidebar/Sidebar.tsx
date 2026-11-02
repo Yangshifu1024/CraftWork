@@ -238,53 +238,58 @@ export function Sidebar() {
       </div>
 
       <div className="thread-list">
-        {source.length === 0 ? (
+        {/* 两个组头常驻显示：新建临时会话与创建项目的入口都挂在组头上，
+            藏掉它们会让空状态下没有任何创建入口。 */}
+        <div className="thread-group-head">
+          <Icon name="zap" />
+          <span className="thread-group-name">临时会话</span>
+          <span className="thread-group-count">{tempThreads.length}</span>
+          <button
+            type="button"
+            className="thread-group-add"
+            title="新建临时会话"
+            aria-label="新建临时会话"
+            onClick={() => void createTempThread()}
+          >
+            <Icon name="plus" />
+          </button>
+        </div>
+        {tempThreads.length === 0 ? (
+          <div className="thread-empty">还没有临时会话，点上方 + 新建</div>
+        ) : (
+          tempThreads.map((thread) => (
+            <ThreadItem
+              key={thread.id}
+              thread={thread}
+              active={thread.id === activeID}
+              onClick={() => void selectThread(thread.id)}
+              onContextMenu={(anchor) => setMenu({ thread, anchor })}
+            />
+          ))
+        )}
+        {/* 项目会话区：组头提供「创建项目」入口。 */}
+        <div className="thread-group-head is-section">
+          <span className="thread-group-name">项目会话</span>
+          <span className="thread-group-count">{projectThreadCount}</span>
+          <span className="spacer" />
+          <button
+            type="button"
+            className="thread-group-add"
+            title="创建项目"
+            aria-label="创建项目"
+            onClick={() => void handleCreateProject()}
+          >
+            <Icon name="plus" />
+          </button>
+        </div>
+        {projectGroups.length === 0 && orphanThreads.length === 0 ? (
           <div className="thread-empty">
-            还没有会话
+            还没有项目
             <br />
-            在「项目会话」右侧 + 创建项目，或新建临时会话
+            点上方 + 创建项目
           </div>
         ) : (
           <>
-            {/* 临时会话组置顶，组头 + 一键新建并切到内置临时目录。样式与「项目会话」组头一致。 */}
-            <div className="thread-group-head">
-              <Icon name="zap" />
-              <span className="thread-group-name">临时会话</span>
-              <span className="thread-group-count">{tempThreads.length}</span>
-              <button
-                type="button"
-                className="thread-group-add"
-                title="新建临时会话"
-                aria-label="新建临时会话"
-                onClick={() => void createTempThread()}
-              >
-                <Icon name="plus" />
-              </button>
-            </div>
-            {tempThreads.map((thread) => (
-              <ThreadItem
-                key={thread.id}
-                thread={thread}
-                active={thread.id === activeID}
-                onClick={() => void selectThread(thread.id)}
-                onContextMenu={(anchor) => setMenu({ thread, anchor })}
-              />
-            ))}
-            {/* 项目会话区：组头提供「创建项目」入口。 */}
-            <div className="thread-group-head is-section">
-              <span className="thread-group-name">项目会话</span>
-              <span className="thread-group-count">{projectThreadCount}</span>
-              <span className="spacer" />
-              <button
-                type="button"
-                className="thread-group-add"
-                title="创建项目"
-                aria-label="创建项目"
-                onClick={() => void handleCreateProject()}
-              >
-                <Icon name="plus" />
-              </button>
-            </div>
             {/* 每个项目一组：文件夹图标切换折叠，组内分页展示。 */}
             {projectGroups.map(({ workspace, items }) => (
               <ProjectGroup
