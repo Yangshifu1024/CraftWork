@@ -65,8 +65,12 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
+      # 仓库根目录没有 package.json，版本锁定在 frontend/package.json 的
+      # packageManager 字段；不指定该文件时 action 找不到版本会直接报错。
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -100,8 +104,12 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
+      # 仓库根目录没有 package.json，版本锁定在 frontend/package.json 的
+      # packageManager 字段；不指定该文件时 action 找不到版本会直接报错。
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
