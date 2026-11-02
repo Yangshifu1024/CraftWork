@@ -45,8 +45,8 @@ interface WorkspaceState {
   draft: string;
   /** 需要在编辑器中定位的行号。 */
   targetLine: number | null;
-  /** 差异预览：标题、原文、新文、计算结果与视图方式。 */
-  diff: { title: string; oldText: string; newText: string; result: DiffResult | null; view: "unified" | "side" } | null;
+  /** 差异预览：标题、原文、新文、计算结果、视图方式与所属工作区。 */
+  diff: { title: string; oldText: string; newText: string; result: DiffResult | null; view: "unified" | "side"; workspaceId: string } | null;
   /** 文档（Word / Excel / PDF / 文本）预览内容。 */
   doc: DocumentPreview | null;
   /** 文档是否正在加载。 */
@@ -246,14 +246,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   // 保存流程：
-  // 1. 带上打开文件时拿到的 hash 写入，后端据此判断文件是否被外部改动；
-  // 2. 成功后重新读取文件，用后端返回的最新内容与 hash 刷新，并回到只读模式；
-  // 3. 若后端报「外部修改」，说明磁盘上的内容已经变了，弹确认框由用户选择是否重新加载；
+  // 1. 写入目标是打开文件时记录的工作区（content.workspaceId），而不是
+  //    「当前激活工作区」——切换工作区后保存不会把内容写进错误的目录；
+  // 2. 带上打开文件时拿到的 hash 写入，后端据此判断文件是否被外部改动；
+  // 3. 成功后重新读取文件，用后端返回的最新内容与 hash 刷新，并回到只读模式；
+  // 4. 若后端报「外部修改」，说明磁盘上的内容已经变了，弹确认框由用户选择是否重新加载；
   //    重新加载会丢弃当前草稿，所以默认按钮保持危险样式；
-  // 4. 其它错误走 toast 提示，草稿保留以便用户重试。
+  // 5. 其它错误走 toast 提示，草稿保留以便用户重试。
   async save() {
-    const id = workspaceID();
     const content = get().content;
+    const id = content?.workspaceId ?? "";
     if (!id || !content) {
       return;
     }
@@ -282,10 +284,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   // 打开差异：先让后端计算差异，结果写入 store 后把右侧面板切到差异标签页。
-  // 视图方式沿用上一次的选择，默认统一视图。
+  // 视图方式沿用上一次的选择，默认统一视图。差异在打开时记录所属工作区，
+  // 应用写入时显式传回，不依赖「当前激活工作区」。
   async openDiff(title, oldText, newText) {
     const result = await api.workspace.computeDiff(oldText, newText);
-    set({ diff: { title, oldText, newText, result, view: get().diff?.view ?? "unified" } });
+    set({
+      diff: {
+        title, oldText, newText, result,
+        view: get().diff?.view ?? "unified",
+        workspaceId: workspaceID(),
+      },
+    });
     usePanelStore.getState().setTab(useAppStore.getState().mode, "diff");
   },
 
@@ -293,7 +302,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 写完重新打开文件，让编辑器显示磁盘上的最新状态。
   async applyDiff() {
     const diff = get().diff;
-    const id = workspaceID();
+    const id = diff?.workspaceId ?? "";
     if (!diff || !id) {
       return;
     }

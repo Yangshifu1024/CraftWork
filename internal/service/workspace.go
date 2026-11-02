@@ -77,6 +77,9 @@ type FileContent struct {
 	Hash string `json:"hash"`
 	// Modified 是最后修改时间（毫秒时间戳）。
 	Modified int64 `json:"modified"`
+	// WorkspaceID 是读取该文件的工作区标识；保存时显式传回，保存目标
+	// 不依赖前端「当前激活工作区」的环境状态。
+	WorkspaceID string `json:"workspaceId"`
 }
 
 // WorkspaceService 管理工作区、文件树、文件读写与差异计算。
@@ -414,6 +417,9 @@ func (s *WorkspaceService) ReadFile(workspaceID, rel string) (FileContent, error
 		Language: languageOf(abs),
 		Hash:     platform.Sha256Hex(data),
 		Modified: info.ModTime().UnixMilli(),
+		// 内容自带工作区身份：前端保存时显式传回，不再读取「当前激活
+		// 工作区」环境，避免切换工作区后把内容写进错误的目录。
+		WorkspaceID: workspace.ID,
 	}
 	if platform.IsBinary(data) {
 		result.Binary = true

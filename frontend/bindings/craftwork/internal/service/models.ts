@@ -368,6 +368,12 @@ export interface FileContent {
      * Modified 是最后修改时间（毫秒时间戳）。
      */
     "modified": number;
+
+    /**
+     * WorkspaceID 是读取该文件的工作区标识；保存时显式传回，保存目标
+     * 不依赖前端「当前激活工作区」的环境状态。
+     */
+    "workspaceId": string;
 }
 
 /**

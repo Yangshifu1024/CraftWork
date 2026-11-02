@@ -24,7 +24,6 @@ import { uid } from "../lib/utils";
 import { reduceThread, updateThread } from "./threadReducer";
 import { useAppStore } from "./app";
 import { useUiStore } from "./ui";
-import { useWorkspaceStore } from "./workspace";
 
 /**
  * 会话 store 的完整状态与可用操作。
@@ -70,8 +69,6 @@ interface ThreadState {
   loadEarlier(): Promise<void>;
   /** 在当前模式下新建会话并选中。 */
   create(): Promise<void>;
-  /** 新建临时会话：切到内置临时目录并新建绑定它的会话。 */
-  createTemp(): Promise<void>;
   /** 复制一个会话，标题追加「（副本）」。 */
   duplicate(threadID: string): Promise<void>;
   /** 修改会话标题。 */
@@ -333,33 +330,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     } catch (error) {
       console.error("新建会话失败", error);
     }
-  },
-
-  /**
-   * 新建临时会话。
-   *
-   * 先切到内置的临时会话目录（purpose = conversation 的工作区），文件树
-   * 与终端随活动工作区一起落到临时目录，再按普通流程新建会话。已经在
-   * 临时目录时直接新建，不重复切换。内置目录缺失（初始化失败的极端
-   * 情况）时提示并保持现状。
-   */
-  async createTemp() {
-    const app = useAppStore.getState();
-    const conversation = app.workspaces.find((workspace) => workspace.purpose === "conversation");
-    if (!conversation) {
-      useUiStore.getState().toast({
-        title: "临时会话不可用",
-        description: "内置临时目录尚未初始化，请重启应用后重试",
-        tone: "warn",
-      });
-      return;
-    }
-    if (app.activeWorkspace?.id !== conversation.id) {
-      await app.setActiveWorkspace(conversation.id);
-      useWorkspaceStore.getState().reset();
-      await useWorkspaceStore.getState().loadRoot();
-    }
-    await get().create();
   },
 
   /**

@@ -20,7 +20,7 @@ import { cn, formatTime, formatTokens } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
-import { useWorkspaceStore } from "../../stores/workspace";
+import { createTempThread, resyncWorkspaceViews, switchWorkspace } from "../../stores/workspaceFlow";
 
 /** 侧栏当前打开的浮层类型；null 表示没有浮层。 */
 type PopoverKind = "trust" | "switch" | "session" | null;
@@ -44,7 +44,6 @@ export function Sidebar() {
   const setMode = useAppStore((state) => state.setMode);
   const activeWorkspace = useAppStore((state) => state.activeWorkspace);
   const workspaces = useAppStore((state) => state.workspaces);
-  const setActiveWorkspace = useAppStore((state) => state.setActiveWorkspace);
   const pickAndAddWorkspace = useAppStore((state) => state.pickAndAddWorkspace);
 
   const threads = useThreadStore((state) => state.threads[mode]);
@@ -52,7 +51,6 @@ export function Sidebar() {
   const searchResults = useThreadStore((state) => state.searchResults);
   const selectThread = useThreadStore((state) => state.select);
   const createThread = useThreadStore((state) => state.create);
-  const createTempThread = useThreadStore((state) => state.createTemp);
   const searchThreads = useThreadStore((state) => state.search);
   const clearSearch = useThreadStore((state) => state.clearSearch);
 
@@ -185,24 +183,19 @@ export function Sidebar() {
 
   /**
    * 切换活动工作区。
-   * 工作区变化会影响文件树与会话归属，因此依次重置工作区视图、
-   * 重新加载根目录，并刷新当前模式的会话列表。
+   * 文件树重置、会话列表刷新等联动由 workspaceFlow 统一编排。
    */
   async function handleSwitchWorkspace(workspaceID: string) {
-    await setActiveWorkspace(workspaceID);
-    useWorkspaceStore.getState().reset();
-    await useWorkspaceStore.getState().loadRoot();
-    await useThreadStore.getState().refresh(mode);
+    await switchWorkspace(workspaceID);
     closePopover();
   }
 
-  /** 通过系统文件夹对话框添加工作区；成功后加载文件树并刷新会话列表。 */
+  /** 通过系统文件夹对话框添加工作区；激活已在 store 内完成，这里只重同步依赖视图。 */
   async function handleAddWorkspace() {
     closePopover();
     try {
       await pickAndAddWorkspace();
-      await useWorkspaceStore.getState().loadRoot();
-      await useThreadStore.getState().refresh(mode);
+      await resyncWorkspaceViews();
       toast({ title: "已添加工作区", tone: "ok" });
     } catch (error) {
       toast({ title: "添加工作区失败", description: String(error), tone: "danger" });

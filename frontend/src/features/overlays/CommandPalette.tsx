@@ -15,6 +15,7 @@ import { usePanelStore } from "../../stores/panel";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
+import { createTempThread } from "../../stores/workspaceFlow";
 
 /** 命令面板里的一行结果：分组、标题、副标题、图标与点击后执行的动作。 */
 interface PaletteItem {
@@ -49,7 +50,6 @@ export function CommandPalette() {
   const threads = useThreadStore((state) => state.threads[mode]);
   const selectThread = useThreadStore((state) => state.select);
   const createThread = useThreadStore((state) => state.create);
-  const createTempThread = useThreadStore((state) => state.createTemp);
   const togglePanel = usePanelStore((state) => state.toggle);
   const toggleMaximized = usePanelStore((state) => state.toggleMaximized);
   // 面板当前状态：命令标题据此显示动作方向，而不是固定文案。

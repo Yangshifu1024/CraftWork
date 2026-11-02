@@ -1070,13 +1070,14 @@ export const mockApi: Api = {
     /** 列出某个目录的子节点；没有缓存的目录返回空数组。 */
     listDir: async (_workspaceID, path) => (tree[path || "."] ?? []).map((node) => ({ ...node })),
     /** 读取文件：返回内容与语言、行数、哈希等元信息，未登记的文件返回空内容。 */
-    readFile: async (_workspaceID, path) => {
+    readFile: async (workspaceID, path) => {
       const content = files[path] ?? "";
       return {
         path, content, size: content.length, binary: false,
         language: path.endsWith(".go") ? "go" : path.endsWith(".tsx") ? "typescript" : "text",
         lines: content ? content.split("\n").length : 0,
         truncated: false, hash: String(content.length), modified: now,
+        workspaceId: workspaceID,
       };
     },
     /** 写入文件：直接覆盖内存中的内容，不模拟哈希校验与「外部修改」冲突。 */
