@@ -14,6 +14,7 @@ import { useNotifications } from "../features/chat/useNotifications";
 import { Panel } from "../features/panel/Panel";
 import { Toasts } from "../components/Toasts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FreeLevelDialog } from "../components/FreeLevelDialog";
 import { PromptDialog } from "../components/PromptDialog";
 import { ImagePreviewOverlay } from "../features/overlays/ImagePreviewOverlay";
 import { cn } from "../lib/utils";
@@ -212,6 +213,7 @@ export function AppShell() {
       ) : null}
       {/* 确认框、输入框与图片预览常驻挂载，由 store 里的请求对象决定是否显示 */}
       <ConfirmDialog />
+      <FreeLevelDialog />
       <PromptDialog />
       <ImagePreviewOverlay />
     </>

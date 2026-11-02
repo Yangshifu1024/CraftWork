@@ -85,7 +85,8 @@ export interface ImagePreviewRequest {
  * 关键状态：
  * - `confirm` / `confirmResolver`：当前待处理的确认请求与它的 resolve 函数；
  * - `prompt` / `promptResolver`：当前待处理的输入请求与它的 resolve 函数；
- * - 两者同时只允许存在一个，后发起的会覆盖前一个（实际使用中不会并发）。
+ * - `freeConfirmOpen` / `freeConfirmResolver`：自由档位确认弹层的开关与 resolve 函数；
+ * - 各弹层同时只允许存在一个，后发起的会覆盖前一个（实际使用中不会并发）。
  */
 interface UiState {
   /** 当前显示的通知列表。 */
@@ -108,6 +109,10 @@ interface UiState {
   prompt: PromptRequest | null;
   /** 输入框的 Promise 落点；用户提交或取消后由 `resolvePrompt` 调用。 */
   promptResolver: ((value: string | null) => void) | null;
+  /** 自由档位确认弹层是否打开；内容固定，无需请求参数。 */
+  freeConfirmOpen: boolean;
+  /** 自由档位确认的 Promise 落点；用户选择后由 `resolveFreeConfirm` 调用。 */
+  freeConfirmResolver: ((value: boolean) => void) | null;
   /** 当前放大预览的图片；null 表示预览浮层关闭。 */
   imagePreview: ImagePreviewRequest | null;
   /** 弹出一条通知，4.2 秒后自动消失。 */
@@ -134,6 +139,10 @@ interface UiState {
   askPrompt(request: PromptRequest): Promise<string | null>;
   /** 结束输入流程，把结果交还给 `askPrompt` 的调用方。 */
   resolvePrompt(value: string | null): void;
+  /** 弹出自由档位确认弹层，返回用户是否勾选并确认。 */
+  askFreeConfirm(): Promise<boolean>;
+  /** 结束自由档位确认流程，把结果交还给 `askFreeConfirm` 的调用方。 */
+  resolveFreeConfirm(value: boolean): void;
   /** 打开图片放大预览浮层。 */
   openImagePreview(request: ImagePreviewRequest): void;
   /** 关闭图片预览浮层。 */
@@ -156,6 +165,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   confirmResolver: null,
   prompt: null,
   promptResolver: null,
+  freeConfirmOpen: false,
+  freeConfirmResolver: null,
   imagePreview: null,
 
   // 生成唯一 id 后追加到列表，并启动 4.2 秒的自动消失计时。
@@ -217,6 +228,20 @@ export const useUiStore = create<UiState>((set, get) => ({
   resolvePrompt(value) {
     const resolver = get().promptResolver;
     set({ prompt: null, promptResolver: null });
+    resolver?.(value);
+  },
+
+  // 自由档位确认与确认流程同构，但内容固定（能力清单、风险提示与勾选门都在
+  // FreeLevelDialog 组件内），因此请求本身不带参数。
+  askFreeConfirm() {
+    return new Promise<boolean>((resolve) => {
+      set({ freeConfirmOpen: true, freeConfirmResolver: resolve });
+    });
+  },
+
+  resolveFreeConfirm(value) {
+    const resolver = get().freeConfirmResolver;
+    set({ freeConfirmOpen: false, freeConfirmResolver: null });
     resolver?.(value);
   },
 
