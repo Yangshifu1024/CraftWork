@@ -12,6 +12,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+// 面板与全局上下文（工作区 / 工作模式 / 活动线程）的订阅接线；
+// 副作用引入一次即可，详见 stores/panelWiring.ts 的说明。
+import "./stores/panelWiring";
 import "./styles/index.css";
 
 // 创建 React 根节点并渲染。`as HTMLElement` 是因为 TS 无法确定 index.html 里一定有 #root。

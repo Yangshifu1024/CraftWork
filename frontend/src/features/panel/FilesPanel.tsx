@@ -23,8 +23,12 @@ import { Editor } from "./Editor";
  * - 输入关键字时改为平铺的文件列表（只匹配文件名，最多 200 条），便于快速定位。
  *
  * 目录展开状态、当前选中文件与 Git 变更标记都来自 workspace store。
+ *
+ * props.editorOpen：工作区有打开文件（selected 非空）时是否显示编辑器。
+ * file tab 的内容区传 true（编辑器属于该 tab）；面板没有激活 tab 时的
+ * 文件树兜底视图传 false，保证残留的 selected 不会把树顶掉。
  */
-export function FilesPanel() {
+export function FilesPanel({ editorOpen = true }: { editorOpen?: boolean }) {
   const tree = useWorkspaceStore((state) => state.tree);
   const expanded = useWorkspaceStore((state) => state.expanded);
   const filter = useWorkspaceStore((state) => state.filter);
@@ -69,7 +73,7 @@ export function FilesPanel() {
     return result.slice(0, 200);
   }, [filter, tree]);
 
-  if (selected) {
+  if (selected && editorOpen) {
     return <Editor />;
   }
 

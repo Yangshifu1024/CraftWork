@@ -1,12 +1,48 @@
 /**
  * 右侧面板的界面状态：是否展开、是否最大化、宽度、是否处于窄窗口，
- * 以及 Code / Work 两种模式各自记忆的当前标签页。
+ * 以及多标签页状态（tabs、激活项、最近关闭栈）。
  *
- * 面板不保存业务数据，只保存「怎么显示」；文件、文档、差异等数据在 workspace store 里。
+ * 职责边界：
+ * - tab 的类型与全部转移函数在 `lib/sidePane.ts`（纯函数库，可单测）；
+ * - 本文件是唯一编排者（写出口）：所有打开 / 关闭 / 激活入口都经这里
+ *   落账到「工作区记忆桶」，再把当前上下文可见的投影写给组件；组件层
+ *   只读状态，从不直接修改 tabs；
+ * - 面板不保存业务数据——文件内容、差异、文档、终端输出仍在 workspace
+ *   与 terminal store，tab 只记录「显示什么」。
+ *
+ * 分桶（对齐 ZCode Side Pane）：每个工作区一个记忆桶（tabs + 最近关闭 +
+ * 按线程记住的激活项与开合偏好），切换工作区整桶切换，互不串台；桶只在
+ * 内存（LRU 上限 50 个），tab 列表不持久化（重启后按入口重建，避免恢复
+ * 失效路径）。跨工作区的打开动作写回原工作区的桶，不污染当前视图。
  */
 import { create } from "zustand";
-import type { Mode, PanelTab } from "../lib/types";
+import {
+  activateTab as activateTabFn,
+  closeAllVisibleTabs,
+  closeOtherTabs as closeOtherTabsFn,
+  closeTab as closeTabFn,
+  emptySidePaneState,
+  enforceFileTabLimit,
+  makeDiffTab,
+  makeDocumentTab,
+  makeFileTab,
+  makeTerminalTab,
+  normalizeOwner,
+  openTab as openTabFn,
+  pruneThreadTabs,
+  pushRecentClosed,
+  reorderTabs as reorderTabsFn,
+  type SidePaneScope,
+  type SidePaneState,
+  type SidePaneTab,
+  TERMINAL_TAB_ID,
+  takeRecentClosed,
+  visibleActiveTabId,
+  visibleTabs,
+} from "../lib/sidePane";
 import { clamp } from "../lib/utils";
+import { useAppStore } from "./app";
+import { useThreadStore } from "./threads";
 
 /**
  * 面板宽度的合法区间（像素）。
@@ -18,10 +54,91 @@ export const PANEL_MIN_WIDTH = 320;
 /** 面板最大宽度（像素），避免在宽屏上挤压对话区。 */
 export const PANEL_MAX_WIDTH = 760;
 
+/** 工作区记忆桶：tab 状态与按线程记住的偏好。 */
+interface PaneBucket {
+  /** 该工作区的多 tab 状态（含其他线程的隐藏 tab）。 */
+  state: SidePaneState;
+  /** 「工作区::线程」到该上下文最后激活 tab 的映射，切回时恢复。 */
+  activeTabByThread: Record<string, string>;
+  /** 归一化线程 id 到用户显式设置的开合偏好（true = 收起）。 */
+  collapsedByThread: Record<string, boolean>;
+}
+
+/** 记忆桶数量上限：防止工作区数量增长后内存无限上涨。 */
+const BUCKET_LIMIT = 50;
+
+/** 所有工作区的记忆桶；Map 的插入顺序即 LRU 顺序（末尾最新）。 */
+const buckets = new Map<string, PaneBucket>();
+
+function newBucket(): PaneBucket {
+  return {
+    state: terminalOpen
+      ? { ...emptySidePaneState(), tabs: [makeTerminalTab({ threadId: null })] }
+      : emptySidePaneState(),
+    activeTabByThread: {},
+    collapsedByThread: {},
+  };
+}
+
+/**
+ * 终端 singleton 的全局开关。
+ *
+ * 终端是跨工作区、跨线程的公共 tab，而 tab 状态按工作区分桶存储——
+ * 如果只写进当前桶，切换工作区后终端 tab 会消失。因此「终端已打开」
+ * 用一个全局标志表示：打开时同步补进所有已存在的桶，新建桶时按标志
+ * 自带；关闭时从所有桶移除。各桶内的 tab 实例相互独立，激活记忆互不影响。
+ */
+let terminalOpen = false;
+
+/** 确保桶里带着终端 tab（终端已打开但该桶没有时补建）。 */
+function ensureTerminalTab(bucket: PaneBucket): PaneBucket {
+  if (!terminalOpen || bucket.state.tabs.some((tab) => tab.id === TERMINAL_TAB_ID)) {
+    return bucket;
+  }
+  bucket.state = { ...bucket.state, tabs: [...bucket.state.tabs, makeTerminalTab({ threadId: null })] };
+  return bucket;
+}
+
+/** 取工作区的记忆桶，读写都刷新 LRU 顺序；超过上限时淘汰最旧的桶。 */
+function bucketFor(workspaceId: string): PaneBucket {
+  const existing = buckets.get(workspaceId);
+  if (existing) {
+    buckets.delete(workspaceId);
+    buckets.set(workspaceId, existing);
+    return existing;
+  }
+  const created = newBucket();
+  buckets.set(workspaceId, created);
+  if (buckets.size > BUCKET_LIMIT) {
+    const oldest = buckets.keys().next().value;
+    if (oldest !== undefined) {
+      buckets.delete(oldest);
+    }
+  }
+  return created;
+}
+
+/** 从全局状态读取当前的面板作用域（工作区 + 归一化线程）。 */
+function currentScope(): SidePaneScope {
+  const app = useAppStore.getState();
+  return {
+    workspaceId: app.activeWorkspace?.id ?? "",
+    threadId: normalizeOwner(useThreadStore.getState().activeID[app.mode]),
+  };
+}
+
+/** 激活项记忆的键：工作区 + 线程。 */
+function ownerKey(scope: SidePaneScope): string {
+  return `${scope.workspaceId}::${scope.threadId}`;
+}
+
 /**
  * 面板 store 的状态与操作。
  *
- * 关键约束：面板关闭时一定不是最大化状态，避免下次打开时突然铺满对话区。
+ * 关键约束：
+ * - 面板关闭时一定不是最大化状态，避免下次打开时突然铺满对话区；
+ * - 「当前线程可见 tab 清空」时面板自动收起（并退出最大化）；
+ * - 打开类入口总是确保面板展开（沿用旧 setTab 的行为语义）。
  */
 interface PanelState {
   /** 面板是否可见。 */
@@ -32,11 +149,15 @@ interface PanelState {
   width: number;
   /** 当前是否处于窄窗口（由 AppShell 的媒体查询写入）。 */
   narrow: boolean;
-  /** 每种模式各自记住的标签页，切换模式时回到各自上次的位置。 */
-  tabs: Record<Mode, PanelTab>;
-  /** 设置右侧面板是否可见；关闭时同时退出最大化。 */
+  /** 当前工作区桶的全部 tab（含其他线程的隐藏 tab）。 */
+  tabs: SidePaneTab[];
+  /** 当前应显示的激活 tab（已经过可见性兜底）；null 表示没有激活 tab。 */
+  activeTabId: string | null;
+  /** 最近关闭栈（当前工作区桶的），新的在前。 */
+  recentClosed: SidePaneTab[];
+  /** 设置右侧面板是否可见；关闭时同时退出最大化并记住该线程的偏好。 */
   setOpen(open: boolean): void;
-  /** 翻转面板可见性；关闭时同时退出最大化。 */
+  /** 翻转面板可见性；关闭时同时退出最大化并记住该线程的偏好。 */
   toggle(): void;
   /** 设置最大化；最大化会自动展开面板。 */
   setMaximized(maximized: boolean): void;
@@ -44,32 +165,59 @@ interface PanelState {
   toggleMaximized(): void;
   /** 设置面板宽度，内部会夹取到合法区间。 */
   setWidth(width: number): void;
-  /** 响应窄窗口变化：进入窄窗口时收起面板，离开时自动展开。 */
+  /** 响应窄窗口变化：进入窄窗口时收起面板，离开时自动展开（临时态，不记偏好）。 */
   setNarrow(narrow: boolean): void;
-  /** 切换某个模式的标签页，并确保面板可见。 */
-  setTab(mode: Mode, tab: PanelTab): void;
+  /** 打开（或聚焦）一个文件 tab。 */
+  openFileTab(input: { folderId: string; path: string; title: string }): void;
+  /** 打开（或聚焦）一个文档 tab。 */
+  openDocumentTab(input: { folderId: string; path: string; title: string; kind: string }): void;
+  /** 打开（或聚焦）差异 singleton tab；差异内容由 workspace store 写入。 */
+  openDiffTab(title: string): void;
+  /** 打开（或聚焦）终端 singleton tab（全局公共，跨工作区、跨线程可见）。 */
+  openTerminalTab(): void;
+  /** 激活指定 tab 并记住它为当前上下文的激活项。 */
+  activateTab(tabId: string): void;
+  /** 关闭一个 tab；关闭的是激活项时自动激活邻居，可见集清空时收起面板。 */
+  closeTab(tabId: string): void;
+  /** 关闭当前上下文可见 tab 中除目标之外的全部（隐藏 tab 不受影响）。 */
+  closeOtherTabs(tabId: string): void;
+  /** 关闭当前上下文可见的全部 tab，面板收起。 */
+  closeAllTabs(): void;
+  /** 从最近关闭栈重开一个 tab；校验当前上下文可见，归属重置为当前线程。 */
+  reopenRecentClosed(tabId: string): void;
+  /** 清理某个线程名下的全部 tab（线程删除联动）；公共 tab 保留，不入最近关闭栈。 */
+  pruneThread(threadId: string): void;
+  /** 拖拽排序：把激活 tab 移动到目标 tab 的位置。 */
+  reorderTabs(activeTabId: string, overTabId: string): void;
+  /** 工作区 / 线程变化后的恢复：切桶、恢复激活项与该线程的开合偏好。 */
+  syncScope(): void;
 }
 
 /**
  * 右侧面板的状态容器。
  *
- * 初始状态：默认展开、非最大化、宽度取最小宽度 320，Code 模式停在「文件」、Work 模式停在「文档」。
+ * 初始状态：默认展开、非最大化、宽度取最小宽度 320、没有任何 tab
+ * （面板内容显示文件树兜底视图）。
  */
 export const usePanelStore = create<PanelState>((set, get) => ({
   open: true,
   maximized: false,
   width: PANEL_MIN_WIDTH,
   narrow: false,
-  tabs: { code: "files", work: "document" },
+  tabs: [],
+  activeTabId: null,
+  recentClosed: [],
 
-  // 关闭面板时必须清掉最大化标记，否则再次打开会直接铺满。
+  // 关闭面板时必须清掉最大化标记，否则再次打开会直接铺满；
+  // 显式开合都记入当前线程的偏好，切回该线程时恢复。
   setOpen(open) {
+    const scope = currentScope();
+    bucketFor(scope.workspaceId).collapsedByThread[scope.threadId] = !open;
     set({ open, maximized: open ? get().maximized : false });
   },
   // 翻转可见性，规则与 setOpen 一致。
   toggle() {
-    const next = !get().open;
-    set({ open: next, maximized: next ? get().maximized : false });
+    get().setOpen(!get().open);
   },
   // 最大化必然要求面板可见；取消最大化不改变可见性。
   setMaximized(maximized) {
@@ -89,7 +237,7 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     set({ width: clamp(width, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH) });
   },
   // 窄窗口下面板改为浮层，会遮住对话区，所以进入窄窗口时自动收起；
-  // 回到宽窗口时再自动展开，减少用户手动操作。值没变时直接返回，避免重复 set。
+  // 回到宽窗口时再自动展开。这是临时态，不写入线程偏好。
   setNarrow(narrow) {
     if (narrow === get().narrow) {
       return;
@@ -100,9 +248,219 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       set({ narrow, open: true });
     }
   },
-  // 切换标签页通常来自「打开文件 / 打开差异 / 打开文档」这类动作，
-  // 用户期望立刻看到面板，所以这里顺带把面板打开。
-  setTab(mode, tab) {
-    set((state) => ({ tabs: { ...state.tabs, [mode]: tab }, open: true }));
+
+  // 下面是 tab 写出口：统一「算新状态 → 写回桶 → 记激活项 → 投影给组件」。
+  openFileTab(input) {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const tab = makeFileTab({
+          workspaceId: scope.workspaceId,
+          threadId: scope.threadId,
+          folderId: input.folderId,
+          path: input.path,
+          title: input.title,
+        });
+        return enforceFileTabLimit(openTabFn(bucket.state, tab, scope)).state;
+      },
+      { ensureOpen: true },
+    );
+  },
+
+  openDocumentTab(input) {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const tab = makeDocumentTab({
+          workspaceId: scope.workspaceId,
+          threadId: scope.threadId,
+          folderId: input.folderId,
+          path: input.path,
+          title: input.title,
+          kind: input.kind,
+        });
+        return enforceFileTabLimit(openTabFn(bucket.state, tab, scope)).state;
+      },
+      { ensureOpen: true },
+    );
+  },
+
+  // 差异是 singleton：已存在时只刷新标题并聚焦，内容仍由 workspace store 写。
+  openDiffTab(title) {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const tab = makeDiffTab({ workspaceId: scope.workspaceId, threadId: scope.threadId, title });
+        return openTabFn(bucket.state, tab, scope);
+      },
+      { ensureOpen: true },
+    );
+  },
+
+  // 终端是全局公共 singleton：置全局标志并同步补进所有桶，当前桶聚焦。
+  openTerminalTab() {
+    terminalOpen = true;
+    for (const bucket of buckets.values()) {
+      ensureTerminalTab(bucket);
+    }
+    commitTabState(set, (bucket) => activateTabFn(bucket.state, TERMINAL_TAB_ID), { ensureOpen: true });
+  },
+
+  activateTab(tabId) {
+    commitTabState(set, (bucket) => activateTabFn(bucket.state, tabId));
+  },
+
+  closeTab(tabId) {
+    // 关闭终端 tab：全局标志复位，其他工作区的桶静默移除；当前桶交给
+    // 下面的统一提交（删除 + 入最近关闭栈 + 投影）。按裁决不终止 PTY
+    // 会话，重开终端 tab 时会话仍在（会话管理在终端面板内部）。
+    if (tabId === TERMINAL_TAB_ID && terminalOpen) {
+      terminalOpen = false;
+      const currentWs = useAppStore.getState().activeWorkspace?.id ?? "";
+      for (const [id, bucket] of buckets.entries()) {
+        if (id !== currentWs) {
+          bucket.state = closeTabFn(bucket.state, TERMINAL_TAB_ID).state;
+        }
+      }
+    }
+    commitTabState(
+      set,
+      (bucket) => {
+        const { state: next, removed } = closeTabFn(bucket.state, tabId);
+        if (removed.length === 0) {
+          return null;
+        }
+        return pushRecentClosed(next, removed);
+      },
+      { collapseOnEmpty: true },
+    );
+  },
+
+  closeOtherTabs(tabId) {
+    commitTabState(set, (bucket, scope) => {
+      const { state: next, removed } = closeOtherTabsFn(bucket.state, tabId, scope);
+      if (removed.length === 0) {
+        return null;
+      }
+      return next;
+    });
+  },
+
+  closeAllTabs() {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const { state: next, removed } = closeAllVisibleTabs(bucket.state, scope);
+        if (removed.length === 0) {
+          return null;
+        }
+        return next;
+      },
+      { collapseOnEmpty: true },
+    );
+  },
+
+  reopenRecentClosed(tabId) {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const { state: taken, tab } = takeRecentClosed(bucket.state, tabId, scope);
+        if (!tab) {
+          return null;
+        }
+        // 重开的 tab 归属重置为当前线程（spec 第 4 节），内容由渲染层按需重新加载。
+        const reopened: SidePaneTab = { ...tab, threadId: normalizeOwner(scope.threadId) };
+        return enforceFileTabLimit(openTabFn(taken, reopened, scope)).state;
+      },
+      { ensureOpen: true },
+    );
+  },
+
+  pruneThread(threadId) {
+    commitTabState(
+      set,
+      (bucket) => {
+        const { state: next, removed } = pruneThreadTabs(bucket.state, threadId);
+        if (removed.length === 0) {
+          return null;
+        }
+        // 被删 tab 的激活记忆一并清掉，避免切回时指向不存在的 tab。
+        for (const tab of removed) {
+          for (const [key, value] of Object.entries(bucket.activeTabByThread)) {
+            if (value === tab.id) {
+              delete bucket.activeTabByThread[key];
+            }
+          }
+        }
+        return next;
+      },
+      { collapseOnEmpty: true },
+    );
+  },
+
+  reorderTabs(activeTabId, overTabId) {
+    commitTabState(set, (bucket) => reorderTabsFn(bucket.state, activeTabId, overTabId));
+  },
+
+  // 工作区 / 线程切换后的恢复。tab 数据留在各自桶里，这里只负责：
+  // 1. 按记忆恢复该上下文的激活 tab；2. 恢复该线程的开合偏好；
+  // 3. 当前上下文没有任何可见 tab 时收起面板（沿用旧 tab 的空态语义）。
+  syncScope() {
+    const scope = currentScope();
+    const bucket = bucketFor(scope.workspaceId);
+    const remembered = bucket.activeTabByThread[ownerKey(scope)];
+    const exists = (id: string | null) => (id ? bucket.state.tabs.some((tab) => tab.id === id) : false);
+    let activeTabId = bucket.state.activeTabId;
+    if (remembered && exists(remembered)) {
+      activeTabId = remembered;
+    } else if (!exists(activeTabId)) {
+      activeTabId = null;
+    }
+    bucket.state = { ...bucket.state, activeTabId };
+    const visible = visibleTabs(bucket.state, scope);
+    const preference = bucket.collapsedByThread[scope.threadId];
+    set({
+      tabs: bucket.state.tabs,
+      activeTabId: visibleActiveTabId(bucket.state, scope),
+      recentClosed: bucket.state.recentClosed,
+      open: preference !== undefined ? !preference : visible.length === 0 ? false : get().open,
+      ...(visible.length === 0 ? { maximized: false } : {}),
+    });
   },
 }));
+
+/**
+ * tab 写出口的统一编排骨架：拿到当前桶 → 用纯函数算出新状态 → 写回桶并
+ * 记住激活项 → 把「当前上下文可见」的投影写给组件。
+ *
+ * mutate 返回 null 表示没有变化（如关闭不存在的 tab），整次提交作废。
+ */
+function commitTabState(
+  set: (patch: Partial<PanelState>) => void,
+  mutate: (bucket: PaneBucket, scope: SidePaneScope) => SidePaneState | null,
+  options?: { collapseOnEmpty?: boolean; ensureOpen?: boolean },
+): void {
+  const scope = currentScope();
+  const bucket = bucketFor(scope.workspaceId);
+  const next = mutate(bucket, scope);
+  if (!next) {
+    return;
+  }
+  bucket.state = next;
+  if (next.activeTabId) {
+    bucket.activeTabByThread[ownerKey(scope)] = next.activeTabId;
+  }
+  const patch: Partial<PanelState> = {
+    tabs: next.tabs,
+    activeTabId: visibleActiveTabId(next, scope),
+    recentClosed: next.recentClosed,
+  };
+  if (options?.ensureOpen) {
+    patch.open = true;
+  }
+  if (options?.collapseOnEmpty && visibleTabs(next, scope).length === 0) {
+    patch.open = false;
+    patch.maximized = false;
+  }
+  set(patch);
+}

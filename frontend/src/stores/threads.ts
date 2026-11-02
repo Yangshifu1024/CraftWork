@@ -22,6 +22,7 @@ import type {
 } from "../lib/types";
 import { isImagePath, matchModelInfo, uid } from "../lib/utils";
 import { useAppStore } from "./app";
+import { usePanelStore } from "./panel";
 import { reduceThread, updateThread } from "./threadReducer";
 import { useUiStore } from "./ui";
 
@@ -396,6 +397,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
    */
   async remove(threadID) {
     await api.threads.remove(threadID);
+    // 该线程名下的面板 tab 一并清理（spec 第 3 节：不入最近关闭栈）。
+    usePanelStore.getState().pruneThread(threadID);
     const mode = useAppStore.getState().mode;
     await get().refresh(mode);
     if (get().activeID[mode] === threadID) {

@@ -99,6 +99,60 @@
   flex: none;
 }
 
+/* 多标签页：tab 条上的单个 tab = 主按钮（图标 + 标题）+ 关闭按钮。 */
+.panel-tab.is-tab {
+  padding: 0 4px 0 9px;
+}
+.panel-tab .panel-tab-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.panel-tab .panel-tab-title {
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-tab .panel-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-4);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.panel-tab .panel-tab-close .ico {
+  width: 10px;
+  height: 10px;
+}
+.panel-tab:hover .panel-tab-close,
+.panel-tab.is-active .panel-tab-close,
+.panel-tab:focus-within .panel-tab-close {
+  opacity: 1;
+}
+.panel-tab .panel-tab-close:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
 .panel-body {
   min-height: 0;
   overflow: hidden;

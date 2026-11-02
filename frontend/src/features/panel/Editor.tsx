@@ -26,7 +26,10 @@ import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { Icon } from "../../components/Icon";
 import { copyText } from "../../lib/clipboard";
+import { fileTabId } from "../../lib/sidePane";
 import { cn, formatBytes } from "../../lib/utils";
+import { useAppStore } from "../../stores/app";
+import { usePanelStore } from "../../stores/panel";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
 
@@ -225,7 +228,22 @@ export function Editor() {
           <span className="badge neutral">{content.language}</span>
         </div>
         <div className="editor-actions">
-          <button type="button" className="icon-btn sm" title="关闭文件" aria-label="关闭文件" onClick={closeFile}>
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="关闭文件"
+            aria-label="关闭文件"
+            onClick={() => {
+              // 编辑器现在挂在 file tab 里：关闭文件同时关闭对应 tab，
+              // 避免树里残留一个已关闭的 tab。
+              closeFile();
+              usePanelStore
+                .getState()
+                .closeTab(
+                  fileTabId(useAppStore.getState().activeWorkspace?.id ?? "", content.folderId ?? "", content.path),
+                );
+            }}
+          >
             <Icon name="x" className="ico" />
           </button>
         </div>

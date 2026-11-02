@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
 import type { DiffResult, DocumentPreview, FileContent, FileNode, WorkspaceView } from "../lib/types";
+import { basename } from "../lib/utils";
 import { useAppStore } from "./app";
 import { usePanelStore } from "./panel";
 import { useUiStore } from "./ui";
@@ -105,6 +106,8 @@ interface WorkspaceState {
   setFilter(value: string): void;
   /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容。 */
   openFile(folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
+  /** 读取文件内容进编辑器数据槽（不负责面板 tab）；供 tab 切换时按需重载。 */
+  loadFileContent(folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
   /** 打开文件并定位到指定行；路径先按主要目录解析，失败时跨源文件夹唯一匹配。 */
   openFileAt(path: string, line: number | null): Promise<void>;
   /** 关闭当前文件并清空草稿。 */
@@ -199,6 +202,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 打开文件：Office 与 PDF 不在编辑器里显示文本，而是走文档预览；
   // 文档预览目前只在 Work 模式提供，Code 模式下给出提示而不是静默失败。
   // 返回是否成功打开，供带行号定位的入口决定是否走短路径解析兜底。
+  //
+  // tab 层的事情交给 panel store：文件开 tab、文档由 openDocument 开 tab，
+  // 本方法只负责内容与数据槽。
   async openFile(folderID, path, options) {
     const id = workspaceID();
     if (!id) {
@@ -209,7 +215,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const mode = useAppStore.getState().mode;
       if (mode === "work") {
         await get().openDocument(folderID, path);
-        usePanelStore.getState().setTab("work", "document");
         return true;
       }
       useUiStore.getState().toast({
@@ -219,11 +224,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
       return false;
     }
+    const opened = await get().loadFileContent(folderID, path, options);
+    if (opened) {
+      // 从正文链接等入口打开时，确保右侧面板出现该文件的 tab 并展开面板。
+      usePanelStore.getState().openFileTab({ folderId: folderID, path, title: basename(path) });
+    }
+    return opened;
+  },
+
+  // 读取文件内容进编辑器数据槽（openFile 的读取部分）。
+  // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑；
+  // targetLine 在这里复位：正常打开文件不需要定位，带行号的入口
+  // （openFileAt）会在内容就绪后重新设置。
+  // 面板多 tab 之下切回一个 file tab 时，渲染层发现槽内不是该文件，
+  // 会调用本方法重新读取。
+  async loadFileContent(folderID, path, options) {
+    const id = workspaceID();
+    if (!id) {
+      return false;
+    }
     try {
       const content = await api.workspace.readFile(id, folderID, path);
-      // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑。
-      // targetLine 在这里复位：正常打开文件不需要定位；带行号的入口
-      // （openFileAt）会在内容就绪后重新设置。
       set({
         selected: path,
         content,
@@ -231,9 +252,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         editorMode: "read",
         targetLine: null,
       });
-      // 从正文链接等入口打开时，确保右侧面板切到文件页签并展开；
-      // setTab 自带 open: true，面板关闭时会被同时唤起。
-      usePanelStore.getState().setTab(useAppStore.getState().mode, "files");
       return true;
     } catch (error) {
       // 静默模式用于短路径兜底的第一跳：失败后还有解析重试，不打扰用户。
@@ -339,9 +357,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  // 打开差异：先让后端计算差异，结果写入 store 后把右侧面板切到差异标签页。
-  // 视图方式沿用上一次的选择，默认统一视图。差异在打开时记录所属工作区，
-  // 应用写入时显式传回，不依赖「当前激活工作区」。
+  // 打开差异：先让后端计算差异，结果写入 store 后在面板里聚焦差异 tab
+  // （singleton：已存在时只刷新标题并聚焦）。视图方式沿用上一次的选择，
+  // 默认统一视图。差异在打开时记录所属工作区，应用写入时显式传回，
+  // 不依赖「当前激活工作区」。
   async openDiff(title, oldText, newText) {
     const result = await api.workspace.computeDiff(oldText, newText);
     set({
@@ -354,7 +373,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspaceId: workspaceID(),
       },
     });
-    usePanelStore.getState().setTab(useAppStore.getState().mode, "diff");
+    usePanelStore.getState().openDiffTab(title);
   },
 
   // 应用差异属于覆盖写入，必须先确认；确认后整份写入新内容（不带 hash，表示允许覆盖），
@@ -395,6 +414,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   // 文档预览期间置 docLoading，让面板显示加载态；失败时清标记并提示。
+  // 预览成功后在面板里打开（或聚焦）对应的文档 tab，类型取自预览结果。
   async openDocument(folderID, path) {
     const id = workspaceID();
     if (!id) {
@@ -404,6 +424,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const doc = await api.documents.preview(id, folderID, path);
       set({ doc, docLoading: false });
+      usePanelStore.getState().openDocumentTab({
+        folderId: folderID,
+        path,
+        title: basename(path),
+        kind: doc.kind,
+      });
     } catch (error) {
       set({ docLoading: false });
       useUiStore.getState().toast({ title: "读取文档失败", description: String(error), tone: "danger" });
