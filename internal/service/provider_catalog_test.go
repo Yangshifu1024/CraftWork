@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/model"
 )
 
 func TestCatalogMetadataAndProviders(t *testing.T) {

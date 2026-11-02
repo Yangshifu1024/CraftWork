@@ -18,7 +18,7 @@ import * as $models from "./models.js";
  * Add 添加并尝试连接一个 MCP 服务器。
  */
 export function Add(name: string, commandLine: string): $CancellablePromise<$models.MCPServerView> {
-    return $Call.ByID(2782173896, name, commandLine);
+    return $Call.ByID(521106193, name, commandLine);
 }
 
 /**
@@ -29,33 +29,33 @@ export function Add(name: string, commandLine: string): $CancellablePromise<$mod
  * 并把每个工具的适配器注册到工具注册表。
  */
 export function Connect(serverID: string): $CancellablePromise<$models.MCPServerView> {
-    return $Call.ByID(3286009253, serverID);
+    return $Call.ByID(587362216, serverID);
 }
 
 /**
  * Disconnect 断开服务器并移除其工具。
  */
 export function Disconnect(serverID: string): $CancellablePromise<void> {
-    return $Call.ByID(685233799, serverID);
+    return $Call.ByID(2086807084, serverID);
 }
 
 /**
  * List 返回所有 MCP 服务器与工具状态。
  */
 export function List(): $CancellablePromise<$models.MCPServerView[] | null> {
-    return $Call.ByID(2360160541);
+    return $Call.ByID(2413762918);
 }
 
 /**
  * Remove 断开并删除一个服务器。
  */
 export function Remove(serverID: string): $CancellablePromise<void> {
-    return $Call.ByID(2046778689, serverID);
+    return $Call.ByID(629490190, serverID);
 }
 
 /**
  * Restore 在启动时连接启用的服务器。失败只记录在视图里，不阻塞窗口。
  */
 export function Restore(): $CancellablePromise<void> {
-    return $Call.ByID(3000161253);
+    return $Call.ByID(988893296);
 }

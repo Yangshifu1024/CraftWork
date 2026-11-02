@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/version"
+	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
 // newTestAppService 创建使用临时数据目录的应用服务，返回服务与附件目录。

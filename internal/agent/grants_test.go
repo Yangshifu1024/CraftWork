@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 func newTestGrants(t *testing.T) (*Grants, *store.DB) {

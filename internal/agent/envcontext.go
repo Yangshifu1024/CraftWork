@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"craftwork/internal/agent/prompt"
-	"craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/agent/prompt"
+	"github.com/yangshifu1024/craftwork/internal/platform"
 )
 
 const (

@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/model"
 )
 
 func TestConnectionRequestUsesProtocolHeaders(t *testing.T) {

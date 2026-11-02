@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/id"
 )
 
 // maxSSELineBytes 是单条 SSE 行的上限（4 MB），避免异常超长的事件把内存撑爆。

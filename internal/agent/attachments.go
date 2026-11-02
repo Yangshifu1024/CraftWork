@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"craftwork/internal/model"
-	"craftwork/internal/policy"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // 附件读取限制。超过限制的附件不会读取内容，只在结果里标记跳过原因。

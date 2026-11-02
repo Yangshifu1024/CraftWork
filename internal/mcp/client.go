@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/platform"
 )
 
 // 客户端的时间与容量限制：握手较快，普通请求更宽松，

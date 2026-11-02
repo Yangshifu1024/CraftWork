@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 type stubTool struct {

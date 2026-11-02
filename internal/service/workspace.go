@@ -13,13 +13,13 @@ import (
 	"sort"
 	"strings"
 
-	"craftwork/internal/editor"
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/editor"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

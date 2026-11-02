@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // Fact 是审批卡片上展示的一条事实。

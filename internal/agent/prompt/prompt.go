@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/model"
 )
 
 // Hint 标记一节内容的变化频率，决定它进入哪个缓存层。

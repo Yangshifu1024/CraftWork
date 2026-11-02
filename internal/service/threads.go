@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"strings"
 
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/model"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
 
-	threadtitle "craftwork/internal/title"
+	threadtitle "github.com/yangshifu1024/craftwork/internal/title"
 )
 
 // ThreadView 是会话列表使用的扁平结构。

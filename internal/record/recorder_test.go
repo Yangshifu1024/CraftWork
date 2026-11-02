@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"craftwork/internal/events"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 func newRecorder(t *testing.T) (*Recorder, *store.DB, *[]string) {

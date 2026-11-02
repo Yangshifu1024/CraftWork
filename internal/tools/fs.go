@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // ---------- fs_list ----------

@@ -11,9 +11,9 @@ import (
 	"os/exec"
 	"sync"
 
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 
 	"github.com/creack/pty"
 )

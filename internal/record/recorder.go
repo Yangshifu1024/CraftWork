@@ -9,8 +9,8 @@ package record
 import (
 	"log/slog"
 
-	"craftwork/internal/events"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // partEvents 是持久化部件类型与前端完成事件的对应关系。

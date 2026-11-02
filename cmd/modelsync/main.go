@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"craftwork/internal/model/catalogdata"
+	"github.com/yangshifu1024/craftwork/internal/model/catalogdata"
 )
 
 // sourceLicense 是 models.dev 的许可证标识。完整文本写在 THIRD_PARTY_NOTICES.md。

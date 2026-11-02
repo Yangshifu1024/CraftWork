@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"craftwork/internal/doc"
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/doc"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // DocumentPreview 是文档预览的返回结构。

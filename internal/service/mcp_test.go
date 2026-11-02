@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/events"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 func TestSplitCommandLine(t *testing.T) {

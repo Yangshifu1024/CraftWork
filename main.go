@@ -8,8 +8,8 @@ import (
 	"embed"
 	"log"
 
-	"craftwork/internal/app"
-	"craftwork/internal/version"
+	"github.com/yangshifu1024/craftwork/internal/app"
+	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
 // frontend/dist 由 `wails3 build` 或 `npm run build` 生成。

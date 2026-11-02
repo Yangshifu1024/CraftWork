@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/model"
 )
 
 func TestEstimateMessageTokens(t *testing.T) {

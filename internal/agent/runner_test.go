@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"craftwork/internal/events"
-	"craftwork/internal/model"
-	"craftwork/internal/policy"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 type fakeFactory struct{ client model.Client }

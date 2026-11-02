@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"craftwork/internal/events"
-	"craftwork/internal/model"
-	"craftwork/internal/store"
-	"craftwork/internal/title"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/title"
 )
 
 // titleRequestTimeout 是标题模型调用的最长等待时间。超时后使用本地降级标题。

@@ -19,9 +19,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"craftwork/internal/id"
-	"craftwork/internal/policy"
-	"craftwork/internal/version"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/version"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

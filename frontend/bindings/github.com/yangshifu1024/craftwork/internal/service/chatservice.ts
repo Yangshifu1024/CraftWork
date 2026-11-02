@@ -14,7 +14,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
  * Cancel 停止会话上的 run；审批清理与会话状态回收都由 Runner 负责。
  */
 export function Cancel(threadID: string): $CancellablePromise<boolean> {
-    return $Call.ByID(2214885029, threadID);
+    return $Call.ByID(1662765244, threadID);
 }
 
 /**
@@ -24,14 +24,14 @@ export function Cancel(threadID: string): $CancellablePromise<boolean> {
  * 服务层只做进程间通信（IPC）参数的非空校验。
  */
 export function DecideApproval(approvalID: string, allow: boolean, scope: string): $CancellablePromise<void> {
-    return $Call.ByID(3885596832, approvalID, allow, scope);
+    return $Call.ByID(1808272193, approvalID, allow, scope);
 }
 
 /**
  * Regenerate 基于当前历史重新生成回复，不重复写入用户消息。
  */
 export function Regenerate(threadID: string): $CancellablePromise<string> {
-    return $Call.ByID(1920197013, threadID);
+    return $Call.ByID(340617876, threadID);
 }
 
 /**
@@ -41,7 +41,7 @@ export function Regenerate(threadID: string): $CancellablePromise<string> {
  * 读取前会经 policy.Resolve 校验工作区边界并施加大小限制。
  */
 export function Send(threadID: string, text: string, attachments: string[] | null): $CancellablePromise<string> {
-    return $Call.ByID(3272373685, threadID, text, attachments);
+    return $Call.ByID(1726764348, threadID, text, attachments);
 }
 
 /**

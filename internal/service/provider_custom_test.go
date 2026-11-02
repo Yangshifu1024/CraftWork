@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/model"
-	"craftwork/internal/secret"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/secret"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 func newProviderService(t *testing.T) (*ProviderService, *secret.Store) {

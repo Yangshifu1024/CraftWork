@@ -13,10 +13,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/model"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 const (

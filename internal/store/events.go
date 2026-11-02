@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/id"
 )
 
 // AppendEvent 在事务内分配会话内单调递增的 seq 并写入事件。

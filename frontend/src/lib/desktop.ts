@@ -7,16 +7,16 @@
  * 浏览器预览使用 mock.ts 的同一套接口，因此这里只做「形状对齐」，
  * 不承载业务规则；参数校验、权限与审计都在 Go 侧完成。
  */
-import * as AppService from "../../bindings/craftwork/internal/service/appservice";
-import * as AuditService from "../../bindings/craftwork/internal/service/auditservice";
-import * as ChatService from "../../bindings/craftwork/internal/service/chatservice";
-import * as DocumentService from "../../bindings/craftwork/internal/service/documentservice";
-import * as MCPService from "../../bindings/craftwork/internal/service/mcpservice";
-import * as ProviderService from "../../bindings/craftwork/internal/service/providerservice";
-import * as SettingsService from "../../bindings/craftwork/internal/service/settingsservice";
-import * as TerminalService from "../../bindings/craftwork/internal/service/terminalservice";
-import * as ThreadService from "../../bindings/craftwork/internal/service/threadservice";
-import * as WorkspaceService from "../../bindings/craftwork/internal/service/workspaceservice";
+import * as AppService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/appservice";
+import * as AuditService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/auditservice";
+import * as ChatService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/chatservice";
+import * as DocumentService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/documentservice";
+import * as MCPService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/mcpservice";
+import * as ProviderService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/providerservice";
+import * as SettingsService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/settingsservice";
+import * as TerminalService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/terminalservice";
+import * as ThreadService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/threadservice";
+import * as WorkspaceService from "../../bindings/github.com/yangshifu1024/craftwork/internal/service/workspaceservice";
 import type { DiffResult, ProviderView, ThreadSnapshot, UsageSummary } from "./types";
 
 /** 一份空的用量计数，用作汇总对象里各时间段的初始值。 */

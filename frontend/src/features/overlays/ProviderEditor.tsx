@@ -8,7 +8,7 @@
  * 填写后与提供商配置一起保存，明文只写入 Go 侧的 keys.json。
  */
 import { useState } from "react";
-import type { Capabilities, Cost } from "../../../bindings/craftwork/internal/model";
+import type { Capabilities, Cost } from "../../../bindings/github.com/yangshifu1024/craftwork/internal/model";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
 import type { ModelView, ProviderInput, ProviderView } from "../../lib/types";

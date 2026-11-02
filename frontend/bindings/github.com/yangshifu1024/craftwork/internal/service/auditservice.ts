@@ -18,14 +18,14 @@ import * as store$0 from "../store/models.js";
  * Backups 返回最近的备份记录。
  */
 export function Backups(limit: number): $CancellablePromise<store$0.Backup[] | null> {
-    return $Call.ByID(1703598537, limit);
+    return $Call.ByID(2268858460, limit);
 }
 
 /**
  * List 返回最近的审计记录。
  */
 export function List(limit: number): $CancellablePromise<store$0.AuditEntry[] | null> {
-    return $Call.ByID(2712556738, limit);
+    return $Call.ByID(2654615545, limit);
 }
 
 /**
@@ -35,12 +35,12 @@ export function List(limit: number): $CancellablePromise<store$0.AuditEntry[] | 
  * 写回后追加一条允许类审计记录，保证恢复动作同样可追溯。
  */
 export function Restore(backupID: string): $CancellablePromise<void> {
-    return $Call.ByID(2972456804, backupID);
+    return $Call.ByID(1918277833, backupID);
 }
 
 /**
  * Usage 返回用量聚合。
  */
 export function Usage(): $CancellablePromise<store$0.UsageSummary | null> {
-    return $Call.ByID(2498683233);
+    return $Call.ByID(3928758224);
 }

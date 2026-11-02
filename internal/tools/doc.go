@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"craftwork/internal/doc"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/doc"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // ---------- doc_read ----------

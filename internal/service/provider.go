@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"craftwork/internal/id"
-	"craftwork/internal/model"
-	"craftwork/internal/secret"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/secret"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // customProvidersKey 是自定义提供商配置在设置表中的键名。

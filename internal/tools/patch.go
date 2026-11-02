@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // hunkHeaderPattern 匹配 @@ -旧起始,旧行数 +新起始,新行数 @@ 形式的块头，

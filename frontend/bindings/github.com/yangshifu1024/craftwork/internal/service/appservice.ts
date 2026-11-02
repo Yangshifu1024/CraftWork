@@ -18,21 +18,21 @@ import * as $models from "./models.js";
  * CloseWindow 关闭主窗口。
  */
 export function CloseWindow(): $CancellablePromise<void> {
-    return $Call.ByID(1071028650);
+    return $Call.ByID(703927735);
 }
 
 /**
  * Info 返回构建与运行环境信息。
  */
 export function Info(): $CancellablePromise<$models.AppInfo> {
-    return $Call.ByID(471594386);
+    return $Call.ByID(1054603953);
 }
 
 /**
  * MinimiseWindow 最小化主窗口。
  */
 export function MinimiseWindow(): $CancellablePromise<void> {
-    return $Call.ByID(3501908991);
+    return $Call.ByID(1190837656);
 }
 
 /**
@@ -42,14 +42,14 @@ export function MinimiseWindow(): $CancellablePromise<void> {
  * 协议一律拒绝，避免把 WebView 变成任意代码或本地文件的执行入口。
  */
 export function OpenExternal(rawURL: string): $CancellablePromise<void> {
-    return $Call.ByID(3678705273, rawURL);
+    return $Call.ByID(1879480218, rawURL);
 }
 
 /**
  * PickFiles 打开系统文件选择对话框，返回选中的文件路径。
  */
 export function PickFiles(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(874456146);
+    return $Call.ByID(2444368459);
 }
 
 /**
@@ -61,14 +61,14 @@ export function PickFiles(): $CancellablePromise<string[] | null> {
  * 返回 base64 而不是文件路径，避免 WebView 直接加载 file:// 地址。
  */
 export function ReadAttachment(path: string): $CancellablePromise<$models.AttachmentContent | null> {
-    return $Call.ByID(1941472719, path);
+    return $Call.ByID(2176959020, path);
 }
 
 /**
  * ReadClipboard 读取系统剪贴板文本。
  */
 export function ReadClipboard(): $CancellablePromise<string> {
-    return $Call.ByID(4212679244);
+    return $Call.ByID(215936997);
 }
 
 /**
@@ -82,19 +82,19 @@ export function ReadClipboard(): $CancellablePromise<string> {
  * 文件名跳出目录。
  */
 export function SavePastedAttachment(name: string, content: string): $CancellablePromise<string> {
-    return $Call.ByID(96209703, name, content);
+    return $Call.ByID(164903844, name, content);
 }
 
 /**
  * ToggleMaximiseWindow 在最大化与还原之间切换主窗口。
  */
 export function ToggleMaximiseWindow(): $CancellablePromise<void> {
-    return $Call.ByID(2424225053);
+    return $Call.ByID(4197629162);
 }
 
 /**
  * WriteClipboard 写入系统剪贴板，返回是否成功。
  */
 export function WriteClipboard(text: string): $CancellablePromise<boolean> {
-    return $Call.ByID(2318822273, text);
+    return $Call.ByID(1709035470, text);
 }

@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"craftwork/internal/agent/prompt"
-	"craftwork/internal/events"
-	"craftwork/internal/id"
-	"craftwork/internal/model"
-	"craftwork/internal/policy"
-	"craftwork/internal/record"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/agent/prompt"
+	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/record"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 const (

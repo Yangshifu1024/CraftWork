@@ -19,7 +19,7 @@ import * as $models from "./models.js";
  * Close 关闭终端并释放进程组。
  */
 export function Close(sessionID: string): $CancellablePromise<void> {
-    return $Call.ByID(2427281371, sessionID);
+    return $Call.ByID(1507936104, sessionID);
 }
 
 /**
@@ -29,26 +29,26 @@ export function Close(sessionID: string): $CancellablePromise<void> {
  * 未设置时回退到 /bin/zsh。
  */
 export function Create(name: string, cwd: string): $CancellablePromise<$models.TerminalView> {
-    return $Call.ByID(3388481061, name, cwd);
+    return $Call.ByID(2645978144, name, cwd);
 }
 
 /**
  * List 返回所有终端会话。
  */
 export function List(): $CancellablePromise<$models.TerminalView[] | null> {
-    return $Call.ByID(2677513833);
+    return $Call.ByID(164930812);
 }
 
 /**
  * Resize 同步终端尺寸。
  */
 export function Resize(sessionID: string, cols: number, rows: number): $CancellablePromise<void> {
-    return $Call.ByID(1553521193, sessionID, cols, rows);
+    return $Call.ByID(1212585772, sessionID, cols, rows);
 }
 
 /**
  * Write 向终端写入用户输入。
  */
 export function Write(sessionID: string, data: string): $CancellablePromise<void> {
-    return $Call.ByID(4041283812, sessionID, data);
+    return $Call.ByID(1262502339, sessionID, data);
 }

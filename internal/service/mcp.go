@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"craftwork/internal/id"
-	"craftwork/internal/mcp"
-	"craftwork/internal/store"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/id"
+	"github.com/yangshifu1024/craftwork/internal/mcp"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 // mcpServersKey 是 MCP 服务器配置在设置表中的键名。

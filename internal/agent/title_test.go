@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"craftwork/internal/model"
-	"craftwork/internal/store"
-	"craftwork/internal/title"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/title"
 )
 
 // titleClient 返回固定的标题文本，用于验证模型生成路径。

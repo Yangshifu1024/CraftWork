@@ -24,5 +24,5 @@ import * as $models from "./models.js";
  * 二进制文件只返回元数据。文本超过 8000 字节时截断并提示。
  */
 export function Preview(workspaceID: string, rel: string): $CancellablePromise<$models.DocumentPreview> {
-    return $Call.ByID(3358792688, workspaceID, rel);
+    return $Call.ByID(3099938467, workspaceID, rel);
 }

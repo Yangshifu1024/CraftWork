@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"craftwork/internal/policy"
-	"craftwork/internal/tools"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/tools"
 )
 
 // DynamicTool 把 MCP 工具适配成 Agent 可调用的工具。

@@ -22,7 +22,7 @@ import * as $models from "./models.js";
  * Archive 归档或取消归档会话。
  */
 export function Archive(threadID: string, archived: boolean): $CancellablePromise<void> {
-    return $Call.ByID(1122520545, threadID, archived);
+    return $Call.ByID(1758647230, threadID, archived);
 }
 
 /**
@@ -34,35 +34,35 @@ export function Archive(threadID: string, archived: boolean): $CancellablePromis
  * 工作区，避免产生运行时 workspace_missing 的悬挂绑定。
  */
 export function Create(mode: string, workspaceID: string, title: string): $CancellablePromise<$models.ThreadView> {
-    return $Call.ByID(2983213081, mode, workspaceID, title);
+    return $Call.ByID(4230047060, mode, workspaceID, title);
 }
 
 /**
  * Delete 删除会话及其事件。运行中的会话必须先取消。
  */
 export function Delete(threadID: string): $CancellablePromise<void> {
-    return $Call.ByID(2149113198, threadID);
+    return $Call.ByID(1136255211, threadID);
 }
 
 /**
  * List 列出指定模式的会话。
  */
 export function List(mode: string, includeArchived: boolean): $CancellablePromise<$models.ThreadView[] | null> {
-    return $Call.ByID(4238566293, mode, includeArchived);
+    return $Call.ByID(1026695416, mode, includeArchived);
 }
 
 /**
  * Rename 修改会话标题。
  */
 export function Rename(threadID: string, title: string): $CancellablePromise<void> {
-    return $Call.ByID(596126087, threadID, title);
+    return $Call.ByID(2636810770, threadID, title);
 }
 
 /**
  * Search 按标题与内容搜索会话。
  */
 export function Search(mode: string, query: string): $CancellablePromise<$models.ThreadView[] | null> {
-    return $Call.ByID(69353813, mode, query);
+    return $Call.ByID(2654949356, mode, query);
 }
 
 /**
@@ -71,14 +71,14 @@ export function Search(mode: string, query: string): $CancellablePromise<$models
  * 传入的可以是完整引用或旧的原始模型 ID；保存时统一写成引用。
  */
 export function SetModel(threadID: string, modelID: string): $CancellablePromise<void> {
-    return $Call.ByID(3968477436, threadID, modelID);
+    return $Call.ByID(1076306989, threadID, modelID);
 }
 
 /**
  * Snapshot 返回会话消息、待审批与最后事件序号。
  */
 export function Snapshot(threadID: string): $CancellablePromise<store$0.Snapshot | null> {
-    return $Call.ByID(1683354009, threadID);
+    return $Call.ByID(2616751108, threadID);
 }
 
 /**
@@ -88,5 +88,5 @@ export function Snapshot(threadID: string): $CancellablePromise<store$0.Snapshot
  * 会被限制在 1–500 之间，避免一次拉取过多数据。
  */
 export function SnapshotPage(threadID: string, limit: number, beforeSeq: number): $CancellablePromise<store$0.Snapshot | null> {
-    return $Call.ByID(3197835994, threadID, limit, beforeSeq);
+    return $Call.ByID(4098810111, threadID, limit, beforeSeq);
 }

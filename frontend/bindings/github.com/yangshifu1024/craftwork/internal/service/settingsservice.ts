@@ -21,7 +21,7 @@ import * as $models from "./models.js";
  * 指向已删除提供商的模型会返回空，而不是回退到别的模型。
  */
 export function Get(): $CancellablePromise<$models.Settings> {
-    return $Call.ByID(3874722568);
+    return $Call.ByID(218487027);
 }
 
 /**
@@ -31,5 +31,5 @@ export function Get(): $CancellablePromise<$models.Settings> {
  * 一个坏字段就整体保存失败；涉及工作区与模型时才做真实校验。
  */
 export function Save(next: $models.Settings): $CancellablePromise<$models.Settings> {
-    return $Call.ByID(2201703545, next);
+    return $Call.ByID(2085171860, next);
 }

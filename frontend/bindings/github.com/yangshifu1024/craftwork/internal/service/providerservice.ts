@@ -18,14 +18,14 @@ import * as $models from "./models.js";
  * CatalogMeta 返回嵌入目录的版本、来源与规模。
  */
 export function CatalogMeta(): $CancellablePromise<$models.CatalogMeta> {
-    return $Call.ByID(2637557910);
+    return $Call.ByID(845080109);
 }
 
 /**
  * CatalogModels 返回指定提供商下的全部对话模型。
  */
 export function CatalogModels(providerID: string): $CancellablePromise<$models.CatalogModelView[] | null> {
-    return $Call.ByID(2343350625, providerID);
+    return $Call.ByID(3685689186, providerID);
 }
 
 /**
@@ -34,35 +34,35 @@ export function CatalogModels(providerID: string): $CancellablePromise<$models.C
  * 列表只描述“可以添加什么”，不会自动创建提供商；Added 用于界面提示。
  */
 export function CatalogProviders(query: string): $CancellablePromise<$models.CatalogProviderView[] | null> {
-    return $Call.ByID(3879434027, query);
+    return $Call.ByID(1962252978, query);
 }
 
 /**
  * ClearKey 删除提供商密钥。
  */
 export function ClearKey(providerID: string): $CancellablePromise<void> {
-    return $Call.ByID(967130656, providerID);
+    return $Call.ByID(3202153705, providerID);
 }
 
 /**
  * DeleteProvider 删除用户配置并同时删除密钥。
  */
 export function DeleteProvider(providerID: string): $CancellablePromise<void> {
-    return $Call.ByID(3565237198, providerID);
+    return $Call.ByID(1468111143, providerID);
 }
 
 /**
  * ImportFromCatalog 把选中的目录提供商与模型保存为普通的用户配置。
  */
 export function ImportFromCatalog(input: $models.CatalogImportInput): $CancellablePromise<$models.ProviderView> {
-    return $Call.ByID(4201916636, input);
+    return $Call.ByID(1417117219, input);
 }
 
 /**
  * List 返回用户添加的提供商与模型。密钥只返回来源与遮罩。
  */
 export function List(): $CancellablePromise<$models.ProviderView[] | null> {
-    return $Call.ByID(2902708572);
+    return $Call.ByID(2534059137);
 }
 
 /**
@@ -72,33 +72,33 @@ export function List(): $CancellablePromise<$models.ProviderView[] | null> {
  * 多个提供商都有该模型时要求调用方明确提供商，避免静默补错元数据。
  */
 export function LookupCatalogModel(providerID: string, modelID: string): $CancellablePromise<$models.CatalogModelView | null> {
-    return $Call.ByID(1059670542, providerID, modelID);
+    return $Call.ByID(4027338867, providerID, modelID);
 }
 
 /**
  * SaveProvider 新增或更新一个提供商配置，并持久化到本地设置。
  */
 export function SaveProvider(input: $models.ProviderInput): $CancellablePromise<$models.ProviderView> {
-    return $Call.ByID(2189567672, input);
+    return $Call.ByID(72445285, input);
 }
 
 /**
  * SetKey 保存提供商密钥。
  */
 export function SetKey(providerID: string, key: string): $CancellablePromise<void> {
-    return $Call.ByID(103111307, providerID, key);
+    return $Call.ByID(1564852314, providerID, key);
 }
 
 /**
  * Test 测试提供商连接。不同协议使用各自的列表接口与鉴权头。
  */
 export function Test(providerID: string): $CancellablePromise<$models.ConnectionResult> {
-    return $Call.ByID(3763667440, providerID);
+    return $Call.ByID(970966501, providerID);
 }
 
 /**
  * Warnings 返回密钥文件权限等问题，供界面在启动时提示用户。
  */
 export function Warnings(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2307677185);
+    return $Call.ByID(2881544084);
 }

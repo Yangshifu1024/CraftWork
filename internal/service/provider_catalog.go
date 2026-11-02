@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"strings"
 
-	"craftwork/internal/model"
-	"craftwork/internal/model/catalogdata"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/model/catalogdata"
 )
 
 // CatalogMeta 是目录版本与来源信息。

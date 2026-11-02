@@ -25,7 +25,7 @@ import * as $models from "./models.js";
  * Active 返回当前活动工作区。
  */
 export function Active(): $CancellablePromise<$models.WorkspaceView | null> {
-    return $Call.ByID(2579299490);
+    return $Call.ByID(732171521);
 }
 
 /**
@@ -35,35 +35,35 @@ export function Active(): $CancellablePromise<$models.WorkspaceView | null> {
  * 都基于真实的目录位置，而不是可能被替换的链接。
  */
 export function Add(path: string, trust: string): $CancellablePromise<$models.WorkspaceView> {
-    return $Call.ByID(2808863931, path, trust);
+    return $Call.ByID(3896551098, path, trust);
 }
 
 /**
  * ComputeDiff 计算两段文本的行级差异。
  */
 export function ComputeDiff(oldText: string, newText: string): $CancellablePromise<editor$0.Result> {
-    return $Call.ByID(1888859966, oldText, newText);
+    return $Call.ByID(915429743, oldText, newText);
 }
 
 /**
  * GitStatuses 返回工作区的 Git 文件状态，非 Git 仓库返回空表。
  */
 export function GitStatuses(workspaceID: string): $CancellablePromise<{ [_ in string]?: string } | null> {
-    return $Call.ByID(2191378426, workspaceID);
+    return $Call.ByID(3019443095, workspaceID);
 }
 
 /**
  * List 列出所有工作区。
  */
 export function List(): $CancellablePromise<$models.WorkspaceView[] | null> {
-    return $Call.ByID(3184683888);
+    return $Call.ByID(1892725319);
 }
 
 /**
  * ListDir 读取目录的一层内容。
  */
 export function ListDir(workspaceID: string, rel: string): $CancellablePromise<$models.FileNode[] | null> {
-    return $Call.ByID(2314312999, workspaceID, rel);
+    return $Call.ByID(2659619366, workspaceID, rel);
 }
 
 /**
@@ -76,14 +76,14 @@ export function ListDir(workspaceID: string, rel: string): $CancellablePromise<$
  * .git、node_modules 等依赖与产物目录不参与匹配。
  */
 export function LocateFile(workspaceID: string, rel: string): $CancellablePromise<string> {
-    return $Call.ByID(3985118508, workspaceID, rel);
+    return $Call.ByID(1893214031, workspaceID, rel);
 }
 
 /**
  * PickFolder 打开系统文件夹选择对话框。
  */
 export function PickFolder(): $CancellablePromise<string> {
-    return $Call.ByID(2117896609);
+    return $Call.ByID(923191674);
 }
 
 /**
@@ -93,7 +93,7 @@ export function PickFolder(): $CancellablePromise<string> {
  * 文本超过 2 MB 时截断并标记 Truncated。
  */
 export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<$models.FileContent> {
-    return $Call.ByID(2217031978, workspaceID, rel);
+    return $Call.ByID(4000951485, workspaceID, rel);
 }
 
 /**
@@ -104,21 +104,21 @@ export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<
  * 开始时已经解析成值。
  */
 export function Remove(workspaceID: string): $CancellablePromise<void> {
-    return $Call.ByID(3321404048, workspaceID);
+    return $Call.ByID(2247137795, workspaceID);
 }
 
 /**
  * SetActive 切换当前活动工作区。
  */
 export function SetActive(workspaceID: string): $CancellablePromise<$models.WorkspaceView> {
-    return $Call.ByID(3791351202, workspaceID);
+    return $Call.ByID(3948170607, workspaceID);
 }
 
 /**
  * SetTrust 修改工作区信任状态。
  */
 export function SetTrust(workspaceID: string, trust: string): $CancellablePromise<void> {
-    return $Call.ByID(429420322, workspaceID, trust);
+    return $Call.ByID(283702197, workspaceID, trust);
 }
 
 /**
@@ -128,5 +128,5 @@ export function SetTrust(workspaceID: string, trust: string): $CancellablePromis
  * 说明文件已被其他程序修改，此时返回错误让用户重新加载，避免覆盖。
  */
 export function WriteFile(workspaceID: string, rel: string, content: string, expectedHash: string): $CancellablePromise<void> {
-    return $Call.ByID(3400523337, workspaceID, rel, content, expectedHash);
+    return $Call.ByID(2758923268, workspaceID, rel, content, expectedHash);
 }

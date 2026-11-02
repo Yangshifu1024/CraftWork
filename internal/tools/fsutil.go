@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // 这些目录不进入文件树与搜索，避免把依赖与构建产物塞进上下文。

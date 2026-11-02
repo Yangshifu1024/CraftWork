@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // workspaceGrantsKey 是工作区授权在 settings 表中的键名。

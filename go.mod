@@ -1,4 +1,4 @@
-module craftwork
+module github.com/yangshifu1024/craftwork
 
 go 1.27.3
 

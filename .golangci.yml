@@ -31,4 +31,4 @@ formatters:
   settings:
     gofumpt:
       # 声明模块路径，保持「标准库一组、本项目一组」的既有 import 分组风格
-      module-path: craftwork
+      module-path: github.com/yangshifu1024/craftwork

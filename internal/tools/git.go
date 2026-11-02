@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // gitTimeout 是单次 Git 命令的默认超时时间。

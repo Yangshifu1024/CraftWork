@@ -29,7 +29,7 @@ import type {
   TerminalView,
   ThreadView,
   WorkspaceView,
-} from "../../bindings/craftwork/internal/service";
+} from "../../bindings/github.com/yangshifu1024/craftwork/internal/service";
 import type {
   UsageSummary as ApiUsageSummary,
   AuditEntry,
@@ -38,7 +38,7 @@ import type {
   ModelUsage,
   Snapshot,
   UsageTotals,
-} from "../../bindings/craftwork/internal/store";
+} from "../../bindings/github.com/yangshifu1024/craftwork/internal/store";
 
 /**
  * 把 Go 生成的类型原样再导出。

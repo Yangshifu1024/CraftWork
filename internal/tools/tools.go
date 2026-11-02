@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // Result 是工具执行结果。成功与失败共用同一结构，用 IsError 与 Code 区分。

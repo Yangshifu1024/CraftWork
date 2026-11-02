@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
 )
 
 // shellExecTool 在工作区内执行 Shell 命令，属于需要审批的执行操作。

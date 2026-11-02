@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"craftwork/internal/model"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // TestLatestContextSummary 验证存储层按「最新一条」读取压缩摘要。

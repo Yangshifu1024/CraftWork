@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"craftwork/internal/platform"
-	"craftwork/internal/policy"
-	"craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/platform"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
 
 // AuditService 读取审计、用量与备份，并提供备份恢复。
