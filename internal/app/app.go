@@ -154,6 +154,18 @@ func Run(frontend embed.FS, build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
+	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
+	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
+	// 失败只降级不阻断启动：受影响的只是临时会话能力。
+	conversation, err := service.EnsureConversationWorkspace(db, dataDir)
+	if err != nil {
+		slog.Warn("初始化临时会话目录失败", "err", err)
+	} else if err := db.BackfillThreadWorkspaces(conversation.ID); err != nil {
+		// 历史版本在无工作区时创建的会话没有绑定目录（运行时所有路径工具
+		// 都会失败），统一归入临时目录，让它们可以继续使用。
+		slog.Warn("回填会话工作区失败", "err", err)
+	}
+
 	// 启动时恢复活动工作区与审批档位。
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))

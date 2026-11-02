@@ -440,3 +440,105 @@ func TestMigrateV2ToV3AddsUsageThreadIndex(t *testing.T) {
 		t.Fatalf("v2 数据库迁移后应能查询会话最近用量: %+v", row)
 	}
 }
+
+func TestMigrateV4ToV5AddsWorkspacePurpose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v4.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, schema := range []string{schemaV1, schemaV2, schemaV3, schemaV4} {
+		if _, err := legacy.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 预置一个工作区，验证迁移后默认用途是 project。
+	if _, err := legacy.Exec(
+		`INSERT INTO workspaces (id, name, path, trust, created_at, last_opened_at)
+		 VALUES ('ws_legacy', 'legacy', '/tmp/legacy', 'trusted', 1, 1)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec("PRAGMA user_version = 4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace, err := db.GetWorkspace("ws_legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Purpose != WorkspacePurposeProject {
+		t.Fatalf("迁移后的历史工作区用途应为 project，实际 %q", workspace.Purpose)
+	}
+}
+
+func TestWorkspacePurposePersistsAcrossUpsert(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := NowMillis()
+	workspace := &Workspace{ID: "ws_conv", Name: "临时会话", Path: "/tmp/conv",
+		Trust: "trusted", Purpose: WorkspacePurposeConversation, CreatedAt: now, LastOpenedAt: now}
+	if err := db.UpsertWorkspace(workspace); err != nil {
+		t.Fatal(err)
+	}
+
+	// 旧调用方不带用途字段再次保存同一路径：更新分支不写 purpose，
+	// 内置目录的用途不能被改回 project。
+	if err := db.UpsertWorkspace(&Workspace{ID: "ws_other", Name: "临时会话", Path: "/tmp/conv",
+		Trust: "trusted", CreatedAt: now, LastOpenedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetWorkspace("ws_conv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Purpose != WorkspacePurposeConversation {
+		t.Fatalf("重复 upsert 后用途应保持 conversation，实际 %q", got.Purpose)
+	}
+
+	// 回填：未绑定工作区的会话统一归入指定工作区，重复执行无副作用。
+	for _, id := range []string{"th_a", "th_b"} {
+		if err := db.CreateThread(&Thread{ID: id, Mode: "code", Title: id,
+			Status: "idle", CreatedAt: now, UpdatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.BackfillThreadWorkspaces("ws_conv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.BackfillThreadWorkspaces("ws_conv"); err != nil {
+		t.Fatal(err)
+	}
+	threads, err := db.ListThreads("code", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, thread := range threads {
+		if thread.WorkspaceID != "ws_conv" {
+			t.Fatalf("会话 %s 应回填为 ws_conv，实际 %q", thread.ID, thread.WorkspaceID)
+		}
+	}
+
+	if err := db.UpdateWorkspacePurpose("ws_conv", WorkspacePurposeProject); err != nil {
+		t.Fatal(err)
+	}
+	got, err = db.GetWorkspace("ws_conv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Purpose != WorkspacePurposeProject {
+		t.Fatalf("UpdateWorkspacePurpose 后用途应为 project，实际 %q", got.Purpose)
+	}
+}

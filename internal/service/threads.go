@@ -90,7 +90,14 @@ func (s *ThreadService) Search(mode, query string) ([]ThreadView, error) {
 //
 // 标题为空时使用“新对话”；模型取自当前设置的默认模型，
 // 读取失败时保留 DefaultSettings 给出的默认值。
+// workspaceID 可为空（允许无工作区的历史语义），非空时必须是存在的
+// 工作区，避免产生运行时 workspace_missing 的悬挂绑定。
 func (s *ThreadService) Create(mode, workspaceID, title string) (ThreadView, error) {
+	if workspaceID != "" {
+		if _, err := s.db.GetWorkspace(workspaceID); err != nil {
+			return ThreadView{}, errors.New("工作区不存在，请重新选择工作区后再新建会话")
+		}
+	}
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
 	// 默认模型可能是旧格式或已失效；创建会话时先规范化，避免把坏值写进新会话。

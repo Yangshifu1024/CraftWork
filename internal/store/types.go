@@ -41,11 +41,22 @@ type Workspace struct {
 	Path string `json:"path"`
 	// Trust 是信任级别，取值为 trusted / restricted。
 	Trust string `json:"trust"` // trusted / restricted
+	// Purpose 是工作区用途：project 是用户添加的项目目录；
+	// conversation 是应用内置的临时会话目录（绑定它的会话即临时会话）。
+	Purpose string `json:"purpose"` // project / conversation
 	// CreatedAt 是首次添加时间，毫秒时间戳。
 	CreatedAt int64 `json:"createdAt"`
 	// LastOpenedAt 是最近打开时间，用于排序。
 	LastOpenedAt int64 `json:"lastOpenedAt"`
 }
+
+// 工作区用途取值。
+const (
+	// WorkspacePurposeProject 是用户添加的项目目录（默认值）。
+	WorkspacePurposeProject = "project"
+	// WorkspacePurposeConversation 是应用内置的临时会话目录。
+	WorkspacePurposeConversation = "conversation"
+)
 
 // Message 是从事件表重建出来的消息，直接返回给前端。
 type Message struct {

@@ -273,6 +273,9 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	// 会话没有绑定工作区（旧数据）时保持现状，不覆盖全局值。
 	// 已知限制：registry 是全局单例，不同工作区的会话并行运行时仍会相互覆盖；
 	// 当前单机串行使用不受影响。
+	// 系统提示词需要区分项目目录与内置临时目录：临时会话的工作区不是
+	// 项目仓库，模型不应把目录内容当成项目上下文解读。
+	workspacePurpose := ""
 	if thread.WorkspaceID != "" {
 		workspace, err := r.db.GetWorkspace(thread.WorkspaceID)
 		if err != nil {
@@ -283,12 +286,13 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 		r.tools.SetWorkspace(workspace.Path)
 		r.policy.SetWorkspace(workspace.Path)
 		r.policy.SetRestricted(workspace.Trust != "trusted")
+		workspacePurpose = workspace.Purpose
 	}
 
 	// 自动命名只随运行链的第一次 run 触发，接力运行不再重新命名。
 	titled := false
 	for {
-		if !r.executeRun(ctx, thread, runID, messageID, mode, startedAt, &titled) {
+		if !r.executeRun(ctx, thread, runID, messageID, mode, startedAt, &titled, workspacePurpose) {
 			// 取消、失败或达到上限：结束事件与会话状态已由 executeRun 写过。
 			return
 		}
@@ -311,7 +315,7 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 // 返回 false，此时结束事件与会话状态已由本函数写入。titled 由运行链持有，
 // 保证接力运行不会重复触发自动命名。
 func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, messageID, mode string,
-	startedAt time.Time, titled *bool) bool {
+	startedAt time.Time, titled *bool, workspacePurpose string) bool {
 	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
@@ -330,10 +334,11 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 	// 读取失败一律降级省略，不阻断运行。
 	envContext := collectEnvContext(ctx, r.dataDir, r.tools.Workspace())
 	system, promptStats := prompt.Build(prompt.Input{
-		Mode:       mode,
-		Workspace:  r.tools.Workspace(),
-		Restricted: r.policy.Restricted(),
-		EnvContext: envContext,
+		Mode:             mode,
+		Workspace:        r.tools.Workspace(),
+		WorkspacePurpose: workspacePurpose,
+		Restricted:       r.policy.Restricted(),
+		EnvContext:       envContext,
 	})
 	slog.Debug("系统提示词已组装",
 		"thread", thread.ID,

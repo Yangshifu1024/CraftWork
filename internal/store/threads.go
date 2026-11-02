@@ -204,13 +204,17 @@ func (db *DB) DeleteThread(id string) error {
 	return nil
 }
 
-// UpsertWorkspace 按路径新增或更新工作区。已存在时保留原 id。
+// UpsertWorkspace 按路径新增或更新工作区。已存在时保留原 id 与用途标记。
 //
-// 路径是唯一键，这样用户重复打开同一目录不会产生多条记录。
+// 路径是唯一键，这样用户重复打开同一目录不会产生多条记录；用途由首次
+// 创建决定（内置临时目录不会被后续写入改回项目），这里不更新 purpose。
 func (db *DB) UpsertWorkspace(workspace *Workspace) error {
 	db.writeMu.Lock()
 	defer db.writeMu.Unlock()
 
+	if workspace.Purpose == "" {
+		workspace.Purpose = WorkspacePurposeProject
+	}
 	var existing string
 	err := db.sqlDB.QueryRow(`SELECT id FROM workspaces WHERE path = ?`, workspace.Path).Scan(&existing)
 	switch {
@@ -222,8 +226,8 @@ func (db *DB) UpsertWorkspace(workspace *Workspace) error {
 			workspace.Name, workspace.Trust, workspace.LastOpenedAt, workspace.ID)
 	case errors.Is(err, sql.ErrNoRows):
 		_, err = db.sqlDB.Exec(
-			`INSERT INTO workspaces (id, name, path, trust, created_at, last_opened_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			workspace.ID, workspace.Name, workspace.Path, workspace.Trust, workspace.CreatedAt, workspace.LastOpenedAt)
+			`INSERT INTO workspaces (id, name, path, trust, purpose, created_at, last_opened_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			workspace.ID, workspace.Name, workspace.Path, workspace.Trust, workspace.Purpose, workspace.CreatedAt, workspace.LastOpenedAt)
 	default:
 		return fmt.Errorf("查询工作区: %w", err)
 	}
@@ -236,7 +240,7 @@ func (db *DB) UpsertWorkspace(workspace *Workspace) error {
 // ListWorkspaces 按最近打开时间列出工作区。
 func (db *DB) ListWorkspaces() ([]Workspace, error) {
 	rows, err := db.sqlDB.Query(
-		`SELECT id, name, path, trust, created_at, last_opened_at FROM workspaces ORDER BY last_opened_at DESC`)
+		`SELECT id, name, path, trust, purpose, created_at, last_opened_at FROM workspaces ORDER BY last_opened_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("列出工作区: %w", err)
 	}
@@ -245,7 +249,7 @@ func (db *DB) ListWorkspaces() ([]Workspace, error) {
 	var result []Workspace
 	for rows.Next() {
 		var workspace Workspace
-		if err := rows.Scan(&workspace.ID, &workspace.Name, &workspace.Path, &workspace.Trust,
+		if err := rows.Scan(&workspace.ID, &workspace.Name, &workspace.Path, &workspace.Trust, &workspace.Purpose,
 			&workspace.CreatedAt, &workspace.LastOpenedAt); err != nil {
 			return nil, fmt.Errorf("扫描工作区: %w", err)
 		}
@@ -258,8 +262,9 @@ func (db *DB) ListWorkspaces() ([]Workspace, error) {
 func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	var workspace Workspace
 	err := db.sqlDB.QueryRow(
-		`SELECT id, name, path, trust, created_at, last_opened_at FROM workspaces WHERE id = ?`, id).
-		Scan(&workspace.ID, &workspace.Name, &workspace.Path, &workspace.Trust, &workspace.CreatedAt, &workspace.LastOpenedAt)
+		`SELECT id, name, path, trust, purpose, created_at, last_opened_at FROM workspaces WHERE id = ?`, id).
+		Scan(&workspace.ID, &workspace.Name, &workspace.Path, &workspace.Trust, &workspace.Purpose,
+			&workspace.CreatedAt, &workspace.LastOpenedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -269,9 +274,39 @@ func (db *DB) GetWorkspace(id string) (*Workspace, error) {
 	return &workspace, nil
 }
 
+// BackfillThreadWorkspaces 把没有绑定工作区的会话归入指定工作区。
+//
+// 历史版本在无活动工作区时也会创建 workspace_id 为空的会话，这类会话
+// 运行时所有路径工具都会失败；引入内置临时目录后统一回填，让它们可以
+// 继续使用。重复执行没有副作用。
+func (db *DB) BackfillThreadWorkspaces(workspaceID string) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if _, err := db.sqlDB.Exec(
+		`UPDATE threads SET workspace_id = ? WHERE workspace_id = ''`, workspaceID); err != nil {
+		return fmt.Errorf("回填会话工作区: %w", err)
+	}
+	return nil
+}
+
 // DeleteWorkspace 删除工作区记录，不删除磁盘文件。
 func (db *DB) DeleteWorkspace(id string) error {
 	return db.updateThread(id, `DELETE FROM workspaces WHERE id = ?`, id)
+}
+
+// UpdateWorkspacePurpose 修改工作区用途标记。
+//
+// 仅用于把历史数据里与内置目录同路径的记录纠正为 conversation，
+// 正常流程中用途由创建时的 upsert 决定，不再变化。
+func (db *DB) UpdateWorkspacePurpose(id, purpose string) error {
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if _, err := db.sqlDB.Exec(`UPDATE workspaces SET purpose = ? WHERE id = ?`, purpose, id); err != nil {
+		return fmt.Errorf("更新工作区用途: %w", err)
+	}
+	return nil
 }
 
 // GetSetting 读取 JSON 设置。不存在时返回 ErrNotFound。

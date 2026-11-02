@@ -30,6 +30,8 @@ export function Archive(threadID: string, archived: boolean): $CancellablePromis
  * 
  * 标题为空时使用“新对话”；模型取自当前设置的默认模型，
  * 读取失败时保留 DefaultSettings 给出的默认值。
+ * workspaceID 可为空（允许无工作区的历史语义），非空时必须是存在的
+ * 工作区，避免产生运行时 workspace_missing 的悬挂绑定。
  */
 export function Create(mode: string, workspaceID: string, title: string): $CancellablePromise<$models.ThreadView> {
     return $Call.ByID(2983213081, mode, workspaceID, title);

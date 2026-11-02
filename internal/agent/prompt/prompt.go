@@ -89,6 +89,9 @@ type Input struct {
 	Mode string
 	// Workspace 是会话绑定的工作区绝对路径。
 	Workspace string
+	// WorkspacePurpose 是工作区用途："project"（用户项目目录）或
+	// "conversation"（应用内置的临时会话目录），为空按 project 处理。
+	WorkspacePurpose string
 	// Restricted 表示当前工作区未标记为可信；此时追加受限工作区条款。
 	Restricted bool
 	// EnvContext 是本次运行收集到的环境上下文。
@@ -192,9 +195,15 @@ func buildModeRulesSection(in Input) Section {
 	if in.Mode == "work" {
 		label = "Work"
 	}
+	// 临时会话绑定的是应用内置的临时目录：向模型说明该目录的定位，
+	// 避免它把临时目录当成项目仓库来解读。
+	workspaceLine := fmt.Sprintf("工作区：%s", in.Workspace)
+	if in.WorkspacePurpose == "conversation" {
+		workspaceLine = fmt.Sprintf("工作区：%s（应用内置的临时会话目录，不是项目仓库；仅当用户要求保存文件时才使用）", in.Workspace)
+	}
 	lines := []string{
 		fmt.Sprintf("当前模式：%s。", label),
-		fmt.Sprintf("工作区：%s", in.Workspace),
+		workspaceLine,
 	}
 	if in.Mode == "work" {
 		lines = append(lines, "- Work 模式只提供文件、文档与任务清单能力，没有 shell 与 Git；需要执行命令或查看版本状态时，请用户切换到 Code 模式。")

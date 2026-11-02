@@ -109,6 +109,11 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("执行数据库迁移 v4: %w", err)
 		}
 	}
+	if version < 5 {
+		if _, err := tx.Exec(schemaV5); err != nil {
+			return fmt.Errorf("执行数据库迁移 v5: %w", err)
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("写入数据库版本: %w", err)
 	}
@@ -119,7 +124,7 @@ func (db *DB) migrate() error {
 }
 
 // schemaVersion 是当前数据库结构版本，对应 PRAGMA user_version。
-const schemaVersion = 4
+const schemaVersion = 5
 
 // schemaV3 是第 3 版数据库结构：给用量表加会话维度索引。
 //
@@ -135,6 +140,15 @@ CREATE INDEX IF NOT EXISTS usage_thread ON usage(thread_id, ts DESC);
 // 会话列表后继续展示最近一轮的真实速度，而不是显示为空。
 const schemaV4 = `
 ALTER TABLE usage ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV5 是第 5 版数据库结构：工作区增加用途标记。
+//
+// purpose = project 是用户添加的项目目录（历史数据的默认值）；
+// purpose = conversation 是应用内置的临时会话目录，绑定它的会话
+// 即「临时会话」，界面上据此做展示区分。
+const schemaV5 = `
+ALTER TABLE workspaces ADD COLUMN purpose TEXT NOT NULL DEFAULT 'project';
 `
 
 // schemaV1 是第 1 版数据库结构：会话、工作区、事件、运行、审批、审计、

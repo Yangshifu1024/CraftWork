@@ -276,3 +276,20 @@ func TestNewInputsStayDynamic(t *testing.T) {
 		}
 	}
 }
+
+// TestConversationWorkspaceClause 验证临时会话目录的工作区说明：
+// purpose 为 conversation 时标注「不是项目仓库」，普通项目目录保持原样。
+func TestConversationWorkspaceClause(t *testing.T) {
+	blocks, _ := Build(Input{Mode: "code", Workspace: "/tmp/conv", WorkspacePurpose: "conversation"})
+	if !strings.Contains(blocks[2].Content, "临时会话目录") || !strings.Contains(blocks[2].Content, "不是项目仓库") {
+		t.Fatalf("临时会话目录说明缺失: %q", blocks[2].Content)
+	}
+
+	blocks, _ = Build(Input{Mode: "code", Workspace: "/tmp/ws", WorkspacePurpose: "project"})
+	if strings.Contains(blocks[2].Content, "不是项目仓库") {
+		t.Fatalf("项目目录不应出现临时目录说明: %q", blocks[2].Content)
+	}
+	if !strings.Contains(blocks[2].Content, "工作区：/tmp/ws\n") {
+		t.Fatalf("项目目录应保留原始工作区行: %q", blocks[2].Content)
+	}
+}

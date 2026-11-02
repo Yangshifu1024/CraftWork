@@ -34,6 +34,9 @@ type WorkspaceView struct {
 	Path string `json:"path"`
 	// Trust 是 trusted 或 restricted。
 	Trust string `json:"trust"`
+	// Purpose 是工作区用途：project（用户添加的项目目录）或
+	// conversation（应用内置的临时会话目录）。
+	Purpose string `json:"purpose"`
 	// CreatedAt 是添加时间（毫秒时间戳）。
 	CreatedAt int64 `json:"createdAt"`
 	// LastOpenedAt 是最后一次设为活动工作区的时间。
@@ -96,6 +99,9 @@ func NewWorkspaceService(db *store.DB, bus *events.Bus, engine *policy.Engine,
 	return &WorkspaceService{db: db, bus: bus, engine: engine, registry: registry, backupDir: backupDir}
 }
 
+// conversationWorkspaceName 是内置临时会话目录的展示名称。
+const conversationWorkspaceName = "临时会话"
+
 // List 列出所有工作区。
 func (s *WorkspaceService) List() ([]WorkspaceView, error) {
 	workspaces, err := s.db.ListWorkspaces()
@@ -147,6 +153,16 @@ func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
 	if !info.IsDir() {
 		return WorkspaceView{}, errors.New("请选择文件夹")
 	}
+	// 内置临时会话目录由应用管理，不允许作为项目工作区重复添加。
+	existing, err := s.db.ListWorkspaces()
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	for _, workspace := range existing {
+		if workspace.Path == abs && isConversation(&workspace) {
+			return WorkspaceView{}, errors.New("该目录是内置的临时会话目录，无需添加为工作区")
+		}
+	}
 	if trust != "trusted" {
 		trust = "restricted"
 	}
@@ -195,11 +211,79 @@ func (s *WorkspaceService) Active() (*WorkspaceView, error) {
 	return &view, nil
 }
 
+// EnsureConversationWorkspace 确保内置的临时会话目录存在并返回其工作区记录。
+//
+// 临时会话是绑定该目录的普通会话：Agent 始终有一个真实的工作目录，
+// 路径策略、审批与终端机制全部按现有方式工作。目录固定在数据目录下的
+// workspace/default（默认 ~/.craftwork/workspace/default），随
+// CRAFTWORK_HOME 一起隔离；被用户删除后下次启动会自动重建。
+// 幂等：记录已存在时直接沿用，不刷新最近打开时间。
+// 它只在启动期由 app 装配调用，特意实现为包级函数而不是服务方法，
+// 避免被 Wails 绑定成前端 API。
+func EnsureConversationWorkspace(db *store.DB, dataDir string) (*store.Workspace, error) {
+	dir := filepath.Join(dataDir, "workspace", "default")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建临时会话目录: %w", err)
+	}
+	abs, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("解析临时会话目录: %w", err)
+	}
+	workspaces, err := db.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, workspace := range workspaces {
+		if workspace.Path != abs {
+			continue
+		}
+		if workspace.Purpose == store.WorkspacePurposeConversation {
+			return &workspace, nil
+		}
+		// 同路径的历史记录（例如手动添加过该目录）：纠正为内置用途，
+		// 并固定为受信任，避免临时会话落到受限策略上。
+		workspace.Name = conversationWorkspaceName
+		workspace.Trust = "trusted"
+		workspace.Purpose = store.WorkspacePurposeConversation
+		if err := db.UpsertWorkspace(&workspace); err != nil {
+			return nil, err
+		}
+		if err := db.UpdateWorkspacePurpose(workspace.ID, store.WorkspacePurposeConversation); err != nil {
+			return nil, err
+		}
+		return &workspace, nil
+	}
+	now := store.NowMillis()
+	workspace := &store.Workspace{
+		ID:           id.New("ws"),
+		Name:         conversationWorkspaceName,
+		Path:         abs,
+		Trust:        "trusted",
+		Purpose:      store.WorkspacePurposeConversation,
+		CreatedAt:    now,
+		LastOpenedAt: now,
+	}
+	if err := db.UpsertWorkspace(workspace); err != nil {
+		return nil, err
+	}
+	return workspace, nil
+}
+
+// isConversation 判断工作区是否为内置的临时会话目录。
+func isConversation(workspace *store.Workspace) bool {
+	return workspace.Purpose == store.WorkspacePurposeConversation
+}
+
 // SetTrust 修改工作区信任状态。
 func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 	workspace, err := s.db.GetWorkspace(workspaceID)
 	if err != nil {
 		return err
+	}
+	// 内置临时目录固定为受信任：它是应用自管的 scratch 目录，
+	// 审批体验与受信任工作区保持一致，不允许改成受限。
+	if isConversation(workspace) {
+		return errors.New("内置临时目录的信任状态不可修改")
 	}
 	if trust != "trusted" {
 		trust = "restricted"
@@ -224,6 +308,14 @@ func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 // 如果移除的是当前活动工作区，同时清空设置、策略引擎与工具注册表
 // 中的路径，避免后续调用继续指向已不存在的工作区。
 func (s *WorkspaceService) Remove(workspaceID string) error {
+	// 内置临时目录是临时会话的运行根，移除会让所有临时会话失效，直接拒绝。
+	workspace, err := s.db.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if isConversation(workspace) {
+		return errors.New("内置临时目录不能移除")
+	}
 	settings := DefaultSettings()
 	_ = s.db.GetSetting(settingsKey, &settings)
 	if settings.ActiveWorkspace == workspaceID {
@@ -541,6 +633,7 @@ func toWorkspaceView(workspace store.Workspace) WorkspaceView {
 		Name:         workspace.Name,
 		Path:         workspace.Path,
 		Trust:        workspace.Trust,
+		Purpose:      workspace.Purpose,
 		CreatedAt:    workspace.CreatedAt,
 		LastOpenedAt: workspace.LastOpenedAt,
 	}

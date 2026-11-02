@@ -878,6 +878,12 @@ export interface WorkspaceView {
     "trust": string;
 
     /**
+     * Purpose 是工作区用途：project（用户添加的项目目录）或
+     * conversation（应用内置的临时会话目录）。
+     */
+    "purpose": string;
+
+    /**
      * CreatedAt 是添加时间（毫秒时间戳）。
      */
     "createdAt": number;
