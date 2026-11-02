@@ -376,7 +376,6 @@ export function SettingsModal() {
 
   return createPortal(
     <div className="overlay-layer">
-      <div className="overlay-backdrop" onClick={close} />
       <div className="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
         <div className="settings-head">
           {/* 顶栏：标题、分组搜索与关闭按钮；搜索只过滤左侧分组 */}
@@ -427,620 +426,610 @@ export function SettingsModal() {
           </nav>
 
           <div className="settings-content">
-            {/* 搜索有输入但没有任何分组匹配时给出空状态 */}
-            {query.trim() && visibleGroups.length === 0 ? (
-              <div className="panel-empty">
-                <Icon name="search" size={20} />
-                <div>没有匹配的设置分组</div>
-                <div className="panel-empty-hint">试试「模型」「权限」「外观」等关键词。</div>
-              </div>
-            ) : null}
-
-            {tab === "general" ? (
-              /* 通用分组：启动模式、更新偏好、系统通知与数据目录 */
-              <SettingsSection title="通用" desc="启动行为、语言与本地数据。">
-                <Row label="界面语言" desc="当前版本固定为简体中文；完整国际化需要消息编号表。">
-                  <select className="select" value="zh-CN" disabled>
-                    <option value="zh-CN">简体中文</option>
-                  </select>
-                </Row>
-                <Row label="当前模式" desc="切换后立即生效，并作为下次启动的默认模式。">
-                  <select
-                    className="select"
-                    value={settings.mode}
-                    onChange={(event) => update({ mode: event.target.value })}
+            <div className="settings-content-inner">
+              {/* 搜索有输入但没有任何分组匹配时给出空状态 */}
+              {query.trim() && visibleGroups.length === 0 ? (
+                <div className="panel-empty">
+                  <Icon name="search" size={20} />
+                  <div>没有匹配的设置分组</div>
+                  <div className="panel-empty-hint">试试「模型」「权限」「外观」等关键词。</div>
+                </div>
+              ) : null}
+  
+              {tab === "general" ? (
+                /* 通用分组：启动模式、更新偏好、系统通知与数据目录 */
+                <SettingsSection title="通用" desc="启动行为、语言与本地数据。">
+                  <Row label="界面语言" desc="当前版本固定为简体中文；完整国际化需要消息编号表。">
+                    <select className="select" value="zh-CN" disabled>
+                      <option value="zh-CN">简体中文</option>
+                    </select>
+                  </Row>
+                  <Row label="当前模式" desc="切换后立即生效，并作为下次启动的默认模式。">
+                    <select
+                      className="select"
+                      value={settings.mode}
+                      onChange={(event) => update({ mode: event.target.value })}
+                    >
+                      <option value="code">Code 模式</option>
+                      <option value="work">Work 模式</option>
+                    </select>
+                  </Row>
+                  <Row label="更新渠道" desc="自动更新在 M4 接入；当前只保存偏好。">
+                    <select
+                      className="select"
+                      value={settings.updateChannel}
+                      onChange={(event) => update({ updateChannel: event.target.value })}
+                    >
+                      <option value="stable">稳定版</option>
+                      <option value="beta">测试版</option>
+                    </select>
+                  </Row>
+                  <Row label="自动检查更新" desc="仅检查签名清单，不上传任何数据。">
+                    <Switch on={settings.autoUpdate} onChange={(value) => update({ autoUpdate: value })} />
+                  </Row>
+                  <Row
+                    label="系统通知"
+                    desc="审批等待、回复完成或运行失败时发送系统通知；窗口聚焦时不打扰，应用内提示可点击回到对应会话。"
                   >
-                    <option value="code">Code 模式</option>
-                    <option value="work">Work 模式</option>
-                  </select>
-                </Row>
-                <Row label="更新渠道" desc="自动更新在 M4 接入；当前只保存偏好。">
-                  <select
-                    className="select"
-                    value={settings.updateChannel}
-                    onChange={(event) => update({ updateChannel: event.target.value })}
-                  >
-                    <option value="stable">稳定版</option>
-                    <option value="beta">测试版</option>
-                  </select>
-                </Row>
-                <Row label="自动检查更新" desc="仅检查签名清单，不上传任何数据。">
-                  <Switch on={settings.autoUpdate} onChange={(value) => update({ autoUpdate: value })} />
-                </Row>
-                <Row
-                  label="系统通知"
-                  desc="审批等待、回复完成或运行失败时发送系统通知；窗口聚焦时不打扰，应用内提示可点击回到对应会话。"
-                >
-                  <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} />
-                </Row>
-                <Row label="遥测" desc="产品不收集遥测；此项固定关闭。">
-                  <Switch on={settings.telemetry} onChange={() => undefined} disabled />
-                </Row>
-                <Row label="数据目录" desc="会话、密钥、日志与备份都保存在本机。">
-                  <span className="mono">{info?.dataDir ?? "~/.craftwork"}</span>
-                </Row>
-              </SettingsSection>
-            ) : null}
-
-            {tab === "mode" ? (
-              /* 模式分组：默认模式，以及两种模式各自的能力范围说明 */
-              <SettingsSection title="模式" desc="Code 与 Work 共用同一套工作区与审批策略，只改变界面和可用工具。">
-                <Row label="默认模式" desc="新建窗口与新建会话时使用。">
-                  <div className="radio-cards">
-                    {(["code", "work"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={cn("radio-card", settings.mode === mode && "is-on")}
-                        onClick={() => update({ mode })}
-                      >
-                        <Icon name={mode === "code" ? "code" : "briefcase"} className="ico" />
-                        {mode === "code" ? "Code" : "Work"}
-                      </button>
-                    ))}
-                  </div>
-                </Row>
-                <Row label="Code 模式" desc="文件树、代码编辑、差异、终端、Shell 与 Git。">
-                  <span className="badge accent">17 个内置工具</span>
-                </Row>
-                <Row label="Work 模式" desc="文档预览、Word / Excel、PDF、邮件与日历 MCP。">
-                  <span className="badge work">文档 · 文件 · MCP</span>
-                </Row>
-              </SettingsSection>
-            ) : null}
-
-            {tab === "models" ? (
-              /* 模型与提供商分组：所有提供商都由用户添加，没有任何内置或推荐条目 */
-              <SettingsSection title="模型与提供商" desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。">
-                {catalogOpen || providerEditor ? null : (
-                  <>
-                <Row label="默认模型" desc="新会话使用的模型；没有添加提供商时保持为空。">
-                  <select
-                    className="select"
-                    value={settings.defaultModel}
-                    onChange={(event) => update({ defaultModel: event.target.value })}
-                  >
-                    <option value="">未选择模型</option>
-                    {providers.flatMap((provider) =>
-                      provider.models.map((model) => (
-                        <option key={model.ref} value={model.ref}>
-                          {provider.name} · {model.name}
-                          {model.available ? "" : "（未配置密钥）"}
-                        </option>
-                      )),
-                    )}
-                  </select>
-                </Row>
-
-                <Row
-                  label="失败转移模型"
-                  desc="主模型遇到限流、5xx、超时或连接失败时自动切换；工具执行过程中不切换，未配置密钥的模型不会生效。"
-                >
-                  <select
-                    className="select"
-                    value={settings.fallbackModel ?? ""}
-                    onChange={(event) => update({ fallbackModel: event.target.value })}
-                  >
-                    <option value="">不自动转移</option>
-                    {providers.flatMap((provider) =>
-                      provider.models
-                        .filter((model) => model.ref !== settings.defaultModel)
-                        .map((model) => (
+                    <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} />
+                  </Row>
+                  <Row label="遥测" desc="产品不收集遥测；此项固定关闭。">
+                    <Switch on={settings.telemetry} onChange={() => undefined} disabled />
+                  </Row>
+                  <Row label="数据目录" desc="会话、密钥、日志与备份都保存在本机。">
+                    <span className="mono">{info?.dataDir ?? "~/.craftwork"}</span>
+                  </Row>
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "mode" ? (
+                /* 模式分组：默认模式，以及两种模式各自的能力范围说明 */
+                <SettingsSection title="模式" desc="Code 与 Work 共用同一套工作区与审批策略，只改变界面和可用工具。">
+                  <Row label="默认模式" desc="新建窗口与新建会话时使用。">
+                    <div className="radio-cards">
+                      {(["code", "work"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={cn("radio-card", settings.mode === mode && "is-on")}
+                          onClick={() => update({ mode })}
+                        >
+                          <Icon name={mode === "code" ? "code" : "briefcase"} className="ico" />
+                          {mode === "code" ? "Code" : "Work"}
+                        </button>
+                      ))}
+                    </div>
+                  </Row>
+                  <Row label="Code 模式" desc="文件树、代码编辑、差异、终端、Shell 与 Git。">
+                    <span className="badge accent">17 个内置工具</span>
+                  </Row>
+                  <Row label="Work 模式" desc="文档预览、Word / Excel、PDF、邮件与日历 MCP。">
+                    <span className="badge work">文档 · 文件 · MCP</span>
+                  </Row>
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "models" ? (
+                /* 模型与提供商分组：所有提供商都由用户添加，没有任何内置或推荐条目 */
+                <SettingsSection title="模型与提供商" desc="提供商全部由你添加；密钥只保存在本地，切换模型只影响后续 run。">
+                  {catalogOpen || providerEditor ? null : (
+                    <>
+                  <Row label="默认模型" desc="新会话使用的模型；没有添加提供商时保持为空。">
+                    <select
+                      className="select"
+                      value={settings.defaultModel}
+                      onChange={(event) => update({ defaultModel: event.target.value })}
+                    >
+                      <option value="">未选择模型</option>
+                      {providers.flatMap((provider) =>
+                        provider.models.map((model) => (
                           <option key={model.ref} value={model.ref}>
                             {provider.name} · {model.name}
                             {model.available ? "" : "（未配置密钥）"}
                           </option>
                         )),
-                    )}
-                  </select>
-                </Row>
-
-                  </>
-                )}
-
-                {catalogOpen ? (
-                  /* 目录浏览器：从 models.dev 快照里选择提供商与模型 */
-                  <CatalogBrowser
-                    meta={catalogMeta}
-                    onCancel={() => setCatalogOpen(false)}
-                    onImported={(provider) => void handleCatalogImported(provider)}
-                  />
-                ) : providerEditor ? (
-                  /* 编辑器打开时替换整个提供商列表，聚焦单个提供商的配置 */
-                  <ProviderEditor
-                    provider={providerEditor.provider}
-                    onCancel={() => setProviderEditor(null)}
-                    onSaved={(saved) => {
-                      setProviderEditor(null);
-                      void afterProviderAdded(saved);
-                      if (saved.keyRequired && !saved.keySource) {
-                        toast({
-                          title: "还需配置 API Key",
-                          description: "在提供商卡片中展开并设置密钥后，模型才会出现在模型列表。",
-                          tone: "warn",
-                        });
-                      }
-                    }}
-                  />
-                ) : (
-                  <>
-                    <div className="provider-toolbar">
-                      <button type="button" className="btn sm" onClick={() => setCatalogOpen(true)}>
-                        <Icon name="globe" className="ico" />
-                        从模型目录添加
-                      </button>
-                      <button
-                        type="button"
-                        className="btn sm ghost"
-                        onClick={() => setProviderEditor({ provider: null })}
-                      >
-                        <Icon name="plus" className="ico" />
-                        手动添加
-                      </button>
-                    </div>
-
-                    {providers.length === 0 ? (
-                      /* 首次启动：没有任何提供商，给出明确的下一步 */
-                      <div className="panel-empty">
-                        <Icon name="cpu" size={20} />
-                        <div>尚未添加提供商</div>
-                        <div className="panel-empty-hint">
-                          从模型目录选择提供商，或手动配置 Ollama、公司网关等本地端点。
-                        </div>
+                      )}
+                    </select>
+                  </Row>
+  
+                  <Row
+                    label="失败转移模型"
+                    desc="主模型遇到限流、5xx、超时或连接失败时自动切换；工具执行过程中不切换，未配置密钥的模型不会生效。"
+                  >
+                    <select
+                      className="select"
+                      value={settings.fallbackModel ?? ""}
+                      onChange={(event) => update({ fallbackModel: event.target.value })}
+                    >
+                      <option value="">不自动转移</option>
+                      {providers.flatMap((provider) =>
+                        provider.models
+                          .filter((model) => model.ref !== settings.defaultModel)
+                          .map((model) => (
+                            <option key={model.ref} value={model.ref}>
+                              {provider.name} · {model.name}
+                              {model.available ? "" : "（未配置密钥）"}
+                            </option>
+                          )),
+                      )}
+                    </select>
+                  </Row>
+  
+                    </>
+                  )}
+  
+                  {catalogOpen ? (
+                    /* 目录浏览器：从 models.dev 快照里选择提供商与模型 */
+                    <CatalogBrowser
+                      meta={catalogMeta}
+                      onCancel={() => setCatalogOpen(false)}
+                      onImported={(provider) => void handleCatalogImported(provider)}
+                    />
+                  ) : providerEditor ? (
+                    /* 编辑器打开时替换整个提供商列表，聚焦单个提供商的配置 */
+                    <ProviderEditor
+                      provider={providerEditor.provider}
+                      onCancel={() => setProviderEditor(null)}
+                      onSaved={(saved) => {
+                        setProviderEditor(null);
+                        void afterProviderAdded(saved);
+                        if (saved.keyRequired && !saved.keySource) {
+                          toast({
+                            title: "还需配置 API Key",
+                            description: "在提供商卡片中展开并设置密钥后，模型才会出现在模型列表。",
+                            tone: "warn",
+                          });
+                        }
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <div className="provider-toolbar">
+                        <button type="button" className="btn sm" onClick={() => setCatalogOpen(true)}>
+                          <Icon name="globe" className="ico" />
+                          从模型目录添加
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm ghost"
+                          onClick={() => setProviderEditor({ provider: null })}
+                        >
+                          <Icon name="plus" className="ico" />
+                          手动添加
+                        </button>
                       </div>
-                    ) : null}
-
-                    {providers.map((provider) => (
-                      <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
-                        <div className="provider-head">
-                          {/* 提供商摘要：名称、可用状态与操作按钮 */}
-                          <div className="provider-logo">{provider.name.slice(0, 2)}</div>
-                          <div className="provider-main">
-                            <div className="provider-name">
-                              {provider.name}
-                              <span className={cn("badge", provider.available ? "ok" : "neutral")}>
-                                {provider.available ? "可用" : "未配置"}
-                              </span>
-                            </div>
-                            <div className="provider-sub">{provider.endpoint || provider.kind}</div>
+  
+                      {providers.length === 0 ? (
+                        /* 首次启动：没有任何提供商，给出明确的下一步 */
+                        <div className="panel-empty">
+                          <Icon name="cpu" size={20} />
+                          <div>尚未添加提供商</div>
+                          <div className="panel-empty-hint">
+                            从模型目录选择提供商，或手动配置 Ollama、公司网关等本地端点。
                           </div>
-                          <div className="provider-actions">
-                            <button
-                              type="button"
-                              className="icon-btn sm"
-                              title="编辑提供商"
-                              aria-label={`编辑 ${provider.name}`}
-                              onClick={() => setProviderEditor({ provider })}
-                            >
-                              <Icon name="edit" />
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-btn sm"
-                              title="删除提供商"
-                              aria-label={`删除 ${provider.name}`}
-                              onClick={() => void deleteProvider(provider)}
-                            >
-                              <Icon name="trash" />
-                            </button>
+                        </div>
+                      ) : null}
+  
+                      {providers.map((provider) => (
+                        <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
+                          <div className="provider-head">
+                            {/* 提供商摘要：名称、可用状态与操作按钮 */}
+                            <div className="provider-logo">{provider.name.slice(0, 2)}</div>
+                            <div className="provider-main">
+                              <div className="provider-name">
+                                {provider.name}
+                                <span className={cn("badge", provider.available ? "ok" : "neutral")}>
+                                  {provider.available ? "可用" : "未配置"}
+                                </span>
+                              </div>
+                              <div className="provider-sub">{provider.endpoint || provider.kind}</div>
+                            </div>
+                            <div className="provider-actions">
+                              <button
+                                type="button"
+                                className="icon-btn sm"
+                                title="编辑提供商"
+                                aria-label={`编辑 ${provider.name}`}
+                                onClick={() => setProviderEditor({ provider })}
+                              >
+                                <Icon name="edit" />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn sm"
+                                title="删除提供商"
+                                aria-label={`删除 ${provider.name}`}
+                                onClick={() => void deleteProvider(provider)}
+                              >
+                                <Icon name="trash" />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn sm ghost"
+                                disabled={testing === provider.id}
+                                onClick={() => void testProvider(provider)}
+                              >
+                                {testing === provider.id ? <Icon name="loader" className="spin" /> : <Icon name="zap" />}
+                                测试连接
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn sm"
+                                aria-label="展开提供商"
+                                onClick={() => setExpanded(expanded === provider.id ? null : provider.id)}
+                              >
+                                <Icon name={expanded === provider.id ? "chevron-up" : "chevron-down"} />
+                              </button>
+                            </div>
+                          </div>
+                          {expanded === provider.id ? (
+                            /* 展开内容：密钥来源与设置入口，以及该提供商下各模型的能力表 */
+                            <div className="provider-body">
+                              <div className="key-line">
+                                <Icon name="key" className="ico" />
+                                <span>
+                                  密钥来源：
+                                  {provider.keySource === "file"
+                                    ? "keys.json"
+                                    : provider.keySource === "env"
+                                      ? "环境变量"
+                                      : "未配置"}
+                                </span>
+                                <span className="spacer" />
+                                <span className="mono">{provider.keyMasked || "—"}</span>
+                                <button type="button" onClick={() => void setProviderKey(provider)}>
+                                  设置
+                                </button>
+                                {provider.keySource ? (
+                                  <button type="button" onClick={() => void clearProviderKey(provider)}>
+                                    清除
+                                  </button>
+                                ) : null}
+                              </div>
+                              <table className="cap-table" style={{ marginTop: 8 }}>
+                                <thead>
+                                  <tr>
+                                    <th>模型</th>
+                                    <th>上下文</th>
+                                    <th>最大输出</th>
+                                    <th>价格（输入/输出）</th>
+                                    <th>工具</th>
+                                    <th>推理</th>
+                                    <th>图片</th>
+                                    <th>状态</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {provider.models.map((model) => (
+                                    <tr key={model.ref}>
+                                      <td>{model.name}</td>
+                                      <td>{model.contextK}k</td>
+                                      <td>{model.maxTokens ? model.maxTokens : "默认"}</td>
+                                      <td>
+                                        {model.cost
+                                          ? `$${model.cost.inputPerMTok} / $${model.cost.outputPerMTok}`
+                                          : "—"}
+                                      </td>
+                                      <Cap yes={model.caps.tools} />
+                                      <Cap yes={model.caps.reasoning} />
+                                      <Cap yes={model.caps.vision} />
+                                      <td>{model.status || "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+  
+                      {catalogMeta ? (
+                        <div className="sec-desc provider-catalog-foot">
+                          模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount} 个提供商 ·{" "}
+                          {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "tools" ? (
+                /* 工具与权限分组：审批档位、风险等级说明与当前限制 */
+                <SettingsSection title="工具与权限" desc="审批档位与风险分级共同决定一次工具调用是否执行。">
+                  <Row label="审批档位" desc="与输入框底部的盾牌按钮双向同步。">
+                    {/* 四个档位单选：分级、严格、只读、自由；自由档位切换前需确认 */}
+                    <div className="radio-cards">
+                      {approvalOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={cn("radio-card", settings.approvalLevel === option.id && "is-on")}
+                          onClick={() => void changeApprovalLevel(option.id)}
+                          title={option.description}
+                        >
+                          <Icon name={option.icon} className="ico" />
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Row>
+                  <Row
+                    label="单次运行最大往返"
+                    desc="Agent 一次运行的模型调用轮数上限，超过后停止本次运行；「不限制」适合长任务，但请在场观察，避免模型空转消耗。改动对下一次运行生效。"
+                  >
+                    <select
+                      className="select"
+                      value={settings.maxIterations}
+                      onChange={(event) => update({ maxIterations: Number(event.target.value) })}
+                    >
+                      {[24, 60, 120, 300, 600, 0].map((limit) => (
+                        <option key={limit} value={limit}>
+                          {limit === 0 ? "不限制" : `${limit} 轮`}
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <div className="set-row" style={{ display: "block" }}>
+                    {/* 风险等级表：说明 R0–R4 的判定与默认策略 */}
+                    <table className="perm-table">
+                      <thead>
+                        <tr>
+                          <th>等级</th>
+                          <th>判定</th>
+                          <th>默认策略</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {permissions.map((row) => (
+                          <tr key={row.level}>
+                            <td>
+                              <span className={cn("perm-level", row.level)}>{row.level}</span>
+                            </td>
+                            <td>{row.name}</td>
+                            <td>{row.policy}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Row label="工作区授权" desc="选择「本会话 / 本工作区」后记录在这里；R3 / R4 永远不会出现。">
+                    <span className="badge neutral">暂无永久授权</span>
+                  </Row>
+                  <Row label="沙箱" desc="macOS Seatbelt 与 Windows 受限令牌尚未实现；当前依赖审批与路径校验。">
+                    <span className="badge warn">未启用</span>
+                  </Row>
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "mcp" ? (
+                /* MCP 分组：已配置服务器、操作按钮与模板提示 */
+                <SettingsSection title="MCP 服务器" desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。">
+                  <div className="mcp-toolbar">
+                    {/* 添加服务器需要依次输入名称与启动命令；刷新重新读取列表 */}
+                    <button
+                      type="button"
+                      className="btn sm"
+                      disabled={mcpBusy === "add"}
+                      onClick={() => void addMCPServer()}
+                    >
+                      {mcpBusy === "add" ? <Icon name="loader" className="ico spin" /> : <Icon name="plus" className="ico" />}
+                      添加服务器
+                    </button>
+                    <button type="button" className="btn sm ghost" onClick={() => void refreshMCP()}>
+                      刷新
+                    </button>
+                  </div>
+  
+                  {mcpServers.length === 0 ? (
+                    <div className="panel-empty" style={{ padding: "18px 0 22px" }}>
+                      <Icon name="globe" size={22} />
+                      <div>还没有已连接的 MCP 服务器</div>
+                      <div className="panel-empty-hint">添加本地命令后，服务器工具会在下一次对话中可用。</div>
+                    </div>
+                  ) : null}
+  
+                  {mcpServers.map((server) => (
+                    /* 每个服务器卡片：连接状态、启动命令、错误信息、工具清单与操作 */
+                    <div key={server.id} className="mcp-card">
+                      <div className="mcp-head">
+                        <div className="mcp-icon">
+                          <Icon name="globe" />
+                        </div>
+                        <div className="mcp-main">
+                          <div className="mcp-name">
+                            {server.name}
+                            <span className={cn("badge", server.connected ? "ok" : server.error ? "danger" : "neutral")}>
+                              {server.connected ? "已连接" : server.error ? "连接失败" : "未连接"}
+                            </span>
+                          </div>
+                          <div className="mcp-sub">{[server.command, ...(server.args ?? [])].join(" ")}</div>
+                          {server.error ? (
+                            <div className="mcp-sub" style={{ color: "var(--danger)", whiteSpace: "normal" }}>
+                              {server.error}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="provider-actions">
+                          {server.connected ? (
                             <button
                               type="button"
                               className="btn sm ghost"
-                              disabled={testing === provider.id}
-                              onClick={() => void testProvider(provider)}
+                              disabled={mcpBusy === server.id}
+                              onClick={() => void disconnectMCP(server)}
                             >
-                              {testing === provider.id ? <Icon name="loader" className="spin" /> : <Icon name="zap" />}
-                              测试连接
+                              断开
                             </button>
+                          ) : (
                             <button
                               type="button"
-                              className="icon-btn sm"
-                              aria-label="展开提供商"
-                              onClick={() => setExpanded(expanded === provider.id ? null : provider.id)}
+                              className="btn sm"
+                              disabled={mcpBusy === server.id}
+                              onClick={() => void connectMCP(server)}
                             >
-                              <Icon name={expanded === provider.id ? "chevron-up" : "chevron-down"} />
+                              连接
                             </button>
-                          </div>
+                          )}
+                          <button
+                            type="button"
+                            className="icon-btn sm"
+                            aria-label={`移除 ${server.name}`}
+                            onClick={() => void removeMCP(server)}
+                          >
+                            <Icon name="trash" />
+                          </button>
                         </div>
-                        {expanded === provider.id ? (
-                          /* 展开内容：密钥来源与设置入口，以及该提供商下各模型的能力表 */
-                          <div className="provider-body">
-                            <div className="key-line">
-                              <Icon name="key" className="ico" />
-                              <span>
-                                密钥来源：
-                                {provider.keySource === "file"
-                                  ? "keys.json"
-                                  : provider.keySource === "env"
-                                    ? "环境变量"
-                                    : "未配置"}
+                      </div>
+                      {(server.tools ?? []).length > 0 ? (
+                        <div className="mcp-tools">
+                          <div className="mcp-tool-chips">
+                            {(server.tools ?? []).map((tool) => (
+                              <span key={tool.name} className="mcp-tool-chip" title={tool.description}>
+                                {tool.name}
                               </span>
-                              <span className="spacer" />
-                              <span className="mono">{provider.keyMasked || "—"}</span>
-                              <button type="button" onClick={() => void setProviderKey(provider)}>
-                                设置
-                              </button>
-                              {provider.keySource ? (
-                                <button type="button" onClick={() => void clearProviderKey(provider)}>
-                                  清除
-                                </button>
-                              ) : null}
-                            </div>
-                            <table className="cap-table" style={{ marginTop: 8 }}>
-                              <thead>
-                                <tr>
-                                  <th>模型</th>
-                                  <th>上下文</th>
-                                  <th>最大输出</th>
-                                  <th>价格（输入/输出）</th>
-                                  <th>工具</th>
-                                  <th>推理</th>
-                                  <th>图片</th>
-                                  <th>状态</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {provider.models.map((model) => (
-                                  <tr key={model.ref}>
-                                    <td>{model.name}</td>
-                                    <td>{model.contextK}k</td>
-                                    <td>{model.maxTokens ? model.maxTokens : "默认"}</td>
-                                    <td>
-                                      {model.cost
-                                        ? `$${model.cost.inputPerMTok} / $${model.cost.outputPerMTok}`
-                                        : "—"}
-                                    </td>
-                                    <Cap yes={model.caps.tools} />
-                                    <Cap yes={model.caps.reasoning} />
-                                    <Cap yes={model.caps.vision} />
-                                    <td>{model.status || "—"}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            ))}
                           </div>
-                        ) : null}
-                      </div>
-                    ))}
-
-                    {catalogMeta ? (
-                      <div className="sec-desc provider-catalog-foot">
-                        模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount} 个提供商 ·{" "}
-                        {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </SettingsSection>
-            ) : null}
-
-            {tab === "tools" ? (
-              /* 工具与权限分组：审批档位、风险等级说明与当前限制 */
-              <SettingsSection title="工具与权限" desc="审批档位与风险分级共同决定一次工具调用是否执行。">
-                <Row label="审批档位" desc="与输入框底部的盾牌按钮双向同步。">
-                  {/* 四个档位单选：分级、严格、只读、自由；自由档位切换前需确认 */}
-                  <div className="radio-cards">
-                    {approvalOptions.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={cn("radio-card", settings.approvalLevel === option.id && "is-on")}
-                        onClick={() => void changeApprovalLevel(option.id)}
-                        title={option.description}
-                      >
-                        <Icon name={option.icon} className="ico" />
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </Row>
-                <Row
-                  label="单次运行最大往返"
-                  desc="Agent 一次运行的模型调用轮数上限，超过后停止本次运行；「不限制」适合长任务，但请在场观察，避免模型空转消耗。改动对下一次运行生效。"
-                >
-                  <select
-                    className="select"
-                    value={settings.maxIterations}
-                    onChange={(event) => update({ maxIterations: Number(event.target.value) })}
-                  >
-                    {[24, 60, 120, 300, 600, 0].map((limit) => (
-                      <option key={limit} value={limit}>
-                        {limit === 0 ? "不限制" : `${limit} 轮`}
-                      </option>
-                    ))}
-                  </select>
-                </Row>
-                <div className="set-row" style={{ display: "block" }}>
-                  {/* 风险等级表：说明 R0–R4 的判定与默认策略 */}
-                  <table className="perm-table">
-                    <thead>
-                      <tr>
-                        <th>等级</th>
-                        <th>判定</th>
-                        <th>默认策略</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {permissions.map((row) => (
-                        <tr key={row.level}>
-                          <td>
-                            <span className={cn("perm-level", row.level)}>{row.level}</span>
-                          </td>
-                          <td>{row.name}</td>
-                          <td>{row.policy}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <Row label="工作区授权" desc="选择「本会话 / 本工作区」后记录在这里；R3 / R4 永远不会出现。">
-                  <span className="badge neutral">暂无永久授权</span>
-                </Row>
-                <Row label="沙箱" desc="macOS Seatbelt 与 Windows 受限令牌尚未实现；当前依赖审批与路径校验。">
-                  <span className="badge warn">未启用</span>
-                </Row>
-              </SettingsSection>
-            ) : null}
-
-            {tab === "mcp" ? (
-              /* MCP 分组：已配置服务器、操作按钮与模板提示 */
-              <SettingsSection title="MCP 服务器" desc="本地 stdio 服务器；工具以 mcp__服务器__工具 命名，调用前走审批。">
-                <div className="mcp-toolbar">
-                  {/* 添加服务器需要依次输入名称与启动命令；刷新重新读取列表 */}
-                  <button
-                    type="button"
-                    className="btn sm"
-                    disabled={mcpBusy === "add"}
-                    onClick={() => void addMCPServer()}
-                  >
-                    {mcpBusy === "add" ? <Icon name="loader" className="ico spin" /> : <Icon name="plus" className="ico" />}
-                    添加服务器
-                  </button>
-                  <button type="button" className="btn sm ghost" onClick={() => void refreshMCP()}>
-                    刷新
-                  </button>
-                </div>
-
-                {mcpServers.length === 0 ? (
-                  <div className="panel-empty" style={{ padding: "18px 0 22px" }}>
-                    <Icon name="globe" size={22} />
-                    <div>还没有已连接的 MCP 服务器</div>
-                    <div className="panel-empty-hint">添加本地命令后，服务器工具会在下一次对话中可用。</div>
-                  </div>
-                ) : null}
-
-                {mcpServers.map((server) => (
-                  /* 每个服务器卡片：连接状态、启动命令、错误信息、工具清单与操作 */
-                  <div key={server.id} className="mcp-card">
-                    <div className="mcp-head">
-                      <div className="mcp-icon">
-                        <Icon name="globe" />
-                      </div>
-                      <div className="mcp-main">
-                        <div className="mcp-name">
-                          {server.name}
-                          <span className={cn("badge", server.connected ? "ok" : server.error ? "danger" : "neutral")}>
-                            {server.connected ? "已连接" : server.error ? "连接失败" : "未连接"}
-                          </span>
                         </div>
-                        <div className="mcp-sub">{[server.command, ...(server.args ?? [])].join(" ")}</div>
-                        {server.error ? (
-                          <div className="mcp-sub" style={{ color: "var(--danger)", whiteSpace: "normal" }}>
-                            {server.error}
-                          </div>
-                        ) : null}
+                      ) : null}
+                    </div>
+                  ))}
+  
+                  <div className="sec-desc" style={{ marginTop: 10 }}>
+                    服务器以当前用户权限运行；模型密钥与常见令牌会从环境变量中过滤。
+                  </div>
+  
+                  {mcpTemplates.map((template) => (
+                    /* 模板只是说明性示例，不提供一键添加 */
+                    <div key={template.name} className="mcp-card">
+                      <div className="provider-head" style={{ padding: 0 }}>
+                        <div className="provider-logo">
+                          <Icon name={template.icon} />
+                        </div>
+                        <div className="provider-main">
+                          <div className="provider-name">{template.name}</div>
+                          <div className="provider-sub">{template.description}</div>
+                        </div>
+                        <span className="badge neutral">模板</span>
                       </div>
-                      <div className="provider-actions">
-                        {server.connected ? (
-                          <button
-                            type="button"
-                            className="btn sm ghost"
-                            disabled={mcpBusy === server.id}
-                            onClick={() => void disconnectMCP(server)}
-                          >
-                            断开
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn sm"
-                            disabled={mcpBusy === server.id}
-                            onClick={() => void connectMCP(server)}
-                          >
-                            连接
-                          </button>
-                        )}
+                    </div>
+                  ))}
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "appearance" ? (
+                /* 外观分组：主题与字号；未接线的控件保持禁用并标注里程碑 */
+                <SettingsSection title="外观" desc="主题与字体只影响本地界面。">
+                  <Row label="主题" desc="跟随系统、深色或浅色；代码主题独立。">
+                    {/* 主题卡片：用缩略块预览侧栏、主区与强调色的比例；跟随系统时左右各示一半 */}
+                    <div className="theme-cards">
+                      {(["system", "dark", "light"] as const).map((theme) => (
                         <button
+                          key={theme}
                           type="button"
-                          className="icon-btn sm"
-                          aria-label={`移除 ${server.name}`}
-                          onClick={() => void removeMCP(server)}
+                          className={cn("theme-card", theme, settings.theme === theme && "is-on")}
+                          onClick={() => update({ theme })}
                         >
-                          <Icon name="trash" />
+                          <div className="theme-preview">
+                            <i className="s" style={{ flex: 2 }} />
+                            <i className="m" style={{ flex: 5 }} />
+                            <i className="a" />
+                          </div>
+                          <div className="theme-label">
+                            {theme === "system" ? "跟随系统" : theme === "dark" ? "深色" : "浅色"}
+                            <Icon name={theme === "system" ? "monitor" : theme === "dark" ? "moon" : "sun"} />
+                          </div>
                         </button>
-                      </div>
+                      ))}
                     </div>
-                    {(server.tools ?? []).length > 0 ? (
-                      <div className="mcp-tools">
-                        <div className="mcp-tool-chips">
-                          {(server.tools ?? []).map((tool) => (
-                            <span key={tool.name} className="mcp-tool-chip" title={tool.description}>
-                              {tool.name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-
-                <div className="sec-desc" style={{ marginTop: 10 }}>
-                  服务器以当前用户权限运行；模型密钥与常见令牌会从环境变量中过滤。
-                </div>
-
-                {mcpTemplates.map((template) => (
-                  /* 模板只是说明性示例，不提供一键添加 */
-                  <div key={template.name} className="mcp-card">
-                    <div className="provider-head" style={{ padding: 0 }}>
-                      <div className="provider-logo">
-                        <Icon name={template.icon} />
-                      </div>
-                      <div className="provider-main">
-                        <div className="provider-name">{template.name}</div>
-                        <div className="provider-sub">{template.description}</div>
-                      </div>
-                      <span className="badge neutral">模板</span>
-                    </div>
-                  </div>
-                ))}
-              </SettingsSection>
-            ) : null}
-
-            {tab === "appearance" ? (
-              /* 外观分组：主题与字号；未接线的控件保持禁用并标注里程碑 */
-              <SettingsSection title="外观" desc="主题与字体只影响本地界面。">
-                <Row label="主题" desc="跟随系统、深色或浅色；代码主题独立。">
-                  {/* 主题卡片：用缩略块预览侧栏、主区与强调色的比例；跟随系统时左右各示一半 */}
-                  <div className="theme-cards">
-                    {(["system", "dark", "light"] as const).map((theme) => (
-                      <button
-                        key={theme}
-                        type="button"
-                        className={cn("theme-card", theme, settings.theme === theme && "is-on")}
-                        onClick={() => update({ theme })}
-                      >
-                        <div className="theme-preview">
-                          <i className="s" style={{ flex: 2 }} />
-                          <i className="m" style={{ flex: 5 }} />
-                          <i className="a" />
-                        </div>
-                        <div className="theme-label">
-                          {theme === "system" ? "跟随系统" : theme === "dark" ? "深色" : "浅色"}
-                          <Icon name={theme === "system" ? "monitor" : theme === "dark" ? "moon" : "sun"} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </Row>
-                <Row label="界面字号" desc="界面基准字号，影响消息、侧栏、面板与浮层；终端、编辑器与代码块使用独立字号。">
-                  <select
-                    className="select"
-                    value={settings.fontSize}
-                    onChange={(event) => update({ fontSize: Number(event.target.value) })}
-                  >
-                    {[12, 13, 14, 15].map((size) => (
-                      <option key={size} value={size}>
-                        {size}px
-                      </option>
-                    ))}
-                  </select>
-                </Row>
-                <Row label="终端字号" desc="xterm.js 使用的字号。">
-                  <select
-                    className="select"
-                    value={settings.terminalFontSize}
-                    onChange={(event) => update({ terminalFontSize: Number(event.target.value) })}
-                  >
-                    {[11, 12, 13, 14, 15].map((size) => (
-                      <option key={size} value={size}>
-                        {size}px
-                      </option>
-                    ))}
-                  </select>
-                </Row>
-                <Row label="代码主题" desc="预留给独立的编辑器配色；当前跟随界面主题，独立配色在 M1 接入。">
-                  <select className="select" value={settings.codeTheme} disabled title="M1 接入">
-                    <option value="dark">深色</option>
-                    <option value="light">浅色</option>
-                  </select>
-                </Row>
-              </SettingsSection>
-            ) : null}
-
-            {tab === "advanced" ? (
-              /* 高级分组：版本信息、备份入口、导出留桩、重置设置与许可证 */
-              <SettingsSection title="高级" desc="本地数据、版本与恢复。">
-                <Row label="版本" desc="构建信息">
-                  <span className="mono">
-                    {info?.version ?? "0.1.0"} · {info?.commit ?? "dev"} · {info?.platform ?? "web"}
-                  </span>
-                </Row>
-                <Row label="备份与恢复" desc="写入文件前的备份保存在 ~/.craftwork/backups。">
-                  <button type="button" className="btn sm" onClick={() => openData("backup")}>
-                    <Icon name="archive" />
-                    查看备份
-                  </button>
-                </Row>
-                <Row label="导出数据" desc="导出数据库与配置，不包含 keys.json。">
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={() => toast({ title: "导出在 M4 接入", tone: "info" })}
-                  >
-                    <Icon name="download" />
-                    导出
-                  </button>
-                </Row>
-                <Row label="重置设置" desc="恢复默认设置，不删除会话与工作区。">
-                  {/* 重置前二次确认；确认后写回 DEFAULT_SETTINGS */}
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={async () => {
-                      const confirmed = await askConfirm({
-                        title: "恢复默认设置？",
-                        description: "主题、字号、审批档位等会恢复默认；会话与工作区不受影响。",
-                        confirmText: "恢复默认",
-                        danger: true,
-                      });
-                      if (confirmed) {
-                        update(DEFAULT_SETTINGS);
-                        toast({ title: "已恢复默认设置", tone: "ok" });
-                      }
-                    }}
-                  >
-                    <Icon name="rotate-ccw" />
-                    恢复默认
-                  </button>
-                </Row>
-                <Row label="许可证" desc="Apache-2.0；贡献流程使用 DCO。">
-                  <span className="badge neutral">Apache-2.0</span>
-                </Row>
-              </SettingsSection>
-            ) : null}
+                  </Row>
+                  <Row label="界面字号" desc="界面基准字号，影响消息、侧栏、面板与浮层；终端、编辑器与代码块使用独立字号。">
+                    <select
+                      className="select"
+                      value={settings.fontSize}
+                      onChange={(event) => update({ fontSize: Number(event.target.value) })}
+                    >
+                      {[12, 13, 14, 15].map((size) => (
+                        <option key={size} value={size}>
+                          {size}px
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label="终端字号" desc="xterm.js 使用的字号。">
+                    <select
+                      className="select"
+                      value={settings.terminalFontSize}
+                      onChange={(event) => update({ terminalFontSize: Number(event.target.value) })}
+                    >
+                      {[11, 12, 13, 14, 15].map((size) => (
+                        <option key={size} value={size}>
+                          {size}px
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label="代码主题" desc="预留给独立的编辑器配色；当前跟随界面主题，独立配色在 M1 接入。">
+                    <select className="select" value={settings.codeTheme} disabled title="M1 接入">
+                      <option value="dark">深色</option>
+                      <option value="light">浅色</option>
+                    </select>
+                  </Row>
+                </SettingsSection>
+              ) : null}
+  
+              {tab === "advanced" ? (
+                /* 高级分组：版本信息、备份入口、导出留桩、重置设置与许可证 */
+                <SettingsSection title="高级" desc="本地数据、版本与恢复。">
+                  <Row label="版本" desc="构建信息">
+                    <span className="mono">
+                      {info?.version ?? "0.1.0"} · {info?.commit ?? "dev"} · {info?.platform ?? "web"}
+                    </span>
+                  </Row>
+                  <Row label="备份与恢复" desc="写入文件前的备份保存在 ~/.craftwork/backups。">
+                    <button type="button" className="btn sm" onClick={() => openData("backup")}>
+                      <Icon name="archive" />
+                      查看备份
+                    </button>
+                  </Row>
+                  <Row label="导出数据" desc="导出数据库与配置，不包含 keys.json。">
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => toast({ title: "导出在 M4 接入", tone: "info" })}
+                    >
+                      <Icon name="download" />
+                      导出
+                    </button>
+                  </Row>
+                  <Row label="重置设置" desc="恢复默认设置，不删除会话与工作区。">
+                    {/* 重置前二次确认；确认后写回 DEFAULT_SETTINGS */}
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={async () => {
+                        const confirmed = await askConfirm({
+                          title: "恢复默认设置？",
+                          description: "主题、字号、审批档位等会恢复默认；会话与工作区不受影响。",
+                          confirmText: "恢复默认",
+                          danger: true,
+                        });
+                        if (confirmed) {
+                          update(DEFAULT_SETTINGS);
+                          toast({ title: "已恢复默认设置", tone: "ok" });
+                        }
+                      }}
+                    >
+                      <Icon name="rotate-ccw" />
+                      恢复默认
+                    </button>
+                  </Row>
+                  <Row label="许可证" desc="Apache-2.0；贡献流程使用 DCO。">
+                    <span className="badge neutral">Apache-2.0</span>
+                  </Row>
+                </SettingsSection>
+              ) : null}
+            </div>
           </div>
-        </div>
-
-        <div className="settings-foot">
-          {/* 底部：本地保存说明与关闭按钮 */}
-          <span className="settings-tip">
-            <Icon name="lock" />
-            设置保存在本地，不随对话上传。
-          </span>
-          <span className="spacer" />
-          <button type="button" className="btn primary" onClick={close}>
-            完成
-          </button>
         </div>
       </div>
     </div>,
