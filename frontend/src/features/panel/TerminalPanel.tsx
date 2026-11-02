@@ -114,7 +114,7 @@ const TERMINAL_FONT_FAMILY = [
  *
  * xterm 是命令式实例，通过 ref 持有；主题或字号变化时整体重建。
  */
-export function TerminalPanel() {
+export function TerminalPanel({ isActive = true }: { isActive?: boolean }) {
   const sessions = useTerminalStore((state) => state.sessions);
   const activeID = useTerminalStore((state) => state.activeID);
   const outputs = useTerminalStore((state) => state.outputs);
@@ -136,6 +136,19 @@ export function TerminalPanel() {
   const [query, setQuery] = useState("");
   // 搜索结果的当前位置与总数，由 SearchAddon 的回调更新。
   const [searchResult, setSearchResult] = useState({ index: -1, count: 0 });
+
+  // tab 保活之下，终端面板在 display:none 期间尺寸为 0；大部分内核的
+  // ResizeObserver 会在恢复显示时触发重新适配，但为防内核差异，
+  // 切回显示时再显式 fit 一次（尺寸为 0 时 fit 抛错，忽略）。
+  useEffect(() => {
+    if (isActive) {
+      try {
+        fitRef.current?.fit();
+      } catch {
+        // 隐藏期间尺寸为 0，忽略即可。
+      }
+    }
+  }, [isActive]);
 
   // 把当前会话 ID 同步到 ref，供 xterm 的输入、尺寸回调读取，
   // 避免回调闭包拿到过期的值。

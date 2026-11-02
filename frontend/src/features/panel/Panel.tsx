@@ -305,25 +305,52 @@ export function Panel() {
         </Popover>
       ) : null}
       <div className="panel-body">
-        {/* 懒加载面板内容；分包尚未下载完成时显示加载占位 */}
-        <Suspense
-          fallback={
-            <div className="panel-empty">
-              <Icon name="loader" size={20} className="spin" />
-              <div>正在加载面板…</div>
-            </div>
-          }
-        >
-          {/* 没有激活 tab 时显示文件树兜底视图；选中高亮跟随激活的 file tab */}
-          {active === null ? <FilesPanel selectedPath={activeFilePath} /> : null}
-          {active?.type === "file" ? <FileTabContent tab={active} /> : null}
-          {active?.type === "diff" ? <DiffPanel /> : null}
-          {active?.type === "terminal" ? <TerminalPanel /> : null}
-          {active?.type === "document" ? <DocumentTabContent tab={active} /> : null}
-        </Suspense>
+        {/* 兜底文件树：没有激活 tab 时显示。保持挂载以维持树的展开与滚动状态。 */}
+        <div className="panel-page" hidden={active !== null}>
+          <Suspense fallback={<PanelLoading />}>
+            <FilesPanel selectedPath={activeFilePath} />
+          </Suspense>
+        </div>
+        {/* 每个可见 tab 的内容常驻挂载（保活，spec 第 6 节）：切换只是
+        display:none，编辑器光标、终端实例、文档滚动位置都不销毁；
+        懒加载的 Suspense 边界逐 tab 独立，避免一个分包加载遮住其他 tab。 */}
+        {visible.map((tab) => (
+          <div key={tab.id} className="panel-page" hidden={tab.id !== activeTabId}>
+            <Suspense fallback={<PanelLoading />}>
+              <TabContent tab={tab} isActive={tab.id === activeTabId} />
+            </Suspense>
+          </div>
+        ))}
       </div>
     </>
   );
+}
+
+/** 面板分包加载中的占位。 */
+function PanelLoading() {
+  return (
+    <div className="panel-empty">
+      <Icon name="loader" size={20} className="spin" />
+      <div>正在加载面板…</div>
+    </div>
+  );
+}
+
+/**
+ * 按 tab 类型分派内容组件；isActive 传给需要重新测量的组件
+ * （display:none 期间 CodeMirror / xterm 的尺寸测量会失效）。
+ */
+function TabContent({ tab, isActive }: { tab: SidePaneTab; isActive: boolean }) {
+  switch (tab.type) {
+    case "file":
+      return <FileTabContent tab={tab} isActive={isActive} />;
+    case "diff":
+      return <DiffPanel />;
+    case "terminal":
+      return <TerminalPanel isActive={isActive} />;
+    case "document":
+      return <DocumentTabContent tab={tab} />;
+  }
 }
 
 /**
@@ -333,7 +360,7 @@ export function Panel() {
  * 或模式切换 reset 后）时先补一次读取；读取完成渲染编辑器。
  * 每个文件的草稿、编辑模式与定位行都在各自的槽里，互不干扰。
  */
-function FileTabContent({ tab }: { tab: FileSidePaneTab }) {
+function FileTabContent({ tab, isActive }: { tab: FileSidePaneTab; isActive: boolean }) {
   const slot = useWorkspaceStore((state) => state.files[tab.id]);
 
   // 槽被清（重开 / reset）时重新读取内容；loadFileSlot 内部会写回槽。
@@ -351,7 +378,7 @@ function FileTabContent({ tab }: { tab: FileSidePaneTab }) {
       </div>
     );
   }
-  return <Editor tab={tab} />;
+  return <Editor tab={tab} isActive={isActive} />;
 }
 
 /**

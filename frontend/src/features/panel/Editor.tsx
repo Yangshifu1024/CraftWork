@@ -111,13 +111,12 @@ async function loadLanguage(path: string) {
  * 本组件持有 CodeMirror 视图与宿主节点的引用，卸载时销毁视图释放资源；
  * 关闭文件按钮会同时关闭所属的面板 tab。
  */
-export function Editor({ tab }: { tab: FileSidePaneTab }) {
+export function Editor({ tab, isActive }: { tab: FileSidePaneTab; isActive: boolean }) {
   const slot = useWorkspaceStore((state) => state.files[tab.id]);
   const content = slot?.content ?? null;
   const editorMode = slot?.editorMode ?? "read";
   const targetLine = slot?.targetLine ?? null;
   const toast = useUiStore((state) => state.toast);
-
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   // 用 ref 保存最新的写草稿回调，重建编辑器时不必把它放进依赖数组。
@@ -127,6 +126,14 @@ export function Editor({ tab }: { tab: FileSidePaneTab }) {
   onChangeRef.current = (value) => {
     useWorkspaceStore.getState().setDraft(tab.id, value);
   };
+
+  // tab 保活之下，display:none 期间 CodeMirror 的尺寸测量会失效；
+  // 从隐藏切回显示时主动触发一次重新测量，让滚动区与行高恢复正确。
+  useEffect(() => {
+    if (isActive) {
+      viewRef.current?.requestMeasure();
+    }
+  }, [isActive]);
 
   // 创建 CodeMirror 视图。
   // 文件路径、内容、哈希、编辑模式或目标行变化时整体重建：
