@@ -113,12 +113,8 @@ export function Sidebar() {
 
   // 搜索中显示搜索结果；没有搜索时显示当前模式的会话列表。
   const list = searchResults ?? threads ?? [];
-  // 当前活动工作区是否为内置临时会话目录；卡片与空态文案据此切换。
-  const isTempWorkspace = activeWorkspace?.purpose === "conversation";
-  // 信任状态：未选择工作区时按 unknown 处理，徽标与图标都走“未选择”分支。
+  // 信任状态：未选择工作区时按 unknown 处理，弹层内容据此切换。
   const trust = activeWorkspace?.trust ?? "unknown";
-  const trustLabel = trust === "trusted" ? "信任" : trust === "restricted" ? "受限模式" : "未选择";
-  const trustIcon = trust === "trusted" ? "shield-check" : trust === "restricted" ? "lock" : "alert";
 
   // 无搜索时把会话按归属分组：内置临时目录的会话置顶成「临时会话」组，
   // 其余按工作区（最近打开顺序）分组；工作区已被删除的会话归入「其他」，
@@ -264,55 +260,6 @@ export function Sidebar() {
               {activeWorkspace?.path ?? "尚未选择工作区"}
             </div>
           </div>
-        </div>
-        <div className="ws-card-bottom">
-          {isTempWorkspace ? (
-            // 内置临时目录固定为可信，不提供信任切换入口。
-            <span className="trust-chip unknown" title="应用内置的临时目录，固定为可信">
-              <Icon name="shield-check" />
-              内置
-            </span>
-          ) : (
-            <button
-              type="button"
-              className={cn("trust-chip", trust)}
-              title="点击调整工作区信任"
-              onClick={(event) =>
-                setPopover({
-                  kind: "trust",
-                  anchor: event.currentTarget,
-                })
-              }
-            >
-              <Icon name={trustIcon} />
-              {trustLabel}
-            </button>
-          )}
-          {isTempWorkspace ? (
-            <span className="ws-mini-btn">
-              <Icon name="folder" />
-              临时目录
-            </span>
-          ) : mode === "code" ? (
-            <span className="ws-mini-btn">
-              <Icon name="git-branch" />
-              Git 工作区
-            </span>
-          ) : (
-            <span className="ws-mini-btn">
-              <Icon name="file-text" />
-              文档
-            </span>
-          )}
-          <span className="spacer" />
-          <button
-            type="button"
-            className="ws-mini-btn"
-            title="切换工作区"
-            onClick={(event) => setPopover({ kind: "switch", anchor: event.currentTarget })}
-          >
-            <Icon name="chevron-down" />
-          </button>
         </div>
       </div>
 
