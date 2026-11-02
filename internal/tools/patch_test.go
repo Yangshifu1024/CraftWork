@@ -72,7 +72,6 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 	}
 	backups := 0
 	registry := NewRegistry(Options{
-		Workspace: workspace,
 		BackupDir: filepath.Join(workspace, "backups"),
 		RecordBackup: func(string, string, string, int64) error {
 			backups++
@@ -81,7 +80,7 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 	})
 	run := func(args map[string]any) Result {
 		t.Helper()
-		_, call, exists := registry.Assess("apply_patch", args)
+		_, call, exists := registry.Assess(workspace, "apply_patch", args)
 		if !exists {
 			t.Fatal("apply_patch 未注册")
 		}
@@ -117,8 +116,9 @@ func TestApplyPatchToolDryRunAndWrite(t *testing.T) {
 }
 
 func TestApplyPatchToolRejectsUnknownFile(t *testing.T) {
-	registry := NewRegistry(Options{Workspace: t.TempDir()})
-	_, call, exists := registry.Assess("apply_patch", map[string]any{
+	workspace := t.TempDir()
+	registry := NewRegistry(Options{})
+	_, call, exists := registry.Assess(workspace, "apply_patch", map[string]any{
 		"path": "missing.txt", "patch": twoHunkPatch,
 	})
 	if !exists {

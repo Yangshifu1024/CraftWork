@@ -117,14 +117,20 @@ func newChatHarness(t *testing.T, client model.Client) *chatHarness {
 	})
 	t.Cleanup(bus.Close)
 
+	if err := db.UpsertWorkspace(&store.Workspace{
+		ID: "ws_chat", Name: "workspace", Path: workspace, Trust: "trusted",
+		Purpose: store.WorkspacePurposeProject, CreatedAt: store.NowMillis(), LastOpenedAt: store.NowMillis(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	registry := tools.NewRegistry(tools.Options{
-		Workspace: workspace,
 		BackupDir: filepath.Join(root, "backups"),
 		RecordBackup: func(string, string, string, int64) error {
 			return nil
 		},
 	})
-	engine := policy.New(policy.LevelGraded, workspace)
+	engine := policy.New(policy.LevelGraded)
 	recorder := record.New(db, bus)
 	approvals := agent.NewApprovals(db, recorder)
 	runner := agent.NewRunner(db, recorder, registry, engine, approvals, fixedFactory{client: client}, "", "")
@@ -132,7 +138,7 @@ func newChatHarness(t *testing.T, client model.Client) *chatHarness {
 	h.db = db
 
 	thread := store.Thread{
-		ID: "th_chat", Mode: "code", Title: "测试", ModelID: "test/fake",
+		ID: "th_chat", Mode: "code", Title: "测试", ModelID: "test/fake", WorkspaceID: "ws_chat",
 		Status: "idle", CreatedAt: store.NowMillis(), UpdatedAt: store.NowMillis(),
 	}
 	if err := db.CreateThread(&thread); err != nil {

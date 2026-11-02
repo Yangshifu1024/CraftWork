@@ -9,10 +9,8 @@ import (
 	"testing"
 
 	"craftwork/internal/events"
-	"craftwork/internal/policy"
 	"craftwork/internal/record"
 	"craftwork/internal/store"
-	"craftwork/internal/tools"
 )
 
 // newWorkspaceService 搭一个带内存总线的最小工作区服务，供测试使用。
@@ -25,9 +23,7 @@ func newWorkspaceService(t *testing.T) (*store.DB, *WorkspaceService) {
 	t.Cleanup(func() { db.Close() })
 	bus := events.NewBus(func(string, any) {})
 	t.Cleanup(bus.Close)
-	engine := policy.New(policy.LevelGraded, "")
-	registry := tools.NewRegistry(tools.Options{})
-	service := NewWorkspaceService(db, bus, engine, registry, "")
+	service := NewWorkspaceService(db, bus, "")
 	return db, service
 }
 

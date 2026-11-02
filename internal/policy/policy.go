@@ -86,19 +86,19 @@ type Assessment struct {
 	Target string `json:"target,omitempty"`
 }
 
-// Engine 根据审批档位、工作区与信任状态判断工具调用。
+// Engine 根据审批档位与信任状态判断工具调用。
+//
+// 档位是用户的全局设置，由引擎持有；工作区根与信任状态是每次运行的
+// 事实，由调用方在判断时显式传入（restricted 参数），不在引擎里保存
+// 任何可变副本——并行运行的不同会话因此互不干扰。
 type Engine struct {
 	// level 是当前审批档位。
 	level Level
-	// workspace 是当前工作区根目录的绝对路径。
-	workspace string
-	// restricted 表示工作区未受信任，网络访问直接拒绝。
-	restricted bool
 }
 
-// New 创建策略引擎。workspace 必须是已经解析过的绝对路径。
-func New(level Level, workspace string) *Engine {
-	return &Engine{level: level, workspace: workspace}
+// New 创建策略引擎。
+func New(level Level) *Engine {
+	return &Engine{level: level}
 }
 
 // Level 返回当前审批档位。
@@ -109,27 +109,6 @@ func (e *Engine) Level() Level {
 // SetLevel 更新审批档位。
 func (e *Engine) SetLevel(level Level) {
 	e.level = level
-}
-
-// Restricted 返回工作区是否处于受限模式。
-func (e *Engine) Restricted() bool {
-	return e.restricted
-}
-
-// SetRestricted 设置工作区信任状态。受限模式下网络访问直接拒绝，
-// 且不提供任何永久授权。
-func (e *Engine) SetRestricted(restricted bool) {
-	e.restricted = restricted
-}
-
-// Workspace 返回当前工作区根目录。
-func (e *Engine) Workspace() string {
-	return e.workspace
-}
-
-// SetWorkspace 更新工作区根目录。
-func (e *Engine) SetWorkspace(workspace string) {
-	e.workspace = workspace
 }
 
 // ToolMeta 是评估一次工具调用所需的静态元数据，由工具自己声明。
@@ -174,8 +153,9 @@ func ClassifyCommand(command string) (Risk, string) {
 	return R2, "在工作区内执行命令"
 }
 
-// Action 根据审批档位与信任状态给出处置。
-func (e *Engine) Action(risk Risk) Action {
+// Action 根据审批档位与信任状态给出处置。restricted 表示本次调用
+// 所在工作区未受信任：R3 直接拒绝，而不是交给用户审批。
+func (e *Engine) Action(restricted bool, risk Risk) Action {
 	// 自由档位放行一切（包括 R4 与受限工作区的 R3）；
 	// 这是用户在风险确认后做出的显式选择，策略层不再拦截，
 	// 安全完全依赖审计记录与写入前备份兜底。
@@ -189,7 +169,7 @@ func (e *Engine) Action(risk Risk) Action {
 		return ActionDeny
 	}
 	// 受限工作区默认断网：R3 直接拒绝，而不是交给用户审批。
-	if e.restricted && risk == R3 {
+	if restricted && risk == R3 {
 		return ActionDeny
 	}
 	if e.level == LevelStrict {
@@ -214,10 +194,10 @@ func (e *Engine) Action(risk Risk) Action {
 
 // AllowsPermanent 判断该风险是否允许“本会话 / 本工作区”授权。
 // R3、R4 永远不提供永久允许；严格、只读与受限工作区也不提供。
-func (e *Engine) AllowsPermanent(risk Risk) bool {
+func (e *Engine) AllowsPermanent(restricted bool, risk Risk) bool {
 	// 只有分级档位且工作区受信任时，写工作区与执行命令才允许
 	// 一次授权覆盖本会话或本工作区；其余情况每次都问。
-	if e.level != LevelGraded || e.restricted {
+	if e.level != LevelGraded || restricted {
 		return false
 	}
 	return risk == R1 || risk == R2

@@ -284,7 +284,7 @@ func TestHistorySteerDeduplication(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	history, _, err := h.runner.history(h.thread)
+	history, _, err := h.runner.history(h.thread, h.workspace)
 	if err != nil {
 		t.Fatal(err)
 	}

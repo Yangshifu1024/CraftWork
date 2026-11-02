@@ -144,19 +144,20 @@ func (c Call) Resolve(rel string) (abs string, display string, err error) {
 
 // Options 是工具注册表的配置。
 type Options struct {
-	// Workspace 是工作区根目录的绝对路径。
-	Workspace string
 	// BackupDir 是写入前备份的目录；为空表示不落盘备份。
 	BackupDir string
 	// RecordBackup 把备份记录写入数据库。
 	RecordBackup func(path, backupPath, hash string, size int64) error
 }
 
-// Registry 持有当前工作区可用的工具集合。
+// Registry 持有可用的工具集合。
+//
+// 注册表不保存工作区根目录：每次调用的工作区由调用方随 Assess 传入
+// 并固定进 Call，运行中的会话不会互相覆盖路径边界。
 type Registry struct {
-	// mu 保护 opts 与 tools，支持运行期切换工作区、注册 MCP 工具。
+	// mu 保护 opts 与 tools，支持运行期注册 MCP 工具。
 	mu sync.RWMutex
-	// opts 是注册表配置，其中 Workspace 会随活动工作区变化。
+	// opts 是注册表配置，构造后不再变化。
 	opts Options
 	// tools 以工具名称为键，内置工具在构造时一次性注册。
 	tools map[string]Tool
@@ -188,20 +189,6 @@ func NewRegistry(opts Options) *Registry {
 		registry.tools[tool.Spec().Name] = tool
 	}
 	return registry
-}
-
-// SetWorkspace 切换工作区。
-func (r *Registry) SetWorkspace(workspace string) {
-	r.mu.Lock()
-	r.opts.Workspace = workspace
-	r.mu.Unlock()
-}
-
-// Workspace 返回当前工作区。
-func (r *Registry) Workspace() string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.opts.Workspace
 }
 
 // Get 按名称取工具。
@@ -293,12 +280,13 @@ func (r *Registry) Allows(mode, name string) bool {
 
 // Assess 解析调用目标并给出策略结论。
 //
-// 返回的 Call 可以直接交给 Execute，路径只解析一次。exists 为 false
-// 表示工具未注册，调用方应拒绝执行。
-func (r *Registry) Assess(name string, args map[string]any) (policy.Assessment, Call, bool) {
+// workspace 是本次调用的工作区根目录，由调用方（Runner 从会话绑定的
+// 工作区解析而来）显式传入，解析结果固定进返回的 Call。返回的 Call
+// 可以直接交给 Execute，路径只解析一次。exists 为 false 表示工具未
+// 注册，调用方应拒绝执行。
+func (r *Registry) Assess(workspace, name string, args map[string]any) (policy.Assessment, Call, bool) {
 	r.mu.RLock()
 	tool, exists := r.tools[name]
-	workspace := r.opts.Workspace
 	r.mu.RUnlock()
 
 	call := Call{Name: name, Args: args, Workspace: workspace}

@@ -3,6 +3,9 @@
 
 /**
  * WorkspaceService 管理工作区、文件树、文件读写与差异计算。
+ * 
+ * 它不持有任何运行策略状态：工作区路径与信任由每次 Agent 运行开始时
+ * 从会话绑定的工作区解析（agent.RunEnv），这里只维护工作区记录本身。
  * @module
  */
 
@@ -96,8 +99,9 @@ export function ReadFile(workspaceID: string, rel: string): $CancellablePromise<
 /**
  * Remove 移除工作区记录，不删除磁盘文件。
  * 
- * 如果移除的是当前活动工作区，同时清空设置、策略引擎与工具注册表
- * 中的路径，避免后续调用继续指向已不存在的工作区。
+ * 如果移除的是当前活动工作区，同时清空设置里的指针，避免界面继续
+ * 指向已不存在的工作区；运行中的会话不受影响——它们的环境在运行
+ * 开始时已经解析成值。
  */
 export function Remove(workspaceID: string): $CancellablePromise<void> {
     return $Call.ByID(3321404048, workspaceID);

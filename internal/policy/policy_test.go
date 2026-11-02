@@ -69,54 +69,52 @@ func TestResolveRejectsEscape(t *testing.T) {
 }
 
 func TestActionByLevel(t *testing.T) {
-	graded := New(LevelGraded, "/tmp")
-	if graded.Action(R0) != ActionAllow || graded.Action(R1) != ActionAsk ||
-		graded.Action(R3) != ActionAsk || graded.Action(R4) != ActionDeny {
+	graded := New(LevelGraded)
+	if graded.Action(false, R0) != ActionAllow || graded.Action(false, R1) != ActionAsk ||
+		graded.Action(false, R3) != ActionAsk || graded.Action(false, R4) != ActionDeny {
 		t.Fatal("分级档位处置不符合预期")
 	}
-	if !graded.AllowsPermanent(R2) {
+	if !graded.AllowsPermanent(false, R2) {
 		t.Fatal("分级档位应允许 R2 永久授权")
 	}
-	if graded.AllowsPermanent(R3) {
+	if graded.AllowsPermanent(false, R3) {
 		t.Fatal("R3 不应允许永久授权")
 	}
 
-	strict := New(LevelStrict, "/tmp")
-	if strict.Action(R1) != ActionAsk || strict.AllowsPermanent(R1) {
+	strict := New(LevelStrict)
+	if strict.Action(false, R1) != ActionAsk || strict.AllowsPermanent(false, R1) {
 		t.Fatal("严格档位不应提供永久授权")
 	}
 
-	readonly := New(LevelReadonly, "/tmp")
-	if readonly.Action(R1) != ActionDeny || readonly.Action(R0) != ActionAllow {
+	readonly := New(LevelReadonly)
+	if readonly.Action(false, R1) != ActionDeny || readonly.Action(false, R0) != ActionAllow {
 		t.Fatal("只读档位处置不符合预期")
 	}
 
-	restricted := New(LevelGraded, "/tmp")
-	restricted.SetRestricted(true)
-	if restricted.Action(R3) != ActionDeny {
+	// 受限工作区作为参数传入，引擎不再持有可变的信任状态。
+	restricted := New(LevelGraded)
+	if restricted.Action(true, R3) != ActionDeny {
 		t.Fatal("受限工作区应直接拒绝网络访问")
 	}
-	if restricted.Action(R1) != ActionAsk {
+	if restricted.Action(true, R1) != ActionAsk {
 		t.Fatal("受限工作区写入仍需审批")
 	}
-	if restricted.AllowsPermanent(R1) {
+	if restricted.AllowsPermanent(true, R1) {
 		t.Fatal("受限工作区不应提供永久授权")
 	}
 
 	// 自由档位放行一切，包括 R4 与受限工作区的 R3；
 	// 审批卡不会出现，因此也不需要永久授权。
-	free := New(LevelFree, "/tmp")
+	free := New(LevelFree)
 	for _, risk := range []Risk{R0, R1, R2, R3, R4} {
-		if free.Action(risk) != ActionAllow {
+		if free.Action(false, risk) != ActionAllow {
 			t.Fatalf("自由档位应放行 %s", risk)
 		}
 	}
-	freeRestricted := New(LevelFree, "/tmp")
-	freeRestricted.SetRestricted(true)
-	if freeRestricted.Action(R3) != ActionAllow || freeRestricted.Action(R4) != ActionAllow {
+	if free.Action(true, R3) != ActionAllow || free.Action(true, R4) != ActionAllow {
 		t.Fatal("自由档位在受限工作区也应放行（用户已显式确认）")
 	}
-	if free.AllowsPermanent(R1) || free.AllowsPermanent(R2) {
+	if free.AllowsPermanent(false, R1) || free.AllowsPermanent(false, R2) {
 		t.Fatal("自由档位不应提供永久授权：审批卡不会出现")
 	}
 }

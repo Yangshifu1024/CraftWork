@@ -22,9 +22,10 @@ func (t *stubTool) Execute(context.Context, Call) Result {
 }
 
 func TestAssessMarksPathOutsideWorkspace(t *testing.T) {
-	registry := NewRegistry(Options{Workspace: t.TempDir()})
+	registry := NewRegistry(Options{})
+	workspace := t.TempDir()
 
-	assessment, call, exists := registry.Assess("fs_read", map[string]any{"path": "../secret"})
+	assessment, call, exists := registry.Assess(workspace, "fs_read", map[string]any{"path": "../secret"})
 	if !exists {
 		t.Fatal("fs_read 应已注册")
 	}
@@ -40,26 +41,26 @@ func TestAssessMarksPathOutsideWorkspace(t *testing.T) {
 }
 
 func TestAssessClassifiesCommands(t *testing.T) {
-	registry := NewRegistry(Options{Workspace: t.TempDir()})
+	registry := NewRegistry(Options{})
 
-	network, _, _ := registry.Assess("shell_exec", map[string]any{"command": "curl https://example.com"})
+	network, _, _ := registry.Assess(t.TempDir(), "shell_exec", map[string]any{"command": "curl https://example.com"})
 	if network.Risk != policy.R3 {
 		t.Fatalf("联网命令应为 R3，实际 %s", network.Risk)
 	}
-	destructive, _, _ := registry.Assess("shell_exec", map[string]any{"command": "rm -rf /"})
+	destructive, _, _ := registry.Assess(t.TempDir(), "shell_exec", map[string]any{"command": "rm -rf /"})
 	if destructive.Risk != policy.R4 {
 		t.Fatalf("破坏性命令应为 R4，实际 %s", destructive.Risk)
 	}
 }
 
 func TestExecuteTruncatesDynamicToolOutput(t *testing.T) {
-	registry := NewRegistry(Options{Workspace: t.TempDir()})
+	registry := NewRegistry(Options{})
 	registry.Register(&stubTool{
 		spec:   Spec{Name: "mcp__demo__big", Risk: policy.R2},
 		output: strings.Repeat("a", maxOutputBytes+100),
 	})
 
-	_, call, exists := registry.Assess("mcp__demo__big", map[string]any{})
+	_, call, exists := registry.Assess(t.TempDir(), "mcp__demo__big", map[string]any{})
 	if !exists {
 		t.Fatal("动态工具应已注册")
 	}
@@ -73,7 +74,7 @@ func TestExecuteTruncatesDynamicToolOutput(t *testing.T) {
 }
 
 func TestSpecDrivesSummaryTitleAndWorkMode(t *testing.T) {
-	registry := NewRegistry(Options{Workspace: t.TempDir()})
+	registry := NewRegistry(Options{})
 
 	spec, exists := registry.SpecFor("fs_write")
 	if !exists {

@@ -116,7 +116,7 @@ func Run(frontend embed.FS, build version.Info) error {
 	defer bus.Close()
 
 	// 审批档位先用默认值，稍后从设置里恢复用户的选择。
-	engine := policy.New(policy.LevelGraded, "")
+	engine := policy.New(policy.LevelGraded)
 	registry := tools.NewRegistry(tools.Options{
 		BackupDir: filepath.Join(dataDir, "backups"),
 		// 每次写文件前的备份都要登记到数据库，便于审计与回滚。
@@ -130,7 +130,7 @@ func Run(frontend embed.FS, build version.Info) error {
 			})
 		},
 	})
-	settingsService := service.NewSettingsService(db, bus, engine, registry)
+	settingsService := service.NewSettingsService(db, bus, engine)
 	modelFactory := model.NewFactory(secrets)
 	// 失败转移模型从设置里实时读取，用户改设置后无需重启。
 	modelFactory.SetFallbackResolver(func(string) string {
@@ -147,10 +147,22 @@ func Run(frontend embed.FS, build version.Info) error {
 	appService := service.NewAppService(dataDir, build)
 	threadService := service.NewThreadService(db, recorder)
 	chatService := service.NewChatService(db, recorder, runner, approvals)
-	workspaceService := service.NewWorkspaceService(db, bus, engine, registry, filepath.Join(dataDir, "backups"))
+	workspaceService := service.NewWorkspaceService(db, bus, filepath.Join(dataDir, "backups"))
 	providerService := service.NewProviderService(db, secrets)
 	auditService := service.NewAuditService(db)
-	terminalService := service.NewTerminalService(bus, registry.Workspace)
+	// 终端是 UI 级动作，按「当前激活工作区」取根目录；运行中会话的
+	// 环境是 per-run 的 RunEnv，两者互不影响。
+	activeWorkspacePath := func() string {
+		settings := settingsService.Get()
+		if settings.ActiveWorkspace == "" {
+			return ""
+		}
+		if workspace, err := db.GetWorkspace(settings.ActiveWorkspace); err == nil {
+			return workspace.Path
+		}
+		return ""
+	}
+	terminalService := service.NewTerminalService(bus, activeWorkspacePath)
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
@@ -166,17 +178,10 @@ func Run(frontend embed.FS, build version.Info) error {
 		slog.Warn("回填会话工作区失败", "err", err)
 	}
 
-	// 启动时恢复活动工作区与审批档位。
+	// 启动时恢复审批档位。活动工作区只是 UI 偏好，不进任何策略状态：
+	// 每个会话在运行开始时从自己绑定的工作区解析执行环境。
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))
-	if settings.ActiveWorkspace != "" {
-		if workspace, err := db.GetWorkspace(settings.ActiveWorkspace); err == nil {
-			// 信任级别决定是否允许永久授权：非 trusted 一律按受限工作区处理。
-			engine.SetWorkspace(workspace.Path)
-			engine.SetRestricted(workspace.Trust != "trusted")
-			registry.SetWorkspace(workspace.Path)
-		}
-	}
 	// 批量事件通道需要在创建应用前注册，前端才能收到 cw:events。
 	application.RegisterEvent[events.Batch](events.BatchName)
 

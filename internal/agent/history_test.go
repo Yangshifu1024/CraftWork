@@ -78,7 +78,7 @@ func TestHistoryReusesContextSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	messages, seqs, err := h.runner.history(thread)
+	messages, seqs, err := h.runner.history(thread, h.workspace)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -80,23 +80,21 @@ type FileContent struct {
 }
 
 // WorkspaceService 管理工作区、文件树、文件读写与差异计算。
+//
+// 它不持有任何运行策略状态：工作区路径与信任由每次 Agent 运行开始时
+// 从会话绑定的工作区解析（agent.RunEnv），这里只维护工作区记录本身。
 type WorkspaceService struct {
 	// db 是工作区记录与审计的存储入口。
 	db *store.DB
 	// bus 推送工作区变更与文件变动事件。
 	bus *events.Bus
-	// engine 是策略引擎，切换工作区时同步路径与信任状态。
-	engine *policy.Engine
-	// registry 是工具注册表，切换工作区时同步根目录。
-	registry *tools.Registry
 	// backupDir 是文件备份目录。
 	backupDir string
 }
 
 // NewWorkspaceService 创建工作区服务。
-func NewWorkspaceService(db *store.DB, bus *events.Bus, engine *policy.Engine,
-	registry *tools.Registry, backupDir string) *WorkspaceService {
-	return &WorkspaceService{db: db, bus: bus, engine: engine, registry: registry, backupDir: backupDir}
+func NewWorkspaceService(db *store.DB, bus *events.Bus, backupDir string) *WorkspaceService {
+	return &WorkspaceService{db: db, bus: bus, backupDir: backupDir}
 }
 
 // conversationWorkspaceName 是内置临时会话目录的展示名称。
@@ -292,10 +290,6 @@ func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
 		return err
 	}
-	// 只有修改的是当前活动工作区时，才需要同步策略引擎的受限标记。
-	if s.engine.Workspace() == workspace.Path {
-		s.engine.SetRestricted(trust != "trusted")
-	}
 	s.bus.Publish(events.TypeWorkspaceUpdated, "", "", map[string]any{
 		"workspaceId": workspace.ID,
 		"trust":       trust,
@@ -305,8 +299,9 @@ func (s *WorkspaceService) SetTrust(workspaceID, trust string) error {
 
 // Remove 移除工作区记录，不删除磁盘文件。
 //
-// 如果移除的是当前活动工作区，同时清空设置、策略引擎与工具注册表
-// 中的路径，避免后续调用继续指向已不存在的工作区。
+// 如果移除的是当前活动工作区，同时清空设置里的指针，避免界面继续
+// 指向已不存在的工作区；运行中的会话不受影响——它们的环境在运行
+// 开始时已经解析成值。
 func (s *WorkspaceService) Remove(workspaceID string) error {
 	// 内置临时目录是临时会话的运行根，移除会让所有临时会话失效，直接拒绝。
 	workspace, err := s.db.GetWorkspace(workspaceID)
@@ -323,8 +318,6 @@ func (s *WorkspaceService) Remove(workspaceID string) error {
 		if err := s.db.SetSetting(settingsKey, settings); err != nil {
 			return err
 		}
-		s.engine.SetWorkspace("")
-		s.registry.SetWorkspace("")
 	}
 	if err := s.db.DeleteWorkspace(workspaceID); err != nil {
 		return err
@@ -578,10 +571,10 @@ func (s *WorkspaceService) GitStatuses(workspaceID string) (map[string]string, e
 	return result, nil
 }
 
-// activate 把工作区设为活动状态，并同步策略引擎与工具注册表。
+// activate 把工作区设为活动状态。
 //
-// 需要同时更新数据库中的活动工作区设置、目录访问时间，以及内存里
-// 的路径与信任状态；任一步失败都直接返回，避免状态不一致。
+// 只更新数据库中的活动工作区设置与目录访问时间；运行环境不在这里
+// 同步——每个会话在运行开始时从自己绑定的工作区解析。
 func (s *WorkspaceService) activate(workspace *store.Workspace) error {
 	workspace.LastOpenedAt = store.NowMillis()
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
@@ -593,9 +586,6 @@ func (s *WorkspaceService) activate(workspace *store.Workspace) error {
 	if err := s.db.SetSetting(settingsKey, settings); err != nil {
 		return err
 	}
-	s.engine.SetWorkspace(workspace.Path)
-	s.engine.SetRestricted(workspace.Trust != "trusted")
-	s.registry.SetWorkspace(workspace.Path)
 	s.bus.Publish(events.TypeWorkspaceUpdated, "", "", map[string]any{
 		"workspaceId": workspace.ID,
 		"active":      true,

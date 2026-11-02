@@ -38,10 +38,10 @@ func TestGitTools(t *testing.T) {
 	if err := os.WriteFile(path, []byte("a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	registry := NewRegistry(Options{Workspace: repo})
+	registry := NewRegistry(Options{})
 	run := func(name string, args map[string]any) Result {
 		t.Helper()
-		_, call, exists := registry.Assess(name, args)
+		_, call, exists := registry.Assess(repo, name, args)
 		if !exists {
 			t.Fatalf("%s 未注册", name)
 		}

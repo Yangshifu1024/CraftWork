@@ -11,7 +11,6 @@ import (
 	"craftwork/internal/model"
 	"craftwork/internal/policy"
 	"craftwork/internal/store"
-	"craftwork/internal/tools"
 )
 
 // settingsKey 是应用整体设置在键值表中的键名。
@@ -85,21 +84,19 @@ func DefaultSettings() Settings {
 	}
 }
 
-// SettingsService 读写设置，并把审批档位与工作区同步到策略引擎。
+// SettingsService 读写设置，并把审批档位同步到策略引擎。
 type SettingsService struct {
 	// db 是设置的存储入口。
 	db *store.DB
 	// bus 推送设置变更事件。
 	bus *events.Bus
-	// engine 是策略引擎，保存设置时同步审批档位与工作区。
+	// engine 是策略引擎，保存设置时同步审批档位。
 	engine *policy.Engine
-	// registry 是工具注册表，切换工作区时同步根目录。
-	registry *tools.Registry
 }
 
 // NewSettingsService 创建设置服务。
-func NewSettingsService(db *store.DB, bus *events.Bus, engine *policy.Engine, registry *tools.Registry) *SettingsService {
-	return &SettingsService{db: db, bus: bus, engine: engine, registry: registry}
+func NewSettingsService(db *store.DB, bus *events.Bus, engine *policy.Engine) *SettingsService {
+	return &SettingsService{db: db, bus: bus, engine: engine}
 }
 
 // Get 返回当前设置。
@@ -192,15 +189,12 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	normalizeModelSettings(&next)
 
 	if next.ActiveWorkspace != "" {
-		// 切换活动工作区时要同时更新路径、信任状态与工具注册表，
-		// 否则策略判断会继续使用旧工作区。
+		// 校验活动工作区存在并刷新最近打开时间；策略状态不在这里同步——
+		// 运行环境由每个会话在运行开始时从自己绑定的工作区解析。
 		workspace, err := s.db.GetWorkspace(next.ActiveWorkspace)
 		if err != nil {
 			return current, fmt.Errorf("工作区不存在: %w", err)
 		}
-		s.engine.SetWorkspace(workspace.Path)
-		s.engine.SetRestricted(workspace.Trust != "trusted")
-		s.registry.SetWorkspace(workspace.Path)
 		workspace.LastOpenedAt = store.NowMillis()
 		if err := s.db.UpsertWorkspace(workspace); err != nil {
 			return current, err

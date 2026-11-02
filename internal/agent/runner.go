@@ -68,13 +68,28 @@ type SteerItem struct {
 	Attachments []string
 }
 
+// RunEnv 是一次运行解析后的执行环境，运行开始时从会话绑定的工作区
+// 一次性确定，之后作为值沿调用图下发（历史重建、提示词、工具评估与
+// 审批门控），不再读写任何进程级副本——并行运行的不同会话因此互不
+// 覆盖路径边界与信任状态。
+type RunEnv struct {
+	// WorkspacePath 是会话绑定工作区的绝对路径；会话未绑定工作区时为空，
+	// 所有路径类工具会因「工作区未设置」失败。
+	WorkspacePath string
+	// Restricted 表示该工作区未受信任：R3 直接拒绝，不提供永久授权。
+	Restricted bool
+	// Purpose 是工作区用途（store.WorkspacePurpose*），供系统提示词区分内置临时目录。
+	Purpose string
+}
+
 // Runner 负责一次 Agent 执行的完整循环。
 type Runner struct {
 	// db 负责运行记录、会话 token 累计、用量与审计的持久化。
 	db *store.DB
 	// records 是事件写入与前端广播的唯一出口。
 	records *record.Recorder
-	// tools 是当前可用的工具注册表，同时提供工作区路径与各模式的工具清单。
+	// tools 是当前可用的工具注册表，提供工具元数据、模式过滤与统一执行出口；
+	// 路径边界随每次调用的 RunEnv 传入，注册表不保存工作区。
 	tools *tools.Registry
 	// policy 给出风险等级对应的审批动作（直接拒绝、需要询问、直接放行）。
 	policy *policy.Engine
@@ -273,9 +288,10 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	// 会话没有绑定工作区（旧数据）时保持现状，不覆盖全局值。
 	// 已知限制：registry 是全局单例，不同工作区的会话并行运行时仍会相互覆盖；
 	// 当前单机串行使用不受影响。
-	// 系统提示词需要区分项目目录与内置临时目录：临时会话的工作区不是
-	// 项目仓库，模型不应把目录内容当成项目上下文解读。
-	workspacePurpose := ""
+	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
+	// 激活状态会随用户切换、新建或移除工作区而漂移。环境在运行开始时
+	// 一次性解析成值，沿调用图下发；并行运行的不同会话互不覆盖。
+	env := RunEnv{}
 	if thread.WorkspaceID != "" {
 		workspace, err := r.db.GetWorkspace(thread.WorkspaceID)
 		if err != nil {
@@ -283,16 +299,17 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 				"会话绑定的工作区不存在或已被移除，请在侧栏重新选择工作区后重试", false, startedAt)
 			return
 		}
-		r.tools.SetWorkspace(workspace.Path)
-		r.policy.SetWorkspace(workspace.Path)
-		r.policy.SetRestricted(workspace.Trust != "trusted")
-		workspacePurpose = workspace.Purpose
+		env = RunEnv{
+			WorkspacePath: workspace.Path,
+			Restricted:    workspace.Trust != "trusted",
+			Purpose:       workspace.Purpose,
+		}
 	}
 
 	// 自动命名只随运行链的第一次 run 触发，接力运行不再重新命名。
 	titled := false
 	for {
-		if !r.executeRun(ctx, thread, runID, messageID, mode, startedAt, &titled, workspacePurpose) {
+		if !r.executeRun(ctx, thread, runID, messageID, mode, startedAt, &titled, env) {
 			// 取消、失败或达到上限：结束事件与会话状态已由 executeRun 写过。
 			return
 		}
@@ -315,14 +332,14 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 // 返回 false，此时结束事件与会话状态已由本函数写入。titled 由运行链持有，
 // 保证接力运行不会重复触发自动命名。
 func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, messageID, mode string,
-	startedAt time.Time, titled *bool, workspacePurpose string) bool {
+	startedAt time.Time, titled *bool, env RunEnv) bool {
 	// 先广播运行开始，让前端把消息切到“生成中”。
 	r.records.Emit(events.TypeRunStarted, thread.ID, runID, map[string]any{
 		"messageId": messageID,
 		"modelId":   thread.ModelID,
 	})
 
-	history, historySeqs, err := r.history(thread)
+	history, historySeqs, err := r.history(thread, env.WorkspacePath)
 	if err != nil {
 		r.fail(thread, runID, messageID, "history_failed", err.Error(), true, startedAt)
 		return false
@@ -332,12 +349,12 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 	// 节统计写调试日志，方便回答「这次运行给模型发了什么」。
 	// 环境上下文（日期、平台、Git 快照、指令文件）每次运行开始时收集，
 	// 读取失败一律降级省略，不阻断运行。
-	envContext := collectEnvContext(ctx, r.dataDir, r.tools.Workspace())
+	envContext := collectEnvContext(ctx, r.dataDir, env.WorkspacePath)
 	system, promptStats := prompt.Build(prompt.Input{
 		Mode:             mode,
-		Workspace:        r.tools.Workspace(),
-		WorkspacePurpose: workspacePurpose,
-		Restricted:       r.policy.Restricted(),
+		Workspace:        env.WorkspacePath,
+		WorkspacePurpose: env.Purpose,
+		Restricted:       env.Restricted,
 		EnvContext:       envContext,
 	})
 	slog.Debug("系统提示词已组装",
@@ -369,7 +386,7 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 			history = append(history, model.Message{
 				Role:        "user",
 				Content:     item.Text,
-				Attachments: loadAttachments(r.tools.Workspace(), r.attachmentDir, item.Attachments, modelInfo.Caps),
+				Attachments: loadAttachments(env.WorkspacePath, r.attachmentDir, item.Attachments, modelInfo.Caps),
 				ID:          item.MessageID,
 			})
 		}
@@ -501,7 +518,7 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 		aborted := false
 		for _, call := range toolCalls {
 			assistant.ToolCalls = append(assistant.ToolCalls, call)
-			result, wasAborted := r.runTool(ctx, thread, runID, messageID, call)
+			result, wasAborted := r.runTool(ctx, thread, runID, messageID, call, env)
 			if wasAborted {
 				// 取消后立即停止，剩余工具不再执行，避免继续产生副作用。
 				aborted = true
@@ -659,11 +676,12 @@ func (r *Runner) switchNotice(thread store.Thread, runID, messageID, from, to st
 //
 // 审批被拒绝或取消时不会执行工具，而是把原因作为工具结果返回，
 // 让模型知道这一步没有发生。返回值第二项表示本次调用是否因为取消而中断。
-func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messageID string, call model.ToolCall) (model.Message, bool) {
+// 路径边界与信任状态来自 env，而不是任何进程级副本。
+func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messageID string, call model.ToolCall, env RunEnv) (model.Message, bool) {
 	// 先做只读评估：得到风险等级、解析后的调用参数与工具是否存在。
 	// 真正的执行放在审批之后，避免评估阶段产生副作用。
 	partID := id.New("part")
-	assessment, prepared, exists := r.tools.Assess(call.Name, call.Args)
+	assessment, prepared, exists := r.tools.Assess(env.WorkspacePath, call.Name, call.Args)
 	spec, _ := r.tools.SpecFor(call.Name)
 	summary := spec.SummaryOf(call.Args)
 	title := spec.TitleOf()
@@ -699,16 +717,16 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		denied = "当前模式不支持该工具"
 	default:
 		// 按策略档位决定：直接拒绝、需要询问、直接放行。
-		switch r.policy.Action(assessment.Risk) {
+		switch r.policy.Action(env.Restricted, assessment.Risk) {
 		case policy.ActionDeny:
 			denied = "当前审批档位拒绝该操作"
 		case policy.ActionAsk:
 			// 命中“本会话/本工作区”已有授权时不再重复询问；受限工作区例外，
 			// 每次都必须重新审批，且不提供永久授权。
-			if r.policy.Restricted() || !r.approvals.Allowed(call.Name, assessment.Target) {
+			if env.Restricted || !r.approvals.Allowed(call.Name, assessment.Target) {
 				approvalID := id.New("ap")
 				approvalPartID := id.New("part")
-				allowPermanent := r.policy.AllowsPermanent(assessment.Risk)
+				allowPermanent := r.policy.AllowsPermanent(env.Restricted, assessment.Risk)
 				facts := approvalFacts(assessment, summary)
 				if call.Name == "shell_exec" {
 					// 命令类工具额外提示可以按前缀授权，让用户理解“允许”的覆盖范围。
@@ -1000,7 +1018,9 @@ func (r *Runner) persist(threadID, messageID, runID, eventID, kind string, paylo
 // 返回值里的 historySeqs 与消息一一对应，是每条消息截止的事件序号：
 // 已持久化的上下文压缩摘要按该序号裁掉被覆盖的早期消息，因此压缩结果
 // 跨运行复用，不再每次运行都重新摘要一次。摘要消息本身的序号为 0。
-func (r *Runner) history(thread store.Thread) ([]model.Message, []int64, error) {
+// history 把会话事件重建成模型消息序列。workspacePath 是本次运行的
+// 工作区根，用户消息里的附件按它解析为绝对路径。
+func (r *Runner) history(thread store.Thread, workspacePath string) ([]model.Message, []int64, error) {
 	snapshot, err := r.db.Snapshot(thread.ID)
 	if err != nil {
 		return nil, nil, err
@@ -1010,7 +1030,7 @@ func (r *Runner) history(thread store.Thread) ([]model.Message, []int64, error) 
 		return nil, nil, err
 	}
 	_, modelInfo, _ := model.Resolve(thread.ModelID)
-	workspace := r.tools.Workspace()
+	workspace := workspacePath
 
 	type entry struct {
 		message model.Message

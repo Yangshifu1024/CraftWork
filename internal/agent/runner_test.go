@@ -101,20 +101,26 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 	bus := events.NewBus(func(string, any) {})
 	t.Cleanup(bus.Close)
 
+	if err := db.UpsertWorkspace(&store.Workspace{
+		ID: "ws_test", Name: "workspace", Path: workspace, Trust: "trusted",
+		Purpose: store.WorkspacePurposeProject, CreatedAt: store.NowMillis(), LastOpenedAt: store.NowMillis(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	registry := tools.NewRegistry(tools.Options{
-		Workspace: workspace,
 		BackupDir: filepath.Join(root, "backups"),
 		RecordBackup: func(string, string, string, int64) error {
 			return nil
 		},
 	})
-	engine := policy.New(policy.LevelGraded, workspace)
+	engine := policy.New(policy.LevelGraded)
 	recorder := record.New(db, bus)
 	approvals := NewApprovals(db, recorder)
 	runner := NewRunner(db, recorder, registry, engine, approvals, factory, "", "")
 
 	thread := store.Thread{
-		ID: "th_1", Mode: "code", Title: "测试", ModelID: "test/fake",
+		ID: "th_1", Mode: "code", Title: "测试", ModelID: "test/fake", WorkspaceID: "ws_test",
 		Status: "idle", CreatedAt: store.NowMillis(), UpdatedAt: store.NowMillis(),
 	}
 	if err := db.CreateThread(&thread); err != nil {
@@ -403,7 +409,7 @@ func TestHistoryLoadsAttachmentContents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	history, _, err := h.runner.history(h.thread)
+	history, _, err := h.runner.history(h.thread, h.workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
