@@ -15,12 +15,9 @@
 import { useCallback, useMemo } from "react";
 import { useExternalStoreRuntime, type ThreadMessageLike } from "@assistant-ui/react";
 import type { ChatMessage } from "../../lib/types";
+import { matchModelInfo } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
-import { useUiStore } from "../../stores/ui";
-
-/** 用于判断附件是否为图片的扩展名规则；不支持视觉输入的模型需要在发送前拦截这类附件。 */
-const imagePattern = /\.(png|jpe?g|gif|webp)$/i;
 
 /**
  * 把后端的一条消息转换成 assistant-ui 能识别的消息结构。
@@ -137,8 +134,7 @@ export function convertMessage(message: ChatMessage, reasoningEnabled: boolean):
 export function useChatRuntime() {
   const messages = useThreadStore((state) => state.messages);
   const running = useThreadStore((state) => state.running);
-  const send = useThreadStore((state) => state.send);
-  const steer = useThreadStore((state) => state.steer);
+  const submit = useThreadStore((state) => state.submit);
   const cancel = useThreadStore((state) => state.cancel);
   const regenerate = useThreadStore((state) => state.regenerate);
   const hasEarlier = useThreadStore((state) => state.hasEarlier);
@@ -148,20 +144,12 @@ export function useChatRuntime() {
   const providers = useAppStore((state) => state.providers);
   const threads = useThreadStore((state) => state.threads[mode]);
   const activeID = useThreadStore((state) => state.activeID[mode]);
-  // 当前会话选中的模型决定能力矩阵；找不到模型时按“不支持推理、不支持图片”处理。
-  const currentModel = useMemo(() => {
+  // 当前会话选中的模型决定能力矩阵；找不到模型时按“不支持推理”处理。
+  // 发送侧的能力门控由 threads.submit 负责，这里只服务消息渲染。
+  const reasoningEnabled = useMemo(() => {
     const thread = threads.find((item) => item.id === activeID);
-    if (!thread) {
-      return undefined;
-    }
-    // 新会话保存“提供商/模型”引用；旧会话可能仍保存原始模型 ID。
-    return providers
-      .flatMap((provider) => provider.models)
-      .find((model) => model.ref === thread.modelId || model.id === thread.modelId);
+    return matchModelInfo(providers, thread?.modelId)?.caps.reasoning ?? false;
   }, [threads, activeID, providers]);
-
-  const reasoningEnabled = currentModel?.caps.reasoning ?? false;
-  const visionEnabled = currentModel?.caps.vision ?? false;
 
   // 转换函数依赖当前模型是否支持推理，模型切换后需要重新生成转换器。
   const convert = useCallback(
@@ -172,45 +160,19 @@ export function useChatRuntime() {
   /**
    * 处理 assistant-ui 的“发送新消息”回调。
    *
-   * 从消息内容里拼出纯文本，并读取 store 中已选好的附件路径；
-   * 如果模型不支持图片，而附件里含图片文件，就弹出警告并放弃发送，
-   * 避免把图片交给不认识它的模型。
-   *
-   * 运行中回车不再作为新消息发送（后端会拒绝在途会话的 Send），
-   * 而是转为运行中引导（steer）：由后端落库排队，在下一个工具批次
-   * 结束后并入模型请求。这里用 getState 读取 running，保证回车瞬间
-   * 的状态而不是渲染时闭包里的旧值。
+   * 只负责从消息内容拼出纯文本并取走附件草稿；模型校验、能力门控、
+   * 运行中转引导与自动建会话都由 threads.submit 的唯一策略点负责。
    */
   const handleNew = useCallback(
     async (message: any) => {
-      if (!currentModel) {
-        useUiStore.getState().toast({
-          title: "尚未选择模型",
-          description: "请先在设置中添加提供商并选择模型。",
-          tone: "warn",
-        });
-        return;
-      }
       const text = (message.content ?? [])
         .filter((part: any) => part?.type === "text")
         .map((part: any) => String(part.text ?? ""))
         .join("\n");
       const attachments = useThreadStore.getState().attachments.map((item) => item.path);
-      if (!visionEnabled && attachments.some((path) => imagePattern.test(path))) {
-        useUiStore.getState().toast({
-          title: "当前模型不支持图片输入",
-          description: "请切换支持图片的模型，或移除图片附件后再发送。",
-          tone: "warn",
-        });
-        return;
-      }
-      if (useThreadStore.getState().running) {
-        await steer(text, attachments);
-        return;
-      }
-      await send(text, attachments);
+      await submit(text, attachments);
     },
-    [send, steer, visionEnabled, currentModel],
+    [submit],
   );
 
   // 取消当前生成：后端收到后会终止 run，并把消息标记为 incomplete。

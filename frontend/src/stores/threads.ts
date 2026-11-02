@@ -20,7 +20,7 @@ import type {
   ThreadSnapshot,
   ThreadView,
 } from "../lib/types";
-import { uid } from "../lib/utils";
+import { isImagePath, matchModelInfo, uid } from "../lib/utils";
 import { reduceThread, updateThread } from "./threadReducer";
 import { useAppStore } from "./app";
 import { useUiStore } from "./ui";
@@ -69,6 +69,14 @@ interface ThreadState {
   loadEarlier(): Promise<void>;
   /** 在当前模式下新建会话并选中。 */
   create(): Promise<void>;
+  /**
+   * 发送入口：回车、建议句等所有「发出一句话」的动作都走这里。
+   *
+   * 策略顺序：模型校验 → 图片能力门控 → 运行中转引导（steer）→
+   * 无会话自动建 → 发送。被策略拦下时给出提示并返回 false，
+   * 正常受理返回 true。
+   */
+  submit(text: string, attachments?: string[]): Promise<boolean>;
   /** 复制一个会话，标题追加「（副本）」。 */
   duplicate(threadID: string): Promise<void>;
   /** 修改会话标题。 */
@@ -491,6 +499,44 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         tone: "danger",
       });
     }
+  },
+
+  /**
+   * 发送入口（唯一策略点）。
+   *
+   * 「回车之后会发生什么」的完整答案都在这里：当前会话必须有可用模型；
+   * 模型不支持图片时拦截图片附件；运行中把输入转为运行中引导；没有
+   * 会话时先自动新建。runtime 适配层只做消息格式转换，不再持有策略。
+   */
+  async submit(text, attachments = []) {
+    const app = useAppStore.getState();
+    const state = get();
+    const mode = app.mode;
+    const thread = state.threads[mode].find((item) => item.id === state.activeID[mode]);
+    // 新会话保存「提供商/模型」引用；旧会话可能仍保存原始模型 ID。
+    const model = matchModelInfo(app.providers, thread?.modelId);
+    if (!model) {
+      useUiStore.getState().toast({
+        title: "尚未选择模型",
+        description: "请先在设置中添加提供商并选择模型。",
+        tone: "warn",
+      });
+      return false;
+    }
+    if (!model.caps.vision && attachments.some((path) => isImagePath(path))) {
+      useUiStore.getState().toast({
+        title: "当前模型不支持图片输入",
+        description: "请切换支持图片的模型，或移除图片附件后再发送。",
+        tone: "warn",
+      });
+      return false;
+    }
+    if (state.running) {
+      await state.steer(text, attachments);
+      return true;
+    }
+    await state.send(text, attachments);
+    return true;
   },
 
   /** 取消当前会话的运行；本地立即退出运行状态，不等后端事件回来。 */

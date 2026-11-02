@@ -138,3 +138,26 @@ export function chunkText(text: string, size = 4): string[] {
 export function isImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp)$/i.test(path);
 }
+
+/**
+ * 按模型标识在用户目录里查找模型信息。
+ *
+ * 新会话保存「提供商/模型」引用；旧会话可能仍保存原始模型 ID，
+ * 这里同时匹配 ref 与 id 两种历史格式，未命中返回 undefined。
+ * 发送策略与消息渲染都通过它读取能力矩阵，避免两处各写一套匹配规则。
+ */
+export function matchModelInfo(
+  providers: { models: { ref?: string; id: string; caps?: { vision?: boolean; reasoning?: boolean } }[] }[],
+  modelID: string | undefined,
+): { caps: { vision: boolean; reasoning: boolean } } | undefined {
+  if (!modelID) {
+    return undefined;
+  }
+  const model = providers
+    .flatMap((provider) => provider.models)
+    .find((model) => (model.ref ?? model.id) === modelID || model.id === modelID);
+  if (!model) {
+    return undefined;
+  }
+  return { caps: { vision: model.caps?.vision ?? false, reasoning: model.caps?.reasoning ?? false } };
+}

@@ -219,3 +219,77 @@ describe("会话分页", () => {
     expect(useThreadStore.getState().hasEarlier).toBe(false);
   });
 });
+
+describe("发送策略 submit", () => {
+  const provider = {
+    id: "openai",
+    name: "OpenAI",
+    kind: "openai" as const,
+    endpoint: "https://api.openai.com",
+    keyRequired: true,
+    hasKey: true,
+    models: [
+      {
+        id: "gpt-5.1", ref: "openai/gpt-5.1", name: "GPT-5.1", provider: "openai",
+        providerName: "OpenAI", contextK: 32, caps: { stream: true, tools: true, vision: false, reasoning: false },
+      },
+    ],
+  };
+
+  it("没有可用模型时拦截发送并提示", async () => {
+    const toast = vi.fn();
+    const { useUiStore } = await import("./ui");
+    useUiStore.setState({ toast });
+    const send = vi.fn();
+    useThreadStore.setState({ send: send as never });
+
+    const accepted = await useThreadStore.getState().submit("你好");
+
+    expect(accepted).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(toolToastTitle(toast)).toBe("尚未选择模型");
+  });
+
+  it("模型不支持图片时拦截图片附件", async () => {
+    const toast = vi.fn();
+    const { useUiStore } = await import("./ui");
+    useUiStore.setState({ toast });
+    useAppStore.setState({ providers: [provider] as never });
+    const send = vi.fn();
+    useThreadStore.setState({ send: send as never });
+
+    const accepted = await useThreadStore.getState().submit("看这张图", ["图片.png"]);
+
+    expect(accepted).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(toolToastTitle(toast)).toBe("当前模型不支持图片输入");
+  });
+
+  it("文本附件不触发图片门控，受理后走 send", async () => {
+    useAppStore.setState({ providers: [provider] as never });
+    const send = vi.fn().mockResolvedValue(undefined);
+    useThreadStore.setState({ send: send as never });
+
+    const accepted = await useThreadStore.getState().submit("看一下", ["说明.txt"]);
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith("看一下", ["说明.txt"]);
+  });
+
+  it("运行中把输入转为 steer", async () => {
+    useAppStore.setState({ providers: [provider] as never });
+    const steer = vi.fn().mockResolvedValue(undefined);
+    useThreadStore.setState({ running: true, steer: steer as never });
+
+    const accepted = await useThreadStore.getState().submit("先别删那行");
+
+    expect(accepted).toBe(true);
+    expect(steer).toHaveBeenCalledWith("先别删那行", []);
+  });
+});
+
+/** 取出 toast 被调用时的标题，便于断言拦截原因。 */
+function toolToastTitle(toast: ReturnType<typeof vi.fn>): string | undefined {
+  const call = toast.mock.calls[0]?.[0] as { title?: string } | undefined;
+  return call?.title;
+}
