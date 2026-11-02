@@ -65,15 +65,71 @@ export function AppShell() {
     document.documentElement.style.setProperty("--panel-w", `${width}px`);
   }, [width]);
 
+  // 对话列的实测宽度容器：自动收起策略（spec 第 8 节）以它的实际宽度为准。
+  const conversationRef = useRef<HTMLDivElement>(null);
+
+  // 窄窗口收起的两个判定源：
+  // 1. 视口媒体查询（≤1179px，面板改浮层的既有行为）；
+  // 2. 对话列实测宽度 < 480px（窗口 resize 结束后判定，见下方监听）。
+  // 任一命中都走 setNarrow(true)（临时收起，不记线程偏好、不写持久化），
+  // 两个都解除时才自动展开——与「窄窗口进出」的既有语义保持一致。
+  const mediaNarrowRef = useRef(false);
+  const conversationNarrowRef = useRef(false);
+  const applyNarrow = useCallback(() => {
+    setNarrow(mediaNarrowRef.current || conversationNarrowRef.current);
+  }, [setNarrow]);
+
   // 窄窗口判定：视口宽度小于 1180px 时面板改为浮层覆盖在对话区上方。
   // 监听 change 而不是只在挂载时判断，保证拖动窗口大小时能实时切换。
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1179px)");
-    const apply = () => setNarrow(media.matches);
+    const apply = () => {
+      mediaNarrowRef.current = media.matches;
+      applyNarrow();
+    };
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [setNarrow]);
+  }, [applyNarrow]);
+
+  // 对话列过窄自动收起：只监听 window resize，防抖 300ms 等 resize 结束后
+  // 实测对话列宽度（读 conversationRef，挂载前跳过）。刻意不监听对话列的
+  // ResizeObserver——手动拖宽面板、打开面板都会改变对话列宽度，监听它会
+  // 把用户刚打开的面板立刻收回去（ZCode 同款教训）。
+  useEffect(() => {
+    const CONVERSATION_MIN_WIDTH_PX = 480;
+    const RESIZE_IDLE_MS = 300;
+    let timer: number | null = null;
+    function measure() {
+      const element = conversationRef.current;
+      if (!element) {
+        return;
+      }
+      const next = element.getBoundingClientRect().width < CONVERSATION_MIN_WIDTH_PX;
+      if (next !== conversationNarrowRef.current) {
+        conversationNarrowRef.current = next;
+        applyNarrow();
+      }
+    }
+    function handleResize() {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        timer = null;
+        measure();
+      }, RESIZE_IDLE_MS);
+    }
+    // 首次挂载测一次初始布局（不防抖），后续跟随窗口 resize。
+    measure();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [applyNarrow]);
 
   // 双击 Esc 的确认窗口：第一击进入待确认后，超过该时长未按第二击就自动解除。
   const ESC_ARM_WINDOW_MS = 800;
@@ -185,8 +241,10 @@ export function AppShell() {
         <div className="body">
           {/* 左侧：工作区与会话列表 */}
           <Sidebar />
-          {/* 中间：对话主区域 */}
-          <ChatPane />
+          {/* 中间：对话主区域；外层容器是对话列宽度自动收起的测量目标 */}
+          <div ref={conversationRef} className="conversation-col">
+            <ChatPane />
+          </div>
           {/* 右侧：文件 / 文档 / 差异 / 终端面板；收起时保留 DOM 以维持内部状态并播放滑出动画 */}
           <aside className={panelClass} aria-hidden={!open}>
             <Panel />

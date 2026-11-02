@@ -496,6 +496,19 @@ ol {
   position: relative;
 }
 
+/* 对话列容器：占 .body 的第 2 列，也是「对话列过窄自动收起面板」的
+   实测目标（AppShell 的 resize 监听读它的实际宽度）。 */
+.conversation-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.conversation-col > .chat-pane {
+  flex: 1;
+  min-height: 0;
+}
+
 /* 全局：[hidden] 必须真正隐藏，避免被组件自身的 display 覆盖 */
 [hidden] {
   display: none !important;
