@@ -241,6 +241,21 @@ export function Sidebar() {
     useUiStore.getState().openCreateProject();
   }
 
+  /**
+   * 在指定项目下新建会话：先切换到该项目（激活并重同步视图），
+   * 再新建会话——新会话始终绑定切换后的活动工作区。
+   */
+  async function handleCreateThreadIn(workspaceID: string) {
+    const createThread = useThreadStore.getState().create;
+    try {
+      await switchWorkspace(workspaceID);
+      await createThread();
+      toast({ title: "已新建会话", tone: "ok" });
+    } catch (error) {
+      toast({ title: "新建会话失败", description: String(error), tone: "danger" });
+    }
+  }
+
   return (
     <aside className="sidebar">
       {/* 空标题行：仅承担窗口拖拽区与 macOS 红绿灯占位。 */}
@@ -317,7 +332,7 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {/* 每个项目一组：文件夹图标切换折叠，组内分页展示。 */}
+            {/* 每个项目一组：文件夹图标切换折叠，组内分页展示，组头可新建该项目会话。 */}
             {projectGroups.map(({ workspace, items }) => (
               <ProjectGroup
                 key={workspace.id}
@@ -326,6 +341,7 @@ export function Sidebar() {
                 activeID={activeID}
                 collapsed={Boolean(collapsedProjects[workspace.id])}
                 onToggle={() => toggleProjectGroup(workspace.id)}
+                onCreate={() => void handleCreateThreadIn(workspace.id)}
                 onSelect={(threadID) => void selectThread(threadID)}
                 onContextMenu={(thread, anchor) => setMenu({ thread, anchor })}
               />
@@ -539,7 +555,6 @@ function TempGroup({
         >
           <Icon name={open ? "chevron-down" : "chevron-right"} />
         </button>
-        <Icon name="zap" />
         <span className="thread-group-name">临时会话</span>
         <span className="thread-group-count">{items.length}</span>
         <button
@@ -586,10 +601,11 @@ function TempGroup({
  * 单个项目的会话分组。
  *
  * 组头左侧的文件夹图标是展开 / 折叠开关，图标随状态切换（展开为
- * folder-open、折叠为 folder）；折叠状态由父组件持久化。组内默认
- * 最多展示 {@link PROJECT_GROUP_PAGE_SIZE} 条，超出时底部显示
- * 「显示更多」，每次点击追加同样条数；分页计数是组件本地状态，
- * 折叠再展开与切换其他项目都不会重置。
+ * folder-open、折叠为 folder）；折叠状态由父组件持久化。右侧的 +
+ * 在该项目下新建会话（先切换到该项目再新建）。组内默认最多展示
+ * {@link PROJECT_GROUP_PAGE_SIZE} 条，超出时底部显示「显示更多」，
+ * 每次点击追加同样条数；分页计数是组件本地状态，折叠再展开与切换
+ * 其他项目都不会重置。
  */
 function ProjectGroup({
   workspace,
@@ -597,6 +613,7 @@ function ProjectGroup({
   activeID,
   collapsed,
   onToggle,
+  onCreate,
   onSelect,
   onContextMenu,
 }: {
@@ -605,6 +622,7 @@ function ProjectGroup({
   activeID?: string | null;
   collapsed: boolean;
   onToggle: () => void;
+  onCreate: () => void;
   onSelect: (threadID: string) => void;
   onContextMenu: (thread: ThreadView, anchor: HTMLElement) => void;
 }) {
@@ -629,6 +647,15 @@ function ProjectGroup({
           {workspace.name}
         </span>
         <span className="thread-group-count">{items.length}</span>
+        <button
+          type="button"
+          className="thread-group-add"
+          title="新建会话"
+          aria-label={`在 ${workspace.name} 中新建会话`}
+          onClick={onCreate}
+        >
+          <Icon name="plus" />
+        </button>
       </div>
       {open ? (
         <>
