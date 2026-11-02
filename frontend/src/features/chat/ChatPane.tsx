@@ -39,6 +39,8 @@ const suggestions: Record<string, string[]> = {
 export function ChatPane() {
   const runtime = useChatRuntime();
   const mode = useAppStore((state) => state.mode);
+  // 当前活动工作区是否为内置临时目录：空会话引导据此切换文案。
+  const isTempWorkspace = useAppStore((state) => state.activeWorkspace?.purpose === "conversation");
   const messages = useThreadStore((state) => state.messages);
   const hasEarlier = useThreadStore((state) => state.hasEarlier);
   const send = useThreadStore((state) => state.send);
@@ -109,13 +111,17 @@ export function ChatPane() {
             {messages.length === 0 ? (
               <div className="chat-empty">
                 <span className="empty-mark">
-                  <Icon name={mode === "work" ? "briefcase" : "code"} />
+                  <Icon name={isTempWorkspace ? "zap" : mode === "work" ? "briefcase" : "code"} />
                 </span>
-                <h2>{mode === "work" ? "Work 模式已就绪" : "Code 模式已就绪"}</h2>
+                <h2>
+                  {isTempWorkspace ? "临时会话已就绪" : mode === "work" ? "Work 模式已就绪" : "Code 模式已就绪"}
+                </h2>
                 <p>
-                  {mode === "work"
-                    ? "读取文档、修改 Word 与 Excel、汇总邮件与日历。所有文档写入都会在审批后执行并自动备份。"
-                    : "在当前工作区里读代码、改文件、跑命令、看差异。所有写操作与命令执行都会先经过审批。"}
+                  {isTempWorkspace
+                    ? "无需选择工作区，直接提问即可；产生的文件会保存在内置临时目录，随时可在侧栏切回工作区会话。"
+                    : mode === "work"
+                      ? "读取文档、修改 Word 与 Excel、汇总邮件与日历。所有文档写入都会在审批后执行并自动备份。"
+                      : "在当前工作区里读代码、改文件、跑命令、看差异。所有写操作与命令执行都会先经过审批。"}
                 </p>
                 <div className="empty-suggestions">
                   {(suggestions[mode] ?? []).map((suggestion) => (

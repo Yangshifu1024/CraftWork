@@ -59,21 +59,50 @@ const settings: Settings = {
   telemetry: false,
 };
 
-/** Mock 工作区列表，默认只有一个已受信的演示仓库。 */
+/**
+ * Mock 工作区列表：内置临时会话目录置顶，另带一个已受信的演示仓库。
+ * purpose 字段与后端一致：conversation 是内置临时目录，project 是用户项目。
+ */
 const workspaces: WorkspaceView[] = [
+  {
+    id: "ws_conv",
+    name: "临时会话",
+    path: "~/.craftwork/workspace/default",
+    trust: "trusted",
+    purpose: "conversation",
+    createdAt: now - 86400000 * 12,
+    lastOpenedAt: now - 30000,
+  },
   {
     id: "ws_demo",
     name: "craftwork",
     path: "~/Code/craftwork",
     trust: "trusted",
+    purpose: "project",
     createdAt: now - 86400000 * 12,
     lastOpenedAt: now - 60000,
   },
 ];
 
-/** Mock 会话：按模式分组，Code 与 Work 各两条，用于展示列表、搜索与模式切换联动。 */
+/** Mock 会话：按模式分组，Code 与 Work 各三条（含临时会话），用于展示列表分组、搜索与模式切换联动。 */
 const threads: Record<string, ThreadView[]> = {
   code: [
+    {
+      id: "th_code_0",
+      mode: "code",
+      title: "随便聊聊：周末去哪",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
+      workspaceId: "ws_conv",
+      status: "idle",
+      archived: false,
+      tokens: 3210,
+      contextTokens: 2010,
+      contextCacheTokens: 1640,
+      contextSpeed: 41.0,
+      createdAt: now - 600000,
+      updatedAt: now - 60000,
+    },
     {
       id: "th_code_1",
       mode: "code",
@@ -108,6 +137,22 @@ const threads: Record<string, ThreadView[]> = {
     },
   ],
   work: [
+    {
+      id: "th_work_0",
+      mode: "work",
+      title: "帮忙起草一周安排",
+      modelId: "openai/gpt-5.1",
+      modelName: "GPT-5.1",
+      workspaceId: "ws_conv",
+      status: "idle",
+      archived: false,
+      tokens: 2210,
+      contextTokens: 1480,
+      contextCacheTokens: 1180,
+      contextSpeed: 36.8,
+      createdAt: now - 3600000,
+      updatedAt: now - 300000,
+    },
     {
       id: "th_work_1",
       mode: "work",
@@ -999,7 +1044,7 @@ export const mockApi: Api = {
     /** 添加工作区：名称取路径最后一段，插到列表最前。 */
     add: async (path, trust) => {
       const workspace: WorkspaceView = {
-        id: uid("ws"), name: basename(path), path, trust, createdAt: Date.now(), lastOpenedAt: Date.now(),
+        id: uid("ws"), name: basename(path), path, trust, purpose: "project", createdAt: Date.now(), lastOpenedAt: Date.now(),
       };
       workspaces.unshift(workspace);
       return { ...workspace };

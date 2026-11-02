@@ -9,7 +9,7 @@
  *
  * 说明：搜索只按标题高亮；“内容命中”标记表示标题没匹配但正文命中了查询词。
  */
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { BrandMark } from "../../components/BrandMark";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
@@ -52,6 +52,7 @@ export function Sidebar() {
   const searchResults = useThreadStore((state) => state.searchResults);
   const selectThread = useThreadStore((state) => state.select);
   const createThread = useThreadStore((state) => state.create);
+  const createTempThread = useThreadStore((state) => state.createTemp);
   const searchThreads = useThreadStore((state) => state.search);
   const clearSearch = useThreadStore((state) => state.clearSearch);
 
@@ -114,10 +115,30 @@ export function Sidebar() {
 
   // 搜索中显示搜索结果；没有搜索时显示当前模式的会话列表。
   const list = searchResults ?? threads ?? [];
+  // 当前活动工作区是否为内置临时会话目录；卡片与空态文案据此切换。
+  const isTempWorkspace = activeWorkspace?.purpose === "conversation";
   // 信任状态：未选择工作区时按 unknown 处理，徽标与图标都走“未选择”分支。
   const trust = activeWorkspace?.trust ?? "unknown";
   const trustLabel = trust === "trusted" ? "信任" : trust === "restricted" ? "受限模式" : "未选择";
   const trustIcon = trust === "trusted" ? "shield-check" : trust === "restricted" ? "lock" : "alert";
+
+  // 无搜索时把会话按归属分组：内置临时目录的会话置顶成「临时会话」组，
+  // 其余按工作区（最近打开顺序）分组；工作区已被删除的会话归入「其他」，
+  // 避免数据从列表里凭空消失。
+  const source = threads ?? [];
+  const projectWorkspaces = workspaces.filter((workspace) => workspace.purpose !== "conversation");
+  const conversationIDs = new Set(
+    workspaces.filter((workspace) => workspace.purpose === "conversation").map((workspace) => workspace.id),
+  );
+  const tempThreads = source.filter((thread) => conversationIDs.has(thread.workspaceId));
+  const orphanThreads = source.filter(
+    (thread) =>
+      thread.workspaceId !== "" &&
+      !conversationIDs.has(thread.workspaceId) &&
+      !projectWorkspaces.some((workspace) => workspace.id === thread.workspaceId),
+  );
+  // 切换浮层只列项目工作区；临时会话通过列表顶部分组的 + 新建。
+  const switcherWorkspaces = projectWorkspaces;
 
   /** 关闭当前浮层并清空锚点。 */
   function closePopover() {
@@ -252,21 +273,34 @@ export function Sidebar() {
           </div>
         </div>
         <div className="ws-card-bottom">
-          <button
-            type="button"
-            className={cn("trust-chip", trust)}
-            title="点击调整工作区信任"
-            onClick={(event) =>
-              setPopover({
-                kind: "trust",
-                anchor: event.currentTarget,
-              })
-            }
-          >
-            <Icon name={trustIcon} />
-            {trustLabel}
-          </button>
-          {mode === "code" ? (
+          {isTempWorkspace ? (
+            // 内置临时目录固定为可信，不提供信任切换入口。
+            <span className="trust-chip unknown" title="应用内置的临时目录，固定为可信">
+              <Icon name="shield-check" />
+              内置
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={cn("trust-chip", trust)}
+              title="点击调整工作区信任"
+              onClick={(event) =>
+                setPopover({
+                  kind: "trust",
+                  anchor: event.currentTarget,
+                })
+              }
+            >
+              <Icon name={trustIcon} />
+              {trustLabel}
+            </button>
+          )}
+          {isTempWorkspace ? (
+            <span className="ws-mini-btn">
+              <Icon name="folder" />
+              临时目录
+            </span>
+          ) : mode === "code" ? (
             <span className="ws-mini-btn">
               <Icon name="git-branch" />
               Git 工作区
@@ -370,8 +404,9 @@ export function Sidebar() {
               </>
             )}
           </div>
-        ) : (
-          list.map((thread) => (
+        ) : searchResults ? (
+          // 搜索结果跨组平铺；分组只作用于常规列表。
+          searchResults.map((thread) => (
             <ThreadItem
               key={thread.id}
               thread={thread}
@@ -381,6 +416,79 @@ export function Sidebar() {
               onContextMenu={(anchor) => setMenu({ thread, anchor })}
             />
           ))
+        ) : (
+          <>
+            {/* 临时会话组置顶，组头 + 一键新建并切到内置临时目录。 */}
+            <div className="thread-group-head is-temp">
+              <Icon name="zap" />
+              <span className="thread-group-name">临时会话</span>
+              <span className="thread-group-count">{tempThreads.length}</span>
+              <button
+                type="button"
+                className="thread-group-add"
+                title="新建临时会话"
+                aria-label="新建临时会话"
+                onClick={() => void createTempThread()}
+              >
+                <Icon name="plus" />
+              </button>
+            </div>
+            {tempThreads.map((thread) => (
+              <ThreadItem
+                key={thread.id}
+                thread={thread}
+                active={thread.id === activeID}
+                query={query}
+                onClick={() => void selectThread(thread.id)}
+                onContextMenu={(anchor) => setMenu({ thread, anchor })}
+              />
+            ))}
+            {/* 其余按工作区分组，顺序跟随工作区列表（最近打开优先）。 */}
+            {projectWorkspaces.map((workspace) => {
+              const items = source.filter((thread) => thread.workspaceId === workspace.id);
+              return (
+                <Fragment key={workspace.id}>
+                  <div className="thread-group-head">
+                    <Icon name="folder" />
+                    <span className="thread-group-name" title={workspace.path}>
+                      {workspace.name}
+                    </span>
+                    <span className="thread-group-count">{items.length}</span>
+                  </div>
+                  {items.map((thread) => (
+                    <ThreadItem
+                      key={thread.id}
+                      thread={thread}
+                      active={thread.id === activeID}
+                      query={query}
+                      onClick={() => void selectThread(thread.id)}
+                      onContextMenu={(anchor) => setMenu({ thread, anchor })}
+                    />
+                  ))}
+                </Fragment>
+              );
+            })}
+            {/* 工作区已被移除的会话仍有归属组，避免从列表里凭空消失。 */}
+            {orphanThreads.length > 0 ? (
+              <>
+                <div className="thread-group-head">
+                  <Icon name="archive" />
+                  <span className="thread-group-name">其他</span>
+                  <span className="thread-group-count">{orphanThreads.length}</span>
+                </div>
+                {orphanThreads.map((thread) => (
+                  <ThreadItem
+                    key={thread.id}
+                    thread={thread}
+                    active={thread.id === activeID}
+                    query={query}
+                    onClick={() => void selectThread(thread.id)}
+                    onContextMenu={(anchor) => setMenu({ thread, anchor })}
+                  />
+                ))}
+              </>
+            ) : null}
+          </>
         )}
       </div>
 
@@ -462,7 +570,7 @@ export function Sidebar() {
         align="left"
       >
         <div className="popover-label">最近工作区</div>
-        {workspaces.map((workspace) => (
+        {switcherWorkspaces.map((workspace) => (
           <button
             key={workspace.id}
             type="button"

@@ -49,6 +49,7 @@ export function CommandPalette() {
   const threads = useThreadStore((state) => state.threads[mode]);
   const selectThread = useThreadStore((state) => state.select);
   const createThread = useThreadStore((state) => state.create);
+  const createTempThread = useThreadStore((state) => state.createTemp);
   const togglePanel = usePanelStore((state) => state.toggle);
   const toggleMaximized = usePanelStore((state) => state.toggleMaximized);
   // 面板当前状态：命令标题据此显示动作方向，而不是固定文案。
@@ -75,6 +76,14 @@ export function CommandPalette() {
   const items = useMemo<PaletteItem[]>(() => {
     const commands: PaletteItem[] = [
       { id: "new-thread", group: "命令", title: "新建会话", sub: "⌘N", icon: "plus", run: () => void createThread() },
+      {
+        id: "new-temp-thread",
+        group: "命令",
+        title: "新建临时会话",
+        sub: "无需工作区",
+        icon: "zap",
+        run: () => void createTempThread(),
+      },
       { id: "settings", group: "命令", title: "打开设置", sub: "⌘,", icon: "settings", run: () => openSettings() },
       {
         id: "toggle-theme",
