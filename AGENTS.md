@@ -52,7 +52,8 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | Node.js | 24.22.2+ | 以 Vite / `package.json` 要求为准 |
 | Wails3 CLI | v3.0.0 | 需在 PATH 中；用 `wails3 doctor` 检查环境 |
 | golangci-lint | v2.15.0 | Go lint 与格式化；配置见 `.golangci.yml`；安装 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` |
-| 前端依赖 | — | `cd frontend && npm install` |
+| pnpm | 12.16.1 | 前端包管理器；安装 `npm install -g pnpm`；版本锁定在 `frontend/package.json` 的 `packageManager` 字段，Taskfile 与 wails3 构建链统一走 pnpm |
+| 前端依赖 | — | `cd frontend && pnpm install` |
 
 规则：
 
@@ -90,24 +91,24 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 
 | 目的 | 命令 |
 | --- | --- |
-| 安装前端依赖 | `cd frontend && npm install` |
+| 安装前端依赖 | `cd frontend && pnpm install` |
 | 生成绑定 | `wails3 generate bindings -clean=true -ts -i` |
 | 桌面开发模式 | `wails3 dev` |
 | 浏览器运行完整应用（server 模式） | `wails3 task run:server` → `http://localhost:8080/` |
 | server 模式生产构建 | `wails3 task build:server` → `bin/craftwork-server` |
 | server 模式容器 | `wails3 task build:docker` / `wails3 task run:docker` |
-| 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && npm run dev` → `http://127.0.0.1:9245/` |
+| 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && pnpm run dev` → `http://127.0.0.1:9245/` |
 | 生产构建 | `wails3 build` → `bin/craftwork` |
 | macOS 打包 | `wails3 package` → `bin/craftwork.app` |
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
 | Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查格式） |
-| 前端类型检查 | `cd frontend && npm run typecheck` |
-| 前端 lint / 格式化 | `cd frontend && npm run lint`（检查）；`npm run lint:fix`（安全修复）；`npm run format`（格式化，配置见 `frontend/biome.json`） |
-| 前端单元测试 | `cd frontend && npm run test` |
-| 浏览器端到端测试 | `cd frontend && npm run test:e2e`（首次需 `npx playwright install chromium`；本机已有 Edge / Chrome 时可用 `PLAYWRIGHT_CHANNEL=msedge`） |
-| 截图回归 | `cd frontend && npm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
-| 前端构建 | `cd frontend && npm run build` |
+| 前端类型检查 | `cd frontend && pnpm run typecheck` |
+| 前端 lint / 格式化 | `cd frontend && pnpm run lint`（检查）；`pnpm run lint:fix`（安全修复）；`pnpm run format`（格式化，配置见 `frontend/biome.json`） |
+| 前端单元测试 | `cd frontend && pnpm run test` |
+| 浏览器端到端测试 | `cd frontend && pnpm run test:e2e`（首次需 `pnpm exec playwright install chromium`；本机已有 Edge / Chrome 时可用 `PLAYWRIGHT_CHANNEL=msedge`） |
+| 截图回归 | `cd frontend && pnpm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
+| 前端构建 | `cd frontend && pnpm run build` |
 | 一键测试 | `wails3 task test` |
 | 一键检查 | `wails3 task check` |
 | 同步模型目录 | `wails3 task models:sync`（生成 `internal/model/catalogdata/catalog.json.gz`） |
@@ -137,7 +138,7 @@ internal/events/         事件类型与批量总线
 frontend/src/app/        AppShell、全局快捷键
 frontend/src/features/   sidebar / chat / panel / overlays / statusbar
 frontend/src/components/ Icon、BrandMark、Popover、Toast、Dialog
-frontend/src/lib/        API、真实宿主绑定、Mock（仅 npm run dev）、类型、工具
+frontend/src/lib/        API、真实宿主绑定、Mock（仅 pnpm run dev）、类型、工具
 frontend/src/stores/     app / threads / panel / workspace / terminal / ui
 frontend/src/styles/     样式分区 base / chat / panel / overlay + highlight + app-extra + desktop
 docs/                    adr（决策记录）、specs（行为规格）、agents（技能配置）
@@ -159,7 +160,7 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 1. 在 `internal/service/` 新建具体类型与构造函数。
 2. 在 `internal/app/app.go` 的 `application.Options.Services` 注册。
 3. `wails3 generate bindings`。
-4. 在 `frontend/src/lib/desktop.ts` 实现；纯 UI 预览的 `mock.ts` 也要补，否则 `npm run dev` 会缺接口。
+4. 在 `frontend/src/lib/desktop.ts` 实现；纯 UI 预览的 `mock.ts` 也要补，否则 `pnpm run dev` 会缺接口。
    `Api` 类型从 `desktopApi` 推导，不再手写接口文件；浏览器验证真实后端用 `wails3 task run:server`。
 5. 补 Go 单测与前端类型。
 
@@ -246,7 +247,7 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 - macOS 图标使用 `icons.icns`；不要重新引入 `Assets.car` 或 `CFBundleIconName`，否则会覆盖新图标。
 - `wails3 build` 需要 `frontend/dist`；正常流程会自动构建前端。
 - Vite HMR 与 Zustand 同时存在时，模式切换可能出现旧 store 实例；验证时整页重载。
-- `isDesktop` 表示「后端在 Go 进程里」：桌面是 `wails:` / `wails.localhost`，server 模式是 http(s) 且 `import.meta.env.MODE !== "mock"`；只有 `npm run dev`（`vite --mode mock`）走 Mock。新增 API 要改 `desktop.ts`，保留的 Mock 同步改 `mock.ts`；端口类型由 `desktopApi` 推导。
+- `isDesktop` 表示「后端在 Go 进程里」：桌面是 `wails:` / `wails.localhost`，server 模式是 http(s) 且 `import.meta.env.MODE !== "mock"`；只有 `pnpm run dev`（`vite --mode mock`）走 Mock。新增 API 要改 `desktop.ts`，保留的 Mock 同步改 `mock.ts`；端口类型由 `desktopApi` 推导。
 - server 模式下窗口、托盘、原生菜单、原生对话框、单实例都是空实现；`Window.NewWithOptions` 不会报错，但也不会产生窗口。
 - server 模式的页面是构建产物，没有 HMR；改完前端要重新 `wails3 task build:server` 或 `wails3 task run:server`。
 - server 模式生产构建的 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）；如果浏览器拦截同源 WebSocket 导致事件不刷新，显式放行 `ws://`。
@@ -256,7 +257,7 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 - 应用没有任何内置提供商；不要写死 `openai`、`gemini` 等提供商分支，也不要提供“推荐模型”。
 - 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
 - `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。
-- `npm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
+- `pnpm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
 - Mock 的定位是「伪造数据，不复刻行为规则」：分页切片、事件编排（simulateRun）、diff 呈现与搜索命中是**已知且有意的近似**，e2e 跑在 Mock 上，失败时先区分是产品 bug 还是 Mock 演砸。行为规则以 Go 为唯一事实源；新增后端校验/规则时不要在 mock.ts 里复刻一遍（空消息校验、标题提取等此前都复刻过，已删）。端口类型由 `desktopApi` 推导（81531bb 的既定决策），不要改成手写第二份接口签名。
 - `scrollbar-gutter: stable` 的预留宽度在两个内核不一致：Chromium 按自定义 `::-webkit-scrollbar` 宽度预留且与滚动条本体不叠加；WKWebView 按系统滚动条宽度（约 11px）预留并与滚动条叠加。本项目桌面（WKWebView）与 server 浏览器（Chromium）会因此出现约 11px 的内容宽度差，**不要在布局里依赖 `scrollbar-gutter`**；滚动条占位以 `::-webkit-scrollbar` 自定义宽度为准（见 `.thread-list`）。
 
@@ -268,13 +269,13 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 go test ./...
 go vet ./...
 golangci-lint run
-cd frontend && npm run lint && npx tsc --noEmit && npm run build
+cd frontend && pnpm run lint && pnpm exec tsc --noEmit && pnpm run build
 wails3 build
 ```
 
 涉及 UI 时额外：
 
-- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && npm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/specs/interface.md` 的布局尺寸与视觉 token。
+- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && pnpm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/specs/interface.md` 的布局尺寸与视觉 token。
 - 检查三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题。
 - 走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 选择模型 → 发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
 - 桌面端启动冒烟（建议隔离目录）：
@@ -291,7 +292,7 @@ CRAFTWORK_HOME=/tmp/cw-server wails3 task run:server
 curl -fsS http://localhost:8080/health
 ```
 
-CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`govulncheck`、`npm ci`、`npm run typecheck`、`npm run build`、`npm audit`，并重新生成绑定检查 `frontend/bindings` 是否漂移。本地提交前仍以本节命令为准。
+CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`govulncheck`、`ppnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run build`、`pnpm audit`，并重新生成绑定检查 `frontend/bindings` 是否漂移。本地提交前仍以本节命令为准。
 
 ## 9. 文档同步
 

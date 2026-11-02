@@ -3,7 +3,7 @@ version: '3'
 vars:
   APP_NAME: "craftwork"
   BIN_DIR: "bin"
-  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # Target OS for build/package/run. Defaults to the host OS, and is overridden
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
@@ -41,7 +41,7 @@ tasks:
     summary: Runs the frontend in a browser with the mock backend
     dir: frontend
     cmds:
-      - npm run dev -- --port {{.VITE_PORT}}
+      - pnpm run dev -- --port {{.VITE_PORT}}
 
   bindings:
     summary: Regenerates the TypeScript bindings from Go services
@@ -62,14 +62,14 @@ tasks:
     summary: Runs Go tests and the frontend tests and type check
     cmds:
       - go test ./...
-      - cd frontend && npm run test
-      - cd frontend && npm run typecheck
+      - cd frontend && pnpm run test
+      - cd frontend && pnpm run typecheck
 
   check:
     summary: Runs Go vet and the frontend type check
     cmds:
       - go vet ./...
-      - cd frontend && npm run typecheck
+      - cd frontend && pnpm run typecheck
 
   install:msix:tools:
     summary: Installs tools required for Windows MSIX packaging

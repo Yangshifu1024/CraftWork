@@ -367,7 +367,7 @@ CREATE TABLE backups (
 | 前端单元 | store reducer、事件归约、diff 渲染 | Vitest |
 | 浏览器端到端 | Mock 后端：布局、发送、审批、设置 | Playwright |
 | 桌面 / server 冒烟 | `wails3 build` 后启动；`wails3 task run:server` + `/health` | 手动 / 脚本（建议 `CRAFTWORK_HOME` 隔离） |
-| 视觉回归 | 同视口截图对比（基线按操作系统保存） | `npm run test:e2e -- --grep @screenshot` |
+| 视觉回归 | 同视口截图对比（基线按操作系统保存） | `pnpm run test:e2e -- --grep @screenshot` |
 | 安全用例 | 路径穿越、符号链接、命令注入、外链拦截、HTML 不执行 | 专项用例 |
 | 性能基准 | 冷启动、流式帧率、10MB 文件、终端输出、数据库查询 | `testing.B`、benchstat |
 
@@ -375,7 +375,7 @@ CREATE TABLE backups (
 
 ## 17. 构建与发布
 
-- 开发：`wails3 dev`（HMR + Go 热重启）；浏览器完整应用：`wails3 task run:server`；纯 UI 走查：`npm run dev`（Mock）。
+- 开发：`wails3 dev`（HMR + Go 热重启）；浏览器完整应用：`wails3 task run:server`；纯 UI 走查：`pnpm run dev`（Mock）。
 - 生产：`wails3 build` → `bin/craftwork`（自动构建前端、生成绑定、`go build -tags production`）。
 - 签名与公证已接入 Wails 工具链（`wails3 tool sign [--notarize]`、`--format dmg`）；需要开发者证书与发布密钥。
 - 更新：`internal/update` 已实现版本、渠道、HTTPS 地址、SHA-256 与 Ed25519 签名校验；下载、原子替换、回滚与内置公钥留桩（需发布服务器与签名密钥）。

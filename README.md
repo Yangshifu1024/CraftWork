@@ -127,6 +127,7 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 
 - Go 1.27.3+（以 `go.mod` 的 `go` 指令为准）
 - Node.js 24.22.2+（Vite 8 要求；npm 随 Node.js 提供）
+- pnpm 12.16.1（前端包管理器；`npm install -g pnpm`，版本锁定在 `frontend/package.json` 的 `packageManager` 字段）
 - Wails3 CLI v3.0.0
 
 安装或升级 Wails3 CLI：
@@ -141,7 +142,7 @@ wails3 doctor
 ### 运行
 
 ```bash
-cd frontend && npm install && cd ..
+cd frontend && pnpm install && cd ..
 
 wails3 generate bindings -clean=true -ts -i
 wails3 dev
@@ -159,7 +160,7 @@ wails3 package    # bin/craftwork.app（macOS）
 不需要启动 Wails，使用内存 Mock 后端：
 
 ```bash
-cd frontend && npm run dev
+cd frontend && pnpm run dev
 # http://127.0.0.1:9245/
 ```
 

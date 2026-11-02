@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | Go | 1.27.3+ | 以 `go.mod` 中的 `go` 指令为准 |
 | Node.js | 24.22.2+ | 以 Vite 8 与 `package.json` 为准，npm 随 Node.js 安装 |
+| pnpm | 12.16.1 | 前端包管理器；`npm install -g pnpm`，版本锁定在 `package.json` 的 `packageManager` 字段 |
 | Wails3 CLI | v3.0.0 | 桌面开发、构建与生成绑定 |
 
 安装 Wails3 CLI：
@@ -28,7 +29,7 @@ wails3 doctor
 
 ```bash
 cd frontend
-npm install
+pnpm install
 ```
 
 请不要在仓库内切换 Go、Node.js 或 Wails3 的版本，也不要通过临时环境变量指向其他安装位置；遇到版本问题时先提 Issue 说明情况。
@@ -40,7 +41,7 @@ npm install
 wails3 dev
 
 # 只启动前端，使用内存 Mock 后端
-cd frontend && npm run dev
+cd frontend && pnpm run dev
 # http://127.0.0.1:9245/
 
 # 重新同步 models.dev 模型目录（生成文件需要提交）
@@ -65,7 +66,7 @@ wails3 generate bindings -clean=true -ts -i
 ```bash
 go test ./...
 go vet ./...
-cd frontend && npx tsc --noEmit && npm run test && npm run build
+cd frontend && pnpm exec tsc --noEmit && pnpm run test && pnpm run build
 wails3 build
 ```
 
@@ -73,9 +74,9 @@ wails3 build
 
 ```bash
 cd frontend
-npx playwright install chromium   # 首次运行
-npm run test:e2e                  # 功能用例 + 截图对比
-npm run test:e2e -- --grep-invert @screenshot   # 只跑功能用例
+pnpm exec playwright install chromium   # 首次运行
+pnpm run test:e2e                  # 功能用例 + 截图对比
+pnpm run test:e2e -- --grep-invert @screenshot   # 只跑功能用例
 ```
 
 截图基线按操作系统保存；在非 macOS 上运行截图用例前需要生成对应平台基线。
@@ -101,7 +102,7 @@ Pull Request 会运行 `.github/workflows/ci.yml`，包括：
 | 任务 | 内容 |
 | --- | --- |
 | Go 测试与静态检查 | `go test ./...`、`go vet ./...`、`govulncheck ./...` |
-| 前端类型检查与构建 | `npm ci`、`npm run typecheck`、`npm run build`、`npm audit --audit-level=high` |
+| 前端类型检查与构建 | `ppnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run build`、`pnpm audit --audit-level=high` |
 | 绑定漂移检查 | 重新生成 `frontend/bindings`，与仓库内容比对 |
 
 CI 未通过时不要在 PR 中直接合并。依赖审计报出的高危问题需要升级依赖或在 PR 中说明处理方式。
