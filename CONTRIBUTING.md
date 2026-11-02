@@ -2,7 +2,7 @@
 
 感谢你愿意改进 CraftWork。本文件说明如何准备环境、修改代码、运行检查并提交改动。
 
-写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、IPC、审批、安全、前端与数据的硬性约束。产品与技术背景见 [产品需求文档](docs/产品需求文档.md) 与 [技术设计方案](docs/技术设计方案.md)，界面改动还需要对照 [界面设计方案](docs/界面设计方案.md) 与 [高保真原型](docs/prototype/index.html)。
+写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、IPC、审批、安全、前端与数据的硬性约束。行为规格见 [docs/specs/](docs/specs/)（产品 / 功能 / 架构 / 界面 / 提示词契约），决策背景与取舍见 [docs/adr/](docs/adr/)，术语以仓库根 [GLOSSARY.md](GLOSSARY.md) 为准；界面改动还需要对照 [界面规格](docs/specs/interface.md)。
 
 ## 环境准备
 
@@ -89,7 +89,7 @@ wails3 task check   # go vet ./... + 前端类型检查
 
 涉及界面的改动还要额外确认：
 
-- 在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
+- 在 1440×900 与 1100×800 两个视口对照 [界面规格](docs/specs/interface.md) 的布局尺寸与视觉 token。
 - 三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题都正常。
 - 完整走一遍：发送消息 → 工具调用 → 审批允许 / 拒绝 → 差异面板 → 审计记录。
 - 桌面端冒烟启动：`CRAFTWORK_HOME=/tmp/cw-smoke ./bin/craftwork`；首次启动应显示“尚未添加提供商”的空状态。
@@ -155,14 +155,15 @@ PR 描述至少包含：
 
 | 改动 | 需要同步 |
 | --- | --- |
-| 技术栈、分层、IPC、安全策略 | `docs/技术设计方案.md` |
-| 产品定位、约束、功能验收、指标 | `docs/产品需求文档.md` |
-| 布局、组件、交互、图标、视觉 | `docs/界面设计方案.md` |
-| 原型行为或模块映射 | `docs/prototype/README.md` |
+| 技术栈、分层、IPC、安全机制 | `docs/specs/architecture.md` |
+| 系统提示词分节、缓存层级、文案与测试约束 | `docs/specs/prompt-contract.md` |
+| 产品定位、范围、非功能指标、验收 | `docs/specs/product.md` |
+| 功能与验收要点、工具与规则 | `docs/specs/features.md` |
+| 布局、组件、交互、图标、视觉 | `docs/specs/interface.md` |
+| 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
+| 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、本文件 |
 | 开发约定、命令、陷阱 | `AGENTS.md` |
-
-文档头部的版本号与日期也需要一并更新：需求文档 v4.x、技术方案 v2.x、界面方案 v1.x。
 
 ## 许可证
 

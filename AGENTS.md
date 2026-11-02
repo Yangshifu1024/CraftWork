@@ -4,6 +4,20 @@
 
 `README.md` 面向使用者与贡献者，介绍功能、架构与贡献流程；本文件回答「在这个仓库里应该怎么改、怎么验证、哪些东西不能碰」。
 
+## Agent skills
+
+### Issue tracker
+
+issue 以 markdown 形式存放在仓库 `docs/<feature>/` 下（spec 为 `spec.md`，issue 为 `issues/NN-<slug>.md`）。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认五个分诊标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`，写在 issue 文件的 `Status:` 行。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单上下文布局：仓库根 `GLOSSARY.md` 术语表 + `docs/adr/` 决策记录 + `docs/specs/` 行为规格。见 `docs/agents/domain.md`。
+
 ---
 
 ## 1. 项目现状
@@ -28,7 +42,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | 前端 | React 19、TypeScript 5、Vite 8 |
 | 对话界面 | @assistant-ui/react 0.15（headless primitives） |
 | 编辑器 / 终端 | CodeMirror 6 / xterm.js 6 |
-| 图标 / 样式 | lucide-react 1.66；原型 CSS token 与 class，不使用 Tailwind |
+| 图标 / 样式 | lucide-react 1.66；自研 CSS token 与 class（`frontend/src/styles`），不使用 Tailwind |
 
 ## 2. 环境与工具链
 
@@ -122,17 +136,17 @@ frontend/src/features/   sidebar / chat / panel / overlays / statusbar
 frontend/src/components/ Icon、BrandMark、Popover、Toast、Dialog
 frontend/src/lib/        API、真实宿主绑定、Mock（仅 npm run dev）、类型、工具
 frontend/src/stores/     app / threads / panel / workspace / terminal / ui
-frontend/src/styles/     原型 CSS 分区 + highlight + app-extra + desktop
-docs/                    需求、界面、技术方案、原型
+frontend/src/styles/     样式分区 base / chat / panel / overlay + highlight + app-extra + desktop
+docs/                    adr（决策记录）、specs（行为规格）、agents（技能配置）
 ```
 
 新增能力时优先落到对应领域包，不要在 `internal/service` 里堆业务逻辑；服务层只做参数校验、编排与错误转换。
 
 ## 5. 改动流程
 
-1. **先读文档**：`docs/产品需求文档.md`、`docs/技术设计方案.md`、`docs/界面设计方案.md`。
+1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/specs/`（行为规格）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
 2. **改 Go 接口**：修改服务方法或 `RegisterEvent` 后重新生成绑定。
-3. **改前端**：保持原型 class 名与 token；类型检查必须通过。
+3. **改前端**：保持既有 class 名与 CSS token（视觉规格见 `docs/specs/interface.md`）；类型检查必须通过。
 4. **补测试**：核心逻辑（策略、路径、事件、存储、Agent 循环、diff）必须有 Go 单测；前端关键 reducer 在 M1 接入 Vitest。
 5. **跑验证**：见第 8 节。
 6. **同步文档**：见第 9 节。
@@ -213,7 +227,7 @@ docs/                    需求、界面、技术方案、原型
 - 事件写入与广播统一走 `internal/record.Recorder`，不要手写 `AppendEvent` + `Bus.Publish` 配对。
 - 修改表结构时增加迁移版本，不要直接改已有迁移。
 - 写入文件前备份；外部修改时用 `expectedHash` 阻止覆盖。
-- 软删除、审计、用量等保留策略与需求文档一致。
+- 软删除、审计、用量等保留策略与 `docs/specs/product.md` 一致。
 
 ### 6.6 错误处理
 
@@ -256,7 +270,7 @@ wails3 build
 
 涉及 UI 时额外：
 
-- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && npm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/prototype/index.html`。
+- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && npm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/specs/interface.md` 的布局尺寸与视觉 token。
 - 检查三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题。
 - 走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 选择模型 → 发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
 - 桌面端启动冒烟（建议隔离目录）：
@@ -279,15 +293,15 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 
 | 改动 | 需要同步 |
 | --- | --- |
-| 技术栈、分层、IPC、安全策略 | `docs/技术设计方案.md` |
-| 系统提示词分节、缓存层级、文案与测试约束 | `docs/系统提示词契约.md` |
-| 产品定位、约束、功能验收、指标 | `docs/产品需求文档.md` |
-| 布局、组件、交互、图标、视觉 | `docs/界面设计方案.md` |
-| 原型行为或模块映射 | `docs/prototype/README.md` |
+| 技术栈、分层、IPC、安全机制 | `docs/specs/architecture.md` |
+| 系统提示词分节、缓存层级、文案与测试约束 | `docs/specs/prompt-contract.md` |
+| 产品定位、范围、非功能指标、验收 | `docs/specs/product.md` |
+| 功能与验收要点、工具与规则 | `docs/specs/features.md` |
+| 布局、组件、交互、图标、视觉 | `docs/specs/interface.md` |
+| 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
+| 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
 | 开发约定、命令、陷阱 | 本文件 |
-
-版本号规则：需求文档 v4.x、技术方案 v2.x、界面方案 v1.x；修改后在文档头同步日期。
 
 ## 10. 当前留桩
 
@@ -301,4 +315,4 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 - 提交信息使用中文，一次提交只做一件逻辑上的事。
 - 提交前运行第 8 节的检查；不要提交 `bin/`、`frontend/dist/`、`node_modules/`。
 - 贡献使用 DCO：`git commit -s`。
-- 不修改 `docs/prototype/` 的视觉与交互，除非设计变更明确要求；修改后同步界面方案与原型说明。
+- 界面视觉与交互的变更先更新 `docs/specs/interface.md`，再改实现；行为变更同步受影响的 spec，决策变更走 `docs/adr/`。

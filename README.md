@@ -10,8 +10,6 @@
   Go 内核 · Wails3 桌面外壳 · React 界面 · 数据不出本机
 </p>
 
-![CraftWork 界面](docs/assets/app.png)
-
 ---
 
 ## 这是什么
@@ -115,13 +113,13 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 ### 关键设计
 
 - **Wails3 使用系统 WebView**：不打包 Chromium，应用体积小、内存可控。
-- **assistant-ui primitives**：消息流与输入区复用成熟原语，视觉仍由原型 CSS token 控制。
+- **assistant-ui primitives**：消息流与输入区复用成熟原语，视觉仍由自研 CSS token 控制。
 - **事件批量推送**：文本增量在 Go 侧按 33ms 合并，避免逐 token 过 IPC。
 - **审批跨 IPC**：Go 推送 `approval.requested`，前端调用 `DecideApproval` 回传；授权范围由服务端校验。
-- **原型即视觉基线**：`docs/prototype/` 的 class 名、CSS token 与 DOM 结构被前端直接复用。
+- **样式分区即视觉基线**：`frontend/src/styles/` 的 class 名、CSS token 与 DOM 结构是界面实现的统一样式基线。
 - **安全边界在 Go**：路径校验、命令分级、密钥读取、外链白名单都不依赖前端。
 
-更完整的技术细节见 [技术设计方案](docs/技术设计方案.md)。
+更完整的技术细节见 [架构规格](docs/specs/architecture.md)，设计决策的背景与取舍见 [docs/adr/](docs/adr/)。
 
 ## 快速开始
 
@@ -185,8 +183,8 @@ wails3 task models:check  # 只检查是否与上游一致
 ### 开始之前
 
 1. 阅读 [AGENTS.md](AGENTS.md)：里面有命令、代码结构、IPC / 审批 / 安全 / 前端约束。
-2. 阅读 [技术设计方案](docs/技术设计方案.md) 与 [界面设计方案](docs/界面设计方案.md)。
-3. UI 相关改动先对照 [原型](docs/prototype/index.html)，保持视觉一致。
+2. 阅读 [架构规格](docs/specs/architecture.md) 与 [界面规格](docs/specs/interface.md)；涉及决策取舍时查 [docs/adr/](docs/adr/)。
+3. UI 相关改动先对照 [界面规格](docs/specs/interface.md) 的布局尺寸与视觉 token，保持视觉一致。
 
 ### 流程
 
@@ -200,7 +198,7 @@ wails3 task check
 wails3 build
 ```
 
-4. 涉及 UI 时，在 1440×900 与 1100×800 两个视口对照原型，确认三栏、窄窗口折叠与深浅主题。
+4. 涉及 UI 时，在 1440×900 与 1100×800 两个视口对照[界面规格](docs/specs/interface.md)，确认三栏、窄窗口折叠与深浅主题。
 5. 提交 PR，描述变更、验证方式与影响的文档。
 6. 贡献使用 DCO：`git commit -s`。
 
@@ -225,10 +223,13 @@ CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂�
 
 ## 文档
 
-- [产品需求文档](docs/产品需求文档.md)
-- [技术设计方案](docs/技术设计方案.md)
-- [界面设计方案](docs/界面设计方案.md)
-- [高保真原型说明](docs/prototype/README.md)
+- [产品规格](docs/specs/product.md)：定位、范围、非功能指标与验收
+- [功能规格](docs/specs/features.md)：功能编号、优先级与验收要点
+- [架构规格](docs/specs/architecture.md)：分层、IPC、Agent 内核、策略与存储
+- [界面规格](docs/specs/interface.md)：布局、组件、交互与视觉 token
+- [系统提示词契约](docs/specs/prompt-contract.md)：提示词分节与缓存分层
+- [决策记录（ADR）](docs/adr/)：架构与选型决策的背景与取舍
+- [术语表](GLOSSARY.md)：仓库领域词汇基准
 - [贡献指南](CONTRIBUTING.md)
 - [开发与协作约定](AGENTS.md)
 
