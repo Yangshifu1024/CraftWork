@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"craftwork/internal/agent"
+	"craftwork/internal/events"
 	"craftwork/internal/id"
 	"craftwork/internal/model"
 	"craftwork/internal/record"
@@ -48,24 +49,51 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 		return "", err
 	}
 	text = strings.TrimSpace(text)
-	if text == "" && len(attachments) == 0 {
-		return "", errors.New("消息不能为空")
-	}
-
-	userMessageID := id.New("msg")
-	// 用户消息先落事件表，再启动 run；即使后续模型调用失败，
-	// 用户输入的原文也不会丢失。
-	if err := s.records.Append(store.EventRecord{
-		ID:        id.New("part"),
-		ThreadID:  threadID,
-		MessageID: userMessageID,
-		Kind:      "user_message",
-		Payload:   map[string]any{"text": text, "attachments": attachments},
-	}); err != nil {
+	if _, err := s.writeUserMessage(threadID, text, attachments); err != nil {
 		return "", err
 	}
-
 	return s.startRun(*thread)
+}
+
+// Steer 在会话运行中追加一条用户指令，返回用户消息 ID。
+//
+// 与 Send 一样先把消息写入事件表（崩溃不丢原文），再广播 user.message
+// 事件让所有窗口立即显示，然后尝试挂到运行中 run 的投递队列，由 Agent
+// 在下一个工具批次结束后并入模型历史。会话恰好已结束时回退为普通发送。
+func (s *ChatService) Steer(threadID, text string, attachments []string) (string, error) {
+	thread, err := s.db.GetThread(threadID)
+	if err != nil {
+		return "", err
+	}
+	text = strings.TrimSpace(text)
+	messageID, err := s.writeUserMessage(threadID, text, attachments)
+	if err != nil {
+		return "", err
+	}
+	s.records.Emit(events.TypeUserMessage, threadID, "", map[string]any{
+		"messageId":   messageID,
+		"text":        text,
+		"attachments": attachments,
+		"via":         "steer",
+	})
+	accepted, err := s.runner.TrySteer(threadID, agent.SteerItem{
+		MessageID:   messageID,
+		Text:        text,
+		Attachments: attachments,
+	})
+	if err != nil {
+		return "", err
+	}
+	if accepted {
+		return messageID, nil
+	}
+	// 会话没有在途运行（含接力刚耗尽的瞬间）：回退为普通发送，消息已在
+	// 历史里，启动一次 run 即可。极端情况下回退与刚启动的接力相撞时，
+	// Start 的“新消息接管”语义会取消接力并以本消息重新开跑，行为安全。
+	if _, err := s.startRun(*thread); err != nil {
+		return "", err
+	}
+	return messageID, nil
 }
 
 // Regenerate 基于当前历史重新生成回复，不重复写入用户消息。
@@ -118,6 +146,27 @@ func (s *ChatService) DecideApproval(approvalID string, allow bool, scope string
 		return errors.New("approvalID 不能为空")
 	}
 	return s.approvals.Resolve(approvalID, agent.Decision{Allow: allow, Scope: scope})
+}
+
+// writeUserMessage 校验并把用户消息写入事件表，返回消息 ID。
+//
+// 发送与运行中引导共用。消息先落事件表：即使后续模型调用失败，
+// 用户输入的原文也不会丢失。纯附件消息（无文本）同样合法。
+func (s *ChatService) writeUserMessage(threadID, text string, attachments []string) (string, error) {
+	if text == "" && len(attachments) == 0 {
+		return "", errors.New("消息不能为空")
+	}
+	userMessageID := id.New("msg")
+	if err := s.records.Append(store.EventRecord{
+		ID:        id.New("part"),
+		ThreadID:  threadID,
+		MessageID: userMessageID,
+		Kind:      "user_message",
+		Payload:   map[string]any{"text": text, "attachments": attachments},
+	}); err != nil {
+		return "", err
+	}
+	return userMessageID, nil
 }
 
 // startRun 创建运行记录、更新会话状态并异步启动 Agent 循环，返回 runID。

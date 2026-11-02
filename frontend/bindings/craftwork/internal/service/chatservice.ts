@@ -43,3 +43,14 @@ export function Regenerate(threadID: string): $CancellablePromise<string> {
 export function Send(threadID: string, text: string, attachments: string[] | null): $CancellablePromise<string> {
     return $Call.ByID(3272373685, threadID, text, attachments);
 }
+
+/**
+ * Steer 在会话运行中追加一条用户指令，返回用户消息 ID。
+ * 
+ * 与 Send 一样先把消息写入事件表（崩溃不丢原文），再广播 user.message
+ * 事件让所有窗口立即显示，然后尝试挂到运行中 run 的投递队列，由 Agent
+ * 在下一个工具批次结束后并入模型历史。会话恰好已结束时回退为普通发送。
+ */
+export function Steer(threadID: string, text: string, attachments: string[] | null): $CancellablePromise<string> {
+    return $Call.ByID(2659980360, threadID, text, attachments);
+}

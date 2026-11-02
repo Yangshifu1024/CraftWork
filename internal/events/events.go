@@ -44,6 +44,9 @@ const (
 	TypeApprovalResolved = "approval.resolved"
 	// TypeTodoUpdated 表示待办列表发生变化。
 	TypeTodoUpdated = "todo.updated"
+	// TypeUserMessage 表示一条用户消息已写入事件表。当前只有运行中引导
+	// （steer）广播该事件：普通发送由前端乐观插入显示，再广播会出双份。
+	TypeUserMessage = "user.message"
 	// TypeNotice 是普通提示消息。
 	TypeNotice = "notice"
 	// TypeContextCompressed 表示上下文被压缩。
