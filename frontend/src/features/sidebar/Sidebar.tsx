@@ -89,6 +89,7 @@ export function Sidebar() {
   }
 
   // 拉取今日用量与最近审计条数；用 alive 标记避免卸载或重复请求后写入旧状态。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mode / activeID 是有意保留的触发依赖，切换模式或会话时刷新计数
   useEffect(() => {
     let alive = true;
     Promise.all([api.audit.usage(), api.audit.list(200)])

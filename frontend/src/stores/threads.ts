@@ -21,8 +21,8 @@ import type {
   ThreadView,
 } from "../lib/types";
 import { isImagePath, matchModelInfo, uid } from "../lib/utils";
-import { reduceThread, updateThread } from "./threadReducer";
 import { useAppStore } from "./app";
+import { reduceThread, updateThread } from "./threadReducer";
 import { useUiStore } from "./ui";
 
 /**

@@ -10,8 +10,9 @@
  * 事件模拟：发送消息后 `simulateRun` 按「推理 → 正文 → 工具 → 审批 → 收尾」的顺序
  * 逐个派发事件批次，让前端走和真实后端完全相同的处理路径。
  */
-import type { Api } from "./desktop";
+
 import { dispatch, envelope } from "./bus";
+import type { Api } from "./desktop";
 import type {
   AuditEntry,
   Backup,
@@ -1034,8 +1035,12 @@ function computeDiff(oldText: string, newText: string): DiffResult {
   for (let index = 0; index < prefix; index += 1) {
     lines.push({ kind: "ctx", old: index + 1, new: index + 1, text: oldLines[index] });
   }
-  middleOld.forEach((text, index) => lines.push({ kind: "del", old: prefix + index + 1, text }));
-  middleNew.forEach((text, index) => lines.push({ kind: "add", new: prefix + index + 1, text }));
+  middleOld.forEach((text, index) => {
+    lines.push({ kind: "del", old: prefix + index + 1, text });
+  });
+  middleNew.forEach((text, index) => {
+    lines.push({ kind: "add", new: prefix + index + 1, text });
+  });
   for (let index = 0; index < suffix; index += 1) {
     lines.push({
       kind: "ctx",

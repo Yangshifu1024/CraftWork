@@ -38,6 +38,7 @@ import { useThreadStore } from "../../stores/threads";
  *   incomplete -> incomplete(cancelled)；其余视为 complete(stop)。
  */
 export function convertMessage(message: ChatMessage, reasoningEnabled: boolean): ThreadMessageLike {
+  // biome-ignore lint/suspicious/noExplicitAny: 组装 assistant-ui 的 ThreadMessageLike 内容数组，部件按 kind 动态产出
   const content: any[] = [];
   // 流式中的判定依据：消息还在生成且该部件是消息的最后一个部件——
   // 最后一个部件还在增长说明它正在流式输出，「正在思考」状态由它驱动。
@@ -159,9 +160,12 @@ export function useChatRuntime() {
    * 运行中转引导与自动建会话都由 threads.submit 的唯一策略点负责。
    */
   const handleNew = useCallback(
+    // biome-ignore lint/suspicious/noExplicitAny: assistant-ui 提交回调的消息参数类型由运行时决定，只读文本部件
     async (message: any) => {
       const text = (message.content ?? [])
+        // biome-ignore lint/suspicious/noExplicitAny: 同上，部件内容按 type 动态识别
         .filter((part: any) => part?.type === "text")
+        // biome-ignore lint/suspicious/noExplicitAny: 同上，部件内容按 type 动态识别
         .map((part: any) => String(part.text ?? ""))
         .join("\n");
       const attachments = useThreadStore.getState().attachments.map((item) => item.path);

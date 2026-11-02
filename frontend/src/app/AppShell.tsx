@@ -7,7 +7,7 @@
  * 2. 用媒体查询判断窄窗口，窄窗口下面板改为浮层，不再挤压对话区；
  * 3. 注册全局快捷键（新建对话、搜索、设置、命令面板、Esc 逐层退出）。
  */
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FreeLevelDialog } from "../components/FreeLevelDialog";
 import { PromptDialog } from "../components/PromptDialog";
@@ -73,12 +73,13 @@ export function AppShell() {
   // 双击 Esc 的确认窗口：第一击进入待确认后，超过该时长未按第二击就自动解除。
   const ESC_ARM_WINDOW_MS = 800;
   const armTimerRef = useRef<number | null>(null);
-  function disarmTimer() {
+  // 只操作 ref，用 useCallback 固定引用，供快捷键 effect 的依赖数组使用。
+  const disarmTimer = useCallback(() => {
     if (armTimerRef.current !== null) {
       window.clearTimeout(armTimerRef.current);
       armTimerRef.current = null;
     }
-  }
+  }, []);
 
   // 全局快捷键：
   // - Cmd/Ctrl + K 打开命令面板，Cmd/Ctrl + N 新建对话；
@@ -161,7 +162,7 @@ export function AppShell() {
       window.removeEventListener("keydown", handleKey);
       disarmTimer();
     };
-  }, [setMaximized]);
+  }, [setMaximized, disarmTimer]);
 
   // 面板的三种形态：常规停靠、窄窗口浮层、最大化铺满对话区。
   // 互斥关系由这里统一计算，样式层只按 class 渲染。

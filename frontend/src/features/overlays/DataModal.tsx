@@ -109,7 +109,8 @@ export function DataModal() {
 
   return createPortal(
     <div className="overlay-layer">
-      <div className="overlay-backdrop" onClick={close} />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩是纯装饰的便利点击目标，键盘用户走 Esc 与关闭按钮 */}
+      <div className="overlay-backdrop" role="presentation" onClick={close} />
       <div className="data-modal" role="dialog" aria-modal="true" aria-label="数据面板">
         <div className="data-head">
           {/* 标题随当前标签变化；刷新会重新触发对应标签的数据读取 */}

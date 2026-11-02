@@ -145,6 +145,7 @@ export interface ChatPart {
   id: string;
   kind: PartKind;
   seq: number;
+  // biome-ignore lint/suspicious/noExplicitAny: 后端事件载荷类型较松，由渲染组件按 kind 收窄到各 *PartData
   data: any;
 }
 
@@ -184,6 +185,7 @@ export interface ToolPartData {
   partId: string;
   toolCallId: string;
   name: string;
+  // biome-ignore lint/suspicious/noExplicitAny: 工具参数结构随工具而异，由各工具卡片自行读取
   args: Record<string, any>;
   risk: string;
   status: "running" | "done" | "error";
@@ -210,6 +212,7 @@ export interface ApprovalPartData {
   target: string;
   detail?: string;
   facts?: ApprovalFact[];
+  // biome-ignore lint/suspicious/noExplicitAny: 审批参数结构随工具而异，由审批卡片自行读取
   args?: Record<string, any>;
   /** 是否允许「本次会话 / 当前工作区」的永久授权。 */
   allowPermanent: boolean;
@@ -273,6 +276,7 @@ export interface Envelope {
   threadId?: string;
   runId?: string;
   ts: number;
+  // biome-ignore lint/suspicious/noExplicitAny: 事件载荷结构由 type 决定，消费端按事件类型收窄
   data: any;
 }
 

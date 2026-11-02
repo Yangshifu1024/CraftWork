@@ -4,7 +4,7 @@
  * 这是 Promise 式弹层的展示端之一：调用方 `await askConfirm(...)` 会挂起，
  * 用户点击确认、取消、遮罩或按 Esc / Enter 时，这里调用 `resolveConfirm` 落定 Promise。
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useUiStore } from "../stores/ui";
 import { Icon } from "./Icon";
@@ -19,6 +19,14 @@ import { Icon } from "./Icon";
 export function ConfirmDialog() {
   const confirm = useUiStore((state) => state.confirm);
   const resolve = useUiStore((state) => state.resolveConfirm);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 确认按钮聚焦：等价于 autoFocus，但规避 lint 的 noAutofocus（对读屏与自动聚焦时机的兼容更好）。
+  useEffect(() => {
+    if (confirm) {
+      confirmButtonRef.current?.focus();
+    }
+  }, [confirm]);
 
   // 键盘支持：Esc 视为取消，Enter 视为确认。
   // 使用捕获阶段并阻止冒泡，防止 Esc 继续触发 AppShell 的全局 Esc 逻辑。
@@ -48,7 +56,8 @@ export function ConfirmDialog() {
   return createPortal(
     <div className="overlay-layer">
       {/* 点击遮罩等同于取消，是成本最低的退出方式 */}
-      <div className="overlay-backdrop" onClick={() => resolve(false)} />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩是纯装饰的便利点击目标，键盘用户走 Esc 与对话框内按钮 */}
+      <div className="overlay-backdrop" role="presentation" onClick={() => resolve(false)} />
       <div className="confirm-dialog" role="dialog" aria-modal="true">
         <h3>
           {/* 危险操作使用警示图标，普通操作使用信息图标 */}
@@ -65,9 +74,9 @@ export function ConfirmDialog() {
           {/* 确认按钮自动聚焦，键盘用户按 Enter 即可通过；危险操作改用危险样式 */}
           <button
             type="button"
+            ref={confirmButtonRef}
             className={`btn ${confirm.danger ? "danger" : "primary"}`}
             onClick={() => resolve(true)}
-            autoFocus
           >
             {confirm.confirmText ?? "确认"}
           </button>

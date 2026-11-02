@@ -7,8 +7,8 @@
  */
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Icon } from "./Icon";
 import { useUiStore } from "../stores/ui";
+import { Icon } from "./Icon";
 
 /** 启用自由档位后放行的三类能力，与截图约定的文案一致。 */
 const freeCapabilities = [
@@ -65,7 +65,8 @@ export function FreeLevelDialog() {
   return createPortal(
     <div className="overlay-layer">
       {/* 点击遮罩等同于取消，是成本最低的退出方式 */}
-      <div className="overlay-backdrop" onClick={() => resolve(false)} />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩是纯装饰的便利点击目标，键盘用户走 Esc 与对话框内按钮 */}
+      <div className="overlay-backdrop" role="presentation" onClick={() => resolve(false)} />
       <div className="free-dialog" role="dialog" aria-modal="true">
         <h3>
           <Icon name="alert" />

@@ -10,27 +10,28 @@
  *
  * 说明：这里只负责输入与选择，真正的发送、引导、取消由 runtime 转给会话 store。
  */
-import { useMemo, useRef, useState } from "react";
-import type { ClipboardEvent } from "react";
+
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
+import type { ClipboardEvent } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ContextRing } from "../../components/ContextRing";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
 import { api } from "../../lib/api";
+import { guardFreeLevel } from "../../lib/approval";
 import {
-  MAX_PASTED_ATTACHMENT_BYTES,
   collectPastedFiles,
   isSupportedImage,
+  MAX_PASTED_ATTACHMENT_BYTES,
   pastedFileName,
   readFileAsBase64,
 } from "../../lib/paste";
-import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, ModelView } from "../../lib/types";
 import { cn, formatTokens } from "../../lib/utils";
-import { AttachmentItem } from "./Parts";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
+import { AttachmentItem } from "./Parts";
 
 /** 当前打开的浮层类型；null 表示没有浮层。 */
 type PopoverKind = "approval" | "model" | "risk" | "context" | null;
@@ -71,6 +72,7 @@ const levelLabel: Record<string, string> = {
  * composer 随提交自动清空。空输入时保持停止按钮。
  */
 function SendCluster(props: { running: boolean; hasModel: boolean; interruptArmed: boolean; onCancel: () => void }) {
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const composerEmpty = useAuiState((state: any) => state.composer?.isEmpty ?? true);
   const aui = useAui();
 

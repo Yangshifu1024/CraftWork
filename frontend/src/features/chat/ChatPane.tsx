@@ -93,6 +93,7 @@ export function ChatPane() {
       >
         <ChatHeader />
 
+        {/* biome-ignore lint/suspicious/noExplicitAny: Viewport 的 ref 泛型与本地 HTMLDivElement 引用不完全一致，边界处断言 */}
         <ThreadPrimitive.Viewport ref={viewportRef as any} className="chat-scroll" onScroll={handleScroll} autoScroll>
           <div className="chat-stream">
             {/* 还有更早的消息时，在顶部提供分页加载入口。 */}

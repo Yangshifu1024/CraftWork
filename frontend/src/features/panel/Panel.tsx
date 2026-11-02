@@ -90,6 +90,7 @@ export function Panel() {
   return (
     <>
       {/* 左侧的拖拽分隔条，用于调整面板宽度 */}
+      {/* biome-ignore lint/a11y/useSemanticElements: 对应的 hr 是静态主题分隔，无法承载指针拖拽交互，此处是可交互的自定义分隔条 */}
       <div
         className="panel-resize"
         role="separator"

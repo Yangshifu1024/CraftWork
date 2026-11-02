@@ -365,6 +365,7 @@ export function ProviderEditor({
         </div>
 
         {models.map((model, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 新建模型的 id 为空，行内输入全部受控于 models 状态，index 是唯一可靠 key
           <div className="provider-model-row" key={index}>
             <div className="pmr-head">
               <span className="pmr-title">模型 {index + 1}</span>

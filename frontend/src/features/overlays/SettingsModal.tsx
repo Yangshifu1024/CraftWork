@@ -6,7 +6,7 @@
  *
  * 布局为左侧分组导航 + 右侧内容区；所有设置修改都通过 saveSettings 立即保存并生效。
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
 import { api } from "../../lib/api";
@@ -14,7 +14,7 @@ import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, CatalogMeta, MCPServerView, ProviderView, Settings } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { DEFAULT_SETTINGS, useAppStore } from "../../stores/app";
-import { useUiStore, type SettingsTab } from "../../stores/ui";
+import { type SettingsTab, useUiStore } from "../../stores/ui";
 import { CatalogBrowser } from "./CatalogBrowser";
 import { ProviderEditor } from "./ProviderEditor";
 
@@ -93,14 +93,26 @@ export function SettingsModal() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogMeta, setCatalogMeta] = useState<CatalogMeta | null>(null);
 
+  /**
+   * 读取已保存的 MCP 服务器列表。
+   * 失败时给出提示但不阻塞界面，列表保持上一次的内容。
+   * 依赖仅模块级 api 与稳定的 store action，用 useCallback 固定引用供 effect 依赖。
+   */
+  const refreshMCP = useCallback(async () => {
+    try {
+      setMcpServers(await api.mcp.list());
+    } catch (error) {
+      toast({ title: "读取 MCP 服务器失败", description: String(error), tone: "danger" });
+    }
+  }, [toast]);
+
   useEffect(() => {
     // 只有打开弹窗并停留在 MCP 分组时才读取服务器列表，其他分组不做请求。
     if (open && tab === "mcp") {
       void refreshMCP();
     }
     // refreshMCP 只在打开 MCP 标签时读取服务器列表。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tab]);
+  }, [open, tab, refreshMCP]);
 
   useEffect(() => {
     // 关闭时收起提供商编辑器与目录浏览器，避免下次打开残留上一次的状态。
@@ -213,18 +225,6 @@ export function SettingsModal() {
       toast({ title: "连接测试失败", description: String(error), tone: "danger" });
     } finally {
       setTesting(null);
-    }
-  }
-
-  /**
-   * 读取已保存的 MCP 服务器列表。
-   * 失败时给出提示但不阻塞界面，列表保持上一次的内容。
-   */
-  async function refreshMCP() {
-    try {
-      setMcpServers(await api.mcp.list());
-    } catch (error) {
-      toast({ title: "读取 MCP 服务器失败", description: String(error), tone: "danger" });
     }
   }
 

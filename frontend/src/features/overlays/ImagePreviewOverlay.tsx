@@ -39,7 +39,8 @@ export function ImagePreviewOverlay() {
   return createPortal(
     <div className="overlay-layer">
       {/* 点击遮罩等同于关闭 */}
-      <div className="overlay-backdrop" onClick={close} />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩是纯装饰的便利点击目标，键盘用户走 Esc 与关闭按钮 */}
+      <div className="overlay-backdrop" role="presentation" onClick={close} />
       <div className="image-preview" role="dialog" aria-modal="true" aria-label={preview.name}>
         <img className="image-preview-img" src={preview.url} alt={preview.name} />
         <div className="image-preview-foot">

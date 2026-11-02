@@ -214,6 +214,13 @@
   user-select: none;
 }
 .tree-row {
+  /* 行元素改为语义化 button 后，重置浏览器默认外观以保持原视觉 */
+  appearance: none;
+  border: none;
+  background: none;
+  width: 100%;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: 5px;

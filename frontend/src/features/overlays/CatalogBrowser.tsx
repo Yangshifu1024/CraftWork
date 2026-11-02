@@ -271,7 +271,12 @@ export function CatalogBrowser({
                         <button
                           type="button"
                           className="link-btn"
-                          onClick={() => void api.app.openExternal(selectedProvider.doc!)}
+                          onClick={() => {
+                            // 外层已确认 doc 存在，这里再窄化一次，避免非空断言。
+                            if (selectedProvider.doc) {
+                              void api.app.openExternal(selectedProvider.doc);
+                            }
+                          }}
                         >
                           文档
                         </button>

@@ -297,6 +297,7 @@ export function TerminalPanel() {
           >
             <Icon name="terminal" className="ico" />
             <span>{session.name}</span>
+            {/* biome-ignore lint/a11y/useSemanticElements: 控件嵌套在 button 内，HTML 禁止 button 嵌套 button，只能以 span + role 模拟 */}
             <span
               className="term-tab-close"
               role="button"

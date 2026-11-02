@@ -194,7 +194,8 @@ export function Editor() {
       view?.destroy();
       viewRef.current = null;
     };
-  }, [content?.path, content?.hash, content?.content, content?.binary, editorMode, targetLine]);
+    // content 以对象引用整体比较：打开文件与保存回读都会生成新对象，正好触发重建。
+  }, [content, editorMode, targetLine]);
 
   if (!content) {
     return null;
@@ -209,6 +210,7 @@ export function Editor() {
         {/* 面包屑显示完整路径，最后一段高亮为当前文件名 */}
         <div className="editor-breadcrumb" title={content.path}>
           {crumbs.map((crumb, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 路径段可能重复（如 a/b/a），拼接序号保证列表内唯一
             <span key={`${crumb}-${index}`}>
               {index > 0 ? <span className="sep">/</span> : null}
               <span className={cn("crumb", index === crumbs.length - 1 && "last")}>{crumb}</span>

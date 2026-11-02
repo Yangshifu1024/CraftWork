@@ -47,7 +47,9 @@ export function onBatch(handler: BatchHandler): () => void {
 
 /** 由 Mock 后端直接投递一个事件批次。 */
 export function dispatch(batch: Batch): void {
-  handlers.forEach((handler) => handler(batch));
+  handlers.forEach((handler) => {
+    handler(batch);
+  });
 }
 
 /** 事件序号计数器，仅 Mock 使用，保证同一进程内递增。 */
@@ -59,7 +61,7 @@ let sequence = 0;
  * `seq` 在 Mock 内部自增，`ts` 取当前时间；threadId、runId、data 由调用方给出。
  * 真实后端会用自己的序号，这里只需保证结构一致，前端处理逻辑才能共用。
  */
-export function envelope(type: string, threadID: string, runID: string, data: any): Batch["events"][number] {
+export function envelope(type: string, threadID: string, runID: string, data: unknown): Batch["events"][number] {
   sequence += 1;
   return { seq: sequence, type, threadId: threadID, runId: runID, ts: Date.now(), data };
 }
@@ -76,7 +78,8 @@ function connect(): void {
     return;
   }
   connected = true;
-  Events.On("cw:events", (event: any) => {
+  // 回调参数类型由 Events.On 的泛型按事件名推导，data 的具体结构在断言处收窄为 Batch。
+  Events.On("cw:events", (event) => {
     const batch = event?.data as Batch | undefined;
     if (batch?.events?.length) {
       dispatch(batch);

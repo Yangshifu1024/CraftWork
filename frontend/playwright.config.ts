@@ -14,7 +14,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: "http://127.0.0.1:9245",
-    channel: channel as any,
+    // channel 的目标类型就是 string，环境变量缺省时为 undefined，无需断言。
+    channel,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },

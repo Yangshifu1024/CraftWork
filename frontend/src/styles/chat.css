@@ -1525,7 +1525,11 @@ html[data-theme="light"] .diff-line.del {
 .composer-wrap {
   padding: 8px 18px 9px;
   /* 底色跟随聊天区背景：浅色主题聊天区是更亮的 --chat-bg，直接用 --bg 会发灰。 */
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--chat-bg, var(--bg)) 86%, var(--bg-panel)) 26%);
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--chat-bg, var(--bg)) 86%, var(--bg-panel)) 26%
+  );
   position: relative;
   z-index: 5;
 }

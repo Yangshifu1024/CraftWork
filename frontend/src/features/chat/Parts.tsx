@@ -220,6 +220,7 @@ export function ReasoningBlock({ data }: { data?: ReasoningPartData & { streamin
 
   // 摘要行每次内容增长后滚到最右：旧文字向左滑出，最新 token 始终可见。
   const summaryRef = useRef<HTMLSpanElement | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingSummary 是有意保留的触发依赖，内容变化时重新滚动
   useEffect(() => {
     const el = summaryRef.current;
     if (el) {
@@ -230,6 +231,7 @@ export function ReasoningBlock({ data }: { data?: ReasoningPartData & { streamin
   // 内容区吸底跟随：流式追加时保持滚到底部；用户上滚后暂停，滚回底部再恢复。
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const followRef = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: text 是有意保留的触发依赖，内容变化时重新吸底
   useEffect(() => {
     const el = bodyRef.current;
     if (!el || !open) {
@@ -312,6 +314,7 @@ export function TodoCard({ data }: { data: TodoPartData }) {
       <div className="todo-list">
         {items.map((item, index) => (
           <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: todo 项没有唯一 ID，text 可重复，拼接序号保证列表内唯一
             key={`${item.text}-${index}`}
             className={cn("todo-item", item.status === "done" && "done", item.status === "active" && "active")}
           >
@@ -368,6 +371,14 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const waiting = data.status === "waiting";
   const approved = data.status === "approved";
   const denied = data.status === "denied" || data.status === "canceled";
+  const rejectButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // 等待决定时把焦点放到「拒绝」按钮：等价于 autoFocus，但规避 lint 的 noAutofocus。
+  useEffect(() => {
+    if (waiting) {
+      rejectButtonRef.current?.focus();
+    }
+  }, [waiting]);
   // 三个条件同时满足才显示永久授权按钮：后端允许、风险不超过 R2、档位为分级。
   const permanentAllowed =
     Boolean(data.allowPermanent) && (data.risk === "R1" || data.risk === "R2") && level === "graded";
@@ -446,6 +457,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
             <div className="approval-diff-body">
               {hasDiffPreview ? (
                 previewLinesValue.map((line, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 差异预览行没有唯一标识（行内容可重复），整体替换渲染
                   <div key={index} className={cn("diff-line", line.kind)}>
                     <span className="sign">{line.kind === "add" ? "+" : "−"}</span>
                     <span className="ln" />
@@ -465,6 +477,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
                           ? "del"
                           : "ctx";
                     return (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 补丁行没有唯一标识（空行等可重复），整体替换渲染
                       <div key={index} className={cn("diff-line", kind)}>
                         <span className="sign">
                           {kind === "add" ? "+" : kind === "del" ? "−" : line.startsWith("@@") ? "@" : " "}
@@ -492,8 +505,8 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
           <div className="approval-actions">
             <button
               type="button"
+              ref={rejectButtonRef}
               className="btn danger"
-              autoFocus
               onClick={() => void decide(data.approvalId, false, "once")}
             >
               拒绝

@@ -23,7 +23,7 @@ export function DiffPanel() {
   const applyDiff = useWorkspaceStore((state) => state.applyDiff);
   const openFile = useWorkspaceStore((state) => state.openFile);
 
-  if (!diff || !diff.result) {
+  if (!diff?.result) {
     return (
       <div className="panel-scroll">
         <div className="panel-empty">
@@ -73,6 +73,7 @@ export function DiffPanel() {
           </div>
         ) : (
           result.hunks.map((hunk, hunkIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: hunk 头可能重复，拼接序号保证列表内唯一
             <div className="diff-hunk" key={`${hunk.header}-${hunkIndex}`}>
               <div className="diff-hunk-head">
                 <Icon name="diff" className="ico" />
@@ -82,6 +83,7 @@ export function DiffPanel() {
                 /* 统一视图：每行同时显示旧行号、新行号、变更符号与内容 */
                 <div className="diff-table">
                   {hunk.lines.map((line, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 差异行没有唯一标识（行内容可重复），整体替换渲染
                     <div key={index} className={cn("dline", line.kind)}>
                       <span className="dn">{line.old ?? ""}</span>
                       <span className="dn">{line.new ?? ""}</span>
@@ -95,6 +97,7 @@ export function DiffPanel() {
                 <div className="diff-side">
                   <div className="diff-side-col">
                     {sideRows(hunk.lines).map((row, index) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 并排行没有唯一标识，整体替换渲染
                       <div key={index} className={cn("sline", row.left?.kind === "del" && "del", !row.left && "empty")}>
                         <span className="dn">{row.left?.old ?? ""}</span>
                         <span className="dt">{row.left?.text ?? ""}</span>
@@ -103,10 +106,8 @@ export function DiffPanel() {
                   </div>
                   <div className="diff-side-col">
                     {sideRows(hunk.lines).map((row, index) => (
-                      <div
-                        key={index}
-                        className={cn("sline", row.right?.kind === "add" && "add", !row.right && "empty")}
-                      >
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 并排行没有唯一标识，整体替换渲染
+                      <div key={index} className={rightColClass(row)}>
                         <span className="dn">{row.right?.new ?? ""}</span>
                         <span className="dt">{row.right?.text ?? ""}</span>
                       </div>
@@ -150,6 +151,11 @@ type DiffLineItem = DiffLine;
  * - 删除比新增多时，多出来的删除行只有左列、右侧留空；
  * - 遍历结束后仍暂存的删除行补成只有左列的行。
  */
+/** 右列（新增侧）行的样式：新增高亮，缺失的一侧留空。提取出来是为了让渲染行保持单行。 */
+function rightColClass(row: { right?: DiffLineItem }) {
+  return cn("sline", row.right?.kind === "add" && "add", !row.right && "empty");
+}
+
 export function sideRows(lines: DiffLineItem[]) {
   const rows: Array<{ left?: DiffLineItem; right?: DiffLineItem }> = [];
   let pendingDelete: DiffLineItem | null = null;

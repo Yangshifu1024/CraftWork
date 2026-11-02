@@ -152,6 +152,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
         {showLines ? (
           <div className="code-gutter">
             {lines.map((_, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 行号列表是纯静态展示，行数只随内容整体替换
               <span key={index}>{index + 1}</span>
             ))}
           </div>
@@ -235,6 +236,7 @@ async function openExternal(href: string): Promise<void> {
  * 提取 React 子节点的纯文本，用于识别模型输出的引用样式链接。
  * 嵌套结构（加粗、行内代码包裹的引用）也能取到完整文字。
  */
+// biome-ignore lint/suspicious/noExplicitAny: react-markdown 的子节点是递归 React 节点，运行时按类型分支识别
 function plainText(node: any): string {
   if (typeof node === "string") {
     return node;
@@ -263,6 +265,7 @@ function plainText(node: any): string {
  * - 其他链接：渲染成普通链接，但会阻止默认跳转；页内锚点（# 开头）不处理，
  *   其余一律走 openExternal 的确认流程。
  */
+// biome-ignore lint/suspicious/noExplicitAny: react-markdown 链接渲染器的 props 含动态透传属性，按需读取
 function MarkdownLink({ href, children, ...rest }: any) {
   if (typeof href === "string" && href.startsWith("craftwork://")) {
     const path = String(rest["data-ref-path"] ?? href.replace("craftwork://", "").replace(/:\d+$/, ""));
@@ -315,9 +318,11 @@ function MarkdownLink({ href, children, ...rest }: any) {
  * - `img` 不加载图片，只显示“[图片：替代文字]”，避免请求远程地址。
  */
 const components: Components = {
+  // biome-ignore lint/suspicious/noExplicitAny: pre 渲染器只透传子节点，与 Components 的复杂泛型签名断言适配
   pre: (({ children }: any) => <>{children}</>) as Components["pre"],
   code: MarkdownCode as Components["code"],
   a: MarkdownLink as Components["a"],
+  // biome-ignore lint/suspicious/noExplicitAny: 图片按约定不加载，只读 alt 文本
   img: ({ alt }: any) => <span className="md-image-note">[图片：{alt || "未命名"}]</span>,
 };
 
@@ -343,7 +348,7 @@ function preprocess(text: string): string {
       if (inFence) {
         return line;
       }
-      return line.replace(bareRefPattern, (whole, prefix, path, lineNumber) => {
+      return line.replace(bareRefPattern, (_whole, prefix, path, lineNumber) => {
         return `${prefix}[${path}:${lineNumber}](craftwork://${path}:${lineNumber})`;
       });
     })

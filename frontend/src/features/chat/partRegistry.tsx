@@ -21,7 +21,11 @@ import {
 
 /** 单个部件的登记项：渲染组件与折叠归属。 */
 export interface PartEntry {
-  /** 渲染组件，接收 `data` prop（转换层与 GroupedParts 兜底两条路径形状一致）。 */
+  /**
+   * 渲染组件，接收 `data` prop（转换层与 GroupedParts 兜底两条路径形状一致）。
+   * 各卡片组件的 props 类型不同，注册表按 `data` prop 的鸭子类型统一收发。
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: 各部件卡片的 props 类型不同，注册表按鸭子类型统一收发
   component: any;
   /** true 表示属于「工作过程」：消息结束后收进「已工作」折叠区。 */
   work: boolean;
@@ -31,6 +35,7 @@ export interface PartEntry {
  * 「最终总结之前的中间正文」：工具间隙的说明文字。
  * MarkdownBlock 是受控组件（直接收文本），这里适配注册表的 data 包装。
  */
+// biome-ignore lint/suspicious/noExplicitAny: 与注册表其余卡片一致，data 形状由转换层产出
 function HistoryText({ data }: { data?: any }) {
   return <MarkdownBlock text={String(data?.text ?? "")} />;
 }
@@ -51,7 +56,9 @@ export const partRegistry: Record<string, PartEntry> = {
 };
 
 /** assistant-ui `data.by_name` 需要的组件映射，由注册表派生。 */
+// biome-ignore lint/suspicious/noExplicitAny: assistant-ui 的组件映射类型与自定义卡片签名不完全一致，边界处断言
 export const partComponentsByName: Record<string, any> = Object.fromEntries(
+  // biome-ignore lint/suspicious/noExplicitAny: 同上，注册表组件进入 assistant-ui 映射时放宽类型
   Object.entries(partRegistry).map(([name, entry]) => [name, entry.component as any]),
 );
 
@@ -61,6 +68,7 @@ export function isWorkKind(name: string): boolean {
 }
 
 /** 按名称取渲染组件；未登记的部件返回 undefined，调用方自行降级。 */
+// biome-ignore lint/suspicious/noExplicitAny: 与注册表 component 字段一致，调用方拿到后按已知部件渲染
 export function partComponent(name: string): any {
   return partRegistry[name]?.component;
 }

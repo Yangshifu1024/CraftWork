@@ -154,7 +154,9 @@ function TreeLevel({
         const isOpen = Boolean(expanded[node.path]);
         return (
           <div key={node.path} className={cn("tree-node", isOpen && "is-open")}>
-            <div
+            {/* 语义化按钮：文件树行可聚焦、可回车打开，读屏可识别 */}
+            <button
+              type="button"
               className={cn(
                 "tree-row",
                 isDir && "is-dir",
@@ -178,7 +180,7 @@ function TreeLevel({
               />
               <span className="tree-name">{node.name}</span>
               {git[node.path] ? <span className={cn("tree-git", git[node.path])}>{git[node.path]}</span> : null}
-            </div>
+            </button>
             {isDir ? (
               /* 目录展开时递归渲染下一层；未展开则不渲染子节点，减少无用工作量 */
               <div className="tree-children">

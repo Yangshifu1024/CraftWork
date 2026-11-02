@@ -18,7 +18,7 @@ import { cn, formatTime } from "../../lib/utils";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
 import { MarkdownText } from "./Markdown";
-import { partComponent, partComponentsByName, isWorkKind } from "./partRegistry";
+import { isWorkKind, partComponent, partComponentsByName } from "./partRegistry";
 import { WorkHistoryGroup } from "./WorkHistoryGroup";
 
 /**
@@ -44,6 +44,7 @@ const partComponents = {
  *   具体种类在 `name` 上（assistant-ui 会剥掉 `data-` 前缀）。
  * 折叠归属由 partRegistry 的 work 字段单源决定。
  */
+// biome-ignore lint/suspicious/noExplicitAny: assistant-ui 运行时部件的内部结构，按 type/name 动态识别
 function isWorkPart(part: any): boolean {
   if (typeof part?.type !== "string") {
     return false;
@@ -58,6 +59,7 @@ function isWorkPart(part: any): boolean {
  * 把消息内容里的所有文本部件拼成一份纯文本，供“复制”按钮使用。
  * 用空行分隔，保持与原消息的段落结构接近。
  */
+// biome-ignore lint/suspicious/noExplicitAny: assistant-ui 消息内容部件的内部结构，这里只读取文本字段
 function messageText(content: any[]): string {
   return content
     .filter((part) => part?.type === "text")
@@ -78,12 +80,17 @@ function messageText(content: any[]): string {
  * 复制操作只复制文本部件，附件与卡片内容不进入剪贴板。
  */
 export function MessageView() {
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const role = useAuiState((state: any) => state.message.role as string);
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const createdAt = useAuiState((state: any) => state.message.createdAt as Date);
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const status = useAuiState((state: any) => state.message.status as { type: string; reason?: string });
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const content = useAuiState((state: any) => (state.message.content ?? []) as any[]);
   // 「已工作」工时从会话 store 直读：ChatMessage 上的持久化事实，
   // 快照加载与实时结束事件都会写入（metadata 通道在部分运行时路径下不透传）。
+  // biome-ignore lint/suspicious/noExplicitAny: useAuiState 的状态类型依赖运行时 client 注册推导，统一断言收窄
   const messageId = useAuiState((state: any) => state.message.id as string);
   const workDurationMs = useThreadStore(
     (state) => state.messages.find((message) => message.id === messageId)?.workDurationMs,
@@ -117,10 +124,13 @@ export function MessageView() {
       <div className="msg-body">
         {isUser || !hasWork ? (
           /* 用户消息与纯文本回复没有过程可折叠，按平铺方式渲染。 */
+          // biome-ignore lint/suspicious/noExplicitAny: 注册表组件签名与 assistant-ui 的 Parts 泛型不完全一致，边界处断言
           <MessagePrimitive.Parts components={partComponents as any} />
         ) : (
           /* 助手消息：相邻的过程部件合并成一组，结束后折叠为「已工作 N」。 */
+          // biome-ignore lint/suspicious/noExplicitAny: assistant-ui 分组部件的内部结构，type/name 由运行时决定
           <MessagePrimitive.GroupedParts groupBy={(part: any) => (isWorkPart(part) ? ["group-work"] : null)}>
+            {/* biome-ignore lint/suspicious/noExplicitAny: assistant-ui 分组渲染回调的内部结构，type 由运行时决定 */}
             {({ part, children }: any) => {
               if (part.type === "group-work") {
                 // 组内仍在流式输出（含工具执行中）时保持平铺，结束后才折叠。

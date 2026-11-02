@@ -179,6 +179,7 @@ export function CommandPalette() {
     openFile,
   ]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: query 是有意保留的触发依赖，关键字变化时重置选中项
   useEffect(() => {
     // 关键字变化后选中项回到第一行，避免索引越界或指向不相关的结果。
     setIndex(0);
@@ -202,7 +203,8 @@ export function CommandPalette() {
 
   return createPortal(
     <div className="overlay-layer">
-      <div className="overlay-backdrop" onClick={close} />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩是纯装饰的便利点击目标，键盘用户走 Esc 与结果行 */}
+      <div className="overlay-backdrop" role="presentation" onClick={close} />
       <div className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板">
         <div className="cp-input-row">
           <span className="cp-scope">
