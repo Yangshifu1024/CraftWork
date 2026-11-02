@@ -23,7 +23,7 @@ import {
 } from "../../lib/sidePane";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
-import { usePanelStore } from "../../stores/panel";
+import { PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, usePanelStore } from "../../stores/panel";
 import { useThreadStore } from "../../stores/threads";
 import { useWorkspaceStore } from "../../stores/workspace";
 import { Editor } from "./Editor";
@@ -88,6 +88,8 @@ export function Panel() {
 
   // tab 右键菜单：记录被右键的 tab 与锚点（tab 容器元素），供 Popover 定位。
   const [tabMenu, setTabMenu] = useState<{ tab: SidePaneTab; anchor: HTMLElement } | null>(null);
+  // 拖拽调宽进行中：给分隔条挂 is-dragging 视觉态。
+  const [resizing, setResizing] = useState(false);
 
   // 当前上下文可见的 tab 子集（工作区匹配 + 线程归属或公共类型）。
   const scope = { workspaceId, threadId };
@@ -123,12 +125,13 @@ export function Panel() {
    * 面板贴在窗口右侧，所以指针向左移动（clientX 变小）时面板变宽，
    * 宽度增量用 startX 减去当前的 clientX 计算。
    * 监听挂在 window 上，保证指针移出分隔条后还能继续拖动；
-   * 松开指针时移除监听并还原鼠标样式。
+   * 松开指针时移除监听、还原鼠标样式并撤掉拖拽视觉态。
    */
   function startResize(event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = width;
+    setResizing(true);
     function move(moveEvent: PointerEvent) {
       setWidth(startWidth + (startX - moveEvent.clientX));
     }
@@ -136,10 +139,24 @@ export function Panel() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       document.body.style.cursor = "";
+      setResizing(false);
     }
     document.body.style.cursor = "col-resize";
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+  }
+
+  /**
+   * 键盘调宽：分隔条聚焦后左右方向键调整（与拖拽方向一致，左箭头变宽），
+   * Shift 加速；宽度仍走 setWidth 的夹取与持久化。
+   */
+  function handleResizeKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const step = event.shiftKey ? 48 : 16;
+    setWidth(width + (event.key === "ArrowLeft" ? step : -step));
   }
 
   const hasTerminal = visible.some((tab) => tab.type === "terminal");
@@ -147,14 +164,20 @@ export function Panel() {
 
   return (
     <>
-      {/* 左侧的拖拽分隔条，用于调整面板宽度 */}
+      {/* 左侧的拖拽分隔条：拖拽 / 双击重置 / 键盘方向键三种方式调宽 */}
       {/* biome-ignore lint/a11y/useSemanticElements: 对应的 hr 是静态主题分隔，无法承载指针拖拽交互，此处是可交互的自定义分隔条 */}
       <div
-        className="panel-resize"
+        className={cn("panel-resize", resizing && "is-dragging")}
         role="separator"
         aria-orientation="vertical"
-        aria-label="调整面板宽度"
+        aria-label="调整面板宽度（左右方向键，Shift 加速；双击恢复默认宽度）"
+        aria-valuenow={width}
+        aria-valuemin={PANEL_MIN_WIDTH}
+        aria-valuemax={PANEL_MAX_WIDTH}
+        tabIndex={0}
         onPointerDown={startResize}
+        onDoubleClick={() => setWidth(PANEL_MIN_WIDTH)}
+        onKeyDown={handleResizeKeyDown}
       />
       <div className="panel-tabs" role="tablist">
         {/* 当前上下文可见的 tab；点击主区域切换，中键或关闭按钮关闭，右键弹菜单 */}

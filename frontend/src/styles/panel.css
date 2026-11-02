@@ -21,7 +21,8 @@
   z-index: 12;
 }
 .panel-resize:hover::after,
-.panel-resize.is-dragging::after {
+.panel-resize.is-dragging::after,
+.panel-resize:focus-visible::after {
   content: "";
   position: absolute;
   left: 2.5px;
@@ -184,16 +185,13 @@
   background: var(--sidebar-bg);
 }
 /* 面板的一「页」：保活结构下每个 tab（与兜底文件树）各占一页，
-   非激活页由 hidden 属性隐藏——必须显式覆盖 display，否则下面的
-   flex 声明会压过 UA 样式的 [hidden] { display: none }。 */
+   非激活页由 hidden 属性隐藏——base.css 的全局 [hidden] !important
+   规则保证 display 覆盖生效。 */
 .panel-page {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
-}
-.panel-page[hidden] {
-  display: none;
 }
 .panel-scroll {
   overflow: auto;
