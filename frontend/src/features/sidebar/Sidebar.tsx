@@ -24,6 +24,9 @@ type PopoverKind = "trust" | "switch" | "session" | null;
 /** 项目分组折叠状态的本地持久化键；只记录折叠了的项目，默认全部展开。 */
 const COLLAPSED_PROJECTS_KEY = "cw-sidebar-collapsed-projects";
 
+/** 临时会话分组折叠状态的本地持久化键；默认展开。 */
+const COLLAPSED_TEMP_KEY = "cw-sidebar-collapsed-temp";
+
 /** 每个项目分组默认展示的会话条数；「显示更多」每次追加的条数与此相同。 */
 const PROJECT_GROUP_PAGE_SIZE = 5;
 
@@ -34,6 +37,15 @@ function readCollapsedProjects(): Record<string, boolean> {
     return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
   } catch {
     return {};
+  }
+}
+
+/** 从本地偏好读取临时会话分组的折叠状态；数据损坏时按展开处理。 */
+function readCollapsedTemp(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_TEMP_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -77,10 +89,16 @@ export function Sidebar() {
   const [counts, setCounts] = useState({ usage: 0, audit: 0 });
   // 项目分组的展开/折叠状态：键为工作区 Id，值为 true 表示折叠；写入本地偏好持久化。
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(readCollapsedProjects);
+  // 临时会话分组的折叠状态，同样持久化。
+  const [collapsedTemp, setCollapsedTemp] = useState<boolean>(readCollapsedTemp);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(collapsedProjects));
   }, [collapsedProjects]);
+
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_TEMP_KEY, collapsedTemp ? "true" : "false");
+  }, [collapsedTemp]);
 
   /** 切换某个项目分组的折叠状态。 */
   function toggleProjectGroup(workspaceID: string) {
@@ -125,6 +143,22 @@ export function Sidebar() {
     items: source.filter((thread) => thread.workspaceId === workspace.id),
   }));
   const projectThreadCount = projectGroups.reduce((sum, group) => sum + group.items.length, 0);
+  // 区头折叠开关的状态：所有项目组都被折叠时视为「已全部折叠」。
+  const allProjectsCollapsed =
+    projectGroups.length > 0 && projectGroups.every(({ workspace }) => collapsedProjects[workspace.id]);
+
+  /** 批量折叠 / 展开所有项目组：折叠时逐个置 true，展开时清空折叠表。 */
+  function toggleAllProjects() {
+    if (allProjectsCollapsed) {
+      setCollapsedProjects({});
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    for (const { workspace } of projectGroups) {
+      next[workspace.id] = true;
+    }
+    setCollapsedProjects(next);
+  }
   const orphanThreads = source.filter(
     (thread) =>
       thread.workspaceId !== "" &&
@@ -240,35 +274,28 @@ export function Sidebar() {
       <div className="thread-list">
         {/* 两个组头常驻显示：新建临时会话与创建项目的入口都挂在组头上，
             藏掉它们会让空状态下没有任何创建入口。 */}
-        <div className="thread-group-head">
-          <Icon name="zap" />
-          <span className="thread-group-name">临时会话</span>
-          <span className="thread-group-count">{tempThreads.length}</span>
-          <button
-            type="button"
-            className="thread-group-add"
-            title="新建临时会话"
-            aria-label="新建临时会话"
-            onClick={() => void createTempThread()}
-          >
-            <Icon name="plus" />
-          </button>
-        </div>
-        {tempThreads.length === 0 ? (
-          <div className="thread-empty">还没有临时会话，点上方 + 新建</div>
-        ) : (
-          tempThreads.map((thread) => (
-            <ThreadItem
-              key={thread.id}
-              thread={thread}
-              active={thread.id === activeID}
-              onClick={() => void selectThread(thread.id)}
-              onContextMenu={(anchor) => setMenu({ thread, anchor })}
-            />
-          ))
-        )}
-        {/* 项目会话区：组头提供「创建项目」入口。 */}
+        <TempGroup
+          items={tempThreads}
+          activeID={activeID}
+          collapsed={collapsedTemp}
+          onToggle={() => setCollapsedTemp((current) => !current)}
+          onCreate={() => void createTempThread()}
+          onSelect={(threadID) => void selectThread(threadID)}
+          onContextMenu={(thread, anchor) => setMenu({ thread, anchor })}
+        />
+        {/* 项目会话区：区头的折叠开关批量收起 / 展开所有项目组。 */}
         <div className="thread-group-head is-section">
+          {projectGroups.length > 0 ? (
+            <button
+              type="button"
+              className="thread-group-toggle"
+              title={allProjectsCollapsed ? "展开所有项目" : "折叠所有项目"}
+              aria-expanded={!allProjectsCollapsed}
+              onClick={toggleAllProjects}
+            >
+              <Icon name={allProjectsCollapsed ? "chevron-right" : "chevron-down"} />
+            </button>
+          ) : null}
           <span className="thread-group-name">项目会话</span>
           <span className="thread-group-count">{projectThreadCount}</span>
           <span className="spacer" />
@@ -467,6 +494,91 @@ export function Sidebar() {
         </Popover>
       ) : null}
     </aside>
+  );
+}
+
+/**
+ * 临时会话分组。
+ *
+ * 与 {@link ProjectGroup} 同构：组头左侧的箭头是展开 / 折叠开关，折叠
+ * 状态由父组件持久化；组内默认最多展示 {@link PROJECT_GROUP_PAGE_SIZE}
+ * 条，超出时底部显示「显示更多」，每次点击追加同样条数。组头的 +
+ * 新建临时会话并切换到内置临时目录。
+ */
+function TempGroup({
+  items,
+  activeID,
+  collapsed,
+  onToggle,
+  onCreate,
+  onSelect,
+  onContextMenu,
+}: {
+  items: ThreadView[];
+  activeID?: string | null;
+  collapsed: boolean;
+  onToggle: () => void;
+  onCreate: () => void;
+  onSelect: (threadID: string) => void;
+  onContextMenu: (thread: ThreadView, anchor: HTMLElement) => void;
+}) {
+  const [limit, setLimit] = useState(PROJECT_GROUP_PAGE_SIZE);
+  const open = !collapsed;
+  const visible = items.slice(0, limit);
+  const hasMore = items.length > limit;
+
+  return (
+    <div className="thread-project-group">
+      <div className="thread-group-head">
+        <button
+          type="button"
+          className="thread-group-toggle"
+          title={open ? "折叠临时会话" : "展开临时会话"}
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <Icon name={open ? "chevron-down" : "chevron-right"} />
+        </button>
+        <Icon name="zap" />
+        <span className="thread-group-name">临时会话</span>
+        <span className="thread-group-count">{items.length}</span>
+        <button
+          type="button"
+          className="thread-group-add"
+          title="新建临时会话"
+          aria-label="新建临时会话"
+          onClick={onCreate}
+        >
+          <Icon name="plus" />
+        </button>
+      </div>
+      {open ? (
+        <>
+          {items.length === 0 ? (
+            <div className="thread-empty">还没有临时会话，点上方 + 新建</div>
+          ) : (
+            visible.map((thread) => (
+              <ThreadItem
+                key={thread.id}
+                thread={thread}
+                active={thread.id === activeID}
+                onClick={() => onSelect(thread.id)}
+                onContextMenu={(anchor) => onContextMenu(thread, anchor)}
+              />
+            ))
+          )}
+          {hasMore ? (
+            <button
+              type="button"
+              className="thread-show-more"
+              onClick={() => setLimit((current) => current + PROJECT_GROUP_PAGE_SIZE)}
+            >
+              显示更多（还有 {items.length - limit} 条）
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }
 
