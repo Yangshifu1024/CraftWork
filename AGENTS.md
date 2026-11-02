@@ -72,7 +72,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不创建原生窗口，前端由 Go 直接提供，绑定调用走 `/wails/runtime`，后端事件走 `/wails/events` 的 WebSocket。**在本机浏览器里验证真实后端时用这种方式，不要依赖 Mock。**
 
 - 开发运行：`wails3 task run:server` → `http://localhost:8080/`。前端是构建产物，没有 HMR，改完前端要重新构建。
-- 生产构建：`wails3 task build:server` → `bin/craftwork-server`（`-tags server,production`）。
+- 生产构建：`wails3 task build:server` → `bin/CraftWork-server`（`-tags server,production`）。
 - 容器：`wails3 task build:docker` / `wails3 task run:docker`（`build/docker/Dockerfile.server`）。
 - 地址与端口：默认只绑 `localhost:8080`；用 `WAILS_SERVER_HOST`、`WAILS_SERVER_PORT` 覆盖，容器里通常设 `WAILS_SERVER_HOST=0.0.0.0`。
 - 健康检查：`GET /health` 返回 `{"status":"ok"}`；页面与静态资源走 `/`。
@@ -95,11 +95,11 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | 生成绑定 | `wails3 generate bindings -clean=true -ts -i` |
 | 桌面开发模式 | `wails3 dev` |
 | 浏览器运行完整应用（server 模式） | `wails3 task run:server` → `http://localhost:8080/` |
-| server 模式生产构建 | `wails3 task build:server` → `bin/craftwork-server` |
+| server 模式生产构建 | `wails3 task build:server` → `bin/CraftWork-server` |
 | server 模式容器 | `wails3 task build:docker` / `wails3 task run:docker` |
 | 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && pnpm run dev` → `http://127.0.0.1:9245/` |
-| 生产构建 | `wails3 build` → `bin/craftwork` |
-| macOS 打包 | `wails3 package` → `bin/craftwork.app` |
+| 生产构建 | `wails3 build` → `bin/CraftWork` |
+| macOS 打包 | `wails3 package` → `bin/CraftWork.app` |
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
 | Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查格式） |
@@ -281,7 +281,7 @@ wails3 build
 - 桌面端启动冒烟（建议隔离目录）：
 
 ```bash
-CRAFTWORK_HOME=/tmp/cw-smoke ./bin/craftwork
+CRAFTWORK_HOME=/tmp/cw-smoke ./bin/CraftWork
 ```
 
 - server 模式冒烟（建议隔离目录）：

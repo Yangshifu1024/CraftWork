@@ -151,8 +151,8 @@ wails3 dev
 ### 构建
 
 ```bash
-wails3 build      # bin/craftwork
-wails3 package    # bin/craftwork.app（macOS）
+wails3 build      # bin/CraftWork
+wails3 package    # bin/CraftWork.app（macOS）
 ```
 
 ### 浏览器预览

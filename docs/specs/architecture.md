@@ -376,7 +376,7 @@ CREATE TABLE backups (
 ## 17. 构建与发布
 
 - 开发：`wails3 dev`（HMR + Go 热重启）；浏览器完整应用：`wails3 task run:server`；纯 UI 走查：`pnpm run dev`（Mock）。
-- 生产：`wails3 build` → `bin/craftwork`（自动构建前端、生成绑定、`go build -tags production`）。
+- 生产：`wails3 build` → `bin/CraftWork`（自动构建前端、生成绑定、`go build -tags production`）。
 - 签名与公证已接入 Wails 工具链（`wails3 tool sign [--notarize]`、`--format dmg`）；需要开发者证书与发布密钥。
 - 更新：`internal/update` 已实现版本、渠道、HTTPS 地址、SHA-256 与 Ed25519 签名校验；下载、原子替换、回滚与内置公钥留桩（需发布服务器与签名密钥）。
 - 产物目标与发布准入见 `product.md` 第 6.5 节与第 8 节。

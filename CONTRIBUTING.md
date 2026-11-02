@@ -93,7 +93,7 @@ wails3 task check   # go vet ./... + 前端类型检查
 - 在 1440×900 与 1100×800 两个视口对照 [界面规格](docs/specs/interface.md) 的布局尺寸与视觉 token。
 - 三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题都正常。
 - 完整走一遍：发送消息 → 工具调用 → 审批允许 / 拒绝 → 差异面板 → 审计记录。
-- 桌面端冒烟启动：`CRAFTWORK_HOME=/tmp/cw-smoke ./bin/craftwork`；首次启动应显示“尚未添加提供商”的空状态。
+- 桌面端冒烟启动：`CRAFTWORK_HOME=/tmp/cw-smoke ./bin/CraftWork`；首次启动应显示“尚未添加提供商”的空状态。
 
 ## CI 检查内容
 
