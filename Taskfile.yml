@@ -27,6 +27,11 @@ tasks:
     cmds:
       - task: "{{.GOOS}}:package"
 
+  package:dmg:
+    summary: Packages the application into a styled `.dmg` (macOS only)
+    cmds:
+      - task: "darwin:package:dmg"
+
   run:
     summary: Runs the application
     cmds:
