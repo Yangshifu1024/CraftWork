@@ -25,6 +25,7 @@ import {
   enforceFileTabLimit,
   makeDiffTab,
   makeDocumentTab,
+  makeFilesTab,
   makeFileTab,
   makeTerminalTab,
   normalizeOwner,
@@ -222,6 +223,8 @@ interface PanelState {
   openDocumentTab(input: { folderId: string; path: string; title: string; kind: string }): void;
   /** 打开（或聚焦）差异 singleton tab；差异内容由 workspace store 写入。 */
   openDiffTab(title: string): void;
+  /** 打开（或聚焦）文件树 singleton tab（工作区公共的导航器）。 */
+  openFilesTab(): void;
   /** 打开（或聚焦）终端 singleton tab（全局公共，跨工作区、跨线程可见）。 */
   openTerminalTab(): void;
   /** 激活指定 tab 并记住它为当前上下文的激活项。 */
@@ -353,6 +356,18 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     );
   },
 
+  // 文件树是工作区公共 singleton：file tab 激活时经它回到树再开其他文件。
+  openFilesTab() {
+    commitTabState(
+      set,
+      (bucket, scope) => {
+        const tab = makeFilesTab({ workspaceId: scope.workspaceId, threadId: scope.threadId });
+        return openTabFn(bucket.state, tab, scope);
+      },
+      { ensureOpen: true },
+    );
+  },
+
   // 终端是全局公共 singleton：置全局标志并同步补进所有桶，当前桶聚焦。
   openTerminalTab() {
     terminalOpen = true;
@@ -459,8 +474,11 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   // 工作区 / 线程切换后的恢复。tab 数据留在各自桶里，这里只负责：
-  // 1. 按记忆恢复该上下文的激活 tab；2. 恢复该线程的开合偏好；
-  // 3. 当前上下文没有任何可见 tab 时收起面板（沿用旧 tab 的空态语义）。
+  // 1. 按记忆恢复该上下文的激活 tab；2. 恢复该线程显式设置过的开合偏好。
+  // 没有 tab 时**不改变开合**——面板有文件树兜底视图，初始启动与切到
+  // 无 tab 的线程都应保持用户当前的开合（强制收起会覆盖 localStorage
+  // 恢复的偏好，也会让首屏文件树不可见）；「关末 tab 收起」由关闭类
+  // 入口的 collapseOnEmpty 负责，两条路径各司其职。
   syncScope() {
     const scope = currentScope();
     const bucket = bucketFor(scope.workspaceId);
@@ -473,14 +491,12 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       activeTabId = null;
     }
     bucket.state = { ...bucket.state, activeTabId };
-    const visible = visibleTabs(bucket.state, scope);
     const preference = bucket.collapsedByThread[scope.threadId];
     set({
       tabs: bucket.state.tabs,
       activeTabId: visibleActiveTabId(bucket.state, scope),
       recentClosed: bucket.state.recentClosed,
-      open: preference !== undefined ? !preference : visible.length === 0 ? false : get().open,
-      ...(visible.length === 0 ? { maximized: false } : {}),
+      open: preference !== undefined ? !preference : get().open,
     });
   },
 }));

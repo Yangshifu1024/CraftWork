@@ -213,30 +213,32 @@ describe("工作区分桶", () => {
     expect(terminalTabsIn(usePanelStore.getState())).toBe(0);
   });
 
-  it("切换到没有 tab 的线程时面板收起，切回时恢复开合偏好", () => {
+  it("切换线程时恢复显式偏好；无偏好保持当前开合（不因无 tab 强制收起）", () => {
     const ws = freshWs();
     setContext(ws, "t1");
     openFile("a.go");
     // 用户在线程 t1 显式收起面板。
     usePanelStore.getState().setOpen(false);
 
-    // 切到没有 tab 的线程 t2：面板保持收起。
+    // 切到没有 tab 的线程 t2：无偏好 → 保持收起。
     setContext(ws, "t2");
     usePanelStore.getState().syncScope();
     expect(usePanelStore.getState().open).toBe(false);
 
-    // 切回 t1：恢复 t1 的开合偏好（收起）。
-    setContext(ws, "t1");
-    usePanelStore.getState().syncScope();
-    expect(usePanelStore.getState().open).toBe(false);
-
-    // 在 t1 展开后切走再切回：偏好已更新为展开。
+    // 展开后切到另一个无 tab 线程：无偏好 → 保持展开（文件树兜底可见），
+    // 不被「无可见 tab」强制收起——初始启动与切工作区同理。
     usePanelStore.getState().setOpen(true);
     setContext(ws, "t2");
     usePanelStore.getState().syncScope();
-    setContext(ws, "t1");
+    const ws2 = freshWs();
+    setContext(ws2, "t1");
     usePanelStore.getState().syncScope();
     expect(usePanelStore.getState().open).toBe(true);
+
+    // 切回 t1：恢复 t1 的偏好（收起）。
+    setContext(ws, "t1");
+    usePanelStore.getState().syncScope();
+    expect(usePanelStore.getState().open).toBe(false);
   });
 });
 

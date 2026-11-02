@@ -37,6 +37,8 @@ const DocumentPanel = lazy(() => import("./DocumentPanel").then((module) => ({ d
 /** tab 类型对应的图标；不引用 FilesPanel，避免把分包拖进主包。 */
 function tabIcon(tab: SidePaneTab): IconName {
   switch (tab.type) {
+    case "files":
+      return "folder-open";
     case "file":
       return "file-code";
     case "diff":
@@ -81,6 +83,7 @@ export function Panel() {
   const reopenRecentClosed = usePanelStore((state) => state.reopenRecentClosed);
   const openTerminalTab = usePanelStore((state) => state.openTerminalTab);
   const openDiffTab = usePanelStore((state) => state.openDiffTab);
+  const openFilesTab = usePanelStore((state) => state.openFilesTab);
   const width = usePanelStore((state) => state.width);
   const setWidth = usePanelStore((state) => state.setWidth);
   const maximized = usePanelStore((state) => state.maximized);
@@ -96,7 +99,23 @@ export function Panel() {
   const visible = tabs.filter((tab) => isTabVisibleInScope(tab, scope));
   const active = visible.find((tab) => tab.id === activeTabId) ?? null;
   // 激活 file tab 的路径：文件树的选中高亮跟随它（没有则为 null）。
-  const activeFilePath = active?.type === "file" ? active.path : null;
+  // 文件树的选中高亮：当前激活的是 file tab 时用它；files tab 激活时取
+  // 最近激活过的 file tab，用户回到树里能看到刚才编辑的文件。
+  const activeFilePath = (() => {
+    if (active?.type === "file") {
+      return active.path;
+    }
+    let latest: FileSidePaneTab | null = null;
+    for (const tab of visible) {
+      if (tab.type !== "file") {
+        continue;
+      }
+      if (!latest || (tab.activatedAt ?? 0) > (latest.activatedAt ?? 0)) {
+        latest = tab;
+      }
+    }
+    return latest?.path ?? null;
+  })();
   // 最近关闭栈里当前上下文可恢复的 tab（跨线程 / 跨工作区的不展示）。
   const reopenable = recentClosed.filter((tab) => isTabVisibleInScope(tab, scope));
 
@@ -161,6 +180,7 @@ export function Panel() {
 
   const hasTerminal = visible.some((tab) => tab.type === "terminal");
   const hasDiff = visible.some((tab) => tab.type === "diff");
+  const hasFiles = visible.some((tab) => tab.type === "files");
 
   return (
     <>
@@ -224,6 +244,17 @@ export function Panel() {
         <span className="panel-tab-spacer" />
         <div className="panel-head-actions">
           {/* singleton tab 的快捷入口：还没有对应 tab 时才显示 */}
+          {!hasFiles ? (
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="打开文件树"
+              aria-label="打开文件树"
+              onClick={openFilesTab}
+            >
+              <Icon name="folder-open" className="ico" />
+            </button>
+          ) : null}
           {!hasTerminal ? (
             <button
               type="button"
@@ -340,7 +371,7 @@ export function Panel() {
         {visible.map((tab) => (
           <div key={tab.id} className="panel-page" hidden={tab.id !== activeTabId}>
             <Suspense fallback={<PanelLoading />}>
-              <TabContent tab={tab} isActive={tab.id === activeTabId} />
+              <TabContent tab={tab} isActive={tab.id === activeTabId} activeFilePath={activeFilePath} />
             </Suspense>
           </div>
         ))}
@@ -361,10 +392,21 @@ function PanelLoading() {
 
 /**
  * 按 tab 类型分派内容组件；isActive 传给需要重新测量的组件
- * （display:none 期间 CodeMirror / xterm 的尺寸测量会失效）。
+ * （display:none 期间 CodeMirror / xterm 的尺寸测量会失效），
+ * activeFilePath 供文件树 tab 做选中高亮。
  */
-function TabContent({ tab, isActive }: { tab: SidePaneTab; isActive: boolean }) {
+function TabContent({
+  tab,
+  isActive,
+  activeFilePath,
+}: {
+  tab: SidePaneTab;
+  isActive: boolean;
+  activeFilePath: string | null;
+}) {
   switch (tab.type) {
+    case "files":
+      return <FilesPanel selectedPath={activeFilePath} />;
     case "file":
       return <FileTabContent tab={tab} isActive={isActive} />;
     case "diff":

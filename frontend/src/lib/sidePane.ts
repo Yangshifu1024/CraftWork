@@ -21,12 +21,18 @@
  */
 
 /** 面板 tab 的类型集合。会话派生与浏览器类类型属于路线图，暂不进入本联合。 */
-export type SidePaneTabType = "file" | "diff" | "terminal" | "document";
+export type SidePaneTabType = "files" | "file" | "diff" | "terminal" | "document";
 
 /** 差异 tab 的固定 id：singleton，重复打开只聚焦并刷新内容。 */
 export const DIFF_TAB_ID = "diff";
 /** 终端 tab 的固定 id：singleton，且是跨工作区、跨线程的公共 tab。 */
 export const TERMINAL_TAB_ID = "terminal";
+/**
+ * 文件树 tab 的固定 id：singleton，工作区公共（跨线程可见、随工作区隔离）。
+ * 文件树是导航器 tab：file tab 激活时编辑器占据内容区，用户经「文件」tab
+ * 回到树再打开其他文件。
+ */
+export const FILES_TAB_ID = "files";
 
 /** 草稿线程（尚未发送首条消息）的归属标识。 */
 export const DRAFT_OWNER = "draft";
@@ -53,6 +59,11 @@ export interface SidePaneTabBase {
   openedAt: number;
   /** 最近一次激活的时间戳；淘汰 file tab 时按它挑最久未看的。 */
   activatedAt?: number;
+}
+
+/** 文件树 tab：singleton，工作区公共的导航器（展示工作区文件树）。 */
+export interface FilesSidePaneTab extends SidePaneTabBase {
+  type: "files";
 }
 
 /** 文件 tab：在代码编辑器中打开一个工作区文件。 */
@@ -86,7 +97,12 @@ export interface DocumentSidePaneTab extends SidePaneTabBase {
 }
 
 /** 面板 tab 的联合类型。 */
-export type SidePaneTab = FileSidePaneTab | DiffSidePaneTab | TerminalSidePaneTab | DocumentSidePaneTab;
+export type SidePaneTab =
+  | FilesSidePaneTab
+  | FileSidePaneTab
+  | DiffSidePaneTab
+  | TerminalSidePaneTab
+  | DocumentSidePaneTab;
 
 /** 面板的多 tab 状态：一份共享数组 + 激活项 + 最近关闭栈。 */
 export interface SidePaneState {
@@ -113,7 +129,7 @@ export const RECENT_CLOSED_LIMIT = 8;
 export const FILE_TAB_LIMIT = 8;
 
 /** 跨线程可见的工作区公共 tab 类型集合；终端 additionally 跨工作区（workspaceId 为空）。 */
-const PUBLIC_TAB_TYPES: ReadonlySet<SidePaneTabType> = new Set(["terminal"]);
+const PUBLIC_TAB_TYPES: ReadonlySet<SidePaneTabType> = new Set(["files", "terminal"]);
 
 /** 把线程 id 归一化为归属值：空值归一为草稿。 */
 export function normalizeOwner(threadId: string | null | undefined): string {
@@ -206,6 +222,24 @@ export function makeTerminalTab(input: { threadId: string | null; openedAt?: num
     type: "terminal",
     title: "终端",
     workspaceId: "",
+    threadId: input.threadId,
+    openedAt,
+    activatedAt: openedAt,
+  };
+}
+
+/** 构造文件树 singleton tab；工作区公共，归属当前工作区（跨线程可见）。 */
+export function makeFilesTab(input: {
+  workspaceId: string;
+  threadId: string | null;
+  openedAt?: number;
+}): FilesSidePaneTab {
+  const openedAt = input.openedAt ?? Date.now();
+  return {
+    id: FILES_TAB_ID,
+    type: "files",
+    title: "文件",
+    workspaceId: input.workspaceId,
     threadId: input.threadId,
     openedAt,
     activatedAt: openedAt,
