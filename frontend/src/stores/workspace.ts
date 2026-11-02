@@ -11,6 +11,7 @@
  */
 import { create } from "zustand";
 import { api } from "../lib/api";
+import { fileTabId } from "../lib/sidePane";
 import type { DiffResult, DocumentPreview, FileContent, FileNode, WorkspaceView } from "../lib/types";
 import { basename } from "../lib/utils";
 import { useAppStore } from "./app";
@@ -49,6 +50,32 @@ function workspaceID(): string {
 }
 
 /**
+ * 一个 file tab 的编辑器数据槽。
+ *
+ * 多标签页之下每个 file tab 拥有独立的一份（内容、草稿、编辑模式、
+ * 定位行），key 是面板 tab 的结构化 id（lib/sidePane 的 fileTabId），
+ * 与 tab 同生共死：关闭 tab 即清槽。
+ */
+interface FileSlot {
+  /** 所属源文件夹；空字符串表示主要目录。 */
+  folderId: string;
+  /** 相对所属源文件夹的路径。 */
+  path: string;
+  /** 文件内容与元信息（hash / language / binary 等）。 */
+  content: FileContent | null;
+  /** 编辑器模式：只读或编辑。 */
+  editorMode: "read" | "edit";
+  /** 编辑草稿；保存成功前不写回 `content`。 */
+  draft: string;
+  /** 从搜索或差异跳转时要定位到的行号。 */
+  targetLine: number | null;
+}
+
+function newFileSlot(folderId: string, path: string): FileSlot {
+  return { folderId, path, content: null, editorMode: "read", draft: "", targetLine: null };
+}
+
+/**
  * 工作区状态与操作。
  *
  * 关键状态说明：
@@ -56,11 +83,7 @@ function workspaceID(): string {
  * - `expanded`：按组合键记录目录是否展开；
  * - `filter`：文件树过滤关键字；
  * - `git`：主要目录内文件路径到 Git 状态字母的映射（Git 语义只覆盖主要目录）；
- * - `selected` / `content`：当前打开的文件路径与内容，`content` 携带所属
- *   文件夹 ID，保存时显式传回；
- * - `editorMode`：只读或编辑；
- * - `draft`：编辑中的文本，保存成功前不写回 `content`；
- * - `targetLine`：从搜索或差异跳转时要定位到的行号；
+ * - `files`：file tab 的编辑器数据槽，key 是 tab id（见 FileSlot）；
  * - `diff`：当前差异预览的数据与视图方式（统一 / 并排）；
  * - `doc` / `docLoading`：文档预览内容与加载中标记。
  */
@@ -73,16 +96,8 @@ interface WorkspaceState {
   filter: string;
   /** 主要目录内文件路径到 Git 状态字母的映射。 */
   git: Record<string, string>;
-  /** 当前打开的文件路径（相对所属源文件夹）；null 表示没有打开文件。 */
-  selected: string | null;
-  /** 当前打开文件的内容与元信息，folderId 标识所属源文件夹。 */
-  content: FileContent | null;
-  /** 编辑器模式：只读或编辑。 */
-  editorMode: "read" | "edit";
-  /** 编辑草稿；保存成功后才写回 `content`。 */
-  draft: string;
-  /** 需要在编辑器中定位的行号。 */
-  targetLine: number | null;
+  /** file tab 的编辑器数据槽，key 是面板 tab id。 */
+  files: Record<string, FileSlot>;
   /** 差异预览：标题、原文、新文、计算结果、视图方式与所属工作区。 */
   diff: {
     title: string;
@@ -104,21 +119,21 @@ interface WorkspaceState {
   toggleDir(folderID: string, path: string): Promise<void>;
   /** 设置文件树过滤关键字。 */
   setFilter(value: string): void;
-  /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容。 */
+  /** 打开文件：Office / PDF 交给文档预览，其它文件读取文本内容并开 tab。 */
   openFile(folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
-  /** 读取文件内容进编辑器数据槽（不负责面板 tab）；供 tab 切换时按需重载。 */
-  loadFileContent(folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
+  /** 读取文件内容进指定 tab 的编辑器数据槽；供 tab 切换时按需重载。 */
+  loadFileSlot(tabId: string, folderID: string, path: string, options?: { quiet?: boolean }): Promise<boolean>;
   /** 打开文件并定位到指定行；路径先按主要目录解析，失败时跨源文件夹唯一匹配。 */
   openFileAt(path: string, line: number | null): Promise<void>;
-  /** 关闭当前文件并清空草稿。 */
-  closeFile(): void;
-  /** 切换只读 / 编辑；二进制或内容被截断的文件不允许编辑。 */
-  setEditorMode(mode: "read" | "edit"): void;
-  /** 更新编辑草稿。 */
-  setDraft(value: string): void;
-  /** 保存草稿；遇到「文件已被外部修改」时询问用户是否重新加载。 */
-  save(): Promise<void>;
-  /** 打开差异预览并切换到差异标签页。 */
+  /** 清空某个 file tab 的数据槽（关闭 tab 时调用）。 */
+  closeFileSlot(tabId: string): void;
+  /** 切换某个 tab 的只读 / 编辑；二进制或内容被截断的文件不允许编辑。 */
+  setEditorMode(tabId: string, mode: "read" | "edit"): void;
+  /** 更新某个 tab 的编辑草稿。 */
+  setDraft(tabId: string, value: string): void;
+  /** 保存某个 tab 的草稿；遇到「文件已被外部修改」时询问用户是否重新加载。 */
+  saveSlot(tabId: string): Promise<void>;
+  /** 打开差异预览并聚焦差异 tab。 */
   openDiff(title: string, oldText: string, newText: string): Promise<void>;
   /** 二次确认后把差异中的新内容整份写入文件。 */
   applyDiff(): Promise<void>;
@@ -140,11 +155,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   expanded: {},
   filter: "",
   git: {},
-  selected: null,
-  content: null,
-  editorMode: "read",
-  draft: "",
-  targetLine: null,
+  files: {},
   diff: null,
   doc: null,
   docLoading: false,
@@ -224,7 +235,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
       return false;
     }
-    const opened = await get().loadFileContent(folderID, path, options);
+    // tab id 由工作区 + 文件夹 + 路径推导，与 panel store 的构造规则一致，
+    // 因此这里可以在 tab 建立前就把内容写进正确的槽。
+    const tabId = fileTabId(id, folderID, path);
+    const opened = await get().loadFileSlot(tabId, folderID, path, options);
     if (opened) {
       // 从正文链接等入口打开时，确保右侧面板出现该文件的 tab 并展开面板。
       usePanelStore.getState().openFileTab({ folderId: folderID, path, title: basename(path) });
@@ -232,26 +246,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return opened;
   },
 
-  // 读取文件内容进编辑器数据槽（openFile 的读取部分）。
+  // 读取文件内容进指定 tab 的数据槽。
   // 打开即进入只读模式，草稿与文件内容保持一致，便于随时切到编辑；
   // targetLine 在这里复位：正常打开文件不需要定位，带行号的入口
   // （openFileAt）会在内容就绪后重新设置。
-  // 面板多 tab 之下切回一个 file tab 时，渲染层发现槽内不是该文件，
-  // 会调用本方法重新读取。
-  async loadFileContent(folderID, path, options) {
+  // 面板多 tab 之下切回一个 file tab 而槽已被清（例如模式切换 reset）时，
+  // 渲染层会调用本方法重新读取。
+  async loadFileSlot(tabId, folderID, path, options) {
     const id = workspaceID();
     if (!id) {
       return false;
     }
     try {
       const content = await api.workspace.readFile(id, folderID, path);
-      set({
-        selected: path,
-        content,
-        draft: content.content,
-        editorMode: "read",
-        targetLine: null,
-      });
+      set((state) => ({
+        files: {
+          ...state.files,
+          [tabId]: {
+            ...(state.files[tabId] ?? newFileSlot(folderID, path)),
+            content,
+            draft: content.content,
+            editorMode: "read",
+            targetLine: null,
+          },
+        },
+      }));
       return true;
     } catch (error) {
       // 静默模式用于短路径兜底的第一跳：失败后还有解析重试，不打扰用户。
@@ -273,6 +292,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 中解析唯一匹配，解析结果唯一才重试打开；仍失败则保持第一次的错误提示。
   async openFileAt(path, line) {
     let opened = await get().openFile("", path, { quiet: true });
+    let resolvedFolder = "";
     if (!opened) {
       const id = workspaceID();
       if (id) {
@@ -281,7 +301,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           // 即使路径相同，命中的文件夹也可能不是主要目录，重试仍有意义。
           const resolved = await api.workspace.locateFile(id, path);
           if (resolved) {
-            opened = await get().openFile(resolved.folderId ?? "", resolved.path);
+            resolvedFolder = resolved.folderId ?? "";
+            opened = await get().openFile(resolvedFolder, resolved.path);
           }
         } catch {
           // 解析失败：沿用第一次尝试的错误路径，由下方统一提示。
@@ -296,28 +317,60 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
       return;
     }
-    set({ targetLine: line });
+    // 定位行写进目标文件的槽（tab id 与 panel store 的构造规则一致）。
+    const tabId = fileTabId(workspaceID(), resolvedFolder, path);
+    set((state) => ({
+      files: {
+        ...state.files,
+        [tabId]: { ...(state.files[tabId] ?? newFileSlot(resolvedFolder, path)), targetLine: line },
+      },
+    }));
   },
 
-  // 关闭文件时把草稿、模式、定位行一起复位，避免残留到下一个文件。
-  closeFile() {
-    set({ selected: null, content: null, draft: "", editorMode: "read", targetLine: null });
+  // 关闭 file tab 时清空它的数据槽，草稿与定位行一起释放。
+  closeFileSlot(tabId) {
+    set((state) => {
+      if (!state.files[tabId]) {
+        return state;
+      }
+      const files = { ...state.files };
+      delete files[tabId];
+      return { files };
+    });
   },
 
   // 二进制文件或内容被截断的文件（只读到一部分）进入编辑会导致写回时丢内容，因此直接拒绝。
-  setEditorMode(mode) {
-    const content = get().content;
-    if (mode === "edit" && (content?.binary || content?.truncated)) {
+  setEditorMode(tabId, mode) {
+    const slot = get().files[tabId];
+    if (!slot) {
       return;
     }
-    set({ editorMode: "edit", draft: content?.content ?? get().draft });
+    if (mode === "edit" && (slot.content?.binary || slot.content?.truncated)) {
+      return;
+    }
+    set((state) => ({
+      files: {
+        ...state.files,
+        [tabId]: {
+          ...slot,
+          editorMode: mode,
+          draft: mode === "edit" ? (slot.content?.content ?? slot.draft) : slot.draft,
+        },
+      },
+    }));
   },
 
-  setDraft(value) {
-    set({ draft: value });
+  setDraft(tabId, value) {
+    set((state) => {
+      const slot = state.files[tabId];
+      if (!slot) {
+        return state;
+      }
+      return { files: { ...state.files, [tabId]: { ...slot, draft: value } } };
+    });
   },
 
-  // 保存流程：
+  // 保存流程（按 tab 槽）：
   // 1. 写入目标是打开文件时记录的工作区与源文件夹（content.workspaceId /
   //    content.folderId），而不是「当前激活工作区」——切换工作区后保存
   //    不会把内容写进错误的目录；
@@ -326,17 +379,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   // 4. 若后端报「外部修改」，说明磁盘上的内容已经变了，弹确认框由用户选择是否重新加载；
   //    重新加载会丢弃当前草稿，所以默认按钮保持危险样式；
   // 5. 其它错误走 toast 提示，草稿保留以便用户重试。
-  async save() {
-    const content = get().content;
+  async saveSlot(tabId) {
+    const slot = get().files[tabId];
+    const content = slot?.content;
     const id = content?.workspaceId ?? "";
-    if (!id || !content) {
+    if (!id || !slot || !content) {
       return;
     }
     const folderID = content.folderId ?? "";
     try {
-      await api.workspace.writeFile(id, folderID, content.path, get().draft, content.hash);
+      await api.workspace.writeFile(id, folderID, content.path, slot.draft, content.hash);
       const refreshed = await api.workspace.readFile(id, folderID, content.path);
-      set({ content: refreshed, draft: refreshed.content, editorMode: "read" });
+      set((state) => ({
+        files: {
+          ...state.files,
+          [tabId]: {
+            ...(state.files[tabId] ?? slot),
+            content: refreshed,
+            draft: refreshed.content,
+            editorMode: "read",
+          },
+        },
+      }));
       useUiStore.getState().toast({ title: "已保存", description: content.path, tone: "ok" });
     } catch (error) {
       const message = String(error);
@@ -349,7 +413,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           danger: true,
         });
         if (reload) {
-          await get().openFile(folderID, content.path);
+          await get().loadFileSlot(tabId, folderID, content.path);
         }
         return;
       }
@@ -436,18 +500,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  // 模式切换时整体清空：文件树、展开状态、Git 标记、打开的文件、草稿、差异与文档预览。
+  // 模式切换时整体清空：文件树、展开状态、Git 标记、file tab 数据槽、差异与文档预览。
+  // 面板 tab 本身不清（tab 归 panel store 管并按线程记忆），切回 file tab 时
+  // 渲染层发现槽已空会重新读取内容。
   reset() {
     set({
       tree: {},
       expanded: {},
       git: {},
-      selected: null,
-      content: null,
-      draft: "",
+      files: {},
       diff: null,
       doc: null,
-      targetLine: null,
     });
   },
 }));

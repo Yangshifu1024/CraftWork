@@ -26,9 +26,8 @@ import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { Icon } from "../../components/Icon";
 import { copyText } from "../../lib/clipboard";
-import { fileTabId } from "../../lib/sidePane";
+import type { FileSidePaneTab } from "../../lib/sidePane";
 import { cn, formatBytes } from "../../lib/utils";
-import { useAppStore } from "../../stores/app";
 import { usePanelStore } from "../../stores/panel";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
@@ -103,28 +102,31 @@ async function loadLanguage(path: string) {
 /**
  * 编辑器面板组件。
  *
- * props：无。数据都来自 workspace store：
+ * props.tab：所属的 file tab。数据来自 workspace store 里该 tab 的数据槽
+ * （files[tab.id]，见 workspace store 的 FileSlot）：
  * - content：文件内容、语言、大小、哈希，以及是否二进制 / 截断；
  * - editorMode：read 表示只读，edit 表示可编辑；
  * - targetLine：从差异或搜索跳转过来时需要定位的行号。
  *
- * 本组件持有 CodeMirror 视图与宿主节点的引用，卸载时销毁视图释放资源。
+ * 本组件持有 CodeMirror 视图与宿主节点的引用，卸载时销毁视图释放资源；
+ * 关闭文件按钮会同时关闭所属的面板 tab。
  */
-export function Editor() {
-  const content = useWorkspaceStore((state) => state.content);
-  const editorMode = useWorkspaceStore((state) => state.editorMode);
-  const setEditorMode = useWorkspaceStore((state) => state.setEditorMode);
-  const setDraft = useWorkspaceStore((state) => state.setDraft);
-  const save = useWorkspaceStore((state) => state.save);
-  const closeFile = useWorkspaceStore((state) => state.closeFile);
-  const targetLine = useWorkspaceStore((state) => state.targetLine);
+export function Editor({ tab }: { tab: FileSidePaneTab }) {
+  const slot = useWorkspaceStore((state) => state.files[tab.id]);
+  const content = slot?.content ?? null;
+  const editorMode = slot?.editorMode ?? "read";
+  const targetLine = slot?.targetLine ?? null;
   const toast = useUiStore((state) => state.toast);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  // 用 ref 保存最新的 setDraft，重建编辑器时不必把它放进依赖数组。
-  const onChangeRef = useRef(setDraft);
-  onChangeRef.current = setDraft;
+  // 用 ref 保存最新的写草稿回调，重建编辑器时不必把它放进依赖数组。
+  const onChangeRef = useRef<(value: string) => void>((value) => {
+    useWorkspaceStore.getState().setDraft(tab.id, value);
+  });
+  onChangeRef.current = (value) => {
+    useWorkspaceStore.getState().setDraft(tab.id, value);
+  };
 
   // 创建 CodeMirror 视图。
   // 文件路径、内容、哈希、编辑模式或目标行变化时整体重建：
@@ -234,14 +236,9 @@ export function Editor() {
             title="关闭文件"
             aria-label="关闭文件"
             onClick={() => {
-              // 编辑器现在挂在 file tab 里：关闭文件同时关闭对应 tab，
-              // 避免树里残留一个已关闭的 tab。
-              closeFile();
-              usePanelStore
-                .getState()
-                .closeTab(
-                  fileTabId(useAppStore.getState().activeWorkspace?.id ?? "", content.folderId ?? "", content.path),
-                );
+              // 编辑器挂在 file tab 里：清掉本 tab 的数据槽并关闭 tab。
+              useWorkspaceStore.getState().closeFileSlot(tab.id);
+              usePanelStore.getState().closeTab(tab.id);
             }}
           >
             <Icon name="x" className="ico" />
@@ -254,7 +251,7 @@ export function Editor() {
         <button
           type="button"
           className={cn("tool-btn", editorMode === "read" && "is-on")}
-          onClick={() => setEditorMode("read")}
+          onClick={() => useWorkspaceStore.getState().setEditorMode(tab.id, "read")}
         >
           <Icon name="eye" className="ico" />
           只读
@@ -266,7 +263,7 @@ export function Editor() {
           title={
             content.binary ? "二进制文件不可编辑" : content.truncated ? "文件超过 2MB，已截断，编辑已禁用" : undefined
           }
-          onClick={() => setEditorMode("edit")}
+          onClick={() => useWorkspaceStore.getState().setEditorMode(tab.id, "edit")}
         >
           <Icon name="edit" className="ico" />
           编辑
@@ -300,7 +297,11 @@ export function Editor() {
         </button>
         {editorMode === "edit" ? (
           /* 只在编辑态显示保存；保存会先备份原文件，并校验外部修改 */
-          <button type="button" className="tool-btn is-on" onClick={() => void save()}>
+          <button
+            type="button"
+            className="tool-btn is-on"
+            onClick={() => void useWorkspaceStore.getState().saveSlot(tab.id)}
+          >
             <Icon name="save" className="ico" />
             保存
           </button>

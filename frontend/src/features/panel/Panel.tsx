@@ -26,6 +26,7 @@ import { useAppStore } from "../../stores/app";
 import { usePanelStore } from "../../stores/panel";
 import { useThreadStore } from "../../stores/threads";
 import { useWorkspaceStore } from "../../stores/workspace";
+import { Editor } from "./Editor";
 
 // 四个内容面板都按需加载：首次切换到对应 tab 时才拉取分包代码。
 const FilesPanel = lazy(() => import("./FilesPanel").then((module) => ({ default: module.FilesPanel })));
@@ -49,13 +50,12 @@ function tabIcon(tab: SidePaneTab): IconName {
 
 /**
  * 关闭一个 tab，并做必要的数据槽清理：
- * 关闭的 file tab 正是当前编辑的文件时，先清掉编辑器数据槽（selected /
- * content / draft），否则兜底显示的文件树会被残留的编辑器顶掉。
+ * 关闭 file tab 时同时清掉它在 workspace store 里的编辑器数据槽
+ * （内容、草稿、定位行），槽与 tab 同生共死。
  */
 function handleCloseTab(tab: SidePaneTab): void {
-  const workspace = useWorkspaceStore.getState();
-  if (tab.type === "file" && workspace.selected === tab.path) {
-    workspace.closeFile();
+  if (tab.type === "file") {
+    useWorkspaceStore.getState().closeFileSlot(tab.id);
   }
   usePanelStore.getState().closeTab(tab.id);
 }
@@ -93,6 +93,8 @@ export function Panel() {
   const scope = { workspaceId, threadId };
   const visible = tabs.filter((tab) => isTabVisibleInScope(tab, scope));
   const active = visible.find((tab) => tab.id === activeTabId) ?? null;
+  // 激活 file tab 的路径：文件树的选中高亮跟随它（没有则为 null）。
+  const activeFilePath = active?.type === "file" ? active.path : null;
   // 最近关闭栈里当前上下文可恢复的 tab（跨线程 / 跨工作区的不展示）。
   const reopenable = recentClosed.filter((tab) => isTabVisibleInScope(tab, scope));
 
@@ -312,8 +314,8 @@ export function Panel() {
             </div>
           }
         >
-          {/* 没有激活 tab 时显示文件树兜底视图；editorOpen=false 强制树形模式 */}
-          {active === null ? <FilesPanel editorOpen={false} /> : null}
+          {/* 没有激活 tab 时显示文件树兜底视图；选中高亮跟随激活的 file tab */}
+          {active === null ? <FilesPanel selectedPath={activeFilePath} /> : null}
           {active?.type === "file" ? <FileTabContent tab={active} /> : null}
           {active?.type === "diff" ? <DiffPanel /> : null}
           {active?.type === "terminal" ? <TerminalPanel /> : null}
@@ -325,23 +327,23 @@ export function Panel() {
 }
 
 /**
- * file tab 的内容。
+ * file tab 的内容：直接渲染编辑器。
  *
- * 编辑器数据槽（selected / content / draft）在 workspace store 里仍是单槽，
- * 切换 file tab 时若槽内不是本 tab 的文件，就重新读取一次——切换语义与
- * 旧版「打开文件」一致。多文件各自的草稿分槽在编辑器升一等 tab 时落地。
+ * 编辑器数据槽（files[tab.id]）为空（tab 已建但内容未读，例如重开的 tab
+ * 或模式切换 reset 后）时先补一次读取；读取完成渲染编辑器。
+ * 每个文件的草稿、编辑模式与定位行都在各自的槽里，互不干扰。
  */
 function FileTabContent({ tab }: { tab: FileSidePaneTab }) {
-  const selected = useWorkspaceStore((state) => state.selected);
+  const slot = useWorkspaceStore((state) => state.files[tab.id]);
 
-  // 槽内不是本 tab 的文件时重新读取；读取完成 selected 变化，下方渲染同步。
+  // 槽被清（重开 / reset）时重新读取内容；loadFileSlot 内部会写回槽。
   useEffect(() => {
-    if (selected !== tab.path) {
-      void useWorkspaceStore.getState().loadFileContent(tab.folderId, tab.path);
+    if (!slot) {
+      void useWorkspaceStore.getState().loadFileSlot(tab.id, tab.folderId, tab.path);
     }
-  }, [tab.folderId, tab.path, selected]);
+  }, [tab.id, tab.folderId, tab.path, slot]);
 
-  if (selected !== tab.path) {
+  if (!slot?.content) {
     return (
       <div className="panel-empty">
         <Icon name="loader" size={20} className="spin" />
@@ -349,8 +351,7 @@ function FileTabContent({ tab }: { tab: FileSidePaneTab }) {
       </div>
     );
   }
-  // 走到这里槽内正是本 tab 的文件，FilesPanel 以编辑器形态显示。
-  return <FilesPanel editorOpen />;
+  return <Editor tab={tab} />;
 }
 
 /**

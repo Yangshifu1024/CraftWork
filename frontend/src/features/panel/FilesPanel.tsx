@@ -2,7 +2,7 @@
  * 文件面板。
  *
  * 负责：展示工作区文件树、按关键字过滤文件、切换目录展开状态、打开文件。
- * 选中文件后本组件会被编辑器取代（见 Editor），关闭编辑器即回到文件树。
+ * 编辑器是 file tab 的内容（见 Panel.tsx 与 Editor.tsx），不再由本组件承载。
  *
  * 多文件夹：工作区可以挂载多个源文件夹，文件树按文件夹分段渲染，每段
  * 顶层是源文件夹根（带「主要」徽标），段内结构与单根时代完全一致。
@@ -13,7 +13,6 @@ import type { FileNode, WorkspaceFolderView } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
 import { folderKey, splitFolderKey, useWorkspaceStore } from "../../stores/workspace";
-import { Editor } from "./Editor";
 
 /**
  * 文件树面板。
@@ -22,13 +21,11 @@ import { Editor } from "./Editor";
  * - 过滤框为空时按源文件夹分段渲染可折叠的树形结构；
  * - 输入关键字时改为平铺的文件列表（只匹配文件名，最多 200 条），便于快速定位。
  *
- * 目录展开状态、当前选中文件与 Git 变更标记都来自 workspace store。
- *
- * props.editorOpen：工作区有打开文件（selected 非空）时是否显示编辑器。
- * file tab 的内容区传 true（编辑器属于该 tab）；面板没有激活 tab 时的
- * 文件树兜底视图传 false，保证残留的 selected 不会把树顶掉。
+ * 目录展开状态、Git 变更标记都来自 workspace store；当前选中的文件路径
+ * 由 props 传入（面板里激活的 file tab 的路径），用于树节点高亮。
+ * 编辑器不再由本组件承载——它是 file tab 的内容（见 Panel.tsx）。
  */
-export function FilesPanel({ editorOpen = true }: { editorOpen?: boolean }) {
+export function FilesPanel({ selectedPath = null }: { selectedPath?: string | null }) {
   const tree = useWorkspaceStore((state) => state.tree);
   const expanded = useWorkspaceStore((state) => state.expanded);
   const filter = useWorkspaceStore((state) => state.filter);
@@ -36,7 +33,6 @@ export function FilesPanel({ editorOpen = true }: { editorOpen?: boolean }) {
   const toggleDir = useWorkspaceStore((state) => state.toggleDir);
   const openFile = useWorkspaceStore((state) => state.openFile);
   const loadRoot = useWorkspaceStore((state) => state.loadRoot);
-  const selected = useWorkspaceStore((state) => state.selected);
   const git = useWorkspaceStore((state) => state.git);
   const workspace = useAppStore((state) => state.activeWorkspace);
 
@@ -72,10 +68,6 @@ export function FilesPanel({ editorOpen = true }: { editorOpen?: boolean }) {
     }
     return result.slice(0, 200);
   }, [filter, tree]);
-
-  if (selected && editorOpen) {
-    return <Editor />;
-  }
 
   return (
     <div className="panel-scroll">
@@ -140,7 +132,7 @@ export function FilesPanel({ editorOpen = true }: { editorOpen?: boolean }) {
                 path="."
                 depth={0}
                 expanded={expanded}
-                selected={selected}
+                selected={selectedPath}
                 git={folder.primary || !folder.id ? git : {}}
                 onToggle={toggleDir}
                 onOpen={openFile}
