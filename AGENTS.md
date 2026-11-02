@@ -106,7 +106,7 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | 前端类型检查 | `cd frontend && pnpm run typecheck` |
 | 前端 lint / 格式化 | `cd frontend && pnpm run lint`（检查）；`pnpm run lint:fix`（安全修复）；`pnpm run format`（格式化，配置见 `frontend/biome.json`） |
 | 前端单元测试 | `cd frontend && pnpm run test` |
-| 浏览器端到端测试 | `cd frontend && pnpm run test:e2e`（首次需 `pnpm exec playwright install chromium`；本机已有 Edge / Chrome 时可用 `PLAYWRIGHT_CHANNEL=msedge`） |
+| 浏览器端到端测试 | `cd frontend && pnpm run test:e2e`（本机已有 Edge / Chrome 时用 `PLAYWRIGHT_CHANNEL=msedge`；过滤与更新基线等参数请用 `pnpm exec playwright test` 直连，`pnpm run --` 透传在 pnpm 12 下不可靠） |
 | 截图回归 | `cd frontend && pnpm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
 | 前端构建 | `cd frontend && pnpm run build` |
 | 一键测试 | `wails3 task test` |

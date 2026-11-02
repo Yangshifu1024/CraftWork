@@ -367,7 +367,7 @@ CREATE TABLE backups (
 | 前端单元 | store reducer、事件归约、diff 渲染 | Vitest |
 | 浏览器端到端 | Mock 后端：布局、发送、审批、设置 | Playwright |
 | 桌面 / server 冒烟 | `wails3 build` 后启动；`wails3 task run:server` + `/health` | 手动 / 脚本（建议 `CRAFTWORK_HOME` 隔离） |
-| 视觉回归 | 同视口截图对比（基线按操作系统保存） | `pnpm run test:e2e -- --grep @screenshot` |
+| 视觉回归 | 同视口截图对比（基线按操作系统保存） | `PLAYWRIGHT_CHANNEL=msedge pnpm exec playwright test --grep @screenshot` |
 | 安全用例 | 路径穿越、符号链接、命令注入、外链拦截、HTML 不执行 | 专项用例 |
 | 性能基准 | 冷启动、流式帧率、10MB 文件、终端输出、数据库查询 | `testing.B`、benchstat |
 

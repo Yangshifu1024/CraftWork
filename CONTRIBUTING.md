@@ -74,9 +74,9 @@ wails3 build
 
 ```bash
 cd frontend
-pnpm exec playwright install chromium   # 首次运行
-pnpm run test:e2e                  # 功能用例 + 截图对比
-pnpm run test:e2e -- --grep-invert @screenshot   # 只跑功能用例
+pnpm exec playwright install chromium   # 首次运行（本机已有 Edge 时可改用 PLAYWRIGHT_CHANNEL=msedge）
+PLAYWRIGHT_CHANNEL=msedge pnpm run test:e2e                    # 功能用例 + 截图对比
+PLAYWRIGHT_CHANNEL=msedge pnpm exec playwright test --grep-invert @screenshot   # 只跑功能用例
 ```
 
 截图基线按操作系统保存；在非 macOS 上运行截图用例前需要生成对应平台基线。
