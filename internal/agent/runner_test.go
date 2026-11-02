@@ -147,7 +147,7 @@ func (h *harness) start(t *testing.T) {
 	if err := h.db.SetThreadStatus("th_1", "running"); err != nil {
 		t.Fatal(err)
 	}
-	h.runner.Start(h.thread, "run_1", "msg_assistant", "code")
+	h.runner.start(h.thread, "run_1", "msg_assistant", "code")
 }
 
 func TestRunnerApprovalAllow(t *testing.T) {
@@ -464,7 +464,7 @@ func TestExecuteUsesThreadWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	h.runner.Start(threadB, "run_b", "msg_assistant", "code")
+	h.runner.start(threadB, "run_b", "msg_assistant", "code")
 
 	approval := waitApproval(t, h.db, "th_b")
 	if err := h.approvals.Resolve(approval.ID, Decision{Allow: true, Scope: "once"}); err != nil {

@@ -226,7 +226,7 @@ func TestRunnerSteerCancelDiscardsQueue(t *testing.T) {
 	if ok, err := h.runner.TrySteer("th_1", SteerItem{MessageID: "msg_steer", Text: "不该被投递"}); err != nil || !ok {
 		t.Fatalf("入队引导应成功: ok=%v err=%v", ok, err)
 	}
-	h.runner.Cancel("th_1")
+	_, _ = h.runner.Cancel("th_1")
 	close(client.gate)
 	waitStatus(t, h.db, "th_1", "idle")
 

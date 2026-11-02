@@ -52,7 +52,7 @@ func (s *ChatService) Send(threadID, text string, attachments []string) (string,
 	if _, err := s.writeUserMessage(threadID, text, attachments); err != nil {
 		return "", err
 	}
-	return s.startRun(*thread)
+	return s.runner.Run(*thread)
 }
 
 // Steer 在会话运行中追加一条用户指令，返回用户消息 ID。
@@ -89,8 +89,8 @@ func (s *ChatService) Steer(threadID, text string, attachments []string) (string
 	}
 	// 会话没有在途运行（含接力刚耗尽的瞬间）：回退为普通发送，消息已在
 	// 历史里，启动一次 run 即可。极端情况下回退与刚启动的接力相撞时，
-	// Start 的“新消息接管”语义会取消接力并以本消息重新开跑，行为安全。
-	if _, err := s.startRun(*thread); err != nil {
+	// Run 的“新消息接管”语义会取消接力并以本消息重新开跑，行为安全。
+	if _, err := s.runner.Run(*thread); err != nil {
 		return "", err
 	}
 	return messageID, nil
@@ -122,19 +122,12 @@ func (s *ChatService) Regenerate(threadID string) (string, error) {
 	if !hasUser {
 		return "", errors.New("没有可重新生成的内容")
 	}
-	return s.startRun(*thread)
+	return s.runner.Run(*thread)
 }
 
-// Cancel 停止会话上的 run，并取消等待中的审批。
+// Cancel 停止会话上的 run；审批清理与会话状态回收都由 Runner 负责。
 func (s *ChatService) Cancel(threadID string) (bool, error) {
-	canceled := s.runner.Cancel(threadID)
-	if err := s.db.CancelThreadApprovals(threadID); err != nil {
-		return canceled, err
-	}
-	if canceled {
-		_ = s.records.SetThreadStatus(threadID, "", "idle")
-	}
-	return canceled, nil
+	return s.runner.Cancel(threadID)
 }
 
 // DecideApproval 回传用户对审批的决定。
@@ -167,31 +160,6 @@ func (s *ChatService) writeUserMessage(threadID, text string, attachments []stri
 		return "", err
 	}
 	return userMessageID, nil
-}
-
-// startRun 创建运行记录、更新会话状态并异步启动 Agent 循环，返回 runID。
-func (s *ChatService) startRun(thread store.Thread) (string, error) {
-	if err := ensureThreadModel(thread); err != nil {
-		return "", err
-	}
-	runID := id.New("run")
-	messageID := id.New("msg")
-	// 先创建运行记录并把会话置为运行中，再交给 Runner 异步执行。
-	if err := s.db.CreateRun(&store.Run{
-		ID:        runID,
-		ThreadID:  thread.ID,
-		MessageID: messageID,
-		Status:    "running",
-		ModelID:   thread.ModelID,
-		StartedAt: store.NowMillis(),
-	}); err != nil {
-		return "", err
-	}
-	if err := s.records.SetThreadStatus(thread.ID, runID, "running"); err != nil {
-		return "", err
-	}
-	s.runner.Start(thread, runID, messageID, thread.Mode)
-	return runID, nil
 }
 
 // ensureThreadModel 在写入用户消息前确认会话已经绑定可用模型。

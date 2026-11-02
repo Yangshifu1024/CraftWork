@@ -179,11 +179,46 @@ func (r *Runner) sendNotification(title, message string) {
 	}
 }
 
-// Start 异步启动一次 run。调用前服务层已经写入用户消息与运行记录。
+// Run 发起一次完整运行：创建运行记录、把会话置为运行中并异步启动
+// Agent 循环，返回 runID。调用前服务层应已写入用户消息并确认会话模型
+// 可用——run 行与会话状态的写入序列是运行模块的内部不变量，调用方
+// 不需要（也不允许）自己拼装。
 //
 // 同一个会话同时只允许一次运行：如果会话上已有运行，会先取消旧的，
 // 再用新的取消函数覆盖，保证“新消息总是接管”而不是并行跑两份。
-func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
+func (r *Runner) Run(thread store.Thread) (string, error) {
+	runID, messageID, err := r.createRunRow(thread)
+	if err != nil {
+		return "", err
+	}
+	r.start(thread, runID, messageID, thread.Mode)
+	return runID, nil
+}
+
+// createRunRow 创建一次 run 的数据库行并把会话置为运行中。
+//
+// 正常发送与接力运行共用同一写入序列；runID/messageID 由这里统一生成。
+func (r *Runner) createRunRow(thread store.Thread) (string, string, error) {
+	runID := id.New("run")
+	messageID := id.New("msg")
+	if err := r.db.CreateRun(&store.Run{
+		ID:        runID,
+		ThreadID:  thread.ID,
+		MessageID: messageID,
+		Status:    "running",
+		ModelID:   thread.ModelID,
+		StartedAt: store.NowMillis(),
+	}); err != nil {
+		return "", "", err
+	}
+	if err := r.records.SetThreadStatus(thread.ID, runID, "running"); err != nil {
+		return "", "", err
+	}
+	return runID, messageID, nil
+}
+
+// start 异步执行一次已建行的 run。供 Run 与测试装配调用。
+func (r *Runner) start(thread store.Thread, runID, messageID, mode string) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	r.mu.Lock()
@@ -211,10 +246,12 @@ func (r *Runner) Start(thread store.Thread, runID, messageID, mode string) {
 	}()
 }
 
-// Cancel 取消会话上正在进行的 run。
+// Cancel 停止会话上的运行，并拥有「会话停了」的全部后果：取消等待中的
+// 审批、把会话状态切回空闲。
 //
-// 返回 false 表示该会话当前没有运行，调用方可以据此决定是否提示用户。
-func (r *Runner) Cancel(threadID string) bool {
+// 返回的第一个值表示该会话此前是否有运行在途，调用方据此决定是否提示；
+// 审批清理失败以 error 返回，状态切换尽力而为。
+func (r *Runner) Cancel(threadID string) (bool, error) {
 	r.mu.Lock()
 	cancel, ok := r.cancels[threadID]
 	r.mu.Unlock()
@@ -224,7 +261,13 @@ func (r *Runner) Cancel(threadID string) bool {
 		slog.Info("收到取消请求，停止运行中的会话", "thread", threadID)
 		cancel()
 	}
-	return ok
+	if err := r.db.CancelThreadApprovals(threadID); err != nil {
+		return ok, err
+	}
+	if ok {
+		_ = r.records.SetThreadStatus(threadID, "", "idle")
+	}
+	return ok, nil
 }
 
 // IsRunning 判断会话是否有正在进行的 run。
@@ -281,13 +324,6 @@ func (r *Runner) execute(ctx context.Context, thread store.Thread, runID, messag
 	// 运行起点作为工时事实的基准：结束事件与历史快照都用它计算「已工作」时长。
 	// 接力运行会重置起点，各 run 的已工作时长独立统计。
 	startedAt := time.Now()
-	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
-	// 激活状态会随用户切换、新建或移除工作区而漂移，一旦与运行中的会话
-	// 错位，工具就会拿到空路径或错误路径（表现为所有文件工具报「工作区未设置」，
-	// 只有 git 命令因目录为空时回退到进程工作目录而碰巧可用）。
-	// 会话没有绑定工作区（旧数据）时保持现状，不覆盖全局值。
-	// 已知限制：registry 是全局单例，不同工作区的会话并行运行时仍会相互覆盖；
-	// 当前单机串行使用不受影响。
 	// 运行环境跟随会话绑定的工作区，而不是全局的「当前激活工作区」：
 	// 激活状态会随用户切换、新建或移除工作区而漂移。环境在运行开始时
 	// 一次性解析成值，沿调用图下发；并行运行的不同会话互不覆盖。
@@ -543,25 +579,13 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 
 // beginFollowupRun 为接力运行创建运行记录并把会话切回运行中。
 //
-// 写入序列与服务层的 startRun（internal/service/chat.go）保持一致：先建
-// 运行行，再更新会话状态。失败时返回空 runID，调用方直接结束运行链；
-// 此时排队的引导由 Start 的收尾统一丢弃，消息已落在事件表里不会丢失。
+// 与正常发送共用 createRunRow 的写入序列。失败时返回空 runID，调用方
+// 直接结束运行链；此时排队的引导由 start 的收尾统一丢弃，消息已落在
+// 事件表里不会丢失。
 func (r *Runner) beginFollowupRun(thread store.Thread) (string, string) {
-	runID := id.New("run")
-	messageID := id.New("msg")
-	if err := r.db.CreateRun(&store.Run{
-		ID:        runID,
-		ThreadID:  thread.ID,
-		MessageID: messageID,
-		Status:    "running",
-		ModelID:   thread.ModelID,
-		StartedAt: store.NowMillis(),
-	}); err != nil {
+	runID, messageID, err := r.createRunRow(thread)
+	if err != nil {
 		slog.Warn("创建接力运行失败", "thread", thread.ID, "err", err)
-		return "", ""
-	}
-	if err := r.records.SetThreadStatus(thread.ID, runID, "running"); err != nil {
-		slog.Warn("接力运行切换会话状态失败", "thread", thread.ID, "err", err)
 		return "", ""
 	}
 	return runID, messageID
