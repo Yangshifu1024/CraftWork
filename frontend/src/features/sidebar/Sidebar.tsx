@@ -254,8 +254,8 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {/* 临时会话组置顶，组头 + 一键新建并切到内置临时目录。 */}
-            <div className="thread-group-head is-temp">
+            {/* 临时会话组置顶，组头 + 一键新建并切到内置临时目录。样式与「项目会话」组头一致。 */}
+            <div className="thread-group-head">
               <Icon name="zap" />
               <span className="thread-group-name">临时会话</span>
               <span className="thread-group-count">{tempThreads.length}</span>

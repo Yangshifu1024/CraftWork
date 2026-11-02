@@ -1066,9 +1066,6 @@ html[data-mode="work"] .ws-branch {
   width: 12px;
   height: 12px;
 }
-.thread-group-head.is-temp {
-  color: var(--purple);
-}
 .thread-group-name {
   min-width: 0;
   overflow: hidden;
