@@ -9,7 +9,7 @@
  *
  * 说明：搜索只按标题高亮；“内容命中”标记表示标题没匹配但正文命中了查询词。
  */
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrandMark } from "../../components/BrandMark";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
@@ -24,6 +24,22 @@ import { createTempThread, resyncWorkspaceViews, switchWorkspace } from "../../s
 
 /** 侧栏当前打开的浮层类型；null 表示没有浮层。 */
 type PopoverKind = "trust" | "switch" | "session" | null;
+
+/** 项目分组折叠状态的本地持久化键；只记录折叠了的项目，默认全部展开。 */
+const COLLAPSED_PROJECTS_KEY = "cw-sidebar-collapsed-projects";
+
+/** 每个项目分组默认展示的会话条数；「显示更多」每次追加的条数与此相同。 */
+const PROJECT_GROUP_PAGE_SIZE = 5;
+
+/** 从本地偏好读取折叠状态；数据损坏时按全部展开处理。 */
+function readCollapsedProjects(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_PROJECTS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
 
 /**
  * 左侧边栏组件。
@@ -69,7 +85,18 @@ export function Sidebar() {
   // 会话右键菜单的目标会话与锚点元素；非空时渲染菜单浮层。
   const [menu, setMenu] = useState<{ thread: ThreadView; anchor: HTMLElement } | null>(null);
   const [counts, setCounts] = useState({ usage: 0, audit: 0 });
+  // 项目分组的展开/折叠状态：键为工作区 Id，值为 true 表示折叠；写入本地偏好持久化。
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(readCollapsedProjects);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(collapsedProjects));
+  }, [collapsedProjects]);
+
+  /** 切换某个项目分组的折叠状态。 */
+  function toggleProjectGroup(workspaceID: string) {
+    setCollapsedProjects((state) => ({ ...state, [workspaceID]: !state[workspaceID] }));
+  }
 
   // 拉取今日用量与最近审计条数；用 alive 标记避免卸载或重复请求后写入旧状态。
   useEffect(() => {
@@ -125,6 +152,12 @@ export function Sidebar() {
     workspaces.filter((workspace) => workspace.purpose === "conversation").map((workspace) => workspace.id),
   );
   const tempThreads = source.filter((thread) => conversationIDs.has(thread.workspaceId));
+  // 项目分组：每个项目工作区一组，会话按归属落入对应组；顺序跟随工作区（最近打开优先）。
+  const projectGroups = projectWorkspaces.map((workspace) => ({
+    workspace,
+    items: source.filter((thread) => thread.workspaceId === workspace.id),
+  }));
+  const projectThreadCount = projectGroups.reduce((sum, group) => sum + group.items.length, 0);
   const orphanThreads = source.filter(
     (thread) =>
       thread.workspaceId !== "" &&
@@ -198,6 +231,22 @@ export function Sidebar() {
     }
   }
 
+  /**
+   * 「项目会话」区头的 + ：创建项目。
+   * 选择目录后新工作区会自动激活，紧接着在该项目下新建一个会话，
+   * 让「添加项目」与「开始干活」一步完成。
+   */
+  async function handleCreateProject() {
+    try {
+      await pickAndAddWorkspace();
+      await resyncWorkspaceViews();
+      await createThread();
+      toast({ title: "已创建项目", description: "新会话已就绪", tone: "ok" });
+    } catch (error) {
+      toast({ title: "创建项目失败", description: String(error), tone: "danger" });
+    }
+  }
+
   /** 关闭搜索：清空关键词并让会话 store 丢弃搜索结果，列表恢复为普通会话列表。 */
   function closeSearch() {
     setSearchOpen(false);
@@ -239,40 +288,6 @@ export function Sidebar() {
           <Icon name="briefcase" className="ico" />
           <span>Work</span>
         </button>
-      </div>
-
-      <div className="thread-head">
-        <div className="thread-head-title">
-          <span>{mode === "work" ? "Work 会话" : "Code 会话"}</span>
-          <span className="count-chip">{threads?.length ?? 0}</span>
-        </div>
-        <div className="thread-head-actions">
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="搜索会话"
-            aria-label="搜索会话"
-            onClick={() => {
-              if (searchOpen) {
-                closeSearch();
-              } else {
-                setSearchOpen(true);
-                window.setTimeout(() => searchInputRef.current?.focus(), 30);
-              }
-            }}
-          >
-            <Icon name="search" className="ico" />
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="新建会话 ⌘N"
-            aria-label="新建会话"
-            onClick={() => void createThread()}
-          >
-            <Icon name="plus" className="ico" />
-          </button>
-        </div>
       </div>
 
       {searchOpen ? (
@@ -318,7 +333,7 @@ export function Sidebar() {
               <>
                 还没有会话
                 <br />
-                点击右上角 + 新建一个
+                在「项目会话」右侧 + 创建项目，或新建临时会话
               </>
             )}
           </div>
@@ -361,31 +376,51 @@ export function Sidebar() {
                 onContextMenu={(anchor) => setMenu({ thread, anchor })}
               />
             ))}
-            {/* 其余按工作区分组，顺序跟随工作区列表（最近打开优先）。 */}
-            {projectWorkspaces.map((workspace) => {
-              const items = source.filter((thread) => thread.workspaceId === workspace.id);
-              return (
-                <Fragment key={workspace.id}>
-                  <div className="thread-group-head">
-                    <Icon name="folder" />
-                    <span className="thread-group-name" title={workspace.path}>
-                      {workspace.name}
-                    </span>
-                    <span className="thread-group-count">{items.length}</span>
-                  </div>
-                  {items.map((thread) => (
-                    <ThreadItem
-                      key={thread.id}
-                      thread={thread}
-                      active={thread.id === activeID}
-                      query={query}
-                      onClick={() => void selectThread(thread.id)}
-                      onContextMenu={(anchor) => setMenu({ thread, anchor })}
-                    />
-                  ))}
-                </Fragment>
-              );
-            })}
+            {/* 项目会话区：组头提供搜索与「创建项目」入口。 */}
+            <div className="thread-group-head is-section">
+              <span className="thread-group-name">项目会话</span>
+              <span className="thread-group-count">{projectThreadCount}</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="thread-group-add"
+                title="搜索会话"
+                aria-label="搜索会话"
+                onClick={() => {
+                  if (searchOpen) {
+                    closeSearch();
+                  } else {
+                    setSearchOpen(true);
+                    window.setTimeout(() => searchInputRef.current?.focus(), 30);
+                  }
+                }}
+              >
+                <Icon name="search" />
+              </button>
+              <button
+                type="button"
+                className="thread-group-add"
+                title="创建项目"
+                aria-label="创建项目"
+                onClick={() => void handleCreateProject()}
+              >
+                <Icon name="plus" />
+              </button>
+            </div>
+            {/* 每个项目一组：文件夹图标切换折叠，组内分页展示。 */}
+            {projectGroups.map(({ workspace, items }) => (
+              <ProjectGroup
+                key={workspace.id}
+                workspace={workspace}
+                items={items}
+                activeID={activeID}
+                query={query}
+                collapsed={Boolean(collapsedProjects[workspace.id])}
+                onToggle={() => toggleProjectGroup(workspace.id)}
+                onSelect={(threadID) => void selectThread(threadID)}
+                onContextMenu={(thread, anchor) => setMenu({ thread, anchor })}
+              />
+            ))}
             {/* 工作区已被移除的会话仍有归属组，避免从列表里凭空消失。 */}
             {orphanThreads.length > 0 ? (
               <>
@@ -551,6 +586,83 @@ export function Sidebar() {
         </Popover>
       ) : null}
     </aside>
+  );
+}
+
+/**
+ * 单个项目的会话分组。
+ *
+ * 组头左侧的文件夹图标是展开 / 折叠开关，图标随状态切换（展开为
+ * folder-open、折叠为 folder）；折叠状态由父组件持久化。组内默认
+ * 最多展示 {@link PROJECT_GROUP_PAGE_SIZE} 条，超出时底部显示
+ * 「显示更多」，每次点击追加同样条数；分页计数是组件本地状态，
+ * 折叠再展开与切换其他项目都不会重置。
+ */
+function ProjectGroup({
+  workspace,
+  items,
+  activeID,
+  query,
+  collapsed,
+  onToggle,
+  onSelect,
+  onContextMenu,
+}: {
+  workspace: { id: string; name: string; path: string };
+  items: ThreadView[];
+  activeID?: string | null;
+  query: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  onSelect: (threadID: string) => void;
+  onContextMenu: (thread: ThreadView, anchor: HTMLElement) => void;
+}) {
+  const [limit, setLimit] = useState(PROJECT_GROUP_PAGE_SIZE);
+  const open = !collapsed;
+  const visible = items.slice(0, limit);
+  const hasMore = items.length > limit;
+
+  return (
+    <div className="thread-project-group">
+      <div className="thread-group-head is-project">
+        <button
+          type="button"
+          className="thread-group-toggle"
+          title={open ? "折叠项目会话" : "展开项目会话"}
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <Icon name={open ? "folder-open" : "folder"} />
+        </button>
+        <span className="thread-group-name" title={workspace.path}>
+          {workspace.name}
+        </span>
+        <span className="thread-group-count">{items.length}</span>
+      </div>
+      {open ? (
+        <>
+          {visible.map((thread) => (
+            <ThreadItem
+              key={thread.id}
+              thread={thread}
+              active={thread.id === activeID}
+              query={query}
+              onClick={() => onSelect(thread.id)}
+              onContextMenu={(anchor) => onContextMenu(thread, anchor)}
+            />
+          ))}
+          {hasMore ? (
+            <button
+              type="button"
+              className="thread-show-more"
+              onClick={() => setLimit((current) => current + PROJECT_GROUP_PAGE_SIZE)}
+            >
+              显示更多（还有 {items.length - limit} 条）
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }
 

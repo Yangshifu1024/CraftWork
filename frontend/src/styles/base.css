@@ -1137,6 +1137,56 @@ html[data-mode="work"] .ws-branch {
   width: 13px;
   height: 13px;
 }
+/* 「项目会话」区头：标题 + 会话总数 + 右侧动作（搜索 / 创建项目）。 */
+.thread-group-head.is-section {
+  margin-top: 6px;
+}
+.thread-group-head.is-section .spacer {
+  flex: 1;
+  min-width: 8px;
+}
+.thread-group-head.is-section .thread-group-add {
+  margin-left: 0;
+}
+/* 项目组头左侧的折叠开关：文件夹图标随展开状态切换（folder-open / folder）。 */
+.thread-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -2px;
+  border-radius: 4px;
+  color: var(--text-4);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.thread-group-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.thread-group-toggle .ico {
+  width: 12px;
+  height: 12px;
+}
+/* 项目组内「显示更多」：次要文字按钮，占满一行方便点击；左缩进对齐会话标题。 */
+.thread-show-more {
+  display: block;
+  width: 100%;
+  padding: 4px 8px 6px 26px;
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: var(--text-ui-sm);
+  text-align: left;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.thread-show-more:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
 .thread-group-empty {
   padding: 2px 8px 8px 14px;
   color: var(--text-4);

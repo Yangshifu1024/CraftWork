@@ -34,7 +34,8 @@ test("发送消息、工具调用与审批闭环", async ({ page }) => {
 
 test("首轮消息自动命名新会话", async ({ page }) => {
   await boot(page);
-  await page.getByRole("button", { name: "新建会话" }).click();
+  // 列表头的新建按钮已随侧栏重构移除；自动命名不区分会话归属，用临时会话入口。
+  await page.getByRole("button", { name: "新建临时会话" }).click();
   await sendMessage(page, "帮我修复登录刷新超时");
 
   await expect(page.locator(".thread-title", { hasText: "帮我修复登录刷新超时" })).toBeVisible();
