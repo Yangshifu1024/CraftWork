@@ -13,3 +13,4 @@ frontend/test-results
 frontend/playwright-report
 frontend/blob-report
 *.log
+output/
