@@ -224,6 +224,13 @@ func Run(frontend embed.FS, build version.Info) error {
 	// 绑定之后，事件总线产生的事件才会真正发到前端。
 	emitter.bind(wailsApp)
 
+	// 窗口底色跟随主题：显式浅色的用户在 WebView 首帧前不再看到深色窗口。
+	// dark 与跟随系统仍用深底；跟随系统的实际解析由前端完成。
+	windowBackground := application.NewRGB(11, 13, 17)
+	if settingsService.Get().Theme == "light" {
+		windowBackground = application.NewRGB(238, 240, 244)
+	}
+
 	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             windowName,
 		Title:            appName,
@@ -231,7 +238,7 @@ func Run(frontend embed.FS, build version.Info) error {
 		Height:           900,
 		MinWidth:         960,
 		MinHeight:        640,
-		BackgroundColour: application.NewRGB(11, 13, 17),
+		BackgroundColour: windowBackground,
 		// 窗口只加载本地根路径，绝对 URL 禁止传进来。
 		URL:            "/",
 		EnableFileDrop: true,

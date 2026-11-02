@@ -71,6 +71,14 @@ function applyTheme(theme: Theme): void {
     media.addEventListener("change", systemThemeListener);
   }
   document.documentElement.dataset.theme = resolveTheme(theme);
+  // 缓存到本地：下次启动在设置返回前先恢复，消除首帧的默认深色闪烁。
+  localStorage.setItem("cw-theme", theme);
+}
+
+// 模块加载即恢复上次主题（早于 React 首帧）；后端设置返回后由正常流程覆盖。
+const cachedTheme = localStorage.getItem("cw-theme");
+if (cachedTheme === "dark" || cachedTheme === "light" || cachedTheme === "system") {
+  applyTheme(cachedTheme);
 }
 
 /** 把工作模式写到根元素的数据属性上，样式与布局据此区分 code / work。 */
