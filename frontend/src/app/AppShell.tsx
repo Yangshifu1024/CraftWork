@@ -17,6 +17,7 @@ import { useNotifications } from "../features/chat/useNotifications";
 import { ImagePreviewOverlay } from "../features/overlays/ImagePreviewOverlay";
 import { Panel } from "../features/panel/Panel";
 import { Sidebar } from "../features/sidebar/Sidebar";
+import { isDesktopWindow } from "../lib/bus";
 import { cn } from "../lib/utils";
 import { usePanelStore } from "../stores/panel";
 import { useThreadStore } from "../stores/threads";
@@ -37,6 +38,22 @@ const DataModal = lazy(() =>
 const CreateProjectDialog = lazy(() =>
   import("../features/overlays/CreateProjectDialog").then((module) => ({ default: module.CreateProjectDialog })),
 );
+
+/**
+ * 焦点是否落在右侧面板的可编辑元素内（终端的隐藏输入、编辑器的
+ * contenteditable、文件树过滤框）。Esc 退出链用它跳过「关 tab」一级：
+ * 终端里的 Esc 是输入本身（如 vim 的模式切换），绝不能被全局链劫持。
+ */
+function isEditingInsidePanel(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) {
+    return false;
+  }
+  if (!active.closest("aside.panel")) {
+    return false;
+  }
+  return active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable;
+}
 
 /**
  * 三栏布局与全局浮层的容器组件，不接收 props。
@@ -145,8 +162,12 @@ export function AppShell() {
   // 全局快捷键：
   // - Cmd/Ctrl + K 打开命令面板，Cmd/Ctrl + N 新建对话；
   // - Cmd/Ctrl + , 打开设置，Cmd/Ctrl + F 聚焦会话搜索；
-  // - Esc 按「浮层 → 最大化面板 → 运行中的会话（双击确认）→ 待审批」的优先级
-  //   逐层退出，一次只处理最上层的那件事，避免一次按键关掉所有东西。
+  // - Cmd/Ctrl + B 开合右侧面板（桌面与 server 模式都注册）；
+  // - Cmd/Ctrl + W 关闭面板当前 tab（仅桌面窗口注册：server 模式下该组合键
+  //   是浏览器自身关标签页，绝不拦截）；
+  // - Esc 按「面板激活 tab（焦点守卫）→ 浮层 → 最大化面板 → 运行中的会话
+  //   （双击确认）→ 待审批」的优先级逐层退出，一次只处理最上层的那件事，
+  //   避免一次按键关掉所有东西。
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       // 输入法组合期间（如按 Esc 取消拼音候选）派发的按键不是普通快捷键，
@@ -164,6 +185,20 @@ export function AppShell() {
       if (meta && key === "n") {
         event.preventDefault();
         void useThreadStore.getState().create();
+        return;
+      }
+      if (meta && key === "b") {
+        event.preventDefault();
+        usePanelStore.getState().toggle();
+        return;
+      }
+      if (meta && key === "w" && isDesktopWindow) {
+        // 关闭面板当前激活 tab；没有激活 tab 时不拦截（透传给系统语义）。
+        const panel = usePanelStore.getState();
+        if (panel.open && panel.activeTabId) {
+          event.preventDefault();
+          panel.closeTab(panel.activeTabId);
+        }
         return;
       }
       if (meta && event.key === ",") {
@@ -187,6 +222,17 @@ export function AppShell() {
         }
         if (ui.imagePreview) {
           ui.closeImagePreview();
+          return;
+        }
+        // 面板激活 tab 是退出链的一级，但焦点在面板的可编辑区域（终端的
+        // 隐藏输入、编辑器的 contenteditable、文件树过滤框）时跳过——
+        // 终端里的 Esc 是输入本身（如 vim 的模式切换），绝不能劫持。
+        if (isEditingInsidePanel()) {
+          return;
+        }
+        const panel = usePanelStore.getState();
+        if (panel.open && panel.activeTabId) {
+          panel.closeTab(panel.activeTabId);
           return;
         }
         if (usePanelStore.getState().maximized) {

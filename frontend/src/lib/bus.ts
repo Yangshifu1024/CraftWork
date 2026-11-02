@@ -23,6 +23,17 @@ export const isDesktop =
     window.location.hostname === "wails.localhost" ||
     import.meta.env.MODE !== "mock");
 
+/**
+ * 是否为真实的桌面窗口（Wails 桌面壳）。
+ *
+ * 与 isDesktop 的区别：server 模式下 isDesktop 也是 true（后端在 Go 进程里），
+ * 但宿主是浏览器——浏览器自身的 Cmd/Ctrl+W 会关闭浏览器标签页，任何「拦截
+ * Cmd/Ctrl+W 做应用内操作」的快捷键都必须用本标记判断，仅桌面窗口注册。
+ */
+export const isDesktopWindow =
+  typeof window !== "undefined" &&
+  (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost");
+
 /** 事件批次处理函数的签名。 */
 type BatchHandler = (batch: Batch) => void;
 

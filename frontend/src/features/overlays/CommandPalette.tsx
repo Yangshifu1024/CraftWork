@@ -107,6 +107,19 @@ export function CommandPalette() {
         icon: panelMaximized ? "minimize" : "maximize",
         run: toggleMaximized,
       },
+      {
+        id: "close-panel-tab",
+        group: "命令",
+        title: "关闭面板当前标签页",
+        sub: "⌘W",
+        icon: "x",
+        run: () => {
+          const panel = usePanelStore.getState();
+          if (panel.activeTabId) {
+            panel.closeTab(panel.activeTabId);
+          }
+        },
+      },
       { id: "usage", group: "命令", title: "打开用量统计", icon: "zap", run: () => openData("usage") },
       { id: "audit", group: "命令", title: "打开审计记录", icon: "shield-check", run: () => openData("audit") },
       { id: "backup", group: "命令", title: "打开备份列表", icon: "archive", run: () => openData("backup") },
