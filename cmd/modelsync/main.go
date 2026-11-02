@@ -431,8 +431,8 @@ func encodeDataset(dataset *catalogdata.Dataset) ([]byte, error) {
 		return nil, fmt.Errorf("创建压缩目录: %w", err)
 	}
 	// 固定头部时间与操作系统字段，保证相同数据生成完全相同的字节。
-	writer.Header.ModTime = time.Time{}
-	writer.Header.OS = 255
+	writer.ModTime = time.Time{}
+	writer.OS = 255
 	if _, err := writer.Write(raw); err != nil {
 		return nil, fmt.Errorf("压缩模型目录: %w", err)
 	}

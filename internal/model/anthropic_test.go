@@ -18,7 +18,7 @@ func TestAnthropicStreamConvertsMessagesAndTools(t *testing.T) {
 			Text         string         `json:"text"`
 			CacheControl map[string]any `json:"cache_control"`
 		} `json:"system"`
-		Messages  []struct {
+		Messages []struct {
 			Role    string `json:"role"`
 			Content []struct {
 				Type         string         `json:"type"`

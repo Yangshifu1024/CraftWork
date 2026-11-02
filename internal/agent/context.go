@@ -101,7 +101,8 @@ func planCompression(messages []model.Message, window int64) ([]model.Message, [
 //
 // 摘要失败时保留原始历史，让本轮继续尝试；不会因为压缩失败直接中断运行。
 func (r *Runner) maybeCompress(ctx context.Context, thread store.Thread, runID, messageID string,
-	history []model.Message, seqs []int64) []model.Message {
+	history []model.Message, seqs []int64,
+) []model.Message {
 	_, info, ok := model.Resolve(thread.ModelID)
 	if !ok {
 		return history

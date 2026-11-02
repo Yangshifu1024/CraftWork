@@ -62,7 +62,7 @@ func Normalize(value string) string {
 	value = strings.Join(strings.Fields(value), " ")
 	value = strings.TrimLeft(value, "#>-*_` ")
 	value = strings.ReplaceAll(value, "`", "")
-	value = strings.Trim(value, " \t\r\n，。！？；：、,.!?;:*_\"'“”‘’《》 ")
+	value = strings.Trim(value, " \t\r\n，。！？；：、,.!?;:*_\"'“”‘’《》")
 	return value
 }
 

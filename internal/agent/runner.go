@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"craftwork/internal/agent/prompt"
 	"craftwork/internal/events"
 	"craftwork/internal/id"
-	"craftwork/internal/agent/prompt"
 	"craftwork/internal/model"
 	"craftwork/internal/policy"
 	"craftwork/internal/record"
@@ -125,7 +125,8 @@ type Runner struct {
 //
 // 参数都是已经装配好的依赖，构造函数只保存引用，不产生新的连接或副作用。
 func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
-	engine *policy.Engine, approvals *Approvals, models ModelFactory, attachmentDir, dataDir string) *Runner {
+	engine *policy.Engine, approvals *Approvals, models ModelFactory, attachmentDir, dataDir string,
+) *Runner {
 	return &Runner{
 		db:            db,
 		records:       records,
@@ -541,9 +542,6 @@ func (r *Runner) executeRun(ctx context.Context, thread store.Thread, runID, mes
 
 		// 没有工具调用说明模型已经给出最终回答，本轮运行正常结束。
 		if len(toolCalls) == 0 {
-			if textBuilder.Len() > 0 {
-				history = append(history, model.Message{Role: "assistant", Content: textBuilder.String()})
-			}
 			r.complete(thread, runID, messageID, startedAt)
 			return true
 		}
@@ -612,7 +610,8 @@ func historyHasMessage(history []model.Message, messageID string) bool {
 // 只有在请求尚未建立时遇到可重试错误（429、5xx、超时、连接失败）才会切换
 // 到失败转移模型；一旦收到任何片段，后续错误不再转移，避免上下文混乱。
 func (r *Runner) openSession(ctx context.Context, thread store.Thread, runID, messageID, mode string, system []model.SystemBlock,
-	history []model.Message, specs []model.ToolSpec) (*streamSession, error) {
+	history []model.Message, specs []model.ToolSpec,
+) (*streamSession, error) {
 	candidates := []string{thread.ModelID}
 	if fallback := r.models.FallbackModel(thread.ModelID); fallback != "" && fallback != thread.ModelID {
 		candidates = append(candidates, fallback)

@@ -27,8 +27,10 @@ func TestProvidersOnlyReturnUserConfiguration(t *testing.T) {
 	}
 
 	SetCustomProviders([]Provider{provider("gateway", "网关", "https://gateway.example.com/v1",
-		ModelInfo{ID: "gateway-model", Name: "Gateway Model", ContextK: 64,
-			Caps: Capabilities{Stream: true, Tools: true}})})
+		ModelInfo{
+			ID: "gateway-model", Name: "Gateway Model", ContextK: 64,
+			Caps: Capabilities{Stream: true, Tools: true},
+		})})
 
 	item, info, found := FindModel("gateway-model")
 	if !found || item.Name != "网关" || info.ContextK != 64 {

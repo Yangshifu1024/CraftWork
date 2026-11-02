@@ -14,8 +14,10 @@ func TestThreadAndSnapshot(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_1", Mode: "code", Title: "测试会话", ModelID: "openai/gpt-5.1",
-		Status: "idle", CreatedAt: now, UpdatedAt: now}
+	thread := &Thread{
+		ID: "th_1", Mode: "code", Title: "测试会话", ModelID: "openai/gpt-5.1",
+		Status: "idle", CreatedAt: now, UpdatedAt: now,
+	}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +74,10 @@ func TestSnapshotWorkDuration(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_work", Mode: "code", Title: "工时", ModelID: "openai/gpt-5.1",
-		Status: "running", CreatedAt: now, UpdatedAt: now}
+	thread := &Thread{
+		ID: "th_work", Mode: "code", Title: "工时", ModelID: "openai/gpt-5.1",
+		Status: "running", CreatedAt: now, UpdatedAt: now,
+	}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +141,10 @@ func TestInterruptStaleRuns(t *testing.T) {
 	defer db.Close()
 
 	now := NowMillis()
-	thread := &Thread{ID: "th_stale", Mode: "code", Title: "中断", ModelID: "openai/gpt-5.1",
-		Status: "running", CreatedAt: now, UpdatedAt: now}
+	thread := &Thread{
+		ID: "th_stale", Mode: "code", Title: "中断", ModelID: "openai/gpt-5.1",
+		Status: "running", CreatedAt: now, UpdatedAt: now,
+	}
 	if err := db.CreateThread(thread); err != nil {
 		t.Fatal(err)
 	}
@@ -277,12 +283,16 @@ func TestLatestUsageByThreads(t *testing.T) {
 
 	// 同一会话写入两次用量，最新一次应覆盖早先一次；另一会话无记录。
 	first := NowMillis() - 1000
-	if err := db.AddUsage(&UsageRow{TS: first, ThreadID: "th_a", ModelID: "m",
-		InputTokens: 10, OutputTokens: 2, CacheTokens: 5}); err != nil {
+	if err := db.AddUsage(&UsageRow{
+		TS: first, ThreadID: "th_a", ModelID: "m",
+		InputTokens: 10, OutputTokens: 2, CacheTokens: 5,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AddUsage(&UsageRow{TS: first + 500, ThreadID: "th_a", ModelID: "m",
-		InputTokens: 200, OutputTokens: 40, CacheTokens: 180, DurationMs: 2000}); err != nil {
+	if err := db.AddUsage(&UsageRow{
+		TS: first + 500, ThreadID: "th_a", ModelID: "m",
+		InputTokens: 200, OutputTokens: 40, CacheTokens: 180, DurationMs: 2000,
+	}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -51,6 +51,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | Go | 1.27.3+ | 以 `go.mod` 的 `go` 指令为准 |
 | Node.js | 24.22.2+ | 以 Vite / `package.json` 要求为准 |
 | Wails3 CLI | v3.0.0 | 需在 PATH 中；用 `wails3 doctor` 检查环境 |
+| golangci-lint | v2.15.0 | Go lint 与格式化；配置见 `.golangci.yml`；安装 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` |
 | 前端依赖 | — | `cd frontend && npm install` |
 
 规则：
@@ -100,6 +101,7 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | macOS 打包 | `wails3 package` → `bin/craftwork.app` |
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
+| Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查格式） |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
 | 前端 lint / 格式化 | `cd frontend && npm run lint`（检查）；`npm run lint:fix`（安全修复）；`npm run format`（格式化，配置见 `frontend/biome.json`） |
 | 前端单元测试 | `cd frontend && npm run test` |
@@ -265,6 +267,7 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 ```bash
 go test ./...
 go vet ./...
+golangci-lint run
 cd frontend && npm run lint && npx tsc --noEmit && npm run build
 wails3 build
 ```
