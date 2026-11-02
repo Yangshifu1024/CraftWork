@@ -138,6 +138,7 @@ export function useChatRuntime() {
   const messages = useThreadStore((state) => state.messages);
   const running = useThreadStore((state) => state.running);
   const send = useThreadStore((state) => state.send);
+  const steer = useThreadStore((state) => state.steer);
   const cancel = useThreadStore((state) => state.cancel);
   const regenerate = useThreadStore((state) => state.regenerate);
   const hasEarlier = useThreadStore((state) => state.hasEarlier);
@@ -173,7 +174,12 @@ export function useChatRuntime() {
    *
    * 从消息内容里拼出纯文本，并读取 store 中已选好的附件路径；
    * 如果模型不支持图片，而附件里含图片文件，就弹出警告并放弃发送，
-   * 避免把图片交给不认识它的模型。校验通过后交给会话 store 的 send。
+   * 避免把图片交给不认识它的模型。
+   *
+   * 运行中回车不再作为新消息发送（后端会拒绝在途会话的 Send），
+   * 而是转为运行中引导（steer）：由后端落库排队，在下一个工具批次
+   * 结束后并入模型请求。这里用 getState 读取 running，保证回车瞬间
+   * 的状态而不是渲染时闭包里的旧值。
    */
   const handleNew = useCallback(
     async (message: any) => {
@@ -198,9 +204,13 @@ export function useChatRuntime() {
         });
         return;
       }
+      if (useThreadStore.getState().running) {
+        await steer(text, attachments);
+        return;
+      }
       await send(text, attachments);
     },
-    [send, visionEnabled, currentModel],
+    [send, steer, visionEnabled, currentModel],
   );
 
   // 取消当前生成：后端收到后会终止 run，并把消息标记为 incomplete。

@@ -201,6 +201,23 @@ function setMessageStatus(
 }
 
 /**
+ * 清除所有引导消息的「待送达」标记。
+ *
+ * 运行中引导显示后，收到本会话任意后续活动事件（新 run、流式增量、
+ * 工具开始）即视为排队引导已被并入模型请求；运行终态也清除——
+ * 引导会留在会话记录里，随下一次运行的模型历史重建生效。
+ * 没有标记时原样返回，避免无意义的整表重建。
+ */
+function clearSteerQueued(messages: ChatMessage[]): ChatMessage[] {
+  if (!messages.some((message) => message.steerQueued)) {
+    return messages;
+  }
+  return messages.map((message) =>
+    message.steerQueued ? { ...message, steerQueued: false } : message,
+  );
+}
+
+/**
  * 就地更新审批部件里的字段。
  *
  * 只匹配 id 相同且类型为审批的部件，其他部件原样返回；
@@ -320,6 +337,9 @@ function finishRun(
       message.id === messageID ? { ...message, workDurationMs: durationMs } : message,
     );
   }
+  // 运行终态后不再有「即将投递」的语义：取消或失败时未投递的引导
+  // 会留在会话记录里，随下一次运行的模型历史重建生效。
+  draft.messages = clearSteerQueued(draft.messages);
   draft.running = false;
   draft.runningMessageID = null;
   if (draft.activeThreadID) {
@@ -329,12 +349,45 @@ function finishRun(
 }
 
 /**
+ * 运行中引导（steer）落库：按消息 id 幂等插入一条用户消息。
+ *
+ * 引导不走乐观插入，这条事件就是显示的唯一来源；重复推送（多窗口、
+ * 事件重放）按 id 去重。刷新或切换会话后整份消息由快照接管。
+ */
+function appendSteerMessage(draft: Draft, event: Envelope): void {
+  const messageID = event.data?.messageId as string | undefined;
+  if (!messageID || draft.messages.some((message) => message.id === messageID)) {
+    return;
+  }
+  draft.messages = [
+    ...draft.messages,
+    {
+      id: messageID,
+      threadId: draft.activeThreadID,
+      role: "user",
+      status: "complete",
+      createdAt: Date.now(),
+      steerQueued: true,
+      parts: [
+        {
+          id: `${messageID}-text`,
+          kind: "text",
+          seq: 0,
+          data: { text: String(event.data?.text ?? ""), attachments: event.data?.attachments ?? [] },
+        },
+      ],
+    },
+  ];
+}
+
+/**
  * 事件类型到处理函数的映射表。
  *
  * 每种事件一个处理函数；新增 EVENT 时类型检查会强制补表，避免漏处理。
  */
 const handlers: Record<EventType, Handler> = {
   // 运行开始：记录正在流式输出的消息 id，并把会话标记为运行中。
+  // 接力运行也走这里；开始即视为排队引导即将投递，清掉「待送达」标记。
   [EVENT.runStarted]: (draft, event) => {
     const messageID = event.data?.messageId as string | undefined;
     if (!messageID) {
@@ -342,21 +395,30 @@ const handlers: Record<EventType, Handler> = {
     }
     draft.runningMessageID = messageID;
     draft.running = true;
-    draft.messages = ensureMessage(draft.messages, messageID, draft.activeThreadID);
+    draft.messages = clearSteerQueued(ensureMessage(draft.messages, messageID, draft.activeThreadID));
     if (draft.activeThreadID) {
       draft.threads = updateThread(draft.threads, draft.activeThreadID, { status: "running" });
     }
   },
-  // 正文增量：把片段追加到对应文本部件后面。
-  [EVENT.textDelta]: (draft, event) => appendFromEvent(draft, "text", event),
+  // 正文增量：把片段追加到对应文本部件后面；出现新内容说明引导已投递。
+  [EVENT.textDelta]: (draft, event) => {
+    appendFromEvent(draft, "text", event);
+    draft.messages = clearSteerQueued(draft.messages);
+  },
   // 正文片段完成：用后端给出的完整文本覆盖该部件。
   [EVENT.textCompleted]: (draft, event) => upsertFromEvent(draft, "text", event),
   // 推理过程增量：与正文分开存放，供界面折叠展示。
-  [EVENT.reasoningDelta]: (draft, event) => appendFromEvent(draft, "reasoning", event),
+  [EVENT.reasoningDelta]: (draft, event) => {
+    appendFromEvent(draft, "reasoning", event);
+    draft.messages = clearSteerQueued(draft.messages);
+  },
   // 推理片段完成：整体覆盖该部件。
   [EVENT.reasoningCompleted]: (draft, event) => upsertFromEvent(draft, "reasoning", event),
   // 工具调用开始：写入工具部件，此时通常只有命令与参数。
-  [EVENT.toolStarted]: (draft, event) => upsertFromEvent(draft, "tool", event),
+  [EVENT.toolStarted]: (draft, event) => {
+    upsertFromEvent(draft, "tool", event);
+    draft.messages = clearSteerQueued(draft.messages);
+  },
   // 工具调用结束：同一部件 id 合并输出、耗时与错误标记。
   [EVENT.toolCompleted]: (draft, event) => upsertFromEvent(draft, "tool", event),
   [EVENT.approvalRequested]: (draft, event) => {
@@ -392,6 +454,8 @@ const handlers: Record<EventType, Handler> = {
   },
   // 待办清单更新：整份清单一次性替换。
   [EVENT.todoUpdated]: (draft, event) => upsertFromEvent(draft, "todo", event),
+  // 运行中引导落库：插入带「待送达」标记的用户消息气泡。
+  [EVENT.userMessage]: appendSteerMessage,
   // 普通提示：例如上下文压缩说明，作为消息内的通知部件展示。
   [EVENT.notice]: (draft, event) => upsertFromEvent(draft, "notice", event),
   // 错误事件：写成错误部件，交给消息组件展示错误码与可读文案。

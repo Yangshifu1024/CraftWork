@@ -81,6 +81,8 @@ interface ThreadState {
   setModel(threadID: string, modelID: string): Promise<void>;
   /** 发送消息；没有当前会话时先自动新建。 */
   send(text: string, attachments?: string[]): Promise<void>;
+  /** 运行中追加引导（steer）；仅当前会话在运行中时生效。 */
+  steer(text: string, attachments?: string[]): Promise<void>;
   /** 取消当前会话正在进行的运行。 */
   cancel(): Promise<void>;
   /** 标记取消确认就绪（双击 Esc 的第一击）。 */
@@ -453,6 +455,38 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       set({ running: false });
       useUiStore.getState().toast({
         title: "发送失败",
+        description: String(error),
+        tone: "danger",
+      });
+    }
+  },
+
+  /**
+   * 运行中追加引导（steer）。
+   *
+   * 与 send 的区别：不做乐观插入——后端落库后会广播 user.message 事件，
+   * 由 reducer 插入气泡，避免同一条消息出现两份。后端会在下一个工具
+   * 批次结束后把它并入模型请求；会话恰好已结束时后端自动回退为普通
+   * 发送，前端无感。调用失败只提示，不改动运行状态。
+   */
+  async steer(text, attachments = []) {
+    const mode = useAppStore.getState().mode;
+    const threadID = get().activeID[mode];
+    // 不在运行中时直接忽略：composer 的分流逻辑保证正常交互不会走到这里。
+    if (!threadID || !get().running) {
+      return;
+    }
+    const trimmed = text.trim();
+    if (!trimmed && attachments.length === 0) {
+      return;
+    }
+    try {
+      await api.chat.steer(threadID, trimmed, attachments);
+      // 只有后端接受后才清空附件草稿，失败时保留方便重发。
+      get().clearAttachments();
+    } catch (error) {
+      useUiStore.getState().toast({
+        title: "引导发送失败",
         description: String(error),
         tone: "danger",
       });

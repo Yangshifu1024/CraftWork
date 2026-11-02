@@ -42,6 +42,35 @@ test("首轮消息自动命名新会话", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("运行中引导（steer）排队显示并接力生效", async ({ page }) => {
+  await boot(page);
+  // 审批分支会让运行挂起等待用户决定，为引导提供一个稳定的事件静默窗口。
+  await sendMessage(page, "帮我修复登录刷新超时");
+  const allowButton = page.getByRole("button", { name: "允许一次" });
+  await expect(allowButton).toBeVisible();
+  await expect(page.locator(".stop-btn")).toBeVisible();
+
+  // 运行中输入补充指令：发送位切换为「引导」按钮，点击与回车同路。
+  const input = page.locator("#composer-input");
+  await input.fill("补充：注意 frontend 目录");
+  await expect(page.getByRole("button", { name: "作为引导发送" })).toBeVisible();
+  await page.getByRole("button", { name: "作为引导发送" }).click();
+  await expect(page.locator(".composer-foot")).toContainText("引导");
+
+  // 引导气泡立即出现并带「待送达」标记；输入框清空后发送位回到停止形态。
+  await expect(page.getByText("补充：注意 frontend 目录")).toBeVisible();
+  await expect(page.locator(".msg-tag.is-steer")).toBeVisible();
+  await expect(page.locator(".stop-btn")).toBeVisible();
+
+  // 审批放行后本轮完成，排队的引导由接力运行处理：出现第二轮回复。
+  await allowButton.click();
+  await expect(page.getByText("已完成修改：把刷新窗口从 10 分钟调整为 12 分钟。").first()).toBeVisible();
+  await expect(page.getByText("我会先读取相关文件", { exact: false }).nth(1)).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.locator(".msg-tag.is-steer")).toHaveCount(0);
+});
+
 test("设置面板与主题切换", async ({ page }) => {
   await boot(page);
   await page.locator('.side-link[title^="设置"]').click();

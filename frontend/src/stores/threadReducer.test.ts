@@ -212,6 +212,89 @@ describe("reduceThread", () => {
     expect(result.refreshNeeded).toBe(false);
   });
 
+  it("user.message 插入待送达的引导消息并按 id 去重", () => {
+    const started = reduceThread(
+      baseState(),
+      batch(envelope(EVENT.runStarted, { messageId: "msg_run" })),
+      "th",
+    );
+    const steer = (seq: number) =>
+      envelope(EVENT.userMessage, { messageId: "msg_steer", text: "补充指令", attachments: [], via: "steer" }, seq);
+
+    const steered = reduceThread(started, batch(steer(2)), "th");
+    const steerMessage = steered.messages.find((message) => message.id === "msg_steer");
+    expect(steerMessage?.role).toBe("user");
+    expect(steerMessage?.steerQueued).toBe(true);
+    expect(steerMessage?.parts[0]?.data.text).toBe("补充指令");
+    expect(steerMessage?.parts[0]?.data.attachments).toEqual([]);
+
+    // 同一条引导重复推送（多窗口、事件重放）按消息 id 去重。
+    const deduped = reduceThread(steered, batch(steer(3)), "th");
+    expect(deduped.messages).toHaveLength(steered.messages.length);
+  });
+
+  it("待送达标记在流式与工具事件到达时清除，审批事件不影响", () => {
+    const started = reduceThread(
+      baseState(),
+      batch(envelope(EVENT.runStarted, { messageId: "msg_run" })),
+      "th",
+    );
+    const steered = reduceThread(
+      started,
+      batch(
+        envelope(EVENT.userMessage, { messageId: "msg_steer", text: "补充指令", attachments: [], via: "steer" }, 2),
+      ),
+      "th",
+    );
+
+    // 审批对应的是引导之前已经发起的工具调用，不代表引导已投递。
+    const approval = reduceThread(
+      steered,
+      batch(
+        envelope(
+          EVENT.approvalRequested,
+          { partId: "p_ap", approvalId: "ap_1", tool: "fs_write", risk: "R1", title: "写入", target: "note.txt", status: "waiting", allowPermanent: true },
+          3,
+        ),
+      ),
+      "th",
+    );
+    expect(approval.messages.find((message) => message.id === "msg_steer")?.steerQueued).toBe(true);
+
+    // 流式增量到达，说明引导已被并入模型请求。
+    const delivered = reduceThread(
+      approval,
+      batch(envelope(EVENT.textDelta, { partId: "p_text", text: "收到" }, 4)),
+      "th",
+    );
+    expect(delivered.messages.find((message) => message.id === "msg_steer")?.steerQueued).toBe(false);
+  });
+
+  it("工具开始与运行终态同样清除待送达标记", () => {
+    const steer = (seq: number) =>
+      envelope(EVENT.userMessage, { messageId: "msg_steer", text: "补充指令", attachments: [], via: "steer" }, seq);
+
+    const started = reduceThread(baseState(), batch(envelope(EVENT.runStarted, { messageId: "msg_run" })), "th");
+    const steered = reduceThread(started, batch(steer(2)), "th");
+    const tool = reduceThread(
+      steered,
+      batch(
+        envelope(EVENT.toolStarted, { partId: "p_tool", toolCallId: "c1", name: "fs_list", args: {}, risk: "R0", status: "running", summary: "." }, 3),
+      ),
+      "th",
+    );
+    expect(tool.messages.find((message) => message.id === "msg_steer")?.steerQueued).toBe(false);
+
+    // 取消后未投递的引导留在会话里，但不再有「即将投递」语义。
+    const steeredAgain = reduceThread(started, batch(steer(2)), "th");
+    const canceled = reduceThread(
+      steeredAgain,
+      batch(envelope(EVENT.runCanceled, { status: "canceled" }, 3)),
+      "th",
+    );
+    expect(canceled.messages.find((message) => message.id === "msg_steer")?.steerQueued).toBe(false);
+  });
+
   it("未知事件类型被忽略", () => {
     const result = reduceThread(
       baseState(),

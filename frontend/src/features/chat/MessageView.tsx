@@ -124,6 +124,10 @@ export function MessageView() {
   const workDurationMs = useThreadStore(
     (state) => state.messages.find((message) => message.id === messageId)?.workDurationMs,
   );
+  // 引导消息的「待送达」标记：已显示但还没并入下一次模型请求。
+  const steerQueued = useThreadStore(
+    (state) => state.messages.find((message) => message.id === messageId)?.steerQueued,
+  );
   const regenerate = useThreadStore((state) => state.regenerate);
   const toast = useUiStore((state) => state.toast);
 
@@ -193,6 +197,7 @@ export function MessageView() {
         <div className="msg-foot">
           <span className="msg-time">{formatTime(new Date(createdAt).getTime())}</span>
           {running ? <span className="msg-tag">生成中</span> : null}
+          {isUser && steerQueued ? <span className="msg-tag is-steer">待送达</span> : null}
           <span className="foot-spacer" />
           <button
             type="button"

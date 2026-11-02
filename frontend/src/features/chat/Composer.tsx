@@ -5,13 +5,14 @@
  * - 使用 assistant-ui 的 ComposerPrimitive 管理输入框、提交与发送按钮。
  * - 展示并管理待发送附件：添加、移除；图片入口在不支持视觉的模型上禁用。
  * - 提供审批档位切换与模型切换两个浮层，改动即时保存到设置或会话。
- * - 显示上下文用量估算，以及运行中把发送按钮替换成停止按钮。
+ * - 显示上下文用量估算；运行中发送位按输入内容切换：有内容是「引导」，
+ *   空输入保持「停止」。
  *
- * 说明：这里只负责输入与选择，真正的发送、取消由 runtime 转给会话 store。
+ * 说明：这里只负责输入与选择，真正的发送、引导、取消由 runtime 转给会话 store。
  */
 import { useMemo, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
-import { ComposerPrimitive } from "@assistant-ui/react";
+import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { ContextRing } from "../../components/ContextRing";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
@@ -58,6 +59,71 @@ const levelLabel: Record<string, string> = {
   readonly: "只读",
   free: "自由",
 };
+
+/**
+ * 发送位按钮：空闲时是发送，运行中按输入内容切换形态。
+ *
+ * 必须渲染在 ComposerPrimitive.Root 内部：「composer 是否为空」来自
+ * assistant-ui 的组合状态（`state.composer`），在 Root 外层读不到。
+ *
+ * 运行中且有输入内容时显示「引导」按钮：点击与回车同路——都走
+ * assistant-ui 的提交路径，由 runtime 的 handleNew 分流为 steer，
+ * composer 随提交自动清空。空输入时保持停止按钮。
+ */
+function SendCluster(props: {
+  running: boolean;
+  hasModel: boolean;
+  interruptArmed: boolean;
+  onCancel: () => void;
+}) {
+  const composerEmpty = useAuiState((state: any) => state.composer?.isEmpty ?? true);
+  const aui = useAui();
+
+  if (props.running) {
+    if (!composerEmpty) {
+      return (
+        <button
+          type="button"
+          className="send-btn is-steer"
+          title="作为引导发送（回车）"
+          aria-label="作为引导发送"
+          onClick={() => aui.composer.send()}
+        >
+          <Icon name="corner-down-left" className="ico" />
+        </button>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className={cn("stop-btn", props.interruptArmed && "is-armed")}
+        title={props.interruptArmed ? "再按一次 Esc 停止生成" : "停止生成（按两次 Esc）"}
+        aria-label="停止生成"
+        onClick={props.onCancel}
+      >
+        <Icon name="stop" className="ico" />
+      </button>
+    );
+  }
+  if (props.hasModel) {
+    return (
+      <ComposerPrimitive.Send className="send-btn" title="发送 ↵" aria-label="发送">
+        <Icon name="arrow-up" className="ico" />
+      </ComposerPrimitive.Send>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="send-btn"
+      disabled
+      title="请先在设置中添加提供商并选择模型"
+      aria-label="发送"
+    >
+      <Icon name="arrow-up" className="ico" />
+    </button>
+  );
+}
 
 /**
  * 消息输入区组件。
@@ -283,17 +349,9 @@ export function Composer() {
             // Esc 取消由 AppShell 的全局「双击 Esc」统一处理；composer 内置的
             // 单击取消必须关掉，否则按键在这里就被消费，双击确认永远不生效。
             cancelOnEscape={false}
+            // ⌃/⌘+Enter 保持 assistant-ui 默认的提交行为：空闲时等于发送，
+            // 运行时经 handleNew 分流为引导（steer），与回车等价。
             autoFocus
-            onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-              // Ctrl/Cmd+Enter 预留给后续的 steer（运行中追加指令），当前
-              // 不绑定任何动作：吞掉按键，避免被 assistant-ui 当作提交。
-              // composeEventHandlers 会先执行外部 handler，并尊重 preventDefault。
-              if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === "Enter") {
-                if (!event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
-                  event.preventDefault();
-                }
-              }
-            }}
           />
         </div>
 
@@ -369,56 +427,48 @@ export function Composer() {
               <Icon name="chevron-down" className="ico chev" />
             </button>
 
-            {/* 运行中显示停止按钮；按过一次 Esc 后进入待确认态，提示再按一次。
-                点击按钮仍是明确意图，直接取消，不需要双击。 */}
-            {running ? (
-              <button
-                type="button"
-                className={cn("stop-btn", interruptArmed && "is-armed")}
-                title={interruptArmed ? "再按一次 Esc 停止生成" : "停止生成（按两次 Esc）"}
-                aria-label="停止生成"
-                onClick={() => void cancel()}
-              >
-                <Icon name="stop" className="ico" />
-              </button>
-            ) : currentModel ? (
-              <ComposerPrimitive.Send className="send-btn" title="发送 ↵" aria-label="发送">
-                <Icon name="arrow-up" className="ico" />
-              </ComposerPrimitive.Send>
-            ) : (
-              <button
-                type="button"
-                className="send-btn"
-                disabled
-                title="请先在设置中添加提供商并选择模型"
-                aria-label="发送"
-              >
-                <Icon name="arrow-up" className="ico" />
-              </button>
-            )}
+            {/* 发送位：空闲是发送；运行中按输入内容切换——有内容是「引导」，
+                空输入保持停止。按钮形态见 SendCluster。 */}
+            <SendCluster
+              running={running}
+              hasModel={Boolean(currentModel)}
+              interruptArmed={interruptArmed}
+              onCancel={() => void cancel()}
+            />
           </div>
         </div>
       </ComposerPrimitive.Root>
 
-      {/* 输入区下方的快捷键与安全提示，文案随模式变化。 */}
+      {/* 输入区下方的快捷键与安全提示，文案随模式与运行状态变化。 */}
       <div className="composer-foot">
         <div className="hints">
-          <span>
-            <span className="kbd">↵</span> 发送
-          </span>
-          <span className="foot-sep" aria-hidden="true" />
-          <span>
-            <span className="kbd">⇧↵</span> 换行
-          </span>
-          <span className="foot-sep" aria-hidden="true" />
-          <span>
-            <span className="kbd">Esc</span>
-            <span className="kbd">Esc</span> 停止
-          </span>
-          <span className="foot-sep" aria-hidden="true" />
-          <span>
-            <span className="kbd">⌃↵</span> steer 即将支持
-          </span>
+          {running ? (
+            <>
+              <span>
+                <span className="kbd">↵</span> 引导
+              </span>
+              <span className="foot-sep" aria-hidden="true" />
+              <span>
+                <span className="kbd">Esc</span>
+                <span className="kbd">Esc</span> 停止
+              </span>
+            </>
+          ) : (
+            <>
+              <span>
+                <span className="kbd">↵</span> 发送
+              </span>
+              <span className="foot-sep" aria-hidden="true" />
+              <span>
+                <span className="kbd">⇧↵</span> 换行
+              </span>
+              <span className="foot-sep" aria-hidden="true" />
+              <span>
+                <span className="kbd">Esc</span>
+                <span className="kbd">Esc</span> 停止
+              </span>
+            </>
+          )}
         </div>
       </div>
 

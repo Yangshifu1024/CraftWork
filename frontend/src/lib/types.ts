@@ -166,6 +166,11 @@ export interface ChatMessage {
   createdAt: number;
   /** 本轮运行耗时（毫秒）。运行结束（含取消/失败）后由后端回填；运行中为 0。 */
   workDurationMs?: number;
+  /**
+   * 运行中引导消息的「待送达」标记：已显示但尚未并入下一次模型请求。
+   * 收到本会话任意后续活动事件（流式增量、工具开始、新 run）即清除。
+   */
+  steerQueued?: boolean;
   parts: ChatPart[];
 }
 
@@ -324,6 +329,8 @@ export const EVENT = {
   notice: "notice",
   contextCompressed: "context.compressed",
   error: "error",
+  // 运行中引导（steer）落库的用户消息，前端据此插入消息气泡。
+  userMessage: "user.message",
   // 会话与用量统计。
   threadUpdated: "thread.updated",
   usageUpdated: "usage.updated",

@@ -90,9 +90,10 @@ export const desktopApi = {
       // 已有会话的分页快照在后端保证非空；这里把 Wails 的可空返回收敛掉。
       (await ThreadService.SnapshotPage(threadID, limit, beforeSeq)) as ThreadSnapshot,
   },
-  /** 对话：发送、重新生成、取消、提交审批决定。 */
+  /** 对话：发送、运行中引导、重新生成、取消、提交审批决定。 */
   chat: {
     send: (threadID, text, attachments: string[] = []) => ChatService.Send(threadID, text, attachments),
+    steer: (threadID, text, attachments: string[] = []) => ChatService.Steer(threadID, text, attachments),
     regenerate: (threadID) => ChatService.Regenerate(threadID),
     cancel: (threadID) => ChatService.Cancel(threadID),
     decideApproval: (approvalID, allow, scope) =>

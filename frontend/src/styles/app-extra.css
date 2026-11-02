@@ -131,3 +131,20 @@
   color: var(--text-3);
   font-size: var(--text-ui-xs);
 }
+
+/* 运行中引导（steer）：「待送达」徽标与发送位的引导按钮形态。 */
+.msg-tag.is-steer {
+  color: var(--text-3);
+  border-style: dashed;
+}
+
+.send-btn.is-steer {
+  background: var(--bg-active);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.send-btn.is-steer:hover {
+  background: var(--mode-accent);
+  color: var(--on-mode-accent);
+  border-color: transparent;
+}

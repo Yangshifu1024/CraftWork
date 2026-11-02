@@ -413,6 +413,8 @@ const terminalSessions: TerminalView[] = [];
 let terminalCounter = 0;
 /** 已被用户取消运行的会话 ID 集合；`simulateRun` 在每个阶段之间检查它。 */
 const cancelled = new Set<string>();
+/** 运行中引导的待投递队列：会话 ID 到排队指令的映射，`simulateRun` 在阶段边界消费。 */
+const steerQueue = new Map<string, Array<{ text: string; attachments: string[] }>>();
 /** 仍允许首轮自动命名的会话 ID；用户改名或完成命名后移除。 */
 const autoTitleThreads = new Set<string>();
 /**
@@ -508,6 +510,13 @@ function addPart(threadID: string, messageID: string, part: ChatPart): void {
   }
 }
 
+/** 取走会话全部待投递的运行中引导（对应后端 Runner 的投递队列）。 */
+function takeSteers(threadID: string): Array<{ text: string; attachments: string[] }> {
+  const queue = steerQueue.get(threadID);
+  steerQueue.delete(threadID);
+  return queue ?? [];
+}
+
 /**
  * 模拟一次完整的助手运行，是 Mock 的核心。
  *
@@ -555,8 +564,13 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
 
   const textID = uid("part");
   addPart(thread.id, messageID, { id: textID, kind: "text", seq: 2, data: { text: "" } });
+  // 引导投递点（对应后端的迭代边界）：推理结束后，把已排队的引导并入本轮回复。
+  const steered = takeSteers(thread.id);
+  const steerNote = steered.map((item) => item.text).join("；");
   // 正文里回显用户输入的前 80 个字符，便于在预览中确认「回复的是哪条消息」。
-  const answer = `我先看一下当前工作区的文件。\n\n你刚才提到：**${text.slice(0, 80)}**\n\n我会先读取相关文件，再决定是否需要修改。`;
+  const answer = steerNote
+    ? `我先看一下当前工作区的文件。\n\n你刚才提到：**${text.slice(0, 80)}**\n\n收到你的补充：**${steerNote}**，我会把它并入当前任务一起处理。`
+    : `我先看一下当前工作区的文件。\n\n你刚才提到：**${text.slice(0, 80)}**\n\n我会先读取相关文件，再决定是否需要修改。`;
   // 正文按 4 个字符一片、12ms 间隔送出，比推理阶段更快，接近真实模型的输出观感。
   for (const piece of chunkText(answer, 4)) {
     if (cancelled.has(thread.id)) {
@@ -653,6 +667,15 @@ async function simulateRun(thread: ThreadView, text: string): Promise<void> {
       : "已按你的决定跳过写入，文件保持不变。";
     addPart(thread.id, messageID, { id: finalID, kind: "text", seq: 6, data: { text: finalText } });
     dispatch(batch(thread.id, [envelope(EVENT.textCompleted, thread.id, runID, { partId: finalID, text: finalText })]));
+  }
+
+  // 收尾前再查一次引导队列：推理结束后才入队的引导由接力运行处理，
+  // 与后端「运行正常结束后排队引导自动接力」的行为一致。
+  const late = takeSteers(thread.id);
+  if (late.length > 0 && !cancelled.has(thread.id)) {
+    dispatch(batch(thread.id, [envelope(EVENT.runCompleted, thread.id, runID, { status: "done" })]));
+    void simulateRun(thread, late.map((item) => item.text).join("\n"));
+    return;
   }
 
   thread.status = "idle";
@@ -859,7 +882,7 @@ export const mockApi: Api = {
       return { ...full, messages: page, hasMore, oldestSeq };
     },
   },
-  /** 对话：发送、重新生成、取消与审批决定。 */
+  /** 对话：发送、运行中引导、重新生成、取消与审批决定。 */
   chat: {
     /**
      * 发送消息：先把用户消息写入内存，再启动 `simulateRun` 异步模拟回复。
@@ -900,6 +923,39 @@ export const mockApi: Api = {
       const runID = uid("run");
       void simulateRun(thread, text);
       return runID;
+    },
+    /**
+     * 运行中引导：把指令写入会话消息（模拟后端落库）、挂进待投递队列，
+     * 并广播 user.message 事件。`simulateRun` 在推理结束后或收尾前消费
+     * 队列：并入本轮回复或接力一次新的模拟运行。
+     */
+    steer: async (threadID, text, attachments: string[] = []) => {
+      const thread = findThread(threadID);
+      if (!thread) {
+        throw new Error("会话不存在");
+      }
+      const trimmed = text.trim();
+      if (!trimmed && attachments.length === 0) {
+        throw new Error("消息不能为空");
+      }
+      const messageID = uid("msg");
+      messages[threadID] = [
+        ...(messages[threadID] ?? []),
+        {
+          id: messageID, threadId: threadID, role: "user", status: "complete",
+          createdAt: Date.now(),
+          parts: [{ id: `${messageID}-text`, kind: "text", seq: 0, data: { text: trimmed, attachments } }],
+        },
+      ];
+      const queue = steerQueue.get(threadID) ?? [];
+      queue.push({ text: trimmed, attachments });
+      steerQueue.set(threadID, queue);
+      dispatch(batch(threadID, [
+        envelope(EVENT.userMessage, threadID, "", {
+          messageId: messageID, text: trimmed, attachments, via: "steer",
+        }),
+      ]));
+      return messageID;
     },
     /** 重新生成：取最后一条用户消息的文本再跑一次模拟。 */
     regenerate: async (threadID) => {
