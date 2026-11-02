@@ -109,12 +109,6 @@ export function AppShell() {
         useUiStore.getState().openSettings();
         return;
       }
-      if (meta && key === "f") {
-        event.preventDefault();
-        // 搜索框在侧边栏内部，用自定义 DOM 事件通知它聚焦，避免把 ref 层层透传。
-        window.dispatchEvent(new Event("cw:focus-thread-search"));
-        return;
-      }
       if (event.key === "Escape") {
         const ui = useUiStore.getState();
         if (ui.paletteOpen) {

@@ -3,13 +3,10 @@
  *
  * 职责：
  * - 品牌区与 Code / Work 模式切换；切换模式会同步会话列表与工作区视图。
- * - 工作区卡片：显示当前工作区、信任状态，并提供信任切换与工作区切换浮层。
- * - 会话列表：支持标题搜索（带防抖）、标题命中高亮、状态与 token 展示。
+ * - 会话列表：临时会话置顶，项目会话按工作区分组（折叠、分页展示）。
  * - 底部入口：用量、审计、命令面板与设置，并显示今日用量与审计条数。
- *
- * 说明：搜索只按标题高亮；“内容命中”标记表示标题没匹配但正文命中了查询词。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandMark } from "../../components/BrandMark";
 import { Icon } from "../../components/Icon";
 import { Popover } from "../../components/Popover";
@@ -47,7 +44,7 @@ function readCollapsedProjects(): Record<string, boolean> {
  * props：无，模式、工作区、会话与界面状态都来自全局 store。
  *
  * 关键状态：
- * - `searchOpen` / `query`：搜索框是否展开与当前关键词。
+ * - `collapsedProjects`：项目分组的折叠状态，持久化到本地偏好。
  * - `popover`：信任或工作区切换浮层的类型与锚点。
  * - `counts`：底部展示的今日 token 用量与审计条数，随模式或活动会话变化重新拉取。
  *
@@ -64,11 +61,8 @@ export function Sidebar() {
 
   const threads = useThreadStore((state) => state.threads[mode]);
   const activeID = useThreadStore((state) => state.activeID[mode]);
-  const searchResults = useThreadStore((state) => state.searchResults);
   const selectThread = useThreadStore((state) => state.select);
   const createThread = useThreadStore((state) => state.create);
-  const searchThreads = useThreadStore((state) => state.search);
-  const clearSearch = useThreadStore((state) => state.clearSearch);
 
   const toast = useUiStore((state) => state.toast);
   const askConfirm = useUiStore((state) => state.askConfirm);
@@ -76,8 +70,6 @@ export function Sidebar() {
   const openSettings = useUiStore((state) => state.openSettings);
   const openData = useUiStore((state) => state.openData);
 
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [popover, setPopover] = useState<{ kind: PopoverKind; anchor: HTMLElement | null }>({
     kind: null,
     anchor: null,
@@ -87,7 +79,6 @@ export function Sidebar() {
   const [counts, setCounts] = useState({ usage: 0, audit: 0 });
   // 项目分组的展开/折叠状态：键为工作区 Id，值为 true 表示折叠；写入本地偏好持久化。
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(readCollapsedProjects);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(collapsedProjects));
@@ -117,33 +108,10 @@ export function Sidebar() {
     };
   }, [mode, activeID]);
 
-  // 搜索防抖：输入停止 180 毫秒后才请求，避免每个按键都打一次后端。
-  useEffect(() => {
-    if (!searchOpen) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void searchThreads(query);
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, [query, searchOpen, searchThreads]);
-
-  // 命令面板或快捷键会派发自定义事件，收到后展开搜索框并聚焦输入。
-  useEffect(() => {
-    function focusSearch() {
-      setSearchOpen(true);
-      window.setTimeout(() => searchInputRef.current?.focus(), 30);
-    }
-    window.addEventListener("cw:focus-thread-search", focusSearch);
-    return () => window.removeEventListener("cw:focus-thread-search", focusSearch);
-  }, []);
-
-  // 搜索中显示搜索结果；没有搜索时显示当前模式的会话列表。
-  const list = searchResults ?? threads ?? [];
   // 信任状态：未选择工作区时按 unknown 处理，弹层内容据此切换。
   const trust = activeWorkspace?.trust ?? "unknown";
 
-  // 无搜索时把会话按归属分组：内置临时目录的会话置顶成「临时会话」组，
+  // 会话列表按归属分组：内置临时目录的会话置顶成「临时会话」组，
   // 其余按工作区（最近打开顺序）分组；工作区已被删除的会话归入「其他」，
   // 避免数据从列表里凭空消失。
   const source = threads ?? [];
@@ -247,13 +215,6 @@ export function Sidebar() {
     }
   }
 
-  /** 关闭搜索：清空关键词并让会话 store 丢弃搜索结果，列表恢复为普通会话列表。 */
-  function closeSearch() {
-    setSearchOpen(false);
-    setQuery("");
-    clearSearch();
-  }
-
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -290,65 +251,13 @@ export function Sidebar() {
         </button>
       </div>
 
-      {searchOpen ? (
-        <div className="thread-search">
-          <Icon name="search" className="ico" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={query}
-            placeholder="搜索会话标题与内容…"
-            autoComplete="off"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              // 输入法组合期间按 Esc 只取消候选，不关闭搜索框。
-              if (event.nativeEvent.isComposing || event.keyCode === 229) {
-                return;
-              }
-              if (event.key === "Escape") {
-                // 阻止冒泡：全局 Esc 会逐层关闭浮层乃至取消运行中的会话，
-                // 关闭搜索框不应连带触发这些副作用。
-                event.stopPropagation();
-                closeSearch();
-              }
-            }}
-          />
-          <button type="button" className="icon-btn sm" aria-label="关闭搜索" onClick={closeSearch}>
-            <Icon name="x" className="ico" />
-          </button>
-        </div>
-      ) : null}
-
       <div className="thread-list">
-        {/* 列表为空时区分两种情况：搜索无结果，或确实还没有会话。 */}
-        {list.length === 0 ? (
+        {source.length === 0 ? (
           <div className="thread-empty">
-            {query ? (
-              <>
-                没有匹配的会话
-                <br />
-                <span style={{ fontSize: "var(--text-ui-sm)", color: "var(--text-4)" }}>试试更短的关键词</span>
-              </>
-            ) : (
-              <>
-                还没有会话
-                <br />
-                在「项目会话」右侧 + 创建项目，或新建临时会话
-              </>
-            )}
+            还没有会话
+            <br />
+            在「项目会话」右侧 + 创建项目，或新建临时会话
           </div>
-        ) : searchResults ? (
-          // 搜索结果跨组平铺；分组只作用于常规列表。
-          searchResults.map((thread) => (
-            <ThreadItem
-              key={thread.id}
-              thread={thread}
-              active={thread.id === activeID}
-              query={query}
-              onClick={() => void selectThread(thread.id)}
-              onContextMenu={(anchor) => setMenu({ thread, anchor })}
-            />
-          ))
         ) : (
           <>
             {/* 临时会话组置顶，组头 + 一键新建并切到内置临时目录。 */}
@@ -371,32 +280,15 @@ export function Sidebar() {
                 key={thread.id}
                 thread={thread}
                 active={thread.id === activeID}
-                query={query}
                 onClick={() => void selectThread(thread.id)}
                 onContextMenu={(anchor) => setMenu({ thread, anchor })}
               />
             ))}
-            {/* 项目会话区：组头提供搜索与「创建项目」入口。 */}
+            {/* 项目会话区：组头提供「创建项目」入口。 */}
             <div className="thread-group-head is-section">
               <span className="thread-group-name">项目会话</span>
               <span className="thread-group-count">{projectThreadCount}</span>
               <span className="spacer" />
-              <button
-                type="button"
-                className="thread-group-add"
-                title="搜索会话"
-                aria-label="搜索会话"
-                onClick={() => {
-                  if (searchOpen) {
-                    closeSearch();
-                  } else {
-                    setSearchOpen(true);
-                    window.setTimeout(() => searchInputRef.current?.focus(), 30);
-                  }
-                }}
-              >
-                <Icon name="search" />
-              </button>
               <button
                 type="button"
                 className="thread-group-add"
@@ -414,7 +306,6 @@ export function Sidebar() {
                 workspace={workspace}
                 items={items}
                 activeID={activeID}
-                query={query}
                 collapsed={Boolean(collapsedProjects[workspace.id])}
                 onToggle={() => toggleProjectGroup(workspace.id)}
                 onSelect={(threadID) => void selectThread(threadID)}
@@ -434,7 +325,6 @@ export function Sidebar() {
                     key={thread.id}
                     thread={thread}
                     active={thread.id === activeID}
-                    query={query}
                     onClick={() => void selectThread(thread.id)}
                     onContextMenu={(anchor) => setMenu({ thread, anchor })}
                   />
@@ -602,7 +492,6 @@ function ProjectGroup({
   workspace,
   items,
   activeID,
-  query,
   collapsed,
   onToggle,
   onSelect,
@@ -611,7 +500,6 @@ function ProjectGroup({
   workspace: { id: string; name: string; path: string };
   items: ThreadView[];
   activeID?: string | null;
-  query: string;
   collapsed: boolean;
   onToggle: () => void;
   onSelect: (threadID: string) => void;
@@ -646,7 +534,6 @@ function ProjectGroup({
               key={thread.id}
               thread={thread}
               active={thread.id === activeID}
-              query={query}
               onClick={() => onSelect(thread.id)}
               onContextMenu={(anchor) => onContextMenu(thread, anchor)}
             />
@@ -671,23 +558,19 @@ function ProjectGroup({
  *
  * @param thread 会话视图数据：标题、更新时间、模型、token 与运行状态。
  * @param active 是否为当前选中会话，用于高亮。
- * @param query 当前搜索关键词，用于标题命中高亮与“内容命中”判断。
  * @param onClick 点击后选中该会话。
  * @param onContextMenu 右键标题时通知侧栏打开该会话的操作菜单，参数是条目元素，用作菜单锚点。
  *
  * 状态徽标：运行中、等待审批、错误分别用不同颜色；其余一律显示“已完成”。
- * 当标题没有命中查询词时，说明这条结果是正文命中，副标题改为“内容命中”。
  */
 function ThreadItem({
   thread,
   active,
-  query,
   onClick,
   onContextMenu,
 }: {
   thread: ThreadView;
   active: boolean;
-  query: string;
   onClick: () => void;
   onContextMenu: (anchor: HTMLElement) => void;
 }) {
@@ -712,9 +595,6 @@ function ThreadItem({
       <span className="thread-status idle">已完成</span>
     );
 
-  /** 会话标题是否未命中查询词；未命中但出现在搜索结果里，说明是正文命中。 */
-  const hit = Boolean(query) && !thread.title.toLowerCase().includes(query.toLowerCase());
-
   return (
     <button
       type="button"
@@ -726,35 +606,11 @@ function ThreadItem({
         onContextMenu(event.currentTarget);
       }}
     >
-      <span className="thread-title">{highlight(thread.title, query)}</span>
+      <span className="thread-title">{thread.title}</span>
       <span className="thread-sub">
         <span className="thread-time">{formatTime(thread.updatedAt)}</span>
-        {hit ? <span className="thread-hit">内容命中</span> : null}
         {statusNode}
       </span>
     </button>
-  );
-}
-
-/**
- * 高亮标题中第一处命中查询词的片段。
- *
- * 匹配不区分大小写，但保留原文大小写；没有查询词或没有命中时原样返回文本。
- * 返回 React 节点以便用 mark 标签包住命中部分。
- */
-function highlight(text: string, query: string) {
-  if (!query) {
-    return text;
-  }
-  const index = text.toLowerCase().indexOf(query.toLowerCase());
-  if (index < 0) {
-    return text;
-  }
-  return (
-    <>
-      {text.slice(0, index)}
-      <mark>{text.slice(index, index + query.length)}</mark>
-      {text.slice(index + query.length)}
-    </>
   );
 }
