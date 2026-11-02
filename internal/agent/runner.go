@@ -715,14 +715,14 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 		title = call.Name
 	}
 
-	r.records.Emit(events.TypeToolStarted, thread.ID, runID, map[string]any{
-		"partId":     partID,
-		"toolCallId": call.ID,
-		"name":       call.Name,
-		"args":       call.Args,
-		"risk":       assessment.Risk.String(),
-		"status":     "running",
-		"summary":    summary,
+	r.records.Emit(events.TypeToolStarted, thread.ID, runID, ToolCallPart{
+		PartID:     partID,
+		ToolCallID: call.ID,
+		Name:       call.Name,
+		Args:       call.Args,
+		Risk:       assessment.Risk.String(),
+		Status:     "running",
+		Summary:    summary,
 	})
 
 	// denied 非空表示这次调用被拦截，其内容会作为错误结果回填给模型。
@@ -810,20 +810,19 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 	if result.IsError {
 		status = "error"
 	}
-	payload := map[string]any{
-		"partId":     partID,
-		"toolCallId": call.ID,
-		"name":       call.Name,
-		"args":       call.Args,
-		"risk":       assessment.Risk.String(),
-		"status":     status,
-		"output":     result.Output,
-		"isError":    result.IsError,
-		"code":       result.Code,
-		"durationMs": duration.Milliseconds(),
-		"summary":    summary,
-	}
-	r.persist(thread.ID, messageID, runID, partID, "tool_call", payload)
+	r.persist(thread.ID, messageID, runID, partID, "tool_call", ToolCallPart{
+		PartID:     partID,
+		ToolCallID: call.ID,
+		Name:       call.Name,
+		Args:       call.Args,
+		Risk:       assessment.Risk.String(),
+		Status:     status,
+		Output:     result.Output,
+		IsError:    result.IsError,
+		Code:       result.Code,
+		DurationMs: duration.Milliseconds(),
+		Summary:    summary,
+	})
 
 	// 审计记录不区分“拦截”与“执行失败”：denied 记 deny，其余按是否审批记 auto / allow。
 	decision := "auto"
@@ -1099,23 +1098,23 @@ func (r *Runner) history(thread store.Thread, workspacePath string) ([]model.Mes
 					content.WriteString(partText(part))
 				case "tool":
 					// 一个工具调用必须紧跟着一条 tool 结果消息；遇到新调用时先把
-					// 之前累积的文本与调用切成一条 assistant 消息。
-					data, _ := part.Data.(map[string]any)
-					call := model.ToolCall{
-						ID:   stringValue(data["toolCallId"]),
-						Name: stringValue(data["name"]),
-						Args: objectValue(data["args"]),
-					}
-					if call.ID == "" || call.Name == "" {
+					// 之前累积的文本与调用切成一条 assistant 消息。载荷形状由
+					// ToolCallPart 单源定义，这里只做解码。
+					var callPart ToolCallPart
+					if err := decodePart(part.Data, &callPart); err != nil || callPart.ToolCallID == "" || callPart.Name == "" {
 						continue
 					}
 					current.Content = content.String()
-					current.ToolCalls = append(current.ToolCalls, call)
+					current.ToolCalls = append(current.ToolCalls, model.ToolCall{
+						ID:   callPart.ToolCallID,
+						Name: callPart.Name,
+						Args: callPart.Args,
+					})
 					record(current, maxSeq)
 					record(model.Message{
 						Role:       "tool",
-						ToolCallID: call.ID,
-						Content:    stringValue(data["output"]),
+						ToolCallID: callPart.ToolCallID,
+						Content:    callPart.Output,
 					}, maxSeq)
 					current = model.Message{Role: "assistant"}
 					content.Reset()
@@ -1196,13 +1195,4 @@ func partText(part store.Part) string {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
-}
-
-// objectValue 把任意值断言为键值对象，失败时返回空对象而不是 nil。
-func objectValue(value any) map[string]any {
-	object, _ := value.(map[string]any)
-	if object == nil {
-		return map[string]any{}
-	}
-	return object
 }

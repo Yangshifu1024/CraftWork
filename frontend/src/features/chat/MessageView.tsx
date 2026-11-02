@@ -17,60 +17,23 @@ import { copyText } from "../../lib/clipboard";
 import { cn, formatTime } from "../../lib/utils";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
-import { MarkdownBlock, MarkdownText } from "./Markdown";
-import {
-  ApprovalCard,
-  AttachmentChips,
-  CalloutCard,
-  DraftCard,
-  ErrorCard,
-  NoticeCard,
-  ReasoningBlock,
-  TodoCard,
-  ToolCard,
-} from "./Parts";
+import { MarkdownText } from "./Markdown";
+import { partComponent, partComponentsByName, isWorkKind } from "./partRegistry";
 import { WorkHistoryGroup } from "./WorkHistoryGroup";
 
 /**
  * assistant-ui 的部件注册表。
  *
  * - `Text`：普通文本，使用 Markdown 渲染。
- * - `data.by_name`：键名与 runtime 生成的 `data-cw-<kind>` 去掉前缀后一致，
- *   例如 `cw-tool` 对应后端部件 `kind: "tool"`。
+ * - `data.by_name`：从 partRegistry 单表派生，键名与 runtime 生成的
+ *   `data-cw-<kind>` 去掉前缀后一致，例如 `cw-tool` 对应后端部件 `kind: "tool"`。
  */
 const partComponents = {
   Text: MarkdownText,
   data: {
-    by_name: {
-      "cw-reasoning": ReasoningBlock as any,
-      // MarkdownBlock 是受控组件（直接收文本），这里适配注册表的 data 包装。
-      "cw-history-text": (({ data }: any) => (
-        <MarkdownBlock text={String(data?.text ?? "")} />
-      )) as any,
-      "cw-tool": ToolCard as any,
-      "cw-approval": ApprovalCard as any,
-      "cw-todo": TodoCard as any,
-      "cw-error": ErrorCard as any,
-      "cw-draft": DraftCard as any,
-      "cw-callout": CalloutCard as any,
-      "cw-notice": NoticeCard as any,
-      "cw-attachments": AttachmentChips as any,
-    },
+    by_name: partComponentsByName,
   },
 };
-
-/**
- * 过程部件集合：这些 `cw-*` 部件属于「工作过程」，结束后收进折叠区。
- * `cw-history-text` 是最终总结之前的中间正文——工具间隙的说明文字；
- * 错误、草稿、提示等内容型卡片与最终正文一起留在折叠区外，保证显性可见。
- */
-const WORK_KINDS = new Set([
-  "cw-reasoning",
-  "cw-history-text",
-  "cw-tool",
-  "cw-todo",
-  "cw-approval",
-]);
 
 /**
  * 判断一个部件是否属于「工作过程」。
@@ -79,15 +42,16 @@ const WORK_KINDS = new Set([
  * - 转换层产出（convertMessage 的 content）：type 直接是 `data-cw-<kind>`；
  * - 运行时内部（useAuiState / groupBy 拿到的 PartState）：type 归一为 `data`，
  *   具体种类在 `name` 上（assistant-ui 会剥掉 `data-` 前缀）。
+ * 折叠归属由 partRegistry 的 work 字段单源决定。
  */
 function isWorkPart(part: any): boolean {
   if (typeof part?.type !== "string") {
     return false;
   }
   if (part.type === "data") {
-    return WORK_KINDS.has(part.name);
+    return isWorkKind(part.name);
   }
-  return WORK_KINDS.has(part.type.slice("data-".length));
+  return isWorkKind(part.type.slice("data-".length));
 }
 
 /**
@@ -181,8 +145,8 @@ export function MessageView() {
               if (part.type === "data") {
                 // GroupedParts 没有 components 入参，leaf 返回 null 落回的
                 // 注册表上下文由 MessagePrimitive.Parts 建立——这里没有渲染
-                // Parts，所以按名称显式映射渲染卡片组件。
-                const Component = (partComponents.data.by_name as Record<string, any>)[part.name];
+                // Parts，所以按同一张注册表显式取组件渲染。
+                const Component = partComponent(part.name);
                 return Component ? <Component data={part.data} /> : null;
               }
               return null;
