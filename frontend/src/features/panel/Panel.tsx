@@ -11,8 +11,9 @@
  *
  * 内容面板按需懒加载，避免编辑器、终端、文档预览拖慢首屏。
  */
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
+import { Popover } from "../../components/Popover";
 import {
   type DocumentSidePaneTab,
   type FileSidePaneTab,
@@ -73,7 +74,11 @@ export function Panel() {
   const threadId = useThreadStore((state) => normalizeOwner(state.activeID[mode]));
   const tabs = usePanelStore((state) => state.tabs);
   const activeTabId = usePanelStore((state) => state.activeTabId);
+  const recentClosed = usePanelStore((state) => state.recentClosed);
   const activateTab = usePanelStore((state) => state.activateTab);
+  const closeOtherTabs = usePanelStore((state) => state.closeOtherTabs);
+  const closeAllTabs = usePanelStore((state) => state.closeAllTabs);
+  const reopenRecentClosed = usePanelStore((state) => state.reopenRecentClosed);
   const openTerminalTab = usePanelStore((state) => state.openTerminalTab);
   const openDiffTab = usePanelStore((state) => state.openDiffTab);
   const width = usePanelStore((state) => state.width);
@@ -81,10 +86,34 @@ export function Panel() {
   const maximized = usePanelStore((state) => state.maximized);
   const toggleMaximized = usePanelStore((state) => state.toggleMaximized);
 
+  // tab 右键菜单：记录被右键的 tab 与锚点（tab 容器元素），供 Popover 定位。
+  const [tabMenu, setTabMenu] = useState<{ tab: SidePaneTab; anchor: HTMLElement } | null>(null);
+
   // 当前上下文可见的 tab 子集（工作区匹配 + 线程归属或公共类型）。
   const scope = { workspaceId, threadId };
   const visible = tabs.filter((tab) => isTabVisibleInScope(tab, scope));
   const active = visible.find((tab) => tab.id === activeTabId) ?? null;
+  // 最近关闭栈里当前上下文可恢复的 tab（跨线程 / 跨工作区的不展示）。
+  const reopenable = recentClosed.filter((tab) => isTabVisibleInScope(tab, scope));
+
+  /**
+   * tab 区域的鼠标按下处理：中键（button === 1）在按下阶段就阻止默认
+   * 行为，取消浏览器的中键自动滚动；真正的关闭动作在 auxClick 里做，
+   * 保证中键不会先激活 tab。
+   */
+  function handleTabMouseDown(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  }
+
+  /** tab 区域的辅助键点击：中键直接关闭被点的 tab，不先激活。 */
+  function handleTabAuxClick(event: React.MouseEvent<HTMLDivElement>, tab: SidePaneTab) {
+    if (event.button === 1) {
+      event.preventDefault();
+      handleCloseTab(tab);
+    }
+  }
 
   /**
    * 开始拖拽调整面板宽度。
@@ -126,16 +155,32 @@ export function Panel() {
         onPointerDown={startResize}
       />
       <div className="panel-tabs" role="tablist">
-        {/* 当前上下文可见的 tab；点击主区域切换，关闭按钮关闭 */}
+        {/* 当前上下文可见的 tab；点击主区域切换，中键或关闭按钮关闭，右键弹菜单 */}
         {visible.map((tab) => (
-          <div key={tab.id} className={cn("panel-tab", "is-tab", tab.id === activeTabId && "is-active")}>
+          // biome-ignore lint/a11y/noStaticElementInteractions: 中键关闭与右键菜单需要覆盖 tab 的非交互区域（主按钮与关闭按钮之间的空隙），两个交互入口本身都有语义元素承载
+          <div
+            key={tab.id}
+            className={cn("panel-tab", "is-tab", tab.id === activeTabId && "is-active")}
+            onMouseDown={handleTabMouseDown}
+            onAuxClick={(event) => handleTabAuxClick(event, tab)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setTabMenu({ tab, anchor: event.currentTarget });
+            }}
+          >
             <button
               type="button"
               className="panel-tab-main"
               role="tab"
               aria-selected={tab.id === activeTabId}
               title={tab.title}
-              onClick={() => activateTab(tab.id)}
+              onClick={(event) => {
+                // 中键不产生 click，这里兜底拦一下，确保只有左键切换 tab。
+                if (event.button !== 0) {
+                  return;
+                }
+                activateTab(tab.id);
+              }}
             >
               <Icon name={tabIcon(tab)} className="ico" />
               <span className="panel-tab-title">{tab.title}</span>
@@ -188,6 +233,75 @@ export function Panel() {
           </button>
         </div>
       </div>
+      {/* tab 右键菜单：关闭类操作 + 当前上下文可恢复的最近关闭列表 */}
+      {tabMenu ? (
+        <Popover anchor={tabMenu.anchor} open onClose={() => setTabMenu(null)} align="left">
+          <div className="ctx-menu">
+            <button
+              type="button"
+              className="popover-item"
+              onClick={() => {
+                setTabMenu(null);
+                handleCloseTab(tabMenu.tab);
+              }}
+            >
+              <Icon name="x" />
+              <span className="pi-main">
+                <div className="pi-title">关闭</div>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="popover-item"
+              onClick={() => {
+                setTabMenu(null);
+                closeOtherTabs(tabMenu.tab.id);
+              }}
+            >
+              <Icon name="square-minus" />
+              <span className="pi-main">
+                <div className="pi-title">关闭其他</div>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="popover-item"
+              onClick={() => {
+                setTabMenu(null);
+                closeAllTabs();
+              }}
+            >
+              <Icon name="x-circle" />
+              <span className="pi-main">
+                <div className="pi-title">关闭全部</div>
+              </span>
+            </button>
+            <div className="ctx-menu-sep" />
+            <div className="popover-label">重新打开关闭的标签页</div>
+            {reopenable.length === 0 ? (
+              <div className="ctx-menu-empty">没有可恢复的标签页</div>
+            ) : (
+              reopenable.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className="popover-item"
+                  title={tab.title}
+                  onClick={() => {
+                    setTabMenu(null);
+                    reopenRecentClosed(tab.id);
+                  }}
+                >
+                  <Icon name={tabIcon(tab)} />
+                  <span className="pi-main">
+                    <div className="pi-title">{tab.title}</div>
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </Popover>
+      ) : null}
       <div className="panel-body">
         {/* 懒加载面板内容；分包尚未下载完成时显示加载占位 */}
         <Suspense

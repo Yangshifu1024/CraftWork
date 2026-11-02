@@ -99,8 +99,14 @@
   flex: none;
 }
 
-/* 多标签页：tab 条上的单个 tab = 主按钮（图标 + 标题）+ 关闭按钮。 */
+/* 多标签页：tab 条上的单个 tab = 主按钮（图标 + 标题）+ 关闭按钮。
+   宽度自适应（spec 第 5 节）：理想宽度 156px，空间不足时全体等比收缩到
+   下限 60px（flex-basis 收缩 + min-width），全部到底仍装不下才依赖
+   .panel-tabs 自身的横向滚动。 */
 .panel-tab.is-tab {
+  flex: 1 1 156px;
+  min-width: 60px;
+  max-width: 156px;
   padding: 0 4px 0 9px;
 }
 .panel-tab .panel-tab-main {
@@ -108,6 +114,8 @@
   align-items: center;
   gap: 5px;
   height: 100%;
+  min-width: 0;
+  flex: 1;
   padding: 0;
   border: none;
   background: none;
@@ -115,11 +123,13 @@
   font: inherit;
   cursor: pointer;
 }
+/* 标题超长时右缘渐隐遮罩（不用省略号）；短标题不受影响（遮罩只压住
+   尾部 6px，配合关闭按钮的 hover 渐入不显突兀）。 */
 .panel-tab .panel-tab-title {
-  max-width: 128px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 6px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 6px), transparent);
 }
 .panel-tab .panel-tab-close {
   display: inline-flex;
@@ -134,6 +144,7 @@
   color: var(--text-4);
   cursor: pointer;
   opacity: 0;
+  flex: none;
   transition:
     opacity var(--dur) var(--ease),
     background var(--dur) var(--ease),
@@ -151,6 +162,18 @@
 .panel-tab .panel-tab-close:hover {
   background: var(--sidebar-hover);
   color: var(--text);
+}
+
+/* tab 右键菜单的分隔线与空态文案。 */
+.ctx-menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--border);
+}
+.ctx-menu-empty {
+  padding: 6px 12px 8px;
+  color: var(--text-4);
+  font-size: var(--text-ui-sm);
 }
 
 .panel-body {
