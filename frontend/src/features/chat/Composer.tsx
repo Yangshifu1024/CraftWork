@@ -330,7 +330,7 @@ export function Composer() {
           <ComposerPrimitive.Input
             id="composer-input"
             placeholder={mode === "work" ? "描述要处理的文档或办公任务…" : "向 CraftWork 描述你的任务…"}
-            minRows={1}
+            minRows={2}
             maxRows={10}
             submitMode="enter"
             // Esc 取消由 AppShell 的全局「双击 Esc」统一处理；composer 内置的

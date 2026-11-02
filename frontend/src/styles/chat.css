@@ -1661,7 +1661,8 @@ html[data-theme="light"] .diff-line.del {
 #composer-input {
   display: block;
   width: 100%;
-  min-height: 24px;
+  /* 默认两行；字号缩放时随 --text-ui-base 等比变化。 */
+  min-height: calc(var(--text-ui-base) * 1.62 * 2);
   max-height: 220px;
   border: 0;
   outline: 0;
