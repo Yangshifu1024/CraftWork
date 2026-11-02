@@ -241,28 +241,6 @@ export function Sidebar() {
         </button>
       </div>
 
-      <div className="ws-card">
-        <div className="ws-card-top">
-          <span className="ws-avatar">
-            <Icon name={mode === "work" ? "briefcase" : "folder-open"} />
-          </span>
-          <div className="ws-meta">
-            <div className="ws-title">
-              {activeWorkspace?.name ?? "选择工作区"}
-              <span
-                className={cn("badge", mode === "work" ? "work" : "accent")}
-                style={{ height: 15, fontSize: "var(--text-ui-xs)" }}
-              >
-                {mode === "work" ? "Work" : "Code"}
-              </span>
-            </div>
-            <div className="ws-path" title={activeWorkspace?.path}>
-              {activeWorkspace?.path ?? "尚未选择工作区"}
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="thread-head">
         <div className="thread-head-title">
           <span>{mode === "work" ? "Work 会话" : "Code 会话"}</span>
