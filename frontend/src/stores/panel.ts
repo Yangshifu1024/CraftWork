@@ -5,8 +5,8 @@
  * 面板不保存业务数据，只保存「怎么显示」；文件、文档、差异等数据在 workspace store 里。
  */
 import { create } from "zustand";
-import { clamp } from "../lib/utils";
 import type { Mode, PanelTab } from "../lib/types";
+import { clamp } from "../lib/utils";
 
 /**
  * 面板宽度的合法区间（像素）。

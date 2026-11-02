@@ -120,7 +120,13 @@ export function ChatHeader() {
           {/* 图标跟随状态：面板展开时显示「收起」方向，收起时显示「展开」方向 */}
           <Icon name={panelOpen ? "panel-close" : "panel-open"} className="ico" />
         </button>
-        <button type="button" className="icon-btn sm" title="重命名会话" aria-label="重命名会话" onClick={() => void handleRename()}>
+        <button
+          type="button"
+          className="icon-btn sm"
+          title="重命名会话"
+          aria-label="重命名会话"
+          onClick={() => void handleRename()}
+        >
           <Icon name="edit" className="ico" />
         </button>
         <button
@@ -132,7 +138,13 @@ export function ChatHeader() {
         >
           <Icon name="copy" className="ico" />
         </button>
-        <button type="button" className="icon-btn sm" title="归档会话" aria-label="归档会话" onClick={() => void handleArchive()}>
+        <button
+          type="button"
+          className="icon-btn sm"
+          title="归档会话"
+          aria-label="归档会话"
+          onClick={() => void handleArchive()}
+        >
           <Icon name="archive" className="ico" />
         </button>
         <button

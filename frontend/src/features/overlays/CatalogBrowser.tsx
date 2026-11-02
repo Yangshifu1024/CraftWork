@@ -113,8 +113,7 @@ export function CatalogBrowser({
       return providers;
     }
     return providers.filter(
-      (provider) =>
-        provider.id.toLowerCase().includes(query) || provider.name.toLowerCase().includes(query),
+      (provider) => provider.id.toLowerCase().includes(query) || provider.name.toLowerCase().includes(query),
     );
   }, [providers, providerQuery]);
 
@@ -380,11 +379,7 @@ export function CatalogBrowser({
                             <div className="mono sec-desc">{item.id}</div>
                           </td>
                           <td>{item.contextK}k</td>
-                          <td>
-                            {item.cost
-                              ? `$${item.cost.inputPerMTok} / $${item.cost.outputPerMTok}`
-                              : "—"}
-                          </td>
+                          <td>{item.cost ? `$${item.cost.inputPerMTok} / $${item.cost.outputPerMTok}` : "—"}</td>
                           <td className="catalog-caps">
                             {[
                               item.caps.tools ? "工具" : "",
@@ -427,8 +422,8 @@ export function CatalogBrowser({
 
       {meta ? (
         <div className="sec-desc catalog-foot">
-          目录：models.dev · {meta.generatedAt.slice(0, 10)} · {meta.providerCount} 个提供商 ·{" "}
-          {meta.modelCount} 个模型 · {meta.license}
+          目录：models.dev · {meta.generatedAt.slice(0, 10)} · {meta.providerCount} 个提供商 · {meta.modelCount} 个模型
+          · {meta.license}
         </div>
       ) : null}
     </div>

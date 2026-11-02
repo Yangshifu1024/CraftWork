@@ -48,8 +48,7 @@ export const desktopApi = {
     // 用户取消选择时后端返回空值，这里统一成空数组。
     pickFiles: async () => (await AppService.PickFiles()) ?? [],
     // 粘贴附件：内容以 base64 交给 Go 落盘，返回附件目录中的绝对路径。
-    savePastedAttachment: (name: string, content: string) =>
-      AppService.SavePastedAttachment(name, content),
+    savePastedAttachment: (name: string, content: string) => AppService.SavePastedAttachment(name, content),
     // 附件图片预览：按路径读取内容并拼成 data URL；失败时返回 null，
     // 调用方回退成普通文件 chip。同一路径在会话内只读一次，
     // 读取失败不缓存失败结果，下次仍可重试。
@@ -78,8 +77,7 @@ export const desktopApi = {
   },
   /** 会话列表、搜索、增删改与分页快照。 */
   threads: {
-    list: async (mode, includeArchived = false) =>
-      (await ThreadService.List(mode, includeArchived)) ?? [],
+    list: async (mode, includeArchived = false) => (await ThreadService.List(mode, includeArchived)) ?? [],
     search: async (mode, query) => (await ThreadService.Search(mode, query)) ?? [],
     create: (mode, workspaceID, title) => ThreadService.Create(mode, workspaceID, title),
     rename: (threadID, title) => ThreadService.Rename(threadID, title),
@@ -96,8 +94,7 @@ export const desktopApi = {
     steer: (threadID, text, attachments: string[] = []) => ChatService.Steer(threadID, text, attachments),
     regenerate: (threadID) => ChatService.Regenerate(threadID),
     cancel: (threadID) => ChatService.Cancel(threadID),
-    decideApproval: (approvalID, allow, scope) =>
-      ChatService.DecideApproval(approvalID, allow, scope),
+    decideApproval: (approvalID, allow, scope) => ChatService.DecideApproval(approvalID, allow, scope),
   },
   /** 工作区：列表与选中、目录浏览、文件读写、差异与 Git 状态。 */
   workspace: {
@@ -107,8 +104,7 @@ export const desktopApi = {
     setActive: (workspaceID) => WorkspaceService.SetActive(workspaceID),
     active: () => WorkspaceService.Active(),
     setTrust: (workspaceID, trust) => WorkspaceService.SetTrust(workspaceID, trust),
-    listDir: async (workspaceID, path) =>
-      (await WorkspaceService.ListDir(workspaceID, path)) ?? [],
+    listDir: async (workspaceID, path) => (await WorkspaceService.ListDir(workspaceID, path)) ?? [],
     readFile: (workspaceID, path) => WorkspaceService.ReadFile(workspaceID, path),
     locateFile: (workspaceID, path) => WorkspaceService.LocateFile(workspaceID, path),
     writeFile: (workspaceID, path, content, expectedHash) =>
@@ -157,8 +153,7 @@ export const desktopApi = {
     catalogMeta: () => ProviderService.CatalogMeta(),
     catalogProviders: async (query = "") => (await ProviderService.CatalogProviders(query)) ?? [],
     catalogModels: async (providerID) => (await ProviderService.CatalogModels(providerID)) ?? [],
-    lookupCatalogModel: (providerID, modelID) =>
-      ProviderService.LookupCatalogModel(providerID, modelID),
+    lookupCatalogModel: (providerID, modelID) => ProviderService.LookupCatalogModel(providerID, modelID),
     importFromCatalog: async (input) => {
       const raw = await ProviderService.ImportFromCatalog(input);
       return { ...raw, models: raw.models ?? [] } as ProviderView;
@@ -208,9 +203,7 @@ export const desktopApi = {
  * 会让类型与浏览器 Mock 不一致，因此这里用条件类型把返回类型剥到 `Awaited<R>`，
  * 调用方只需要关心「一个会 resolve 出结果的普通异步函数」。
  */
-type PortMethod<T> = T extends (...args: infer A) => infer R
-  ? (...args: A) => Promise<Awaited<R>>
-  : never;
+type PortMethod<T> = T extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : never;
 
 /**
  * 前端使用的后端端口：由桌面适配器推导，不再手写第二份签名。

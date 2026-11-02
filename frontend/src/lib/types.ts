@@ -10,6 +10,7 @@
  * 否则前端会收不到或解析不了对应事件。
  */
 import type {
+  ProviderView as ApiProviderView,
   AppInfo,
   CatalogImportInput,
   CatalogMeta,
@@ -24,19 +25,18 @@ import type {
   ModelInput,
   ModelView,
   ProviderInput,
-  ProviderView as ApiProviderView,
   Settings,
   TerminalView,
   ThreadView,
   WorkspaceView,
 } from "../../bindings/craftwork/internal/service";
 import type {
+  UsageSummary as ApiUsageSummary,
   AuditEntry,
   Backup,
   DailyUsage,
   ModelUsage,
   Snapshot,
-  UsageSummary as ApiUsageSummary,
   UsageTotals,
 } from "../../bindings/craftwork/internal/store";
 
@@ -133,16 +133,7 @@ export type MessageStatus = "streaming" | "complete" | "incomplete" | "error";
  * 一条消息由多个部件按 `seq` 顺序拼成：正文、推理、工具调用、审批卡片、
  * 待办清单、错误、提示、草稿与强调块。
  */
-export type PartKind =
-  | "text"
-  | "reasoning"
-  | "tool"
-  | "approval"
-  | "todo"
-  | "error"
-  | "notice"
-  | "draft"
-  | "callout";
+export type PartKind = "text" | "reasoning" | "tool" | "approval" | "todo" | "error" | "notice" | "draft" | "callout";
 
 /**
  * 消息部件。

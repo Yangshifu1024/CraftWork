@@ -6,8 +6,8 @@
  */
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Icon } from "./Icon";
 import { useUiStore } from "../stores/ui";
+import { Icon } from "./Icon";
 
 /**
  * 全局确认框，对应原型的 confirmDialog，不接收 props。

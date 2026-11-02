@@ -8,9 +8,9 @@
  * 填写后与提供商配置一起保存，明文只写入 Go 侧的 keys.json。
  */
 import { useState } from "react";
+import type { Capabilities, Cost } from "../../../bindings/craftwork/internal/model";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
-import type { Capabilities, Cost } from "../../../bindings/craftwork/internal/model";
 import type { ModelView, ProviderInput, ProviderView } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { useUiStore } from "../../stores/ui";
@@ -161,11 +161,7 @@ export function ProviderEditor({
   }
 
   /** 切换第 index 个模型的某项能力开关。 */
-  function updateCapability(
-    index: number,
-    key: "tools" | "vision" | "reasoning" | "structured",
-    value: boolean,
-  ) {
+  function updateCapability(index: number, key: "tools" | "vision" | "reasoning" | "structured", value: boolean) {
     setModels((current) =>
       current.map((model, itemIndex) =>
         itemIndex === index ? { ...model, caps: { ...model.caps, [key]: value } } : model,
@@ -331,7 +327,9 @@ export function ProviderEditor({
                   value={apiKey}
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder={keyConfigured ? `已配置 ${provider?.keyMasked || "密钥"}；留空则保持不变` : "粘贴 API Key"}
+                  placeholder={
+                    keyConfigured ? `已配置 ${provider?.keyMasked || "密钥"}；留空则保持不变` : "粘贴 API Key"
+                  }
                   aria-label="API Key"
                   onChange={(event) => setApiKey(event.target.value)}
                 />
@@ -356,7 +354,11 @@ export function ProviderEditor({
           <span>模型</span>
           <span className="sec-desc">流式固定开启。</span>
           <span className="spacer" />
-          <button type="button" className="btn sm ghost" onClick={() => setModels((current) => [...current, blankModel()])}>
+          <button
+            type="button"
+            className="btn sm ghost"
+            onClick={() => setModels((current) => [...current, blankModel()])}
+          >
             <Icon name="plus" className="ico" />
             添加模型
           </button>

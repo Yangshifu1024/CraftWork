@@ -8,15 +8,15 @@
  * 3. 注册全局快捷键（新建对话、搜索、设置、命令面板、Esc 逐层退出）。
  */
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { Sidebar } from "../features/sidebar/Sidebar";
-import { ChatPane } from "../features/chat/ChatPane";
-import { useNotifications } from "../features/chat/useNotifications";
-import { Panel } from "../features/panel/Panel";
-import { Toasts } from "../components/Toasts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FreeLevelDialog } from "../components/FreeLevelDialog";
 import { PromptDialog } from "../components/PromptDialog";
+import { Toasts } from "../components/Toasts";
+import { ChatPane } from "../features/chat/ChatPane";
+import { useNotifications } from "../features/chat/useNotifications";
 import { ImagePreviewOverlay } from "../features/overlays/ImagePreviewOverlay";
+import { Panel } from "../features/panel/Panel";
+import { Sidebar } from "../features/sidebar/Sidebar";
 import { cn } from "../lib/utils";
 import { usePanelStore } from "../stores/panel";
 import { useThreadStore } from "../stores/threads";

@@ -129,7 +129,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const sessions = state.sessions.filter((session) => session.id !== sessionID);
       return {
         sessions,
-        activeID: state.activeID === sessionID ? sessions[0]?.id ?? null : state.activeID,
+        activeID: state.activeID === sessionID ? (sessions[0]?.id ?? null) : state.activeID,
       };
     });
   },

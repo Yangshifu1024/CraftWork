@@ -6,15 +6,7 @@
  *
  * 本文件只做纯计算：不读写 store，也不调用后端命令，因此可以脱离界面单独测试。
  */
-import type {
-  ApprovalPartData,
-  Batch,
-  ChatMessage,
-  ChatPart,
-  Envelope,
-  Mode,
-  ThreadView,
-} from "../lib/types";
+import type { ApprovalPartData, Batch, ChatMessage, ChatPart, Envelope, Mode, ThreadView } from "../lib/types";
 import { EVENT } from "../lib/types";
 
 /**
@@ -81,15 +73,9 @@ function partIdOf(event: Envelope): string {
  * 事件可能早于消息列表加载完成就到达，所以找不到消息时要补一条空消息；
  * 已存在的消息只更新状态，避免覆盖已有的部件。
  */
-function ensureMessage(
-  messages: ChatMessage[],
-  messageID: string,
-  threadID: string,
-): ChatMessage[] {
+function ensureMessage(messages: ChatMessage[], messageID: string, threadID: string): ChatMessage[] {
   if (messages.some((message) => message.id === messageID)) {
-    return messages.map((message) =>
-      message.id === messageID ? { ...message, status: "streaming" } : message,
-    );
+    return messages.map((message) => (message.id === messageID ? { ...message, status: "streaming" } : message));
   }
   return [
     ...messages,
@@ -147,12 +133,7 @@ function appendText(
  * 因此已存在时做浅合并（新字段覆盖旧字段），不存在时追加到消息末尾。
  * 消息本身也不存在时补一条 assistant 流式消息，避免事件丢失。
  */
-function upsertPart(
-  messages: ChatMessage[],
-  messageID: string,
-  threadID: string,
-  part: ChatPart,
-): ChatMessage[] {
+function upsertPart(messages: ChatMessage[], messageID: string, threadID: string, part: ChatPart): ChatMessage[] {
   let found = false;
   const next = messages.map((message) => {
     if (message.id !== messageID) {
@@ -163,9 +144,7 @@ function upsertPart(
     if (index < 0) {
       return { ...message, parts: [...message.parts, part] };
     }
-    const parts = message.parts.map((item, itemIndex) =>
-      itemIndex === index ? { ...item, ...part } : item,
-    );
+    const parts = message.parts.map((item, itemIndex) => (itemIndex === index ? { ...item, ...part } : item));
     return { ...message, parts };
   });
   if (found) {
@@ -223,17 +202,11 @@ function clearSteerQueued(messages: ChatMessage[]): ChatMessage[] {
  * 只匹配 id 相同且类型为审批的部件，其他部件原样返回；
  * 典型用法是收到 `approval.resolved` 后把状态从「等待」改成「已批准 / 已拒绝」。
  */
-function updateApprovalPart(
-  messages: ChatMessage[],
-  partID: string,
-  data: Partial<ApprovalPartData>,
-): ChatMessage[] {
+function updateApprovalPart(messages: ChatMessage[], partID: string, data: Partial<ApprovalPartData>): ChatMessage[] {
   return messages.map((message) => ({
     ...message,
     parts: message.parts.map((part) =>
-      part.id === partID && part.kind === "approval"
-        ? { ...part, data: { ...part.data, ...data } }
-        : part,
+      part.id === partID && part.kind === "approval" ? { ...part, data: { ...part.data, ...data } } : part,
     ),
   }));
 }
@@ -296,22 +269,12 @@ function upsertFromEvent(draft: Draft, kind: ChatPart["kind"], event: Envelope):
  *
  * 与 {@link upsertFromEvent} 的区别是只拼接正文，不整体替换部件数据。
  */
-function appendFromEvent(
-  draft: Draft,
-  kind: "text" | "reasoning",
-  event: Envelope,
-): void {
+function appendFromEvent(draft: Draft, kind: "text" | "reasoning", event: Envelope): void {
   const partID = partIdOf(event);
   if (!draft.runningMessageID || !partID) {
     return;
   }
-  draft.messages = appendText(
-    draft.messages,
-    draft.runningMessageID,
-    partID,
-    kind,
-    String(event.data?.text ?? ""),
-  );
+  draft.messages = appendText(draft.messages, draft.runningMessageID, partID, kind, String(event.data?.text ?? ""));
 }
 
 /**
@@ -321,12 +284,7 @@ function appendFromEvent(
  * 清空运行标记、把会话状态改成终态；最后标记需要刷新列表，
  * 让侧边栏的排序与统计跟上数据库里的最新结果。
  */
-function finishRun(
-  draft: Draft,
-  messageStatus: ChatMessage["status"],
-  threadStatus: string,
-  event: Envelope,
-): void {
+function finishRun(draft: Draft, messageStatus: ChatMessage["status"], threadStatus: string, event: Envelope): void {
   draft.messages = setMessageStatus(draft.messages, draft.runningMessageID, messageStatus);
   // 运行结束事件带后端计算的耗时，回填给消息用于「已工作 N」折叠显示；
   // 与历史快照的回填字段一致，两条路径拿到的都是持久化事实。
@@ -445,9 +403,7 @@ const handlers: Record<EventType, Handler> = {
       });
     }
     // 无论部件是否存在，都要把它移出待审批队列。
-    draft.pendingApprovals = draft.pendingApprovals.filter(
-      (item) => item.approvalId !== event.data?.approvalId,
-    );
+    draft.pendingApprovals = draft.pendingApprovals.filter((item) => item.approvalId !== event.data?.approvalId);
     if (draft.activeThreadID) {
       draft.threads = updateThread(draft.threads, draft.activeThreadID, { status: "running" });
     }
@@ -515,11 +471,7 @@ const handlers: Record<EventType, Handler> = {
  * 纯函数：给定状态与批次返回新状态，便于直接测试，不需要 mock api 或总线。
  * 处理顺序严格按批次里的事件顺序进行，因此同一批次内的增量不会乱序。
  */
-export function reduceThread(
-  state: ThreadSlice,
-  batch: Batch,
-  activeThreadID: string,
-): ReducedThread {
+export function reduceThread(state: ThreadSlice, batch: Batch, activeThreadID: string): ReducedThread {
   const draft: Draft = {
     messages: state.messages,
     running: state.running,

@@ -4,8 +4,9 @@
  * 通知本身的生命周期由 store 负责（4.2 秒自动消失），这里只负责展示与手动关闭。
  * 带 `onClick` 的通知会把整条主体渲染成按钮，方便用户点击跳转。
  */
-import { Icon, type IconName } from "./Icon";
+
 import { useUiStore } from "../stores/ui";
+import { Icon, type IconName } from "./Icon";
 
 /** 语气到图标的映射；语气缺失时按 info 处理。 */
 const toneIcon: Record<string, IconName> = {
@@ -34,7 +35,10 @@ export function Toasts() {
         const tone = toast.tone ?? "info";
         return (
           // 危险语气在样式里对应 err 类名，其它语气直接复用语气名。
-          <div key={toast.id} className={`toast ${tone === "danger" ? "err" : tone}${toast.onClick ? " is-action" : ""}`}>
+          <div
+            key={toast.id}
+            className={`toast ${tone === "danger" ? "err" : tone}${toast.onClick ? " is-action" : ""}`}
+          >
             <span className="toast-ico">
               <Icon name={toneIcon[tone] ?? "info"} />
             </span>

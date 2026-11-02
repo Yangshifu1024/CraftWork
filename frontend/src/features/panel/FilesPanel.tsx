@@ -83,12 +83,7 @@ export function FilesPanel() {
         /* 过滤结果：平铺展示文件名与完整路径，点击直接打开 */
         <div className="file-list">
           {flat.map((node) => (
-            <button
-              key={node.path}
-              type="button"
-              className="file-item"
-              onClick={() => void openFile(node.path)}
-            >
+            <button key={node.path} type="button" className="file-item" onClick={() => void openFile(node.path)}>
               <Icon name={fileIcon(node.name)} className={cn("f-ico", extensionClass(node.name))} />
               <span className="file-item-main">
                 <div className="file-item-name">{node.name}</div>
@@ -101,7 +96,15 @@ export function FilesPanel() {
       ) : (
         /* 无过滤关键字：从根目录开始递归渲染树 */
         <div className="tree">
-          <TreeLevel path="." depth={0} expanded={expanded} selected={selected} git={git} onToggle={toggleDir} onOpen={openFile} />
+          <TreeLevel
+            path="."
+            depth={0}
+            expanded={expanded}
+            selected={selected}
+            git={git}
+            onToggle={toggleDir}
+            onOpen={openFile}
+          />
         </div>
       )}
     </div>
@@ -206,7 +209,13 @@ export function fileIcon(name: string): IconName {
   if (lower.endsWith(".md")) {
     return "file-text";
   }
-  if (lower.endsWith(".go") || lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".js") || lower.endsWith(".py")) {
+  if (
+    lower.endsWith(".go") ||
+    lower.endsWith(".ts") ||
+    lower.endsWith(".tsx") ||
+    lower.endsWith(".js") ||
+    lower.endsWith(".py")
+  ) {
     return "file-code";
   }
   if (lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml") || lower.endsWith(".toml")) {
@@ -218,7 +227,13 @@ export function fileIcon(name: string): IconName {
   if (lower.endsWith(".pdf") || lower.endsWith(".docx")) {
     return "file-text";
   }
-  if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || lower.endsWith(".svg")) {
+  if (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".webp") ||
+    lower.endsWith(".svg")
+  ) {
     return "image";
   }
   return "file";

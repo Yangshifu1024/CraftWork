@@ -16,8 +16,8 @@
 import { useEffect, useRef } from "react";
 import { AppShell } from "./app/AppShell";
 import { useAppStore } from "./stores/app";
-import { useThreadStore } from "./stores/threads";
 import { useTerminalStore } from "./stores/terminal";
+import { useThreadStore } from "./stores/threads";
 import { useWorkspaceStore } from "./stores/workspace";
 
 /**

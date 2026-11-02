@@ -109,16 +109,20 @@ describe("会话事件归约", () => {
     store.applyBatch(batch(envelope(EVENT.runStarted, { messageId: "msg_1" })));
     store.applyBatch(
       batch(
-        envelope(EVENT.approvalRequested, {
-          partId: "p_ap",
-          approvalId: "ap_1",
-          tool: "fs_write",
-          risk: "R1",
-          title: "写入文件",
-          target: "note.txt",
-          status: "waiting",
-          allowPermanent: true,
-        }, 2),
+        envelope(
+          EVENT.approvalRequested,
+          {
+            partId: "p_ap",
+            approvalId: "ap_1",
+            tool: "fs_write",
+            risk: "R1",
+            title: "写入文件",
+            target: "note.txt",
+            status: "waiting",
+            allowPermanent: true,
+          },
+          2,
+        ),
       ),
     );
     expect(useThreadStore.getState().pendingApprovals).toHaveLength(1);
@@ -131,13 +135,17 @@ describe("会话事件归约", () => {
 
     store.applyBatch(
       batch(
-        envelope(EVENT.approvalResolved, {
-          partId: "p_ap",
-          approvalId: "ap_1",
-          status: "approved",
-          decision: "allow",
-          scope: "session",
-        }, 3),
+        envelope(
+          EVENT.approvalResolved,
+          {
+            partId: "p_ap",
+            approvalId: "ap_1",
+            status: "approved",
+            decision: "allow",
+            scope: "session",
+          },
+          3,
+        ),
       ),
     );
     expect(useThreadStore.getState().pendingApprovals).toHaveLength(0);
@@ -146,25 +154,41 @@ describe("会话事件归约", () => {
   it("处理工具、提示、错误与运行失败", () => {
     const store = useThreadStore.getState();
     store.applyBatch(batch(envelope(EVENT.runStarted, { messageId: "msg_1" })));
-    store.applyBatch(batch(envelope(EVENT.toolStarted, {
-      partId: "p_tool",
-      toolCallId: "call_1",
-      name: "fs_read",
-      args: { path: "a.txt" },
-      risk: "R0",
-      status: "running",
-      summary: "a.txt",
-    }, 2)));
-    store.applyBatch(batch(envelope(EVENT.toolCompleted, {
-      partId: "p_tool",
-      toolCallId: "call_1",
-      name: "fs_read",
-      args: { path: "a.txt" },
-      risk: "R0",
-      status: "done",
-      output: "hello",
-      isError: false,
-    }, 3)));
+    store.applyBatch(
+      batch(
+        envelope(
+          EVENT.toolStarted,
+          {
+            partId: "p_tool",
+            toolCallId: "call_1",
+            name: "fs_read",
+            args: { path: "a.txt" },
+            risk: "R0",
+            status: "running",
+            summary: "a.txt",
+          },
+          2,
+        ),
+      ),
+    );
+    store.applyBatch(
+      batch(
+        envelope(
+          EVENT.toolCompleted,
+          {
+            partId: "p_tool",
+            toolCallId: "call_1",
+            name: "fs_read",
+            args: { path: "a.txt" },
+            risk: "R0",
+            status: "done",
+            output: "hello",
+            isError: false,
+          },
+          3,
+        ),
+      ),
+    );
     store.applyBatch(batch(envelope(EVENT.notice, { partId: "p_notice", text: "上下文已压缩" }, 4)));
     store.applyBatch(batch(envelope(EVENT.error, { partId: "p_error", code: "rate_limit", message: "限流" }, 5)));
 

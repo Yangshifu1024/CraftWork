@@ -48,9 +48,7 @@ export function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
   const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
+    date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   if (sameDay) {
     return time;

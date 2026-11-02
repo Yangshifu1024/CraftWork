@@ -513,18 +513,9 @@ export function Sidebar() {
       </div>
 
       {/* 信任浮层：说明两种信任状态的差异，当前状态右侧显示勾选。 */}
-      <Popover
-        anchor={popover.anchor}
-        open={popover.kind === "trust"}
-        onClose={closePopover}
-        align="left"
-      >
+      <Popover anchor={popover.anchor} open={popover.kind === "trust"} onClose={closePopover} align="left">
         <div className="popover-label">工作区信任</div>
-        <button
-          type="button"
-          className="popover-item"
-          onClick={() => void handleTrust("trusted")}
-        >
+        <button type="button" className="popover-item" onClick={() => void handleTrust("trusted")}>
           <Icon name="shield-check" />
           <span className="pi-main">
             <div className="pi-title">信任</div>
@@ -536,11 +527,7 @@ export function Sidebar() {
             </span>
           ) : null}
         </button>
-        <button
-          type="button"
-          className="popover-item"
-          onClick={() => void handleTrust("restricted")}
-        >
+        <button type="button" className="popover-item" onClick={() => void handleTrust("restricted")}>
           <Icon name="lock" />
           <span className="pi-main">
             <div className="pi-title">受限模式</div>
@@ -556,12 +543,7 @@ export function Sidebar() {
       </Popover>
 
       {/* 工作区切换浮层：列出最近工作区，底部提供“添加工作区”。 */}
-      <Popover
-        anchor={popover.anchor}
-        open={popover.kind === "switch"}
-        onClose={closePopover}
-        align="left"
-      >
+      <Popover anchor={popover.anchor} open={popover.kind === "switch"} onClose={closePopover} align="left">
         <div className="popover-label">最近工作区</div>
         {switcherWorkspaces.map((workspace) => (
           <button
@@ -694,8 +676,7 @@ function ThreadItem({
     );
 
   /** 会话标题是否未命中查询词；未命中但出现在搜索结果里，说明是正文命中。 */
-  const hit =
-    Boolean(query) && !thread.title.toLowerCase().includes(query.toLowerCase());
+  const hit = Boolean(query) && !thread.title.toLowerCase().includes(query.toLowerCase());
 
   return (
     <button

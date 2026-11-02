@@ -101,6 +101,7 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
 | 前端类型检查 | `cd frontend && npm run typecheck` |
+| 前端 lint / 格式化 | `cd frontend && npm run lint`（检查）；`npm run lint:fix`（安全修复）；`npm run format`（格式化，配置见 `frontend/biome.json`） |
 | 前端单元测试 | `cd frontend && npm run test` |
 | 浏览器端到端测试 | `cd frontend && npm run test:e2e`（首次需 `npx playwright install chromium`；本机已有 Edge / Chrome 时可用 `PLAYWRIGHT_CHANNEL=msedge`） |
 | 截图回归 | `cd frontend && npm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
@@ -264,7 +265,7 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 ```bash
 go test ./...
 go vet ./...
-cd frontend && npx tsc --noEmit && npm run build
+cd frontend && npm run lint && npx tsc --noEmit && npm run build
 wails3 build
 ```
 

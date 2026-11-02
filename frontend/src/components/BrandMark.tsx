@@ -10,14 +10,5 @@
  * `draggable={false}` 防止用户误拖走图片。
  */
 export function BrandMark({ size = 22 }: { size?: number }) {
-  return (
-    <img
-      className="brand-logo"
-      src="/logo.png"
-      width={size}
-      height={size}
-      alt=""
-      draggable={false}
-    />
-  );
+  return <img className="brand-logo" src="/logo.png" width={size} height={size} alt="" draggable={false} />;
 }

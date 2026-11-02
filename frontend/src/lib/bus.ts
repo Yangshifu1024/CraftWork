@@ -59,12 +59,7 @@ let sequence = 0;
  * `seq` 在 Mock 内部自增，`ts` 取当前时间；threadId、runId、data 由调用方给出。
  * 真实后端会用自己的序号，这里只需保证结构一致，前端处理逻辑才能共用。
  */
-export function envelope(
-  type: string,
-  threadID: string,
-  runID: string,
-  data: any,
-): Batch["events"][number] {
+export function envelope(type: string, threadID: string, runID: string, data: any): Batch["events"][number] {
   sequence += 1;
   return { seq: sequence, type, threadId: threadID, runId: runID, ts: Date.now(), data };
 }

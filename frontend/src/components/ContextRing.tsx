@@ -46,14 +46,7 @@ export function ContextRing({
       aria-hidden="true"
     >
       {/* 底环：始终完整画出，作为进度参照 */}
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="var(--border)"
-        strokeWidth={strokeWidth}
-      />
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} />
       {/* 进度环：rotate(-90°) 让起点在 12 点方向，与常见进度指示一致 */}
       <circle
         cx={size / 2}

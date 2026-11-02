@@ -9,8 +9,8 @@ import { createPortal } from "react-dom";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
 import type { AuditEntry, Backup, UsageSummary } from "../../lib/types";
-import type { DataTab } from "../../stores/ui";
 import { cn, formatBytes, formatCost, formatTime, formatTokens } from "../../lib/utils";
+import type { DataTab } from "../../stores/ui";
 import { useUiStore } from "../../stores/ui";
 
 /**
@@ -79,15 +79,10 @@ export function DataModal() {
   }
 
   // 审计记录按「决定」筛选；后端一次最多返回 200 条，这里只做前端过滤。
-  const filteredAudit = audit.filter((entry) =>
-    filter === "all" ? true : entry.decision === filter,
-  );
+  const filteredAudit = audit.filter((entry) => (filter === "all" ? true : entry.decision === filter));
 
   // 用量条形图的基准值：取所有模型中最大的 token 总数，至少为 1 以避免除零。
-  const maxModelTokens = Math.max(
-    1,
-    ...(usage?.byModel.map((item) => item.inputTokens + item.outputTokens) ?? [1]),
-  );
+  const maxModelTokens = Math.max(1, ...(usage?.byModel.map((item) => item.inputTokens + item.outputTokens) ?? [1]));
 
   /**
    * 用备份覆盖目标文件。
@@ -130,15 +125,27 @@ export function DataModal() {
 
         <div className="data-tabs">
           {/* 三个标签；切换时通过 openData 更新 store 并触发重新读取 */}
-          <button type="button" className={cn("data-tab", tab === "audit" && "is-active")} onClick={() => openData("audit")}>
+          <button
+            type="button"
+            className={cn("data-tab", tab === "audit" && "is-active")}
+            onClick={() => openData("audit")}
+          >
             <Icon name="shield-check" className="ico" />
             审计
           </button>
-          <button type="button" className={cn("data-tab", tab === "usage" && "is-active")} onClick={() => openData("usage")}>
+          <button
+            type="button"
+            className={cn("data-tab", tab === "usage" && "is-active")}
+            onClick={() => openData("usage")}
+          >
             <Icon name="zap" className="ico" />
             用量
           </button>
-          <button type="button" className={cn("data-tab", tab === "backup" && "is-active")} onClick={() => openData("backup")}>
+          <button
+            type="button"
+            className={cn("data-tab", tab === "backup" && "is-active")}
+            onClick={() => openData("backup")}
+          >
             <Icon name="archive" className="ico" />
             备份
           </button>
@@ -243,7 +250,9 @@ export function DataModal() {
                       <span className="ub-track">
                         <i
                           className="ub-fill"
-                          style={{ width: `${Math.max(4, ((item.inputTokens + item.outputTokens) / maxModelTokens) * 100)}%` }}
+                          style={{
+                            width: `${Math.max(4, ((item.inputTokens + item.outputTokens) / maxModelTokens) * 100)}%`,
+                          }}
                         />
                       </span>
                       <span className="ub-num">

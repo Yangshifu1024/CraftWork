@@ -90,7 +90,13 @@ export function Panel() {
   return (
     <>
       {/* 左侧的拖拽分隔条，用于调整面板宽度 */}
-      <div className="panel-resize" role="separator" aria-orientation="vertical" aria-label="调整面板宽度" onPointerDown={startResize} />
+      <div
+        className="panel-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整面板宽度"
+        onPointerDown={startResize}
+      />
       <div className="panel-tabs" role="tablist">
         {/* 当前模式下的标签按钮，点击后切换面板内容 */}
         {specs.map((spec) => (

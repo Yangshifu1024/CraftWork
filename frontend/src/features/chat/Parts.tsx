@@ -11,9 +11,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "../../components/Icon";
-import { copyText } from "../../lib/clipboard";
 import { api } from "../../lib/api";
-import { basename, isImagePath } from "../../lib/utils";
+import { copyText } from "../../lib/clipboard";
 import type {
   ApprovalPartData,
   CalloutPartData,
@@ -24,7 +23,7 @@ import type {
   TodoPartData,
   ToolPartData,
 } from "../../lib/types";
-import { cn, formatBytes } from "../../lib/utils";
+import { basename, cn, formatBytes, isImagePath } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
 import { useUiStore } from "../../stores/ui";
@@ -117,9 +116,7 @@ export function ToolCard({ data }: { data: ToolPartData }) {
           {data.risk ? <span className={cn("risk-badge", `risk-${data.risk}`)}>{data.risk}</span> : null}
           <span className="tool-summary">{data.summary}</span>
         </span>
-        <span className="tool-meta">
-          {data.durationMs ? <span>{data.durationMs} ms</span> : null}
-        </span>
+        <span className="tool-meta">{data.durationMs ? <span>{data.durationMs} ms</span> : null}</span>
         <span className={cn("tool-status", status.cls)}>
           <Icon name={status.icon} className={status.spin ? "spin" : undefined} />
           {status.label}
@@ -314,7 +311,10 @@ export function TodoCard({ data }: { data: TodoPartData }) {
       </div>
       <div className="todo-list">
         {items.map((item, index) => (
-          <div key={`${item.text}-${index}`} className={cn("todo-item", item.status === "done" && "done", item.status === "active" && "active")}>
+          <div
+            key={`${item.text}-${index}`}
+            className={cn("todo-item", item.status === "done" && "done", item.status === "active" && "active")}
+          >
             <span className="tbox">{item.status === "done" ? <Icon name="check" /> : null}</span>
             <span className="tlabel">{item.text}</span>
             {item.status === "active" ? <span className="tmeta">进行中</span> : null}
@@ -370,24 +370,14 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
   const denied = data.status === "denied" || data.status === "canceled";
   // 三个条件同时满足才显示永久授权按钮：后端允许、风险不超过 R2、档位为分级。
   const permanentAllowed =
-    Boolean(data.allowPermanent) &&
-    (data.risk === "R1" || data.risk === "R2") &&
-    level === "graded";
+    Boolean(data.allowPermanent) && (data.risk === "R1" || data.risk === "R2") && level === "graded";
 
   // 不同工具用不同的参数名承载旧/新文本，这里统一取出用于差异预览。
   const args = data.args ?? {};
   const oldText =
-    typeof args.old_string === "string"
-      ? args.old_string
-      : typeof args.old_text === "string"
-        ? args.old_text
-        : "";
+    typeof args.old_string === "string" ? args.old_string : typeof args.old_text === "string" ? args.old_text : "";
   const newText =
-    typeof args.new_string === "string"
-      ? args.new_string
-      : typeof args.new_text === "string"
-        ? args.new_text
-        : "";
+    typeof args.new_string === "string" ? args.new_string : typeof args.new_text === "string" ? args.new_text : "";
   const hasDiffPreview = (data.tool === "fs_edit" || data.tool === "doc_edit") && Boolean(oldText);
   const isCommand = data.tool === "shell_exec";
   const patchText = typeof args.patch === "string" ? args.patch : "";
@@ -407,10 +397,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
 
   return (
     <div
-      className={cn(
-        "blk approval-card",
-        waiting ? "is-waiting" : approved ? "is-approved" : denied ? "is-denied" : "",
-      )}
+      className={cn("blk approval-card", waiting ? "is-waiting" : approved ? "is-approved" : denied ? "is-denied" : "")}
       data-risk={data.risk}
     >
       <div className="approval-strip" />
@@ -436,11 +423,7 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
         </div>
         <div className="approval-facts">
           {(data.facts ?? []).map((fact) => (
-            <span
-              key={`${fact.label}-${fact.value}`}
-              className="approval-fact"
-              title={`${fact.label}：${fact.value}`}
-            >
+            <span key={`${fact.label}-${fact.value}`} className="approval-fact" title={`${fact.label}：${fact.value}`}>
               <Icon name="info" />
               <span className="approval-fact-text">
                 {fact.label}：{fact.value}
@@ -507,7 +490,12 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
       {waiting ? (
         <>
           <div className="approval-actions">
-            <button type="button" className="btn danger" autoFocus onClick={() => void decide(data.approvalId, false, "once")}>
+            <button
+              type="button"
+              className="btn danger"
+              autoFocus
+              onClick={() => void decide(data.approvalId, false, "once")}
+            >
               拒绝
             </button>
             <span className="spacer" />
@@ -517,10 +505,18 @@ export function ApprovalCard({ data }: { data: ApprovalPartData }) {
             {/* 永久授权按钮只在允许条件下出现，范围为 session 或 workspace。 */}
             {permanentAllowed ? (
               <>
-                <button type="button" className="btn ghost" onClick={() => void decide(data.approvalId, true, "session")}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => void decide(data.approvalId, true, "session")}
+                >
                   本会话允许
                 </button>
-                <button type="button" className="btn ghost" onClick={() => void decide(data.approvalId, true, "workspace")}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => void decide(data.approvalId, true, "workspace")}
+                >
                   本工作区始终允许
                 </button>
               </>

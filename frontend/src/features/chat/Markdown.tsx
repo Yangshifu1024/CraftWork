@@ -11,29 +11,30 @@
  *
  * 注意：本文件只负责渲染与交互，不承担消息状态管理。
  */
-import { useMemo, useState, type ReactNode } from "react";
+
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
 import go from "highlight.js/lib/languages/go";
-import typescript from "highlight.js/lib/languages/typescript";
+import java from "highlight.js/lib/languages/java";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
 import markdown from "highlight.js/lib/languages/markdown";
-import css from "highlight.js/lib/languages/css";
-import xml from "highlight.js/lib/languages/xml";
+import plaintext from "highlight.js/lib/languages/plaintext";
 import python from "highlight.js/lib/languages/python";
 import rust from "highlight.js/lib/languages/rust";
-import java from "highlight.js/lib/languages/java";
-import yaml from "highlight.js/lib/languages/yaml";
-import bash from "highlight.js/lib/languages/bash";
 import sql from "highlight.js/lib/languages/sql";
-import diff from "highlight.js/lib/languages/diff";
-import plaintext from "highlight.js/lib/languages/plaintext";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
+import { type ReactNode, useMemo, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Icon } from "../../components/Icon";
-import { copyText } from "../../lib/clipboard";
 import { api } from "../../lib/api";
+import { copyText } from "../../lib/clipboard";
 import { cn } from "../../lib/utils";
 import { useUiStore } from "../../stores/ui";
 import { useWorkspaceStore } from "../../stores/workspace";
@@ -85,11 +86,7 @@ const aliases: Record<string, string> = {
  * 渲染代码块的兜底路径会直接使用它的结果，防止代码内容被当成标签执行。
  */
 function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /**
@@ -160,10 +157,8 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           </div>
         ) : null}
         {/* 高亮结果由 highlight.js 生成，或来自本地转义，直接写入可避免二次解析。 */}
-        <pre
-          className={wrapped ? "is-wrap" : undefined}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: 内容只来自 highlight.js 输出与本地转义，不包含原始 HTML */}
+        <pre className={wrapped ? "is-wrap" : undefined} dangerouslySetInnerHTML={{ __html: html }} />
       </div>
       {lines.length > 26 ? (
         <button type="button" className="code-more" onClick={() => setExpanded(!expanded)}>

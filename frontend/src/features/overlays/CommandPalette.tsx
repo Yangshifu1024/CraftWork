@@ -159,12 +159,25 @@ export function CommandPalette() {
         return item.group === "命令";
       }
       const keyword = query.toLowerCase();
-      return (
-        item.title.toLowerCase().includes(keyword) ||
-        (item.sub ?? "").toLowerCase().includes(keyword)
-      );
+      return item.title.toLowerCase().includes(keyword) || (item.sub ?? "").toLowerCase().includes(keyword);
     });
-  }, [theme, threads, query, tree, createThread, openSettings, setTheme, togglePanel, toggleMaximized, panelOpen, panelMaximized, openData, setMode, selectThread, openFile]);
+  }, [
+    theme,
+    threads,
+    query,
+    tree,
+    createThread,
+    openSettings,
+    setTheme,
+    togglePanel,
+    toggleMaximized,
+    panelOpen,
+    panelMaximized,
+    openData,
+    setMode,
+    selectThread,
+    openFile,
+  ]);
 
   useEffect(() => {
     // 关键字变化后选中项回到第一行，避免索引越界或指向不相关的结果。

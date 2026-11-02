@@ -10,7 +10,7 @@
  * 耗时来自后端的持久化事实（运行起止时间差），历史会话刷新后不会增长；
  * 运行中不使用本组件（过程保持平铺展开），因此没有「工作中」形态。
  */
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { cn } from "../../lib/utils";
 
@@ -69,11 +69,7 @@ export function WorkHistoryGroup(options: {
   const tag = endTag(options.endStatus);
   return (
     <div className={cn("work-history", open && "is-open")}>
-      <button
-        type="button"
-        className="work-history-head"
-        onClick={() => setOpen((current) => !current)}
-      >
+      <button type="button" className="work-history-head" onClick={() => setOpen((current) => !current)}>
         <span className="work-history-label">
           已工作{duration ? ` ${duration}` : ""}
           {tag ? (

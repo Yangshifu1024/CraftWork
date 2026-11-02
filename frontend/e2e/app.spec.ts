@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 async function boot(page: Page, screenshotMode = false) {
   await page.clock.install({ time: new Date("2026-11-01T10:00:00+08:00") });
@@ -37,9 +37,7 @@ test("首轮消息自动命名新会话", async ({ page }) => {
   await page.getByRole("button", { name: "新建会话" }).click();
   await sendMessage(page, "帮我修复登录刷新超时");
 
-  await expect(
-    page.locator(".thread-title", { hasText: "帮我修复登录刷新超时" }),
-  ).toBeVisible();
+  await expect(page.locator(".thread-title", { hasText: "帮我修复登录刷新超时" })).toBeVisible();
 });
 
 test("运行中引导（steer）排队显示并接力生效", async ({ page }) => {
@@ -97,9 +95,7 @@ test("添加自定义提供商与模型", async ({ page }) => {
   await page.getByRole("button", { name: "保存提供商" }).click();
 
   await expect(page.locator(".provider-name", { hasText: "我的网关" })).toBeVisible();
-  await expect(page.locator(".provider-card", { hasText: "我的网关" })).toContainText(
-    "gateway.example.com",
-  );
+  await expect(page.locator(".provider-card", { hasText: "我的网关" })).toContainText("gateway.example.com");
 });
 
 test("从模型目录添加提供商", async ({ page }) => {

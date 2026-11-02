@@ -8,8 +8,9 @@
  * - 负责滚动相关交互：是否显示“回到底部”、点击后平滑滚动到末尾。
  * - 负责拖拽文件到聊天区添加附件。
  */
-import { useRef, useState } from "react";
+
 import { AssistantRuntimeProvider, ThreadPrimitive } from "@assistant-ui/react";
+import { useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { useAppStore } from "../../stores/app";
 import { useThreadStore } from "../../stores/threads";
@@ -92,12 +93,7 @@ export function ChatPane() {
       >
         <ChatHeader />
 
-        <ThreadPrimitive.Viewport
-          ref={viewportRef as any}
-          className="chat-scroll"
-          onScroll={handleScroll}
-          autoScroll
-        >
+        <ThreadPrimitive.Viewport ref={viewportRef as any} className="chat-scroll" onScroll={handleScroll} autoScroll>
           <div className="chat-stream">
             {/* 还有更早的消息时，在顶部提供分页加载入口。 */}
             {hasEarlier ? (

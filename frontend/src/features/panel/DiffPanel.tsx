@@ -103,7 +103,10 @@ export function DiffPanel() {
                   </div>
                   <div className="diff-side-col">
                     {sideRows(hunk.lines).map((row, index) => (
-                      <div key={index} className={cn("sline", row.right?.kind === "add" && "add", !row.right && "empty")}>
+                      <div
+                        key={index}
+                        className={cn("sline", row.right?.kind === "add" && "add", !row.right && "empty")}
+                      >
                         <span className="dn">{row.right?.new ?? ""}</span>
                         <span className="dt">{row.right?.text ?? ""}</span>
                       </div>

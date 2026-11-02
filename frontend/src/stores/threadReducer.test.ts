@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Batch, Envelope, ThreadView } from "../lib/types";
 import { EVENT } from "../lib/types";
-import { reduceThread, updateThread, type ThreadSlice } from "./threadReducer";
+import { reduceThread, type ThreadSlice, updateThread } from "./threadReducer";
 
 const thread: ThreadView = {
   id: "th",
@@ -30,12 +30,7 @@ function baseState(): ThreadSlice {
   };
 }
 
-function envelope(
-  type: string,
-  data: unknown,
-  seq = 1,
-  threadId = "th",
-): Envelope {
+function envelope(type: string, data: unknown, seq = 1, threadId = "th"): Envelope {
   return { seq, type, threadId, runId: "run_1", ts: 0, data };
 }
 
@@ -46,34 +41,18 @@ function batch(...events: Envelope[]): Batch {
 describe("reduceThread", () => {
   it("合并文本增量并在完成事件后保留完整文本", () => {
     const state = baseState();
-    const started = reduceThread(
-      state,
-      batch(envelope(EVENT.runStarted, { messageId: "msg_1" })),
-      "th",
-    );
+    const started = reduceThread(state, batch(envelope(EVENT.runStarted, { messageId: "msg_1" })), "th");
     expect(started.running).toBe(true);
     expect(started.runningMessageID).toBe("msg_1");
 
-    const delta1 = reduceThread(
-      started,
-      batch(envelope(EVENT.textDelta, { partId: "p_text", text: "你" }, 2)),
-      "th",
-    );
-    const delta2 = reduceThread(
-      delta1,
-      batch(envelope(EVENT.textDelta, { partId: "p_text", text: "好" }, 3)),
-      "th",
-    );
+    const delta1 = reduceThread(started, batch(envelope(EVENT.textDelta, { partId: "p_text", text: "你" }, 2)), "th");
+    const delta2 = reduceThread(delta1, batch(envelope(EVENT.textDelta, { partId: "p_text", text: "好" }, 3)), "th");
     const completed = reduceThread(
       delta2,
       batch(envelope(EVENT.textCompleted, { partId: "p_text", text: "你好" }, 4)),
       "th",
     );
-    const finished = reduceThread(
-      completed,
-      batch(envelope(EVENT.runCompleted, { status: "done" }, 5)),
-      "th",
-    );
+    const finished = reduceThread(completed, batch(envelope(EVENT.runCompleted, { status: "done" }, 5)), "th");
 
     expect(finished.messages[0]?.parts[0]?.data.text).toBe("你好");
     expect(finished.messages[0]?.status).toBe("complete");
@@ -83,24 +62,24 @@ describe("reduceThread", () => {
   });
 
   it("审批请求进入待审批列表并切换会话状态", () => {
-    const started = reduceThread(
-      baseState(),
-      batch(envelope(EVENT.runStarted, { messageId: "msg_1" })),
-      "th",
-    );
+    const started = reduceThread(baseState(), batch(envelope(EVENT.runStarted, { messageId: "msg_1" })), "th");
     const requested = reduceThread(
       started,
       batch(
-        envelope(EVENT.approvalRequested, {
-          partId: "p_ap",
-          approvalId: "ap_1",
-          tool: "fs_write",
-          risk: "R1",
-          title: "写入文件",
-          target: "note.txt",
-          status: "waiting",
-          allowPermanent: true,
-        }, 2),
+        envelope(
+          EVENT.approvalRequested,
+          {
+            partId: "p_ap",
+            approvalId: "ap_1",
+            tool: "fs_write",
+            risk: "R1",
+            title: "写入文件",
+            target: "note.txt",
+            status: "waiting",
+            allowPermanent: true,
+          },
+          2,
+        ),
       ),
       "th",
     );
@@ -112,13 +91,17 @@ describe("reduceThread", () => {
     const resolved = reduceThread(
       requested,
       batch(
-        envelope(EVENT.approvalResolved, {
-          partId: "p_ap",
-          approvalId: "ap_1",
-          status: "approved",
-          decision: "allow",
-          scope: "session",
-        }, 3),
+        envelope(
+          EVENT.approvalResolved,
+          {
+            partId: "p_ap",
+            approvalId: "ap_1",
+            status: "approved",
+            decision: "allow",
+            scope: "session",
+          },
+          3,
+        ),
       ),
       "th",
     );
@@ -171,13 +154,17 @@ describe("reduceThread", () => {
     const third = reduceThread(
       second,
       batch(
-        envelope(EVENT.usageUpdated, {
-          inputTokens: 200,
-          outputTokens: 50,
-          contextTokens: 250,
-          cacheTokens: 180,
-          tokensPerSecond: 60,
-        }, 3),
+        envelope(
+          EVENT.usageUpdated,
+          {
+            inputTokens: 200,
+            outputTokens: 50,
+            contextTokens: 250,
+            cacheTokens: 180,
+            tokensPerSecond: 60,
+          },
+          3,
+        ),
       ),
       "th",
     );
@@ -296,11 +283,7 @@ describe("reduceThread", () => {
   });
 
   it("未知事件类型被忽略", () => {
-    const result = reduceThread(
-      baseState(),
-      batch(envelope("future.event", { anything: true })),
-      "th",
-    );
+    const result = reduceThread(baseState(), batch(envelope("future.event", { anything: true })), "th");
     expect(result.messages).toHaveLength(0);
     expect(result.running).toBe(false);
   });

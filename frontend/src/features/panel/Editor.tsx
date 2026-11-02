@@ -6,28 +6,24 @@
  *
  * 真正的写盘与备份由 workspace store 的 save 完成，本组件只负责编辑体验。
  */
-import { useEffect, useRef } from "react";
+
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { go } from "@codemirror/lang-go";
+import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { languages } from "@codemirror/language-data";
+import { highlightSelectionMatches, openSearchPanel, searchKeymap } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
 import {
-  EditorView,
   drawSelection,
+  EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
   lineNumbers,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { highlightSelectionMatches, openSearchPanel, searchKeymap } from "@codemirror/search";
-import {
-  HighlightStyle,
-  bracketMatching,
-  indentOnInput,
-  syntaxHighlighting,
-} from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import { languages } from "@codemirror/language-data";
-import { go } from "@codemirror/lang-go";
+import { useEffect, useRef } from "react";
 import { Icon } from "../../components/Icon";
 import { copyText } from "../../lib/clipboard";
 import { cn, formatBytes } from "../../lib/utils";
@@ -247,7 +243,9 @@ export function Editor() {
           type="button"
           className={cn("tool-btn", editorMode === "edit" && "is-on")}
           disabled={content.binary || content.truncated}
-          title={content.binary ? "二进制文件不可编辑" : content.truncated ? "文件超过 2MB，已截断，编辑已禁用" : undefined}
+          title={
+            content.binary ? "二进制文件不可编辑" : content.truncated ? "文件超过 2MB，已截断，编辑已禁用" : undefined
+          }
           onClick={() => setEditorMode("edit")}
         >
           <Icon name="edit" className="ico" />

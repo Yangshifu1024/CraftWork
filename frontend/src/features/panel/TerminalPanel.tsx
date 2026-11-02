@@ -7,10 +7,11 @@
  * 用户终端直接与本地 shell 交互，不经过 Agent 审批；
  * Agent 自己执行的 shell_exec 仍然要走策略引擎与审批。
  */
-import { useEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
+
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { Terminal } from "@xterm/xterm";
+import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Icon } from "../../components/Icon";
 import { cn } from "../../lib/utils";
@@ -226,7 +227,7 @@ export function TerminalPanel() {
     if (!term) {
       return;
     }
-    const full = activeID ? outputs[activeID] ?? "" : "";
+    const full = activeID ? (outputs[activeID] ?? "") : "";
     if (counterRef.current.id !== activeID || full.length < counterRef.current.length) {
       term.reset();
       counterRef.current = { id: activeID, length: 0 };
@@ -315,7 +316,13 @@ export function TerminalPanel() {
             </span>
           </button>
         ))}
-        <button type="button" className="icon-btn sm" title="新建终端" aria-label="新建终端" onClick={() => void create()}>
+        <button
+          type="button"
+          className="icon-btn sm"
+          title="新建终端"
+          aria-label="新建终端"
+          onClick={() => void create()}
+        >
           <Icon name="plus" className="ico" />
         </button>
       </div>
@@ -323,9 +330,7 @@ export function TerminalPanel() {
       <div className="term-head">
         {/* 当前会话的工作目录与运行状态，右侧是搜索开关 */}
         <span>{active?.cwd ?? "工作区"}</span>
-        <span className={cn("badge", active?.running ? "ok" : "neutral")}>
-          {active?.running ? "运行中" : "未运行"}
-        </span>
+        <span className={cn("badge", active?.running ? "ok" : "neutral")}>{active?.running ? "运行中" : "未运行"}</span>
         <span className="spacer" />
         <button
           type="button"
@@ -363,13 +368,31 @@ export function TerminalPanel() {
             }}
           />
           <span className="term-search-count">{resultLabel}</span>
-          <button type="button" className="icon-btn sm" title="上一个匹配" aria-label="上一个匹配" onClick={() => runFind(true)}>
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="上一个匹配"
+            aria-label="上一个匹配"
+            onClick={() => runFind(true)}
+          >
             <Icon name="chevron-up" className="ico" />
           </button>
-          <button type="button" className="icon-btn sm" title="下一个匹配" aria-label="下一个匹配" onClick={() => runFind(false)}>
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="下一个匹配"
+            aria-label="下一个匹配"
+            onClick={() => runFind(false)}
+          >
             <Icon name="chevron-down" className="ico" />
           </button>
-          <button type="button" className="icon-btn sm" title="关闭搜索" aria-label="关闭终端搜索" onClick={closeSearch}>
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="关闭搜索"
+            aria-label="关闭终端搜索"
+            onClick={closeSearch}
+          >
             <Icon name="x" className="ico" />
           </button>
         </div>

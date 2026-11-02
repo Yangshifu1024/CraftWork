@@ -12,8 +12,9 @@
  * - assistant-ui 只允许 assistant 消息携带 `status`，用户消息必须省略该字段。
  * - 当前模型的能力（是否支持推理、是否支持图片）会参与消息转换与发送前校验。
  */
+
+import { type ThreadMessageLike, useExternalStoreRuntime } from "@assistant-ui/react";
 import { useCallback, useMemo } from "react";
-import { useExternalStoreRuntime, type ThreadMessageLike } from "@assistant-ui/react";
 import type { ChatMessage } from "../../lib/types";
 import { matchModelInfo } from "../../lib/utils";
 import { useAppStore } from "../../stores/app";
@@ -84,10 +85,7 @@ export function convertMessage(message: ChatMessage, reasoningEnabled: boolean):
         data: {
           ...part.data,
           partId: part.id,
-          streaming:
-            message.role === "assistant" &&
-            message.status === "streaming" &&
-            index === lastIndex,
+          streaming: message.role === "assistant" && message.status === "streaming" && index === lastIndex,
         },
       });
       return;
@@ -152,10 +150,7 @@ export function useChatRuntime() {
   }, [threads, activeID, providers]);
 
   // 转换函数依赖当前模型是否支持推理，模型切换后需要重新生成转换器。
-  const convert = useCallback(
-    (message: ChatMessage) => convertMessage(message, reasoningEnabled),
-    [reasoningEnabled],
-  );
+  const convert = useCallback((message: ChatMessage) => convertMessage(message, reasoningEnabled), [reasoningEnabled]);
 
   /**
    * 处理 assistant-ui 的“发送新消息”回调。

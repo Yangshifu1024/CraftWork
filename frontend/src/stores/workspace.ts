@@ -351,6 +351,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   // 模式切换时整体清空：文件树、展开状态、Git 标记、打开的文件、草稿、差异与文档预览。
   reset() {
-    set({ tree: {}, expanded: {}, git: {}, selected: null, content: null, draft: "", diff: null, doc: null, targetLine: null });
+    set({
+      tree: {},
+      expanded: {},
+      git: {},
+      selected: null,
+      content: null,
+      draft: "",
+      diff: null,
+      doc: null,
+      targetLine: null,
+    });
   },
 }));
