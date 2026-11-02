@@ -125,8 +125,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       # 截图基线按操作系统保存；CI 只跑功能用例，截图回归在本地执行。
+      # pnpm run 的 -- 透传在 pnpm 12 下不可靠（AGENTS.md 已知坑），
+      # 过滤参数必须用 pnpm exec 直连 playwright，否则截图用例全跑且 linux 无基线必挂。
       - name: 端到端测试
-        run: pnpm run test:e2e -- --grep-invert @screenshot
+        run: pnpm exec playwright test --grep-invert @screenshot
 
   bindings:
     name: 绑定漂移检查
