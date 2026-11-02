@@ -54,6 +54,55 @@ export const PANEL_MIN_WIDTH = 320;
 /** 面板最大宽度（像素），避免在宽屏上挤压对话区。 */
 export const PANEL_MAX_WIDTH = 760;
 
+/**
+ * 面板偏好的 localStorage 键（spec 第 7 节）。
+ *
+ * 持久化的只有「上次布局偏好」：宽度与开合。tab 列表刻意不落盘——文件可
+ * 由文件树重建、终端 PTY 随进程退出消失，恢复失效路径（文件移动、线程
+ * 删除）是纯负担，重启后面板打开显示文件树兜底视图。桌面与 server 模式
+ * 行为一致（localStorage 在两种宿主下都可用）。
+ */
+const PANEL_WIDTH_KEY = "cw-panel-width";
+const PANEL_OPEN_KEY = "cw-panel-open";
+
+/** 从 localStorage 读宽度偏好；缺失或损坏时回退默认（最小宽度）。 */
+function readStoredWidth(): number {
+  try {
+    const raw = localStorage.getItem(PANEL_WIDTH_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    return Number.isFinite(parsed) ? clamp(parsed, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH) : PANEL_MIN_WIDTH;
+  } catch {
+    return PANEL_MIN_WIDTH;
+  }
+}
+
+/** 从 localStorage 读开合偏好；只有显式写入的 "false" 视为收起，其余展开。 */
+function readStoredOpen(): boolean {
+  try {
+    return localStorage.getItem(PANEL_OPEN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+/** 写入宽度偏好；localStorage 不可用时静默跳过。 */
+function persistWidth(width: number): void {
+  try {
+    localStorage.setItem(PANEL_WIDTH_KEY, String(width));
+  } catch {
+    // 存储不可用（隐私模式等）时放弃持久化，功能不受影响。
+  }
+}
+
+/** 写入开合偏好；localStorage 不可用时静默跳过。 */
+function persistOpen(open: boolean): void {
+  try {
+    localStorage.setItem(PANEL_OPEN_KEY, open ? "true" : "false");
+  } catch {
+    // 存储不可用（隐私模式等）时放弃持久化，功能不受影响。
+  }
+}
+
 /** 工作区记忆桶：tab 状态与按线程记住的偏好。 */
 interface PaneBucket {
   /** 该工作区的多 tab 状态（含其他线程的隐藏 tab）。 */
@@ -196,45 +245,52 @@ interface PanelState {
 /**
  * 右侧面板的状态容器。
  *
- * 初始状态：默认展开、非最大化、宽度取最小宽度 320、没有任何 tab
- * （面板内容显示文件树兜底视图）。
+ * 初始状态：宽度与开合从 localStorage 恢复（缺失时展开 / 最小宽度），
+ * 没有任何 tab（面板内容显示文件树兜底视图）。
  */
 export const usePanelStore = create<PanelState>((set, get) => ({
-  open: true,
+  open: readStoredOpen(),
   maximized: false,
-  width: PANEL_MIN_WIDTH,
+  width: readStoredWidth(),
   narrow: false,
   tabs: [],
   activeTabId: null,
   recentClosed: [],
 
   // 关闭面板时必须清掉最大化标记，否则再次打开会直接铺满；
-  // 显式开合都记入当前线程的偏好，切回该线程时恢复。
+  // 显式开合都记入当前线程的偏好（切回该线程时恢复），并持久化开合值。
   setOpen(open) {
     const scope = currentScope();
     bucketFor(scope.workspaceId).collapsedByThread[scope.threadId] = !open;
+    persistOpen(open);
     set({ open, maximized: open ? get().maximized : false });
   },
   // 翻转可见性，规则与 setOpen 一致。
   toggle() {
     get().setOpen(!get().open);
   },
-  // 最大化必然要求面板可见；取消最大化不改变可见性。
+  // 最大化必然要求面板可见；取消最大化不改变可见性。展开状态一并持久化。
   setMaximized(maximized) {
+    if (maximized && !get().open) {
+      persistOpen(true);
+    }
     set({ maximized, open: maximized ? true : get().open });
   },
-  // 面板关着时按「最大化」= 先打开并最大化；否则直接翻转。
+  // 面板关着时按「最大化」= 先打开并最大化；否则直接翻转。隐含的展开一并持久化。
   toggleMaximized() {
     const current = get();
     if (!current.open) {
+      persistOpen(true);
       set({ open: true, maximized: true });
       return;
     }
     set({ maximized: !current.maximized });
   },
-  // 宽度做上下限夹取，防止拖出过窄或过宽的面板。
+  // 宽度做上下限夹取（防拖出过窄或过宽），并持久化偏好。
   setWidth(width) {
-    set({ width: clamp(width, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH) });
+    const next = clamp(width, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH);
+    persistWidth(next);
+    set({ width: next });
   },
   // 窄窗口下面板改为浮层，会遮住对话区，所以进入窄窗口时自动收起；
   // 回到宽窗口时再自动展开。这是临时态，不写入线程偏好。

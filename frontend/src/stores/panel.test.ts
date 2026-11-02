@@ -263,6 +263,55 @@ describe("线程清理", () => {
   });
 });
 
+describe("偏好持久化", () => {
+  it("宽度与开合写入 localStorage；重新加载模块后恢复", async () => {
+    try {
+      usePanelStore.getState().setWidth(500);
+      usePanelStore.getState().setOpen(false);
+      expect(localStorage.getItem("cw-panel-width")).toBe("500");
+      expect(localStorage.getItem("cw-panel-open")).toBe("false");
+
+      // 重新加载模块：初始值从 localStorage 恢复。
+      vi.resetModules();
+      const { usePanelStore: fresh } = await import("./panel");
+      expect(fresh.getState().width).toBe(500);
+      expect(fresh.getState().open).toBe(false);
+    } finally {
+      localStorage.removeItem("cw-panel-width");
+      localStorage.removeItem("cw-panel-open");
+    }
+  });
+
+  it("损坏的持久化值回退默认（宽度夹取回合法区间，开合缺失视为展开）", async () => {
+    try {
+      localStorage.setItem("cw-panel-width", "99999");
+      localStorage.setItem("cw-panel-open", "not-a-bool");
+      vi.resetModules();
+      const { usePanelStore: fresh } = await import("./panel");
+      expect(fresh.getState().width).toBe(760);
+      // 只有显式写入的 "false" 视为收起。
+      expect(fresh.getState().open).toBe(true);
+    } finally {
+      localStorage.removeItem("cw-panel-width");
+      localStorage.removeItem("cw-panel-open");
+    }
+  });
+
+  it("窄窗口的临时收起不覆盖持久化的开合偏好", () => {
+    try {
+      usePanelStore.getState().setOpen(true);
+      usePanelStore.getState().setNarrow(true);
+      expect(usePanelStore.getState().open).toBe(false);
+      usePanelStore.getState().setNarrow(false);
+      // 离开窄窗口后开合仍为展开，且 localStorage 记录未被临时态污染。
+      expect(usePanelStore.getState().open).toBe(true);
+      expect(localStorage.getItem("cw-panel-open")).toBe("true");
+    } finally {
+      localStorage.removeItem("cw-panel-open");
+    }
+  });
+});
+
 /** 统计当前投影里终端 tab 的数量。 */
 function terminalTabsIn(state: { tabs: ReturnType<typeof usePanelStore.getState>["tabs"] }): number {
   return state.tabs.filter((tab) => tab.id === TERMINAL_TAB_ID).length;
