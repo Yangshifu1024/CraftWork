@@ -1,7 +1,6 @@
-// Package service 是 Go 与前端之间的绑定层。
-//
-// 每个导出类型都会被 Wails3 注册为服务，导出方法会生成对应的 TypeScript
-// 调用入口。服务层只做参数校验、编排与错误转换，业务逻辑放在领域包中。
+// Package service 是面向界面的服务层：只做参数校验、编排与错误转换，
+// 业务逻辑放在领域包中。native UI 迁移后它不再是绑定层，view 直接调用
+// 这些导出方法，方法签名保持稳定。
 //
 // 本文件提供应用级能力：构建信息读取、窗口控制、文件选择、剪贴板，
 // 以及唯一允许打开外部链接的出口。
@@ -19,15 +18,19 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo"
+
 	"github.com/yangshifu1024/craftwork/internal/id"
 	"github.com/yangshifu1024/craftwork/internal/policy"
 	"github.com/yangshifu1024/craftwork/internal/version"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // attachmentDirName 是数据目录下保存粘贴附件的子目录名。
 const attachmentDirName = "attachments"
+
+// mainWindowTitle 是主窗口的标题，也是按包级窗口表查找主窗口的依据：
+// 主窗口是应用内唯一的常规窗口，标题与产品名一致且不被页面改写。
+const mainWindowTitle = "CraftWork"
 
 // maxPastedAttachmentBytes 是单个粘贴附件的最大字节数。
 // 与 Agent 侧一条消息的附件总上限一致，超过后直接拒绝，避免无意义落盘。
@@ -104,36 +107,35 @@ func (s *AppService) OpenExternal(rawURL string) error {
 	if parsed.Host == "" {
 		return errors.New("链接缺少主机名")
 	}
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return errors.New("应用尚未初始化")
 	}
-	return current.Browser.OpenURL(parsed.String())
+	return mygo.Shell.OpenExternal(parsed.String())
 }
 
 // MinimiseWindow 最小化主窗口。
 func (s *AppService) MinimiseWindow() error {
-	window, err := mainWindow()
+	window, err := MainWindow()
 	if err != nil {
 		return err
 	}
-	window.Minimise()
+	window.Minimize()
 	return nil
 }
 
 // ToggleMaximiseWindow 在最大化与还原之间切换主窗口。
 func (s *AppService) ToggleMaximiseWindow() error {
-	window, err := mainWindow()
+	window, err := MainWindow()
 	if err != nil {
 		return err
 	}
-	window.ToggleMaximise()
+	window.ToggleMaximize()
 	return nil
 }
 
 // CloseWindow 关闭主窗口。
 func (s *AppService) CloseWindow() error {
-	window, err := mainWindow()
+	window, err := MainWindow()
 	if err != nil {
 		return err
 	}
@@ -143,15 +145,13 @@ func (s *AppService) CloseWindow() error {
 
 // PickFiles 打开系统文件选择对话框，返回选中的文件路径。
 func (s *AppService) PickFiles() ([]string, error) {
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return nil, errors.New("应用尚未初始化")
 	}
-	return current.Dialog.OpenFile().
-		SetTitle("选择附件").
-		CanChooseFiles(true).
-		CanChooseDirectories(false).
-		PromptForMultipleSelection()
+	return mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Title:    "选择附件",
+		Multiple: true,
+	})
 }
 
 // SavePastedAttachment 把剪贴板里的文件内容写入附件目录，返回绝对路径。
@@ -297,32 +297,33 @@ func sanitizeAttachmentName(name string) string {
 
 // WriteClipboard 写入系统剪贴板，返回是否成功。
 func (s *AppService) WriteClipboard(text string) bool {
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return false
 	}
-	return current.Clipboard.SetText(text)
+	mygo.Clipboard.WriteText(text)
+	return true
 }
 
 // ReadClipboard 读取系统剪贴板文本。
 func (s *AppService) ReadClipboard() string {
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return ""
 	}
-	text, _ := current.Clipboard.Text()
-	return text
+	return mygo.Clipboard.ReadText()
 }
 
-// mainWindow 取名为 main 的主窗口；应用未初始化或窗口不存在时返回错误。
-func mainWindow() (application.Window, error) {
-	current := application.Get()
-	if current == nil {
+// MainWindow 返回主窗口；应用未就绪或窗口不存在（已全部关闭）时返回错误。
+//
+// 主窗口按标题在包级窗口表里查找：native UI 窗口的标题不会被页面改写，
+// 与装配时设置的 Title 保持一致。
+func MainWindow() (*mygo.Window, error) {
+	if !mygo.App.IsReady() {
 		return nil, errors.New("应用尚未初始化")
 	}
-	window, ok := current.Window.GetByName("main")
-	if !ok {
-		return nil, errors.New("主窗口不存在")
+	for _, window := range mygo.Windows() {
+		if window.Title() == mainWindowTitle && !window.IsDestroyed() {
+			return window, nil
+		}
 	}
-	return window, nil
+	return nil, errors.New("主窗口不存在")
 }

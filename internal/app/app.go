@@ -1,19 +1,20 @@
 // Package app 负责 CraftWork 的进程级装配：
 // 数据目录、数据库、密钥、事件总线、策略引擎、工具注册表、Agent 运行器、
-// Wails3 应用与窗口。
+// mygo 应用与窗口。
 //
 // 这里不包含业务逻辑，只负责把各层连接起来。本文件同时承担启动顺序的控制：
 // 先恢复数据与配置，再创建服务与窗口，最后进入事件循环；退出时统一关闭资源。
 package app
 
 import (
-	"embed"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/agent"
 	"github.com/yangshifu1024/craftwork/internal/events"
@@ -27,53 +28,65 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	"github.com/yangshifu1024/craftwork/internal/version"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
-	// appName 是窗口标题与系统通知里展示的产品名。
+	// appName 是窗口标题、单实例锁与系统通知里展示的产品名。
 	appName = "CraftWork"
-	// appID 是单实例与系统层面使用的应用标识。
-	appID = "com.craftwork.app"
-	// windowName 是主窗口的标识，用于按名称查找并唤起窗口。
-	windowName = "main"
+	// windowStateKey 是主窗口的状态键，mygo 用它记忆窗口的位置与尺寸。
+	windowStateKey = "main"
 )
 
-// emitter 允许事件总线在 Wails 应用创建完成后再绑定发送函数。
+// emitter 允许事件总线在主窗口创建后再绑定派发目标。
 //
-// 事件总线在装配早期就需要一个发送函数，而 Wails 应用要到后面才创建，
+// 事件总线在装配早期就需要一个派发函数，而窗口要到 WhenReady 里才创建，
 // 因此这里用一层可延迟绑定的包装，读路径加读锁保证并发安全。
 type emitter struct {
-	// mu 保护 app 指针，允许绑定与发送并发进行。
+	// mu 保护 win 指针，允许绑定与派发并发进行。
 	mu sync.RWMutex
-	// app 是 Wails 应用实例，未绑定时为 nil。
-	app *application.App
+	// win 是主窗口，未绑定时为 nil。
+	win *mygo.Window
 }
 
-// emit 把事件转发给 Wails 的前端事件通道；尚未绑定时直接丢弃。
-func (e *emitter) emit(name string, data any) {
+// emit 把一批事件转交给主线程；窗口尚未绑定时直接丢弃——与 Wails 时期
+// 「应用未创建前事件丢弃」的语义一致。win.Update 保证回调在主线程执行，
+// 界面在下一帧统一消费；界面状态装配完成前（后续 UI 票接线）回调为空，
+// 事件进主线程即止。
+func (e *emitter) emit(batch events.Batch) {
 	e.mu.RLock()
-	current := e.app
+	current := e.win
 	e.mu.RUnlock()
-	if current != nil {
-		current.Event.Emit(name, data)
+	if current == nil {
+		return
 	}
+	current.Update(func() {
+		// 界面状态装配（后续 UI 票）会在这里把 batch 写进界面状态。
+	})
 }
 
-// bind 在 Wails 应用创建完成后记录实例，后续事件即可正常发送。
-func (e *emitter) bind(app *application.App) {
+// bind 在主窗口创建完成后记录实例，后续事件即可正常进主线程。
+func (e *emitter) bind(win *mygo.Window) {
 	e.mu.Lock()
-	e.app = app
+	e.win = win
 	e.mu.Unlock()
 }
 
 // Run 启动桌面应用，阻塞直到应用退出。
 //
-// 启动顺序有依赖关系：数据目录 → 数据库（含中断清理）→ 密钥 → 事件总线 →
-// 策略与工具 → 服务 → 恢复设置 → 创建窗口。任何一步失败都会直接返回错误，
-// 让入口打印后退出，避免带着半初始化的状态继续运行。
-func Run(frontend embed.FS, build version.Info) error {
+// 启动顺序有依赖关系：单实例锁 → 数据目录 → 数据库（含中断清理）→ 密钥 →
+// 事件总线 → 策略与工具 → 服务 → 恢复设置 → 创建窗口。任何一步失败都会
+// 直接返回错误，让入口打印后退出，避免带着半初始化的状态继续运行。
+func Run(build version.Info) error {
+	// 单实例锁在任何数据被打开之前请求：第二个实例连数据库都不该碰。
+	// 锁按应用名标识，而 go run / go build 的默认名是可执行文件名，
+	// 因此先把名字固定下来。
+	mygo.App.SetName(appName)
+	if !mygo.App.RequestSingleInstanceLock() {
+		// 命令行已移交给运行中的实例，由它负责唤起窗口；这里安静退出。
+		slog.Info("CraftWork 已在运行，本次启动移交给已有实例")
+		return nil
+	}
+
 	dataDir, err := resolveDataDir()
 	if err != nil {
 		return err
@@ -81,6 +94,14 @@ func Run(frontend embed.FS, build version.Info) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("创建数据目录 %s: %w", dataDir, err)
 	}
+	// mygo 自己的用户数据目录（窗口状态等壳层数据）重定向到 CraftWork
+	// 数据目录之下，让 CRAFTWORK_HOME 的隔离同时覆盖窗口状态；mygo 对
+	// 覆盖路径不做自动创建，这里先建好，否则状态文件写不进去。
+	shellDir := filepath.Join(dataDir, "shell")
+	if err := os.MkdirAll(shellDir, 0o700); err != nil {
+		return fmt.Errorf("创建壳层数据目录 %s: %w", shellDir, err)
+	}
+	mygo.App.SetPath(mygo.PathUserData, shellDir)
 	// 粘贴附件统一放在数据目录，避免写进用户工作区；Agent 读取附件时也会
 	// 接受该目录，因此这里先建好，保证路径解析时目录真实存在。
 	attachmentDir := service.AttachmentDir(dataDir)
@@ -110,7 +131,7 @@ func Run(frontend embed.FS, build version.Info) error {
 		slog.Warn(warning)
 	}
 
-	// 事件总线通过 emitter 发送，此时 Wails 应用还没创建，事件会暂时丢弃。
+	// 事件总线通过 emitter 发送，此时窗口还没创建，事件会暂时丢弃。
 	emitter := &emitter{}
 	bus := events.NewBus(emitter.emit)
 	defer bus.Close()
@@ -150,21 +171,15 @@ func Run(frontend embed.FS, build version.Info) error {
 	workspaceService := service.NewWorkspaceService(db, bus, filepath.Join(dataDir, "backups"))
 	providerService := service.NewProviderService(db, secrets)
 	auditService := service.NewAuditService(db)
-	// 终端是 UI 级动作，按「当前激活工作区」取根目录；运行中会话的
-	// 环境是 per-run 的 RunEnv，两者互不影响。
-	activeWorkspacePath := func() string {
-		settings := settingsService.Get()
-		if settings.ActiveWorkspace == "" {
-			return ""
-		}
-		if workspace, err := db.GetWorkspace(settings.ActiveWorkspace); err == nil {
-			return workspace.Path
-		}
-		return ""
-	}
-	terminalService := service.NewTerminalService(bus, activeWorkspacePath)
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
+
+	// native UI 的 view 直调服务方法：服务实例由界面装配（后续 UI 票）
+	// 持有并分组暴露。在那之前保持构造，验证装配顺序不被迁移破坏。
+	_ = []any{
+		appService, threadService, chatService, workspaceService,
+		providerService, auditService, documentService, mcpService,
+	}
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
 	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
@@ -182,70 +197,45 @@ func Run(frontend embed.FS, build version.Info) error {
 	// 每个会话在运行开始时从自己绑定的工作区解析执行环境。
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))
-	// 批量事件通道需要在创建应用前注册，前端才能收到 cw:events。
-	application.RegisterEvent[events.Batch](events.BatchName)
 
-	wailsApp := application.New(application.Options{
-		Name:        appName,
-		Description: "本地优先、可审计的桌面 Agent",
-		// 每个服务都会生成对应的前端绑定方法，新增服务必须在这里注册。
-		Services: []application.Service{
-			application.NewService(appService),
-			application.NewService(settingsService),
-			application.NewService(threadService),
-			application.NewService(chatService),
-			application.NewService(workspaceService),
-			application.NewService(providerService),
-			application.NewService(auditService),
-			application.NewService(terminalService),
-			application.NewService(documentService),
-			application.NewService(mcpService),
-		},
-		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(frontend),
-			// Wails3 默认不设置安全头，必须由中间件补上。
-			Middleware: securityHeaders,
-		},
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               appID,
-			OnSecondInstanceLaunch: focusMainWindow,
-		},
-		ErrorHandler: func(err error) {
-			slog.Error("wails 运行时错误", "err", err)
-		},
-		OnShutdown: func() {
-			// 退出前关闭事件总线，让后台批量发送的 goroutine 尽快结束。
-			bus.Close()
-		},
-		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
-		},
+	// 第二个实例启动时唤起已有窗口。单实例机制只负责通知，
+	// 不会自动把窗口带到前台。
+	mygo.App.OnSecondInstance(func([]string, string) {
+		focusMainWindow()
 	})
-	// 绑定之后，事件总线产生的事件才会真正发到前端。
-	emitter.bind(wailsApp)
+	// 退出前关闭事件总线，让后台还在派发事件的 goroutine 尽快结束。
+	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+		bus.Close()
+	})
 
-	// 窗口底色跟随主题：显式浅色的用户在 WebView 首帧前不再看到深色窗口。
-	// dark 与跟随系统仍用深底；跟随系统的实际解析由前端完成。
-	windowBackground := application.NewRGB(11, 13, 17)
-	if settingsService.Get().Theme == "light" {
-		windowBackground = application.NewRGB(238, 240, 244)
+	// 窗口底色跟随主题：显式浅色的用户在首帧前不再看到深色窗口。
+	// dark 与跟随系统仍用深底；跟随系统的实际解析由界面完成。
+	windowBackground := "#0b0d11"
+	if settings.Theme == "light" {
+		windowBackground = "#eeeff4"
 	}
 
-	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             windowName,
-		Title:            appName,
-		Width:            1440,
-		Height:           900,
-		MinWidth:         960,
-		MinHeight:        640,
-		BackgroundColour: windowBackground,
-		// 窗口只加载本地根路径，绝对 URL 禁止传进来。
-		URL:            "/",
-		EnableFileDrop: true,
-		Mac: application.MacWindow{
-			TitleBar:                application.MacTitleBarHiddenInset,
-			InvisibleTitleBarHeight: 48,
-		},
+	mygo.App.WhenReady(func() {
+		win := mygo.NewWindow(mygo.WindowOptions{
+			Title:           appName,
+			Width:           1440,
+			Height:          900,
+			MinWidth:        960,
+			MinHeight:       640,
+			BackgroundColor: windowBackground,
+			// 窗口位置与尺寸按状态键记忆，下次启动回到原位。
+			StateKey: windowStateKey,
+			// 隐藏标题栏：界面顶部自画拖拽区并避让红绿灯。
+			TitleBarStyle: mygo.TitleBarHiddenInset,
+			// 界面票落地前只铺一层主题底色占住原生表面：native UI 窗口
+			// 要画出首帧才显示，完全空白的视图不会产生帧；窗口没有页面
+			// 可加载，应用内不出现任何 WebView。
+			Content: ui.View(func(c *ui.Context) {
+				ui.Column(c).Fill().Background(c.Theme().Background)
+			}),
+		})
+		// 绑定之后，事件总线产生的事件才会真正进主线程。
+		emitter.bind(win)
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
@@ -253,7 +243,7 @@ func Run(frontend embed.FS, build version.Info) error {
 		if !settingsService.Get().Notifications {
 			return
 		}
-		if current := wailsApp.Window.Current(); current != nil && current.IsFocused() {
+		if mygo.FocusedWindow() != nil {
 			return
 		}
 		notify.Send(title, message)
@@ -262,7 +252,7 @@ func Run(frontend embed.FS, build version.Info) error {
 	// 恢复 MCP 连接可能较慢，放到后台执行，不阻塞窗口显示。
 	go mcpService.Restore()
 
-	return wailsApp.Run()
+	return mygo.App.Run()
 }
 
 // resolveDataDir 返回本地数据目录，默认 ~/.craftwork。
@@ -280,31 +270,14 @@ func resolveDataDir() (string, error) {
 
 // focusMainWindow 在第二个实例启动时唤起已有窗口。
 //
-// Wails3 的单实例机制只负责通知，不会自动把窗口带到前台，
-// 所以这里显式执行还原、显示与聚焦。
-func focusMainWindow(application.SecondInstanceData) {
-	current := application.Get()
-	if current == nil {
+// 单实例机制只通知不唤起，这里显式执行还原、显示与聚焦；
+// 窗口不存在（全部关闭）时无事可做。
+func focusMainWindow() {
+	window, err := service.MainWindow()
+	if err != nil {
 		return
 	}
-	if window, ok := current.Window.GetByName(windowName); ok {
-		window.Restore()
-		window.Show()
-		window.Focus()
-	}
-}
-
-// securityHeaders 为所有本地资源响应追加安全头。
-// Wails3 默认不设置 CSP，也不拦截窗口导航，因此这层是必需的。
-//
-// 具体策略由构建标签决定：开发模式需要放宽以支持热更新，
-// 生产模式只允许同源脚本与本地资源。
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header := w.Header()
-		header.Set("Content-Security-Policy", contentSecurityPolicy())
-		header.Set("X-Content-Type-Options", "nosniff")
-		header.Set("Referrer-Policy", "no-referrer")
-		next.ServeHTTP(w, r)
-	})
+	window.Restore()
+	window.Show()
+	window.Focus()
 }

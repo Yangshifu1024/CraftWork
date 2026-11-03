@@ -1,4 +1,4 @@
-// 本文件是工作区相关的前端绑定：工作区增删切换、信任状态、文件树、
+// 本文件是工作区相关的界面服务：工作区增删切换、信任状态、文件树、
 // 文件读写、行级差异与 Git 状态。所有路径都经 policy.Resolve 校验，
 // 保存文件前会备份并在检测到外部修改时拒绝覆盖。
 
@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/egoist/mygo"
+
 	"github.com/yangshifu1024/craftwork/internal/editor"
 	"github.com/yangshifu1024/craftwork/internal/events"
 	"github.com/yangshifu1024/craftwork/internal/id"
@@ -20,8 +22,6 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/policy"
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // WorkspaceView 是工作区的展示结构。
@@ -145,16 +145,22 @@ func (s *WorkspaceService) List() ([]WorkspaceView, error) {
 
 // PickFolder 打开系统文件夹选择对话框。
 func (s *WorkspaceService) PickFolder() (string, error) {
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return "", errors.New("应用尚未初始化")
 	}
-	return current.Dialog.OpenFile().
-		SetTitle("选择工作区").
-		CanChooseDirectories(true).
-		CanChooseFiles(false).
-		CanCreateDirectories(true).
-		PromptForSingleSelection()
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Title:             "选择工作区",
+		Directory:         true,
+		CreateDirectories: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	// 用户取消时返回空路径，与既有调用方的约定一致。
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return paths[0], nil
 }
 
 // Add 添加工作区并设为当前活动工作区。
