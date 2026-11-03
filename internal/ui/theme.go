@@ -72,6 +72,9 @@ var (
 	Ease     = theme.Ease
 )
 
+// ReduceMotion 报告系统是否要求减少动效（theme.ReduceMotion 同函数）。
+var ReduceMotion = theme.ReduceMotion
+
 // 类型别名：Palette 的方法（Risk、ModeAccent）随别名一起可用。
 type (
 	Palette    = theme.Palette

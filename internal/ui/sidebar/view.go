@@ -397,12 +397,20 @@ func listEmpty(c *mygo.Context, v *viewSide, text string) {
 
 // threadItem 画一个会话行（.thread-item）：两行布局（标题；时间 + 状态），
 // 选中态模式色竖条 + 悬停/选中底色，右键菜单三项操作。
+//
+// 行带 Enter/Exit 收展过渡（10 号票动效补齐）：组折叠 / 展开时行收拢滑出、
+// 滑入展开，列表其他变化（排序、增删）同样平滑让位，与 mygo 列表过渡
+// 惯例一致；减少动效偏好下 Transition 自动直达目标。
 func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 	active := t.ID == s.ActiveID()
 	btn := mygo.ButtonBase(c).Fill().AlignItems(mygo.Stretch).Key(t.ID).
 		Padding(ui.Space4, ui.Space1+3, ui.Space4, ui.Space5+1). // 8 5 8 11
 		Radius(ui.RadiusCtl).
-		Margin(0, 0, 1, 0) // 行间距 1（.thread-item margin-bottom）
+		Margin(0, 0, 1, 0). // 行间距 1（.thread-item margin-bottom）
+		Transition(mygo.ElementTransition{
+			Enter: &mygo.Motion{Collapse: true},
+			Exit:  &mygo.Motion{Collapse: true},
+		})
 	if active {
 		btn.Background(v.pal.SidebarHover).BorderWidth(1).BorderColor(v.pal.Border)
 	} else if btn.Hovered() {
@@ -458,11 +466,12 @@ func statusNode(c *mygo.Context, v *viewSide, status string) {
 	}
 }
 
-// statusBadge 画「圆点 + 文案」的状态徽标；pulse 时圆点透明度往复。
+// statusBadge 画「圆点 + 文案」的状态徽标；pulse 时圆点透明度往复
+//（Loop 类装饰动效在系统要求减少动效时停用，见 theme.ReduceMotion）。
 func statusBadge(c *mygo.Context, v *viewSide, color mygo.Color, label string, pulse bool) {
 	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space4).Children(func() {
 		dot := mygo.Box(c).Size(5, 5).Radius(ui.RadiusRound).Background(color)
-		if pulse {
+		if pulse && !ui.ReduceMotion(c) {
 			dot.Opacity(1 - 0.55*dot.Loop("pulse", 1400*time.Millisecond, mygo.Bounce(mygo.EaseInOut)))
 		}
 		mygo.Text(c, label).FontSize(ui.Fonts.XS()).FontWeight(500).TextColor(color)

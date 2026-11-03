@@ -321,10 +321,33 @@ func Run(build version.Info) error {
 	}
 	sidebarState.SetActions(acts)
 
+	// 会话跳转（10 号票）：系统通知点击与命令面板会话结果的共同入口。
+	jumpToThread := func(threadID string) {
+		if threadID == "" {
+			return
+		}
+		go func() {
+			mode := ""
+			if th, err := db.GetThread(threadID); err == nil && th != nil {
+				mode = th.Mode
+			}
+			emitter.update(func() {
+				if m := cwsidebar.NormalizeMode(mode); m != "" && m != sidebarState.Mode {
+					sidebarState.SetMode(m)
+					sidebarClient.Refresh()
+					chatState.SetFallbackMode(cwchat.ModeFromSidebar(string(m)))
+				}
+				sidebarState.Select(threadID)
+				chatClient.SelectThread(threadID)
+			})
+		}()
+	}
+
 	// 浮层触达其他视图状态的回调在这里接线：面板展开 / 收起是外壳状态；
-	// 会话 / 模式 / 项目动作委托侧栏编排；文件打开走面板的 OpenFileAt。
-	// 传 05 号票包装过的 acts，浮层切模式与侧栏走同一条聊天联动路径。
-	wireOverlayHooks(shell, sidebarClient, acts)
+	// 会话 / 模式 / 项目动作委托侧栏编排；文件打开走面板的 OpenFileAt；
+	// 会话跳转与系统通知点击共用 jumpToThread。传 05 号票包装过的 acts，
+	// 浮层切模式与侧栏走同一条聊天联动路径。
+	wireOverlayHooks(shell, sidebarClient, acts, jumpToThread)
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -363,16 +386,22 @@ func Run(build version.Info) error {
 		chatState.SetApprovalLevelRaw(settingsService.Get().ApprovalLevel)
 	})
 
-	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
-	runner.SetNotifier(func(title, message string) {
+	// 系统通知（10 号票）：窗口失焦时审批 / 完成 / 失败三类经
+	// mygo.NewNotification 发送；开关沿用设置项，点击通知聚焦窗口并跳到
+	// 对应会话（jumpToThread）。系统通知失败不会影响运行。
+	notify.SetClickHandler(jumpToThread)
+	runner.SetNotifier(func(threadID, title, message string) {
 		if !settingsService.Get().Notifications {
 			return
 		}
 		if mygo.FocusedWindow() != nil {
 			return
 		}
-		notify.Send(title, message)
+		notify.Send(threadID, title, message)
 	})
+	// 用户回到应用（点通知、点图标唤起）时清掉通知中心里本应用的留存
+	// 通知：应用里能看到的东西不再挂在通知中心。
+	mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
 
 	// 恢复 MCP 连接可能较慢，放到后台执行，不阻塞窗口显示。
 	go mcpService.Restore()
@@ -397,8 +426,9 @@ func levelLabel(level string) string {
 // wireOverlayHooks 把浮层体系的跨视图钩子接到侧栏编排与外壳 / 面板状态：
 // 面板展开 / 收起、关闭当前 tab、打开文件归外壳与面板；新建会话、临时
 // 会话、切模式、创建项目后续动作委托侧栏编排（acts 已含 05 号票的聊天
-// 联动包装，切模式会同步聊天列兜底模式并加载选中会话）。
-func wireOverlayHooks(shell *cwui.Shell, sidebarClient *cwsidebar.Client, acts *cwsidebar.Actions) {
+// 联动包装，切模式会同步聊天列兜底模式并加载选中会话）；会话跳转与
+// 系统通知点击共用 jumpToThread。
+func wireOverlayHooks(shell *cwui.Shell, sidebarClient *cwsidebar.Client, acts *cwsidebar.Actions, jumpToThread func(string)) {
 	hooks := overlays.Hooks{
 		TogglePanel: func() { shell.TogglePanel() },
 		PanelOpen:   func() bool { return shell.PanelOpen() },
@@ -408,6 +438,7 @@ func wireOverlayHooks(shell *cwui.Shell, sidebarClient *cwsidebar.Client, acts *
 	hooks.NewThread = sidebarClient.CreateThreadInActive
 	hooks.NewTempThread = acts.CreateTempThread
 	hooks.SetMode = func(mode string) { acts.SwitchMode(cwsidebar.NormalizeMode(mode)) }
+	hooks.OpenThread = jumpToThread
 	hooks.ProjectCreated = func(workspaceID string) { sidebarClient.CreateThreadIn(workspaceID) }
 	overlays.BindHooks(hooks)
 }

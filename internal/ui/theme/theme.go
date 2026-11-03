@@ -85,6 +85,20 @@ var (
 	Ease     = mygo.CubicBezier(0.22, 0.61, 0.36, 1)
 )
 
+// ReduceMotion 报告系统是否要求减少动效（macOS「减弱动态效果」、Windows
+// 动画效果关闭、GNOME 关闭动画）。读当前 view 帧的 Context（ui.Context.
+// Preferences，Tester 下取测试注入值），供 view 代码在帧内判断。
+//
+// mygo 的 Animate / Transition 已自动跟随该偏好（值与位移直接到达目标），
+// Loop 不停（与系统指示器的行为一致）；装饰性的循环动效（扫光、脉冲）
+// 没有信息量，由调用方读本函数自行停用。
+func ReduceMotion(c *mygo.Context) bool {
+	if c == nil {
+		return false
+	}
+	return c.Preferences().ReduceMotion
+}
+
 // ---------------------------------------------------------------------------
 // 字号 7 档（派生公式语义保留：设置改基准字号后全档跟随）
 // ---------------------------------------------------------------------------

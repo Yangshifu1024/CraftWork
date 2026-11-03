@@ -363,7 +363,15 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 			} else if approved {
 				hint = "已批准"
 			}
-			mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+			// 等待决定带扫光（10 号票动效补齐，思考块同机制换警示色）：
+			// 提示用户的决定还悬着；减少动效偏好下停用。
+			if waiting && !cwui.ReduceMotion(c) {
+				sweep := card.Loop("approval-sweep", 2200*time.Millisecond, mygo.Bounce(mygo.EaseInOut))
+				mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).
+					TextColor(v.pal.Text3.Mix(v.pal.Warn, sweep))
+			} else {
+				mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+			}
 		})
 		// 主体：摘要、目标、事实列表、预览。
 		mygo.Column(c).FillWidth().Padding(0, 12, 10, 12).Children(func() {
@@ -949,9 +957,9 @@ func (s *Chat) reasoningBlock(c *mygo.Context, v *viewSide, part Part, streaming
 				chev.Rotate(90)
 			}
 			cwui.Icon(c, "sparkles").FontSize(12).TextColor(v.pal.Text3)
-			if streaming && !open {
-				// 「正在思考」扫光：文字色在弱化与强调色间往复
-				//（.r-thinking 的渐变扫光近似）。
+			// 「正在思考」扫光：文字色在弱化与强调色间往复（.r-thinking 的
+			// 渐变扫光近似）；减少动效偏好下停用 Loop 类装饰动效。
+			if streaming && !open && !cwui.ReduceMotion(c) {
 				sweep := head.Loop("think-sweep", 2200*time.Millisecond, mygo.Bounce(mygo.EaseInOut))
 				mygo.Text(c, headLabel).FontSize(cwui.Fonts.SM()).
 					TextColor(v.pal.Text3.Mix(v.pal.Accent, sweep))
