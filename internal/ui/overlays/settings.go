@@ -174,14 +174,22 @@ func (s *Store) save(c *mygo.Context, patch func(*service.Settings)) {
 	st.draft = saved
 }
 
-// drawSettings 画设置中心模态。
+// drawSettings 画设置中心全屏覆盖层（对齐 React e10fc65 的最终形态：
+// 不再是 920×660 居中模态，而是铺满窗口的不透明覆盖层，替换主内容区
+// 呈现，关闭后返回原位——外壳每帧照常构建，只是被盖住，滚动位置与
+// 状态天然不丢）。
+//
+// 浮层语义：仍走 DialogBase，在浮层体系的最底层（数据面板压其上、全局
+// 对话框再上、通知最上层）。模态打开期间窗口级快捷键整体等待，Esc 归
+// 本层（DialogBase 的 OverlayShortcut）先于窗口退出链消费；面板铺满后
+// 点击全部落在面板上，遮罩点击关闭自然失效，关闭途径为 Esc 与标题栏 ×
+// （React e10fc65 移除底部栏后的两条途径，⌘, 保持幂等打开不变）。
 func (s *Store) drawSettings(c *mygo.Context) {
 	st := &s.settings
 	if !st.open {
 		return
 	}
 	p := pal(c)
-	w, h := c.Size()
 
 	// 进入 MCP 分组时刷新服务器列表（列表读取是内存缓存，主线程安全）。
 	if st.tab == TabMCP && st.loadedTab != TabMCP {
@@ -190,12 +198,13 @@ func (s *Store) drawSettings(c *mygo.Context) {
 	st.loadedTab = st.tab
 
 	panel := mygo.DialogBase(c, &st.open, func(backdrop, panel mygo.Element) {
-		styleBackdrop(backdrop)
-		panel.Width(920).MaxWidth(w-48).Height(660).MaxHeight(h-48).
-			Radius(14).Background(p.BgPanel).Border(1, p.BorderStrong).
-			Shadow(p.ShadowLg.X, p.ShadowLg.Y, p.ShadowLg.Blur, p.ShadowLg.Spread, p.ShadowLg.Color)
-		// esc / 遮罩关闭由 DialogBase 处理；关闭即收起子视图，下次打开不残留。
-		panel.Gap(0).Children(func() {
+		// 全屏覆盖层：不透明、无圆角 / 描边 / 阴影，铺满整个窗口
+		// （React 的 .settings-modal 是 absolute inset 0 + bg-panel）。
+		// 面板盖住遮罩后底色一致，避免边缘闪出遮罩色。
+		backdrop.Background(p.BgPanel)
+		panel.Fill().Background(p.BgPanel).
+			// esc 关闭由 DialogBase 处理；关闭即收起覆盖层，下次打开不残留。
+			Gap(0).Children(func() {
 			s.settingsHead(c, st)
 			mygo.Row(c).Grow(1).AlignItems(mygo.Stretch).Children(func() {
 				s.settingsNav(c, st)
@@ -210,14 +219,15 @@ func (s *Store) drawSettings(c *mygo.Context) {
 	}
 }
 
-// settingsHead 画顶栏：标题、分组搜索与关闭按钮。
+// settingsHead 画顶栏：标题、分组搜索与关闭按钮（48px，React e10fc65
+// 保留的头部结构；关闭是 Esc 之外唯一的关闭途径）。
 func (s *Store) settingsHead(c *mygo.Context, st *settingsState) {
 	p := pal(c)
 	mygo.Row(c).Height(48).Padding(0, 14, 0, 18).
 		AlignItems(mygo.Center).Gap(10).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 		icons.Icon(c, "settings").Size(16, 16).TextColor(p.Text2)
-		mygo.Text(c, "设置").FontSize(theme.Fonts.XL()).Bold()
+		mygo.Text(c, "设置").FontSize(theme.Fonts.Title()).Bold()
 		mygo.SearchField(c, &st.query).Width(220).Height(28).
 			Label("设置搜索").Placeholder("搜索设置…")
 		mygo.Spacer(c)
@@ -229,25 +239,18 @@ func (s *Store) settingsHead(c *mygo.Context, st *settingsState) {
 	})
 }
 
-// settingsNav 画左侧导航：搜索过滤后的七组 + 数据面板三个入口。
+// settingsNav 画左侧导航：240px 列（全屏形态加宽），搜索过滤后的七组 +
+// 数据面板三个入口。底色与内容列同为 bg-panel（对齐 React .settings-nav，
+// 全屏覆盖层内部不再区分侧栏底色）。
 func (s *Store) settingsNav(c *mygo.Context, st *settingsState) {
 	p := pal(c)
-	query := strings.ToLower(strings.TrimSpace(st.query))
-	visible := groupsAlign[:0]
-	for _, g := range groupsAlign {
-		if query == "" || strings.Contains(strings.ToLower(g.label), query) {
-			visible = append(visible, g)
-		}
-	}
+	visible := visibleGroups(st.query)
 
-	nav := mygo.Column(c).Width(208).FillHeight().
+	nav := mygo.Column(c).Width(theme.SettingsNavWidth).FillHeight().
 		Padding(theme.Space6, theme.Space4).Gap(theme.Space1).
-		Background(p.SidebarBg).BorderWidth(0, 1, 0, 0).BorderColor(p.Border)
+		Background(p.BgPanel).BorderWidth(0, 1, 0, 0).BorderColor(p.Border)
 	nav.Children(func() {
 		navGroupLabel(c, "设置")
-		if len(visible) == 0 {
-			mygo.Text(c, "没有匹配的设置分组").FontSize(theme.Fonts.SM()).TextColor(p.Text4).Padding(theme.Space4, theme.Space5)
-		}
 		for _, g := range visible {
 			active := st.tab == g.id
 			item := mygo.ButtonBase(c)
@@ -289,6 +292,21 @@ func (s *Store) settingsNav(c *mygo.Context, st *settingsState) {
 	})
 }
 
+// visibleGroups 按搜索关键字过滤导航分组（只匹配分组名，不深入设置项）；
+// 关键字为空时返回全部分组。每次分配新切片：groupsAlign 是包级定义，
+// 不能原地过滤（groupsAlign[:0] 复用底层数组会把过滤结果写回共享数据，
+// 污染后续所有帧的分组清单）。
+func visibleGroups(query string) []settingsGroup {
+	q := strings.ToLower(strings.TrimSpace(query))
+	visible := make([]settingsGroup, 0, len(groupsAlign))
+	for _, g := range groupsAlign {
+		if q == "" || strings.Contains(strings.ToLower(g.label), q) {
+			visible = append(visible, g)
+		}
+	}
+	return visible
+}
+
 // navGroupLabel 是导航里的小节标题。
 func navGroupLabel(c *mygo.Context, text string) {
 	mygo.Text(c, text).FontSize(theme.Fonts.XS()).TextColor(pal(c).Text3).
@@ -300,9 +318,10 @@ func navGroupLabel(c *mygo.Context, text string) {
 // ---------------------------------------------------------------------------
 
 // settingsContent 画当前分组的表单；目录浏览器与提供商编辑器打开时替换
-// 整个内容区（对齐 React 版的 is-catalog / editor 分支）。
+// 整个内容区（对齐 React 版的 is-catalog / editor 分支）。内容列在宽窗口
+// 下居中限宽（React e10fc65 的 .settings-content-inner：max-width 880px
+// 居中，避免设置行被拉散），目录浏览器与编辑器同在这一列里。
 func (s *Store) settingsContent(c *mygo.Context, st *settingsState) {
-	p := pal(c)
 	content := mygo.Scroll(c).Grow(1).Padding(theme.Space8, theme.Space8)
 	content.Children(func() {
 		defer func() {
@@ -310,31 +329,39 @@ func (s *Store) settingsContent(c *mygo.Context, st *settingsState) {
 				println("SMOKE-DEBUG: settingsContent panic:", fmt.Sprint(r))
 			}
 		}()
-		switch {
-		case st.tab == TabModels && st.catalogOpen:
-			s.drawCatalog(c, st)
-		case st.tab == TabModels && st.editor.open:
-			s.drawProviderEditor(c, st)
-		default:
-			switch st.tab {
-			case TabGeneral:
-				s.tabGeneral(c, st)
-			case TabMode:
-				s.tabMode(c, st)
-			case TabModels:
-				s.tabModels(c, st)
-			case TabTools:
-				s.tabTools(c, st)
-			case TabMCP:
-				s.tabMCP(c, st)
-			case TabAppearance:
-				s.tabAppearance(c, st)
-			case TabAdvanced:
-				s.tabAdvanced(c, st)
+		inner := mygo.Column(c).FillWidth().MaxWidth(theme.SettingsContentMaxWidth).
+			AlignSelf(mygo.Center)
+		inner.Children(func() {
+			// 搜索有输入但没有任何分组匹配时给空态（对齐 React panel-empty，
+			// 叠在当前分组内容上方）。
+			if q := strings.TrimSpace(st.query); q != "" && len(visibleGroups(q)) == 0 {
+				emptyState(c, "search", "没有匹配的设置分组", "试试「模型」「权限」「外观」等关键词。")
 			}
-		}
+			switch {
+			case st.tab == TabModels && st.catalogOpen:
+				s.drawCatalog(c, st)
+			case st.tab == TabModels && st.editor.open:
+				s.drawProviderEditor(c, st)
+			default:
+				switch st.tab {
+				case TabGeneral:
+					s.tabGeneral(c, st)
+				case TabMode:
+					s.tabMode(c, st)
+				case TabModels:
+					s.tabModels(c, st)
+				case TabTools:
+					s.tabTools(c, st)
+				case TabMCP:
+					s.tabMCP(c, st)
+				case TabAppearance:
+					s.tabAppearance(c, st)
+				case TabAdvanced:
+					s.tabAdvanced(c, st)
+				}
+			}
+		})
 	})
-	_ = p
 }
 
 // tabGeneral 画通用分组：启动模式、更新偏好、系统通知与数据目录。
