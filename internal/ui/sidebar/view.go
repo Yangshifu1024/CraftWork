@@ -32,6 +32,8 @@ type viewSide struct {
 	pal    *theme.Palette
 	accent mygo.Color // 模式强调色（选中竖条、状态点、滑块）
 	on     mygo.Color // 强调色之上的文字
+	soft   mygo.Color // 模式色软底（行 hover / 选中底色，随模式换色）
+	line   mygo.Color // 模式色描边（选中行描边）
 	acts   *Actions
 }
 
@@ -45,6 +47,7 @@ func (s *Sidebar) View(c *mygo.Context, pal *theme.Palette) {
 	v := &viewSide{pal: pal, acts: s.actions}
 	acc := pal.ModeAccent(uiMode(s.Mode))
 	v.accent, v.on = acc.Accent, acc.On
+	v.soft, v.line = acc.Soft, acc.Line
 
 	mygo.Column(c).Width(theme.SidebarWidth).
 		Background(pal.SidebarBg).
@@ -430,11 +433,13 @@ func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 			Enter: &mygo.Motion{Collapse: true},
 			Exit:  &mygo.Motion{Collapse: true},
 		})
-	// hover 与激活同色块（zai：bg-surface-hover / bg-selected 同为 5% 黑，
-	// 无描边——zai 气质「聚焦只加深边框」也不给行加框，选中语义由左侧
-	// 模式色竖条承担）。
-	if active || btn.Hovered() {
-		btn.Background(v.pal.SidebarHover)
+	// 高亮与选中走模式色系（用户指定，参考空态建议按钮的 Soft 底 + Line
+	// 描边，随 Code / Work 模式换色）：悬停 Soft 底，激活再加模式色描边，
+	// 与左侧模式色竖条同源。
+	if active {
+		btn.Background(v.soft).BorderWidth(1).BorderColor(v.line)
+	} else if btn.Hovered() {
+		btn.Background(v.soft)
 	}
 	if btn.Clicked() {
 		s.Select(t.ID)
