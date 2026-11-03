@@ -15,6 +15,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * CatalogLogo 返回目录提供商 logo 的 data URL。
+ * 
+ * URL 只来自嵌入目录（不接受前端传地址，避免变成任意网络探针）；抓取结果
+ * 带内存缓存，失败进入负缓存。离线或校验失败时返回错误，前端回退文字头像。
+ */
+export function CatalogLogo(providerID: string): $CancellablePromise<string> {
+    return $Call.ByID(3487825215, providerID);
+}
+
+/**
  * CatalogMeta 返回嵌入目录的版本、来源与规模。
  */
 export function CatalogMeta(): $CancellablePromise<$models.CatalogMeta> {

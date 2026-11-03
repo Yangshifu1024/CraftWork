@@ -439,6 +439,25 @@ html[data-theme="light"] .overlay-backdrop {
 .settings-section {
   max-width: none;
 }
+
+/* 目录浏览器打开时：卡片在可视高度内最大化，整页不被撑高——上方设置行
+   保持原高，剩余空间全部给卡片，列表在卡片内部滚动。 */
+.settings-modal.is-catalog .settings-content {
+  display: flex;
+  flex-direction: column;
+}
+.settings-modal.is-catalog .settings-content-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-modal.is-catalog .settings-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .settings-section + .settings-section {
   margin-top: 26px;
   padding-top: 22px;
@@ -629,6 +648,7 @@ html[data-theme="light"] .overlay-backdrop {
   display: grid;
   place-items: center;
   font-size: var(--text-ui-xs);
+  overflow: hidden;
   font-weight: 600;
   letter-spacing: -0.02em;
   background: var(--bg-active);
@@ -663,8 +683,15 @@ html[data-theme="light"] .overlay-backdrop {
 }
 .provider-toolbar {
   display: flex;
+  align-items: center;
+  gap: 10px;
   justify-content: flex-end;
   margin: 8px 0;
+}
+/* 目录元信息贴左占位，添加按钮保持右对齐 */
+.provider-catalog-meta {
+  margin: 0 auto 0 0;
+  line-height: 1.4;
 }
 .provider-editor {
   border: 1px solid var(--border-strong);
@@ -1748,12 +1775,21 @@ html[data-theme="light"] .overlay-backdrop {
 /* 模型目录浏览器：左侧提供商列表，右侧模型选择与导入表单 */
 .catalog-browser {
   padding-bottom: 10px;
+  /* 目录打开时占满分组剩余的可视高度（可收缩），右侧空态不再悬在半空 */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .catalog-panes {
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
+  /* 行高必须钳在容器内：隐式 auto 行按内容取高且不会被压缩，
+     216 个提供商会把左列表撑到数千 px 溢出卡片（页脚叠字就来自这里） */
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
-  min-height: 330px;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 .catalog-provider-pane {
   display: flex;
@@ -1767,7 +1803,8 @@ html[data-theme="light"] .overlay-backdrop {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 480px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 .catalog-provider-item {
@@ -1800,6 +1837,15 @@ html[data-theme="light"] .overlay-backdrop {
   background: var(--bg-active);
   font-size: var(--text-ui-xs);
   color: var(--text-3);
+  overflow: hidden;
+}
+/* logo 图像复用文字头像的类：等比缩放并裁进圆角框，不撑破布局。
+   垫白色底：深色主题里深色 logo 才可读，浅色主题下与浅灰底也协调。 */
+img.provider-logo,
+img.catalog-provider-logo {
+  object-fit: contain;
+  background: #ffffff;
+  padding: 3px;
 }
 .catalog-provider-main {
   display: flex;
@@ -1827,6 +1873,9 @@ html[data-theme="light"] .overlay-backdrop {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  /* 与左列表同理：面板钳在 grid 行内，内部内容超出时裁剪而不是外溢 */
+  min-height: 0;
+  overflow: hidden;
 }
 .catalog-model-head {
   display: flex;
@@ -1875,7 +1924,8 @@ html[data-theme="light"] .overlay-backdrop {
   min-width: 170px;
 }
 .catalog-model-table-wrap {
-  max-height: 240px;
+  flex: 1;
+  min-height: 120px;
   overflow: auto;
   border: 1px solid var(--border-soft);
   border-radius: 7px;
@@ -1899,9 +1949,6 @@ html[data-theme="light"] .overlay-backdrop {
 }
 .catalog-foot {
   margin-top: 8px;
-}
-.provider-catalog-foot {
-  margin-top: 10px;
 }
 .pmr-hint {
   font-size: var(--text-ui-xs);

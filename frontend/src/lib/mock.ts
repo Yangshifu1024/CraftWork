@@ -50,7 +50,7 @@ const settings: Settings = {
   fallbackModel: "",
   activeWorkspace: "ws_demo",
   language: "zh-CN",
-  fontSize: 14,
+  fontSize: 15,
   codeTheme: "dark",
   terminalFontSize: 12,
   maxIterations: 300,
@@ -1518,6 +1518,8 @@ export const mockApi: Api = {
     },
     /** 返回目录版本信息。 */
     catalogMeta: async () => ({ ...catalogMeta }),
+    /** Mock 不伪造远程 logo，始终走文字头像回退。 */
+    catalogLogo: async () => null,
     /** 返回目录提供商，Added 按当前用户配置计算。 */
     catalogProviders: async (query) => {
       const keyword = (query ?? "").trim().toLowerCase();

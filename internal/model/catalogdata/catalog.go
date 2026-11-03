@@ -61,7 +61,10 @@ type Provider struct {
 	Endpoint string   `json:"endpoint"`
 	Doc      string   `json:"doc,omitempty"`
 	Env      []string `json:"env,omitempty"`
-	Models   []Model  `json:"models"`
+	// Logo 是 models.dev 站点的图标地址（https://models.dev/logos/<id>.svg，
+	// 同步时按 ID 推导）；空表示没有可用图标。
+	Logo   string   `json:"logo,omitempty"`
+	Models []Model  `json:"models"`
 }
 
 // Dataset 是完整的目录快照。

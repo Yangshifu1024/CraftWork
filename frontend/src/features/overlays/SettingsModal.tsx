@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../../components/Icon";
+import { ProviderLogo } from "../../components/ProviderLogo";
 import { api } from "../../lib/api";
 import { guardFreeLevel } from "../../lib/approval";
 import type { ApprovalLevel, CatalogMeta, MCPServerView, ProviderView, Settings } from "../../lib/types";
@@ -376,7 +377,12 @@ export function SettingsModal() {
 
   return createPortal(
     <div className="overlay-layer">
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
+      <div
+        className={cn("settings-modal", catalogOpen && "is-catalog")}
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+      >
         <div className="settings-head">
           {/* 顶栏：标题、分组搜索与关闭按钮；搜索只过滤左侧分组 */}
           <Icon name="settings" />
@@ -583,6 +589,12 @@ export function SettingsModal() {
                   ) : (
                     <>
                       <div className="provider-toolbar">
+                        {catalogMeta ? (
+                          <div className="sec-desc provider-catalog-meta">
+                            模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount}{" "}
+                            个提供商 · {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
+                          </div>
+                        ) : null}
                         <button type="button" className="btn sm" onClick={() => setCatalogOpen(true)}>
                           <Icon name="globe" className="ico" />
                           从模型目录添加
@@ -612,7 +624,11 @@ export function SettingsModal() {
                         <div key={provider.id} className={cn("provider-card", expanded === provider.id && "is-open")}>
                           <div className="provider-head">
                             {/* 提供商摘要：名称、可用状态与操作按钮 */}
-                            <div className="provider-logo">{provider.name.slice(0, 2)}</div>
+                            <ProviderLogo
+                              providerID={provider.catalogId}
+                              name={provider.name}
+                              className="provider-logo"
+                            />
                             <div className="provider-main">
                               <div className="provider-name">
                                 {provider.name}
@@ -724,13 +740,6 @@ export function SettingsModal() {
                           ) : null}
                         </div>
                       ))}
-
-                      {catalogMeta ? (
-                        <div className="sec-desc provider-catalog-foot">
-                          模型目录：models.dev · {catalogMeta.generatedAt.slice(0, 10)} · {catalogMeta.providerCount}{" "}
-                          个提供商 · {catalogMeta.modelCount} 个模型 · {catalogMeta.license}
-                        </div>
-                      ) : null}
                     </>
                   )}
                 </SettingsSection>
@@ -962,7 +971,7 @@ export function SettingsModal() {
                       value={settings.fontSize}
                       onChange={(event) => update({ fontSize: Number(event.target.value) })}
                     >
-                      {[12, 13, 14, 15].map((size) => (
+                      {[12, 13, 14, 15, 16].map((size) => (
                         <option key={size} value={size}>
                           {size}px
                         </option>

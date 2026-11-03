@@ -159,6 +159,8 @@ export const desktopApi = {
       const raw = await ProviderService.ImportFromCatalog(input);
       return { ...raw, models: raw.models ?? [] } as ProviderView;
     },
+    // 抓取失败（离线、超时、非图片）一律按无 logo 处理，调用方回退文字头像。
+    catalogLogo: (providerID) => ProviderService.CatalogLogo(providerID).catch(() => null),
   },
   /** MCP 服务器管理（当前为 M4 留桩阶段）。 */
   mcp: {

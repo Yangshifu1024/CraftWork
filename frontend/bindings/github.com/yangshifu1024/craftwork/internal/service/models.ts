@@ -693,6 +693,11 @@ export interface ProviderView {
     "available": boolean;
 
     /**
+     * CatalogID 是来源目录的提供商标识，用于请求目录 logo；手工添加为空。
+     */
+    "catalogId"?: string;
+
+    /**
      * Models 是该提供商下的模型列表。
      */
     "models": ModelView[] | null;

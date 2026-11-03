@@ -6,6 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
+import { ProviderLogo } from "../../components/ProviderLogo";
 import { api } from "../../lib/api";
 import type { CatalogMeta, CatalogModelView, CatalogProviderView, ProviderView } from "../../lib/types";
 import { cn } from "../../lib/utils";
@@ -239,7 +240,7 @@ export function CatalogBrowser({
                 )}
                 onClick={() => setSelectedProvider(provider)}
               >
-                <span className="catalog-provider-logo">{provider.name.slice(0, 2)}</span>
+                <ProviderLogo providerID={provider.id} name={provider.name} className="catalog-provider-logo" />
                 <span className="catalog-provider-main">
                   <span className="catalog-provider-name">{provider.name}</span>
                   <span className="catalog-provider-meta">{provider.modelCount} 个模型</span>
