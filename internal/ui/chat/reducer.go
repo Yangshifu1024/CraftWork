@@ -173,6 +173,24 @@ func numOf(m map[string]any, key string) float64 {
 	}
 }
 
+// boolOf 取 map 里的布尔字段：实时事件是 Go 原生 bool，快照 JSON 解出的
+// 也是 bool；兼容旧的字符串 "true" 形态。缺失按 false。
+func boolOf(m map[string]any, key string) bool {
+	if m == nil {
+		return false
+	}
+	switch v := m[key].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true" || v == "1"
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 消息级纯函数
 // ---------------------------------------------------------------------------

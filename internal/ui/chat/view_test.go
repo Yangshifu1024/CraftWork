@@ -26,6 +26,7 @@ type recorded struct {
 	externals   []string
 	copies      []string
 	loadEarlies int
+	decides     []decision
 }
 
 // newChatTester 在 1200×800 下起一个注入了数据与本地动作的聊天列 view。
@@ -115,8 +116,8 @@ func TestChatViewStreamsAndFinishes(t *testing.T) {
 	}
 }
 
-// 部件渲染：用户消息右对齐气泡（文本可查）与非文本部件的占位卡标题、
-// 系统提示细条。
+// 部件渲染：用户消息右对齐气泡（文本可查）、助手消息结束后过程部件
+// 收进「已工作」折叠区（展开可见工具卡）、系统提示细条。
 func TestChatViewMessageParts(t *testing.T) {
 	s, _, tt := newChatTester(t)
 	s.LoadSnapshot("th", []*Message{
@@ -138,8 +139,18 @@ func TestChatViewMessageParts(t *testing.T) {
 	if !tt.HasText("帮我看看 runner.go") || !tt.HasText("这是回答") {
 		t.Fatal("消息文本应渲染")
 	}
+	// 终态消息的过程段默认收拢：折叠头可见、工具名不可见。
+	if !tt.HasText("已工作") {
+		t.Fatal("终态助手消息应显示已工作折叠头")
+	}
+	if tt.HasText("fs_read") {
+		t.Fatal("收拢状态不应显示工具卡")
+	}
+	// 展开后工具卡可见（点击折叠头）。
+	clickText(t, tt, "已工作")
+	settleClick(tt)
 	if !tt.HasText("fs_read") {
-		t.Fatal("工具占位卡应显示工具名")
+		t.Fatal("展开后应显示工具卡")
 	}
 	if !tt.HasText("上下文已压缩") {
 		t.Fatal("系统提示细条应渲染")

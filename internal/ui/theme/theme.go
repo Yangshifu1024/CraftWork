@@ -75,6 +75,10 @@ const (
 	Space8 float32 = 24
 )
 
+// MonoFont 是等宽字体栈（base.css 的 --font-mono）：工具名、目标路径、
+// 差异预览、计数等界面里的代码形文本使用。
+const MonoFont = "SF Mono, JetBrains Mono, Cascadia Code, Menlo, Consolas, Liberation Mono, monospace"
+
 // 动效常量：--dur 与 --ease（cubic-bezier(0.22, 0.61, 0.36, 1)）。
 var (
 	Duration = 160 * time.Millisecond

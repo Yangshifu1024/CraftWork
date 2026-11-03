@@ -124,24 +124,10 @@ func (s *Chat) textKey(v *viewSide, k mygo.TextKey) bool {
 		s.submit()
 		k.SetText("")
 		return true
-	case mygo.KeyEscape:
-		// 双击 Esc 停止：运行中才武装；窗口内第二击真正取消。
-		if !s.Running() {
-			return false
-		}
-		now := time.Now()
-		if s.interruptArmed && now.Sub(s.armedAt) <= escArmWindow {
-			s.DisarmInterrupt()
-			s.SetRunning(false)
-			if s.acts != nil && s.acts.Cancel != nil {
-				s.acts.Cancel()
-			}
-			return true
-		}
-		s.interruptArmed = true
-		s.armedAt = now
-		return false // 单击 Esc 不拦截，浮层退出链（07 号票）仍可用
 	default:
+		// Esc 的退出链（运行中双击停止、待审批拒绝）在窗口级处理
+		//（HandleWindowEscape，AppShell 的 Esc 链同序）：无论焦点在
+		// 输入框还是审批按钮上，Esc 都走同一条链，这里不拦截。
 		return false
 	}
 }

@@ -61,6 +61,9 @@ type Actions struct {
 	// Copy 把文本写入剪贴板。剪贴板要经主循环，实现必须排队到帧后执行
 	//（app.go 用 win.Update），不能帧内直调。
 	Copy func(text string)
+	// OpenDiff 打开审批卡的「查看完整差异」（面板差异 tab 的入口；diff
+	// 内容渲染归 09 号票，装配接 shell 的面板打开动作）。
+	OpenDiff func(path, oldText, newText string)
 }
 
 // Chat 是聊天列的界面状态壳（thread store 的会话内部分 + composer/附件）。
@@ -90,6 +93,9 @@ type Chat struct {
 
 	// approvalLevel 是审批档位的中文短标签（设置服务在装配时同步）。
 	approvalLevel string
+	// approvalLevelRaw 是审批档位的原始字符串（graded / strict / readonly /
+	// free），审批卡按它判断永久授权按钮的显隐；空按分级处理（默认档）。
+	approvalLevelRaw string
 	// fallbackMode 是无选中会话时的兜底模式（侧栏当前模式，app 装配
 	// 在模式切换时写入）；有会话时以会话自身 Mode 为准。
 	fallbackMode cwui.Mode
@@ -97,6 +103,14 @@ type Chat struct {
 	tempWorkspace bool
 	// list 是消息流的列表状态（Key / FollowEnd / 平滑跟底）。
 	list mygo.ListState
+
+	// 卡片界面状态（按部件 id 键控；展开语义见各卡片）。
+	toolOpenState  map[string]bool
+	toolTouched    map[string]bool
+	reasoningOpen  map[string]bool
+	reasoningTouch map[string]bool
+	reasoningStart map[string]int64
+	workOpenState  map[string]bool
 
 	// acts 是服务动作入口；SetActions 注入。
 	acts *Actions
@@ -394,6 +408,123 @@ func (s *Chat) SetTempWorkspace(v bool) { s.tempWorkspace = v }
 
 // SetApprovalLevel 写入审批档位的中文短标签。
 func (s *Chat) SetApprovalLevel(label string) { s.approvalLevel = label }
+
+// SetApprovalLevelRaw 写入审批档位的原始字符串（审批卡永久授权按钮的
+// 显隐判断用；空按分级处理）。
+func (s *Chat) SetApprovalLevelRaw(level string) { s.approvalLevelRaw = level }
+
+// HandleWindowEscape 是窗口级 Esc 退出链里聊天列的两级（AppShell.tsx 的
+// Esc 链移植；浮层 / 面板的层级归浮层体系与 08 / 10 号票）：
+//   - 运行中：双击 Esc 才取消，第一击只武装停止按钮（短窗口内再按一次
+//     才真正停止，避免误触打断任务）；
+//   - 非运行但有待审批：按 Esc 视为拒绝最后一条审批请求，范围固定为
+//     「仅本次」。
+//
+// 返回 true 表示 Esc 已被消费（根视图的窗口快捷键据此忽略）。
+func (s *Chat) HandleWindowEscape() bool {
+	if s.Running() {
+		now := time.Now()
+		if s.interruptArmed && now.Sub(s.armedAt) <= escArmWindow {
+			s.DisarmInterrupt()
+			s.SetRunning(false)
+			if s.acts != nil && s.acts.Cancel != nil {
+				s.acts.Cancel()
+			}
+			return true
+		}
+		s.interruptArmed = true
+		s.armedAt = now
+		return true
+	}
+	s.DisarmInterrupt()
+	if pending := s.slice.PendingApprovals; len(pending) > 0 {
+		last := pending[len(pending)-1]
+		if id := strOf(last, "approvalId"); id != "" {
+			if s.acts != nil && s.acts.Decide != nil {
+				s.acts.Decide(id, false, "once")
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// 卡片界面状态（按部件 id 键控）
+// ---------------------------------------------------------------------------
+
+// toolOpen 读取工具卡的展开态；没有手动操作过时按状态取默认（失败默认
+// 展开，其余收起；ToolCard 的 useState(data.status === "error") 同语义）。
+func (s *Chat) toolOpen(id string, defaultOpen bool) bool {
+	if s.toolTouched[id] {
+		return s.toolOpenState[id]
+	}
+	return defaultOpen
+}
+
+// setToolOpen 写入工具卡的展开态并标记已手动操作。
+func (s *Chat) setToolOpen(id string, open bool) {
+	if s.toolOpenState == nil {
+		s.toolOpenState = map[string]bool{}
+	}
+	if s.toolTouched == nil {
+		s.toolTouched = map[string]bool{}
+	}
+	s.toolOpenState[id], s.toolTouched[id] = open, true
+}
+
+// rememberReasoningStart 记录思考部件的流式起点（首次见到时）。
+func (s *Chat) rememberReasoningStart(id string) {
+	if s.reasoningStart == nil {
+		s.reasoningStart = map[string]int64{}
+	}
+	if _, ok := s.reasoningStart[id]; !ok {
+		s.reasoningStart[id] = time.Now().UnixMilli()
+	}
+}
+
+// forgetReasoningStart 清掉思考部件的流式起点（流式结束）。
+func (s *Chat) forgetReasoningStart(id string) {
+	if s.reasoningStart != nil {
+		delete(s.reasoningStart, id)
+	}
+}
+
+// reasoningElapsed 返回思考已进行的秒数（至少 1；起点缺失按 1 秒）。
+func (s *Chat) reasoningElapsed(id string) int {
+	start, ok := s.reasoningStart[id]
+	if !ok {
+		return 1
+	}
+	seconds := int((time.Now().UnixMilli() - start) / 1000)
+	if seconds < 1 {
+		seconds = 1
+	}
+	return seconds
+}
+
+// setReasoningOpen 写入思考块的展开态并标记已手动操作（手动操作过后，
+// 流式结束不再自动收起）。
+func (s *Chat) setReasoningOpen(id string, open bool) {
+	if s.reasoningOpen == nil {
+		s.reasoningOpen = map[string]bool{}
+	}
+	if s.reasoningTouch == nil {
+		s.reasoningTouch = map[string]bool{}
+	}
+	s.reasoningOpen[id], s.reasoningTouch[id] = open, true
+}
+
+// workOpen 读取「已工作」折叠区的展开态（默认收起）。
+func (s *Chat) workOpen(key string) bool { return s.workOpenState[key] }
+
+// setWorkOpen 写入「已工作」折叠区的展开态。
+func (s *Chat) setWorkOpen(key string, open bool) {
+	if s.workOpenState == nil {
+		s.workOpenState = map[string]bool{}
+	}
+	s.workOpenState[key] = open
+}
 
 // ArmInterrupt 标记双击 Esc 的第一击。
 func (s *Chat) ArmInterrupt() { s.interruptArmed = true }

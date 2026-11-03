@@ -123,6 +123,7 @@ func (cl *Client) Actions() *Actions {
 		OpenFile:        cl.OpenFile,
 		ConfirmExternal: cl.ConfirmExternal,
 		Copy:            cl.Copy,
+		OpenDiff:        cl.OpenDiff,
 	}
 }
 
@@ -490,6 +491,19 @@ func (cl *Client) OpenFile(path string, line int) {
 	}
 	cl.deliver(func() {
 		cl.chat.QueueToast("文件引用：" + path + locate + "（文件面板待 08 号票接入）")
+	})
+}
+
+// OpenDiff 打开审批卡的「查看完整差异」：生产装配把本动作覆盖为面板的
+// 差异 tab 打开入口（shell.Pane.OpenDiffTab，08 号票骨架）；差异内容
+// 渲染归 09 号票，这里先收下旧 / 新文本并给出装配缺失时的提示。
+func (cl *Client) OpenDiff(path, oldText, newText string) {
+	title := path
+	if idx := strings.LastIndex(title, "/"); idx >= 0 {
+		title = title[idx+1:]
+	}
+	cl.deliver(func() {
+		cl.chat.QueueToast("打开差异：" + title + "（差异面板内容待 09 号票接入）")
 	})
 }
 

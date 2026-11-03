@@ -18,12 +18,17 @@ func RootView(shell *Shell) func(c *mygo.Context) {
 		Apply(c)
 		shell.View(c)
 
-		// 窗口级快捷键：⌘K 命令面板（开关），⌘, 设置中心（幂等打开）。
+		// 窗口级快捷键：⌘K 命令面板（开关），⌘, 设置中心（幂等打开），
+		// Esc 退出链的运行中 / 待审批两级（AppShell.tsx 的 Esc 链同序；
+		// 浮层打开时 Esc 归浮层，走不到这里）。
 		if c.Shortcut(mygo.Cmd, mygo.KeyK) {
 			overlays.TogglePalette()
 		}
 		if c.Shortcut(mygo.Cmd, mygo.KeyComma) {
 			overlays.OpenSettings("")
+		}
+		if c.Shortcut(0, mygo.KeyEscape) && shell.EscapeKey != nil {
+			shell.EscapeKey()
 		}
 
 		overlays.View(c)

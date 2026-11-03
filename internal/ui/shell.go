@@ -51,6 +51,9 @@ type Shell struct {
 	// ThreadID 返回当前会话 Id（05 号票注入）：面板 tab 按「工作区 +
 	// 线程」过滤显隐；未注入时全部归属草稿上下文。
 	ThreadID func() string
+	// EscapeKey 处理窗口级 Esc 的聊天列两级（06 号票注入：运行中双击
+	// 停止、待审批 Esc=拒绝）；返回 true 表示按键已消费。
+	EscapeKey func() bool
 
 	// pane 是面板（08 号票）：多 tab 状态 + 文件树 + 编辑器。依赖由
 	// SetPanelServices / BindWindow 注入，未注入时面板渲染空态。
@@ -140,6 +143,12 @@ func (s *Shell) BindWindow(win *cwmygo.Window) {
 // 正式入口，转面板 Pane.OpenFileAt；短路径经 LocateFile 唯一匹配）。
 func (s *Shell) OpenFileAt(path string, line int) {
 	s.pane.OpenFileAt(path, line)
+}
+
+// OpenDiffTab 打开面板的差异 singleton tab（审批卡「查看完整差异」的
+// 入口；差异内容渲染归 09 号票）。
+func (s *Shell) OpenDiffTab(title string) {
+	s.pane.OpenDiffTab(title)
 }
 
 // activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。

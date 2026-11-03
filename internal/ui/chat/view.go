@@ -249,37 +249,64 @@ func (s *Chat) messageRow(c *mygo.Context, v *viewSide, m *Message) {
 	})
 }
 
-// messageParts 按顺序画消息部件：用户消息的文本进气泡，助手消息的正文
-// 走 Markdown，非文本部件画最小占位卡（完整卡片归 06 号票）。
+// messageParts 按顺序画消息部件：用户消息的文本进气泡（附件 chips 在
+// 气泡内），助手消息按「过程分组」切段渲染——过程部件（思考 / 工具 /
+// 审批 / 待办 / 历史正文）相邻成组，运行中平铺、结束后收进「已工作 N」
+// 折叠区；最终正文走 Markdown；错误 / 提示等显性卡片留在折叠区外。
 func (s *Chat) messageParts(c *mygo.Context, v *viewSide, m *Message, isUser bool) {
-	for i := range m.Parts {
-		part := m.Parts[i]
-		switch part.Kind {
-		case PartText:
-			text := strOf(part.Data, "text")
-			if isUser {
-				s.userBubble(c, v, m, text)
-			} else if text != "" {
-				s.markdownView(c, v.pal, text, m.Status == StatusStreaming)
-				// 生成中：正文末尾闪烁光标（.stream-caret）。
-				if m.Status == StatusStreaming {
-					s.streamCaret(c, v)
-				}
+	if isUser {
+		for i := range m.Parts {
+			part := m.Parts[i]
+			switch part.Kind {
+			case PartText:
+				s.userBubble(c, v, m, strOf(part.Data, "text"))
+			case PartNotice:
+				noticeStrip(c, v, strOf(part.Data, "text"))
+			default:
+				partPlaceholder(c, v, part)
 			}
-		case PartNotice:
-			// 系统提示：居中细条（完整样式归 06 号票）。
-			noticeStrip(c, v, strOf(part.Data, "text"))
-		default:
-			// 工具 / 审批 / 思考 / 待办 / 错误的最小占位卡（06 号票替换）。
-			partPlaceholder(c, v, part)
+			if i < len(m.Parts)-1 {
+				mygo.Box(c).Height(ui.Space5)
+			}
 		}
-		// 部件间距：msg-body > .blk + .blk { margin-top: 10px }。
-		if i < len(m.Parts)-1 {
-			mygo.Box(c).Height(ui.Space5)
+		if len(m.Parts) == 0 && m.Status == StatusStreaming {
+			s.streamCaret(c, v)
+		}
+		return
+	}
+
+	// 助手消息：先切段渲染，再补流式光标。非 work 段里只有最终正文
+	//（其余文本部件归过程段）、提示与显性卡片。
+	final := finalTextIndex(m)
+	for k, seg := range segmentParts(m) {
+		if k > 0 {
+			partsGap(c)
+		}
+		if seg.work {
+			s.drawSegment(c, v, m, seg)
+			continue
+		}
+		for n, i := range seg.parts {
+			if n > 0 {
+				partsGap(c)
+			}
+			part := m.Parts[i]
+			switch part.Kind {
+			case PartText:
+				if i == final {
+					if text := strOf(part.Data, "text"); text != "" {
+						s.markdownView(c, v.pal, text, m.Status == StatusStreaming)
+					}
+				}
+			case PartNotice:
+				noticeStrip(c, v, strOf(part.Data, "text"))
+			default:
+				s.partCard(c, v, part, false)
+			}
 		}
 	}
-	// 消息没有任何可见部件时（流式刚开始），给出与生成中一致的光标。
-	if len(m.Parts) == 0 && m.Status == StatusStreaming {
+	// 生成中：正文末尾闪烁光标（.stream-caret）。
+	if m.Status == StatusStreaming {
 		s.streamCaret(c, v)
 	}
 }
@@ -316,8 +343,8 @@ func hasAttachments(m *Message) bool {
 	return len(messageAttachments(m)) > 0
 }
 
-// messageAttachments 取消息附件的显示名与大小（payload 里可能是路径
-// 字符串，也可能是 {name,path,size} 对象，两者都兼容）。
+// messageAttachments 取消息附件的显示名、路径与大小（payload 里可能是
+// 路径字符串，也可能是 {name,path,size} 对象，两者都兼容）。
 func messageAttachments(m *Message) []messageAttachment {
 	var out []messageAttachment
 	for i := range m.Parts {

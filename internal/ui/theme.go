@@ -86,6 +86,9 @@ const (
 	ModeCode     = theme.ModeCode
 	ModeWork     = theme.ModeWork
 	BaseFontSize = theme.BaseFontSize
+
+	// MonoFont 是等宽字体栈（base.css --font-mono）。
+	MonoFont = theme.MonoFont
 )
 
 // Fonts 是全局字号档（设置改基准字号后全档跟随；指针共享 theme 包的

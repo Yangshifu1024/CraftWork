@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo"
@@ -294,9 +295,19 @@ func Run(build version.Info) error {
 	acts := sidebarClient.Actions()
 	acts.SelectThread = chatClient.SelectThread
 	// path:line 引用（markdown.OnLink → craftwork://）→ 面板打开文件定位行。
+	// 审批卡的「查看完整差异」→ 面板差异 tab（差异内容渲染归 09 号票）。
 	chatActions := chatClient.Actions()
 	chatActions.OpenFile = shell.OpenFileAt
+	chatActions.OpenDiff = func(path, _, _ string) {
+		title := path
+		if idx := strings.LastIndex(title, "/"); idx >= 0 {
+			title = title[idx+1:]
+		}
+		shell.OpenDiffTab(title)
+	}
 	chatState.SetActions(chatActions)
+	// 窗口级 Esc 退出链的聊天列两级：运行中双击停止、待审批 Esc=拒绝。
+	shell.EscapeKey = chatState.HandleWindowEscape
 	switchMode := acts.SwitchMode
 	acts.SwitchMode = func(m cwsidebar.Mode) {
 		chatState.SetFallbackMode(cwchat.ModeFromSidebar(string(m)))
@@ -341,8 +352,10 @@ func Run(build version.Info) error {
 		sidebarClient.Boot()
 		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
 		chatClient.Boot(settingsService.Get().Mode)
-		// 审批档位的中文短标签（Composer 只读展示；浮层归 07 号票）。
+		// 审批档位的中文短标签（Composer 只读展示；浮层归 07 号票），
+		// 原始档位供审批卡判断永久授权按钮的显隐。
 		chatState.SetApprovalLevel(levelLabel(settingsService.Get().ApprovalLevel))
+		chatState.SetApprovalLevelRaw(settingsService.Get().ApprovalLevel)
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
