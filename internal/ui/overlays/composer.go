@@ -5,8 +5,9 @@
 // 原生侧统一走 DialogBase 模态：Esc / 遮罩关闭由浮层体系处理，不另起
 // 第二套退出链）。行为要点：
 //   - 模型选择：清单来自用户已添加提供商下的可用模型，支持按名称 / ID /
-//     提供商搜索；选择写入设置默认模型（model.Ref 语义，服务保存时归一化），
-//     与设置中心「模型与提供商」的默认模型下拉共用同一保存路径，天然双向同步。
+//     提供商搜索；勾选态优先当前会话模型，无会话模型退默认模型；选择写入
+//     设置默认模型（model.Ref 语义，服务保存时归一化），与设置中心「模型
+//     与提供商」的默认模型下拉共用同一保存路径，天然双向同步。
 //   - 审批档位：四档与设置中心「工具与权限」同源（approvalOptions）；保存
 //     走同一条 SettingsService.Save（策略引擎实时接管 + 审计落账）；自由档
 //     先过风险确认门（FreeConfirm）；保存成功后经回调把新档位同步给聊天列
@@ -63,7 +64,8 @@ type composerState struct {
 	query string
 	// models 是打开时快照的可用模型清单（用户提供商下的可用模型）。
 	models []service.ModelView
-	// current 是打开时快照的默认模型引用（勾选态）。
+	// current 是打开时快照的模型引用（勾选态）：当前会话模型优先，无会话
+	// 模型时退设置里的默认模型（OpenComposerModels 的 current 参数语义）。
 	current string
 	// level 是打开时快照的当前档位（勾选态与同值短路）。
 	level string
@@ -75,13 +77,24 @@ type composerState struct {
 }
 
 // OpenComposerModels 打开模型选择浮层：快照用户提供商下的可用模型与当前
-// 默认模型。
-func OpenComposerModels() {
-	store.composer.open, store.composer.kind = true, composerModel
-	store.composer.query = ""
-	store.composer.models = store.composerModels()
-	store.composer.current = store.settingsSnapshot().DefaultModel
+// 模型引用。勾选态优先当前会话模型（current），没有会话模型时退设置里的
+// 默认模型——「当前模型勾选态」跟会话走，「选择写入默认模型」是保存语义，
+// 两句并存互不冲突（review 修复轮：此前勾选态只看默认模型，会话已切换
+// 模型时勾选落后于会话）。
+func OpenComposerModels(current string) {
+	s := &store.composer
+	s.open, s.kind = true, composerModel
+	s.query = ""
+	s.models = store.composerModels()
+	if current == "" {
+		current = store.settingsSnapshot().DefaultModel
+	}
+	s.current = current
 }
+
+// ComposerModelsCurrent 返回模型浮层打开时快照的勾选引用（走查断言用）：
+// 当前会话模型优先，无会话模型时是设置里的默认模型。
+func ComposerModelsCurrent() string { return store.composer.current }
 
 // OpenComposerApproval 打开审批档位浮层。onChanged 在档位保存成功后于主
 // 线程执行，参数是新档位的原始字符串（graded / strict / readonly / free）。

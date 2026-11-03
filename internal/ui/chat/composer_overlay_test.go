@@ -44,6 +44,24 @@ func TestComposerBarOpensModelPicker(t *testing.T) {
 	_ = s
 }
 
+// TestComposerBarOpensModelPickerWithThreadModel 模型浮层的勾选引用跟随
+// 当前会话模型（接线传 Thread().ModelID；来源优先级的完整走查在 overlays
+// 包的 TestComposerModelPickerCurrentSource）。
+func TestComposerBarOpensModelPickerWithThreadModel(t *testing.T) {
+	s, tt := newComposerOverlayTester(t)
+	// 生产装配路径注入会话模型（LoadSnapshot 负责初始化 Threads 表）。
+	s.LoadSnapshot("t1", nil, ThreadInfo{ID: "t1", ModelID: "prov/model-x"}, false, 0)
+	tt.Frame()
+	clickText(t, tt, "切换模型")
+	tt.Frame()
+	if !tt.HasText("选择模型") {
+		t.Fatalf("模型浮层未打开: %v", tt.Texts())
+	}
+	if got := overlays.ComposerModelsCurrent(); got != "prov/model-x" {
+		t.Fatalf("勾选引用应取当前会话模型: %q", got)
+	}
+}
+
 // TestComposerBarOpensApprovalAndSyncs 档位展示点击打开档位浮层；选新档位
 // 后输入区只读展示同步（回调链，无服务注入时同步语义仍成立）。初始档位走
 // 装配同款 SetApprovalLevel 注入。

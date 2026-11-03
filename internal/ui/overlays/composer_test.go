@@ -73,7 +73,7 @@ func seedProvider(t *testing.T, svcs *composerServices) {
 // TestComposerModelPickerEmptyState 报告没有可用模型时的空态。
 func TestComposerModelPickerEmptyState(t *testing.T) {
 	tt, _ := newComposerTester(t)
-	OpenComposerModels()
+	OpenComposerModels("")
 	tt.Frame()
 	if !tt.HasText("选择模型") {
 		t.Fatalf("模型浮层未出现: %v", tt.Texts())
@@ -93,7 +93,7 @@ func TestComposerModelPickerEmptyState(t *testing.T) {
 func TestComposerModelPickerListSearchPick(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
-	OpenComposerModels()
+	OpenComposerModels("")
 	tt.Frame()
 
 	// 清单展示两个模型：名称 + 提供商 + 上下文 + 能力。
@@ -130,6 +130,43 @@ func TestComposerModelPickerListSearchPick(t *testing.T) {
 	if got := store.settingsSnapshot().DefaultModel; got != "test/model-b" {
 		t.Errorf("设置草稿未同步: %q", got)
 	}
+}
+
+// TestComposerModelPickerCurrentSource 走查勾选态的来源优先级：当前会话
+// 模型优先，没有会话模型时退设置里的默认模型（review 修复轮：此前只看
+// 默认模型，会话已切模型时勾选态落后于会话）。
+func TestComposerModelPickerCurrentSource(t *testing.T) {
+	tt, svcs := newComposerTester(t)
+	seedProvider(t, svcs)
+
+	// 无会话模型、无默认模型：勾选引用为空。
+	OpenComposerModels("")
+	tt.Frame()
+	if got := ComposerModelsCurrent(); got != "" {
+		t.Fatalf("无会话模型且无默认模型时勾选引用应为空: %q", got)
+	}
+	CloseComposer()
+	tt.Frame()
+
+	// 无会话模型、有默认模型：退默认模型。
+	if _, err := svcs.settings.Save(service.Settings{DefaultModel: "test/model-b"}); err != nil {
+		t.Fatal(err)
+	}
+	OpenComposerModels("")
+	tt.Frame()
+	if got := ComposerModelsCurrent(); got != "test/model-b" {
+		t.Fatalf("无会话模型时应退默认模型: %q", got)
+	}
+	CloseComposer()
+	tt.Frame()
+
+	// 有会话模型：优先会话模型，不落到默认模型。
+	OpenComposerModels("test/model-a")
+	tt.Frame()
+	if got := ComposerModelsCurrent(); got != "test/model-a" {
+		t.Fatalf("有会话模型时应优先会话模型: %q", got)
+	}
+	CloseComposer()
 }
 
 // TestComposerApprovalLevelSwitch 走查档位切换：立即生效、回调同步、审计落账。

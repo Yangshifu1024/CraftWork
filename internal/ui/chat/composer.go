@@ -227,7 +227,8 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			mygo.Text(c, s.modelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
 		})
 		if pick.Clicked() {
-			overlays.OpenComposerModels()
+			// 勾选态优先当前会话模型；无会话模型时浮层内部退默认模型。
+			overlays.OpenComposerModels(s.Thread().ModelID)
 		}
 		s.sendCluster(c, v)
 	})
