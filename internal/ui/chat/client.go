@@ -9,8 +9,8 @@
 // 事件约定：bus 的 Batch 由 app 的 emitter 桥投递到主线程后进入
 // ApplyBatch（reducer 纯函数）；批次要求刷新会话列表时通知宿主（侧栏）。
 //
-// 失败约定（AGENTS.md 6.6）：读取失败写日志并保留旧状态；改动失败用
-// toast 提示，发送失败把草稿与附件还回输入框。
+// 失败约定（AGENTS.md 6.6）：读取失败写日志、toast 提示并保留旧状态；
+// 改动失败用 toast 提示，发送失败把草稿与附件还回输入框。
 
 package chat
 
@@ -153,6 +153,7 @@ func (cl *Client) SelectThreadOrFirst(threadID, mode string) {
 			views, err := cl.threads.List(mode, false)
 			if err != nil {
 				slog.Warn("读取会话列表失败", "err", err)
+				cl.deliver(func() { cl.chat.QueueToast("读取会话列表失败：" + err.Error()) })
 				return
 			}
 			if len(views) == 0 {
@@ -186,6 +187,7 @@ func (cl *Client) loadSnapshot(threadID string) {
 	snapshot, err := cl.threads.SnapshotPage(threadID, PageSize, 0)
 	if err != nil {
 		slog.Warn("读取会话快照失败", "err", err)
+		cl.deliver(func() { cl.chat.QueueToast("读取会话失败：" + err.Error()) })
 		return
 	}
 	messages := make([]*Message, 0, len(snapshot.Messages))
