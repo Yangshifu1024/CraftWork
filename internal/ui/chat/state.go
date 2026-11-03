@@ -22,6 +22,7 @@ import (
 
 	"github.com/yangshifu1024/craftwork/internal/events"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // PageSize 是首屏与每次向前翻页的消息条数（threads.ts 同值）。
@@ -286,7 +287,7 @@ func (s *Chat) AppendLocalUserMessage(text string, attachments []Attachment) {
 		ThreadID:  s.activeThreadID,
 		Role:      RoleUser,
 		Status:    StatusComplete,
-		CreatedAt: time.Now().UnixMilli(),
+		CreatedAt: theme.Now(),
 		Parts:     []Part{{ID: id + "-text", Kind: PartText, Data: data}},
 	})
 }
@@ -500,7 +501,7 @@ func (s *Chat) rememberReasoningStart(id string) {
 		s.reasoningStart = map[string]int64{}
 	}
 	if _, ok := s.reasoningStart[id]; !ok {
-		s.reasoningStart[id] = time.Now().UnixMilli()
+		s.reasoningStart[id] = theme.Now()
 	}
 }
 
@@ -517,7 +518,7 @@ func (s *Chat) reasoningElapsed(id string) int {
 	if !ok {
 		return 1
 	}
-	seconds := int((time.Now().UnixMilli() - start) / 1000)
+	seconds := int((theme.Now() - start) / 1000)
 	if seconds < 1 {
 		seconds = 1
 	}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // stubNote 是 07 号票前占位入口的统一提示尾巴。
@@ -434,7 +435,7 @@ func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 			TextColor(v.pal.Text).SingleLine()
 		mygo.Row(c).Fill().AlignItems(mygo.Center).Justify(mygo.SpaceBetween).Gap(ui.Space3).
 			Children(func() {
-				mygo.Text(c, FormatTime(t.UpdatedAt, nowMillis())).
+				mygo.Text(c, FormatTime(t.UpdatedAt, theme.Now())).
 					FontSize(ui.Fonts.SM()).TextColor(v.pal.Text4)
 				statusNode(c, v, t.Status)
 			})
@@ -623,6 +624,3 @@ func (s *Sidebar) renamePrompt(c *mygo.Context, v *viewSide, t Thread) {
 // ---------------------------------------------------------------------------
 // 小工具
 // ---------------------------------------------------------------------------
-
-// nowMillis 返回当前毫秒时间戳（列表时间列的「今天」基准）。
-func nowMillis() int64 { return time.Now().UnixMilli() }

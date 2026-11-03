@@ -99,6 +99,12 @@ func ReduceMotion(c *mygo.Context) bool {
 	return c.Preferences().ReduceMotion
 }
 
+// Now 返回当前毫秒时间戳：界面层所有「现在」的统一口径（会话列表时间
+// 列、消息 createdAt、保存 / 应用反馈的时间戳），对齐 React 版的
+// Date.now()。此前五个视图包各自捏了 panelClock / nowMillis / storeClock
+// 一类的本地别名，语义相同、名字各异，收敛后一律走这里。
+func Now() int64 { return time.Now().UnixMilli() }
+
 // ---------------------------------------------------------------------------
 // 字号 7 档（派生公式语义保留：设置改基准字号后全档跟随）
 // ---------------------------------------------------------------------------

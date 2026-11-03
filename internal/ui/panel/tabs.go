@@ -18,15 +18,15 @@
 //   - threadId 的 null（未认领）映射为空字符串；已认领的归属经
 //     NormalizeOwner 归一化（草稿为 DraftOwner），永不为空串。
 //   - activeTabId 的 null 映射为空字符串。
-//   - openedAt / activatedAt 是毫秒时间戳，由包级 now 时钟提供。
+//   - openedAt / activatedAt 是毫秒时间戳，缺省值统一取 theme.Now()。
 package panel
 
 import (
 	"cmp"
 	"slices"
 	"strings"
-	"sync/atomic"
-	"time"
+
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // SidePaneTabType 面板 tab 的类型集合。会话派生与浏览器类类型属于路线图，
@@ -127,17 +127,10 @@ type Input struct {
 	OpenedAt    int64
 }
 
-// now 是毫秒时钟。生产实现取 wall clock；单测可换成固定值。
-// atomically 存取，避免测试并行换时钟时的数据竞争。
-var now atomic.Value
-
-func init() {
-	storeClock(func() int64 { return time.Now().UnixMilli() })
-}
-
-func storeClock(fn func() int64) { now.Store(fn) }
-
-func clock() int64 { return now.Load().(func() int64)() }
+// clock 返回当前毫秒时间戳，作 openedAt / activatedAt 的缺省值；统一
+// 走 theme.Now（此前本包自带原子可换时钟，测试固定时间用显式传
+// Input.OpenedAt 已足够，注入机制无人使用，随时钟收敛一并删除）。
+func clock() int64 { return theme.Now() }
 
 // NormalizeOwner 把线程 id 归一化为归属值：空值归一为草稿。
 func NormalizeOwner(threadID string) string {

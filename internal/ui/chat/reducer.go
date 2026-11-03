@@ -9,9 +9,9 @@ package chat
 import (
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/yangshifu1024/craftwork/internal/events"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // 消息角色与状态（frontend lib/types.ts 的字面量联合类型）。
@@ -107,10 +107,6 @@ type draft struct {
 	activeThreadID string
 	refreshNeeded  bool
 }
-
-// nowMillis 返回当前毫秒时间戳（合成消息的 createdAt 与 React 版
-// Date.now() 对齐）。独立成变量便于测试固定时间。
-var nowMillis = func() int64 { return time.Now().UnixMilli() }
 
 // ---------------------------------------------------------------------------
 // 载荷归一化
@@ -231,7 +227,7 @@ func ensureMessage(messages []*Message, messageID, threadID string) []*Message {
 		ThreadID:  threadID,
 		Role:      RoleAssistant,
 		Status:    StatusStreaming,
-		CreatedAt: nowMillis(),
+		CreatedAt: theme.Now(),
 	})
 }
 
@@ -300,7 +296,7 @@ func upsertPart(messages []*Message, messageID, threadID string, part Part) []*M
 		ThreadID:  threadID,
 		Role:      RoleAssistant,
 		Status:    StatusStreaming,
-		CreatedAt: nowMillis(),
+		CreatedAt: theme.Now(),
 		Parts:     []Part{part},
 	})
 }
@@ -543,7 +539,7 @@ func (d *draft) appendSteerMessage(e *events.Envelope) {
 		ThreadID:    d.activeThreadID,
 		Role:        RoleUser,
 		Status:      StatusComplete,
-		CreatedAt:   nowMillis(),
+		CreatedAt:   theme.Now(),
 		SteerQueued: true,
 		Parts: []Part{{
 			ID:   messageID + "-text",

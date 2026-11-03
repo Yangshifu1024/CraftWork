@@ -12,6 +12,7 @@ import (
 
 	"github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // settleClick 是点击后的统一等待：推进一帧再加一个动效时长，让
@@ -36,17 +37,17 @@ func newSidebarTester(t *testing.T) (*Sidebar, *[]string, *[]string, *[]renamedR
 	s := NewSidebar()
 	s.ReplaceWorkspaces(testWorkspaces())
 	s.ReplaceThreads(ModeCode, []Thread{
-		{ID: "t1", Title: "临时会话一", WorkspaceID: "conv", Status: "idle", UpdatedAt: nowMillis()},
-		{ID: "p1", Title: "项目会话一", WorkspaceID: "ws-a", Status: "running", UpdatedAt: nowMillis()},
-		{ID: "p2", Title: "项目会话二", WorkspaceID: "ws-a", Status: "awaiting", UpdatedAt: nowMillis()},
-		{ID: "p3", Title: "项目会话三", WorkspaceID: "ws-a", Status: "error", UpdatedAt: nowMillis()},
-		{ID: "p4", Title: "项目会话四", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: nowMillis()},
-		{ID: "p5", Title: "项目会话五", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: nowMillis()},
-		{ID: "p6", Title: "项目会话六", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: nowMillis()},
-		{ID: "o1", Title: "孤儿会话", WorkspaceID: "gone", Status: "idle", UpdatedAt: nowMillis()},
+		{ID: "t1", Title: "临时会话一", WorkspaceID: "conv", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p1", Title: "项目会话一", WorkspaceID: "ws-a", Status: "running", UpdatedAt: theme.Now()},
+		{ID: "p2", Title: "项目会话二", WorkspaceID: "ws-a", Status: "awaiting", UpdatedAt: theme.Now()},
+		{ID: "p3", Title: "项目会话三", WorkspaceID: "ws-a", Status: "error", UpdatedAt: theme.Now()},
+		{ID: "p4", Title: "项目会话四", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p5", Title: "项目会话五", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p6", Title: "项目会话六", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "o1", Title: "孤儿会话", WorkspaceID: "gone", Status: "idle", UpdatedAt: theme.Now()},
 	})
 	s.ReplaceThreads(ModeWork, []Thread{
-		{ID: "w1", Title: "工作会话", WorkspaceID: "conv", Status: "idle", UpdatedAt: nowMillis()},
+		{ID: "w1", Title: "工作会话", WorkspaceID: "conv", Status: "idle", UpdatedAt: theme.Now()},
 	})
 	// 本地动作记录：断言右键菜单到动作的接线。
 	var copied, deleted []string

@@ -16,6 +16,8 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // DiffSlot 是差异 singleton tab 的数据槽。
@@ -167,7 +169,7 @@ func (p *Pane) applyDiff() {
 				if p.diff == d {
 					d.applying = false
 					if err == nil {
-						d.appliedAt = panelClock()
+						d.appliedAt = theme.Now()
 						// 打开文件显示磁盘最新状态（对齐 React 版 applyDiff）。
 						p.openResolved("", title, 0)
 					}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/yangshifu1024/craftwork/internal/service"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // 编辑器模式。
@@ -180,7 +181,7 @@ func (p *Pane) saveSlot(tabID string) {
 				return
 			}
 			p.applySlotContent(current, refreshed)
-			p.savedAt[tabID] = panelClock()
+			p.savedAt[tabID] = theme.Now()
 		})
 	}()
 }

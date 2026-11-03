@@ -6,17 +6,10 @@ package ui
 // overlays.Confirm（panel_diff.go / panel_editor.go）。
 
 import (
-	"time"
-
 	cwmygo "github.com/egoist/mygo"
 
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
-
-// panelClock 返回当前毫秒时间戳（保存时间戳等界面反馈用）。
-func panelClock() int64 {
-	return time.Now().UnixMilli()
-}
 
 // paneShowInFolder 在系统文件管理器里显示文件。
 func paneShowInFolder(path string) {

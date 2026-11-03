@@ -21,6 +21,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // escArmWindow 是双击 Esc 的确认窗口（AppShell.tsx 同值）：第一击进入
@@ -270,9 +271,9 @@ func (s *Chat) liveSpeed() float64 {
 		return 0
 	}
 	if s.streamStartMs == 0 {
-		s.streamStartMs = time.Now().UnixMilli()
+		s.streamStartMs = theme.Now()
 	}
-	elapsed := float64(time.Now().UnixMilli()-s.streamStartMs) / 1000
+	elapsed := float64(theme.Now()-s.streamStartMs) / 1000
 	if elapsed <= 0 {
 		return 0
 	}
