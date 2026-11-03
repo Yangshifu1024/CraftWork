@@ -113,7 +113,7 @@ func (s *Sidebar) modeSwitch(c *mygo.Context, v *viewSide) {
 }
 
 // modeButton 画一个模式按钮（.mode-btn）：图标 15 + 文字，间距 6
-//（.mode-btn 的 gap: 6px；13 号票：此前漏了 gap，图标与文字贴在一起）；
+// （.mode-btn 的 gap: 6px；13 号票：此前漏了 gap，图标与文字贴在一起）；
 // 选中项反白加粗（600），未选中次要色、悬停提亮。
 func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, label string) {
 	selected := s.Mode == mode
@@ -206,7 +206,7 @@ func (s *Sidebar) tempGroup(c *mygo.Context, v *viewSide, g Group) {
 
 // tempGroupHead 画临时组头：箭头开关 + 名称 + 计数 + 右侧 + 新建。
 // 计数徽章紧跟组名（组名不 Grow），弹性 spacer 把 + 按钮推到行尾
-//（13 号票：对齐 .thread-group-add 的 margin-left: auto）。
+// （13 号票：对齐 .thread-group-add 的 margin-left: auto）。
 func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onToggle func(), onCreate func()) {
 	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {

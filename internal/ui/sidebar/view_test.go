@@ -286,7 +286,7 @@ func TestSidebarViewGroupHeadSpacing(t *testing.T) {
 
 // TestSidebarViewTempEmptyRowHeight 校验空分组空态行的行高（13 号票）：
 // 空态文案顶部与组头文本的距离应等于组头剩余高度 + 空态顶边距 26
-//（base.css .thread-empty 的 padding 26px 16px）。此前顶边距误算成 36、
+// （base.css .thread-empty 的 padding 26px 16px）。此前顶边距误算成 36、
 // 组头顶边距误算成 22，空态行整体下坠。
 func TestSidebarViewTempEmptyRowHeight(t *testing.T) {
 	s := NewSidebar()
@@ -337,7 +337,7 @@ func newBadgeTester(t *testing.T) (*Sidebar, *mygo.Tester) {
 }
 
 // TestSidebarViewCountBadgeFollowsName 校验组头计数徽章紧跟分组文字
-//（13 号票）：徽章文本与组名的间距应等于组头 6px 间距 + 徽章自身的
+// （13 号票）：徽章文本与组名的间距应等于组头 6px 间距 + 徽章自身的
 // 8px 水平内边距，而不是被组名的 Grow 推到最右贴着 + 按钮。
 func TestSidebarViewCountBadgeFollowsName(t *testing.T) {
 	_, tt := newBadgeTester(t)
