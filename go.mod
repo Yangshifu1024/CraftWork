@@ -3,7 +3,6 @@ module github.com/yangshifu1024/craftwork
 go 1.27.3
 
 require (
-	github.com/creack/pty v1.1.24
 	github.com/egoist/mygo v0.7.4
 	modernc.org/sqlite v1.44.3
 )
