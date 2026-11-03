@@ -49,7 +49,7 @@ func (s *Sidebar) View(c *mygo.Context, pal *theme.Palette) {
 	v.accent, v.on = acc.Accent, acc.On
 	v.soft, v.line = acc.Soft, acc.Line
 
-	mygo.Column(c).Width(theme.SidebarWidth).
+	mygo.Column(c).Width(theme.SidebarWidth).FillHeight().
 		Background(pal.SidebarBg).
 		BorderWidth(0, 1, 0, 0).
 		BorderColor(pal.Border).
@@ -221,7 +221,7 @@ func (s *Sidebar) tempGroup(c *mygo.Context, v *viewSide, g Group) {
 // 计数徽章紧跟组名（组名不 Grow），弹性 spacer 把 + 按钮推到行尾
 // （13 号票：对齐 .thread-group-add 的 margin-left: auto）。
 func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onToggle func(), onCreate func()) {
-	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			groupToggle(c, v, open, "临时会话", "chevron-down", "chevron-right", onToggle)
 			mygo.Text(c, "临时会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
@@ -243,21 +243,18 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 	}
 
 	// 区头（.thread-group-head.is-section，margin-top 6）：批量折叠开关
-	// （有项目组才出现）+ 标题 + 总数 + 创建项目占位入口。
-	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).
+	//（恒显，无项目组时保留按钮保持与临时组头对齐）+ 标题 + 总数 + 创建
+	// 项目占位入口。
+	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).
 		Padding(groupHeadPad.t+theme.Space3, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
-			if len(projects) > 0 {
-				allCollapsed := s.coll.AllProjectsCollapsed(groups)
-				// 折叠态显示 chevron-right（「展开所有项目」），否则 chevron-down。
-				onToggle := func() { s.ToggleAllProjects() }
-				if allCollapsed {
-					groupToggle(c, v, false, "展开所有项目", "chevron-down", "chevron-right", onToggle)
-				} else {
-					groupToggle(c, v, true, "折叠所有项目", "chevron-down", "chevron-right", onToggle)
-				}
+			allCollapsed := s.coll.AllProjectsCollapsed(groups)
+			// 折叠态显示 chevron-right（「展开所有项目」），否则 chevron-down。
+			onToggle := func() { s.ToggleAllProjects() }
+			if allCollapsed {
+				groupToggle(c, v, false, "展开所有项目", "chevron-down", "chevron-right", onToggle)
 			} else {
-				mygo.Box(c).Width(theme.Space4 + theme.Space6 + theme.Space4) // 无开关时对齐临时组的箭头位（18）
+				groupToggle(c, v, true, "折叠所有项目", "chevron-down", "chevron-right", onToggle)
 			}
 			mygo.Text(c, "项目会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, ProjectThreadCount(groups))
@@ -311,7 +308,7 @@ func (s *Sidebar) groupItems(c *mygo.Context, v *viewSide, g Group) {
 // folder），组头 + 在该项目新建会话，组内分页。
 func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 	open := !s.coll.IsCollapsed(g.Key)
-	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			fold, name := "folder", "折叠项目会话"
 			if open {
