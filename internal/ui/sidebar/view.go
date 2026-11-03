@@ -467,7 +467,7 @@ func statusNode(c *mygo.Context, v *viewSide, status string) {
 }
 
 // statusBadge 画「圆点 + 文案」的状态徽标；pulse 时圆点透明度往复
-//（Loop 类装饰动效在系统要求减少动效时停用，见 theme.ReduceMotion）。
+// （Loop 类装饰动效在系统要求减少动效时停用，见 theme.ReduceMotion）。
 func statusBadge(c *mygo.Context, v *viewSide, color mygo.Color, label string, pulse bool) {
 	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space4).Children(func() {
 		dot := mygo.Box(c).Size(5, 5).Radius(ui.RadiusRound).Background(color)

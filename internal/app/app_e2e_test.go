@@ -287,7 +287,6 @@ func TestEndToEndApprovalLoop(t *testing.T) {
 	if !found {
 		t.Fatalf("快照缺少最终正文 %q", finalText)
 	}
-
 }
 
 func (c *atomicCounter) snapshot() int {
