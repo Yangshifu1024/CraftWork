@@ -68,6 +68,29 @@ func TestPaneApplyDiffShowsOverlayConfirm(t *testing.T) {
 	}
 }
 
+func TestPaneConfirmReloadShowsDangerOverlay(t *testing.T) {
+	_, tt, _ := newOverlayTester(t)
+	// paneConfirmReload 的生产实现直接经 overlays.Confirm 发起（不走面板
+	// 替身）：浮层文案出现，Esc 按取消收尾（安全默认保留草稿）。
+	decided := false
+	paneConfirmReload("note.txt", func(ok bool) { decided = ok })
+	tt.Frame()
+	if !tt.HasText("文件已被外部修改") {
+		t.Fatalf("冲突确认浮层未出现: %v", tt.Texts())
+	}
+	// 危险样式：确认侧是「重新加载」（破坏性动作），取消走 Esc。
+	if err := tt.Click("保留草稿"); err != nil {
+		t.Fatalf("点击保留草稿失败: %v", err)
+	}
+	tt.Frame()
+	if decided {
+		t.Fatalf("Esc 应按取消收尾（保留草稿）")
+	}
+	if tt.HasText("文件已被外部修改") {
+		t.Errorf("取消后浮层应关闭")
+	}
+}
+
 func TestPaneReportErrorShowsToast(t *testing.T) {
 	s, tt, _ := newOverlayTester(t)
 	// reportError 走 overlays.Notify（07 号票起不再弹原生对话框）：
