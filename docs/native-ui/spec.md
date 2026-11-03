@@ -57,6 +57,41 @@
 - **diff**（`editor.DiffView`）：统一/并排、词级高亮、应用全部（含备份）。不做：逐块应用/跳过、可编辑新侧。
 - **文档预览**：维持文本级（与当前实现一致），富预览不在此迁移范围。
 
+## 观感约定：聊天正文列宽、composer 聚焦、窗口标题栏与材质（14 号票）
+
+本节是 14 号票新增的观感约定（值取自 `internal/ui/theme` token，不写死在视图里）。
+
+### 聊天正文列居中限宽
+
+- 消息流与 composer 外框共用同一条「正文列」：宽度为所在列的 **80%**（两侧 margin 各 10%，用户给定参数），在列内水平居中；token 为 `theme.ChatColumnMarginPercent`。空态引导保持自身的窄条居中形态（MaxWidth 380），不在本约定内。
+- 正文列有最小宽度保底 `theme.ChatColumnMinWidth`：mygo 的 Markdown 在收缩布局里会塌成零宽（AGENTS.md 第 7 节），正文列必须以显式宽度（`WidthPercent` + `MinWidth`）构建，不允许用纯 `MaxWidth` 上限的收缩布局。
+- 用户气泡的 `max-width: 78%` 相对**正文列**而非窗口宽；助手消息铺满正文列。
+- composer 外框与正文列同宽（80% + 保底），聚焦态与失焦态只有描边色差异。
+
+### composer 聚焦态
+
+- 聚焦高亮套在 composer **整个外框**（含附件条、输入行与工具条），不是仅内部输入区：外框描边从 `BorderStrong` 切到当前模式强调色（`Palette.ModeAccent` 的 `Accent`），失焦恢复。
+- 判定用外框的 `FocusWithin`（焦点在内部任意可编辑区即算），帧内写入聊天列状态便于 `ui.Tester` 断言。
+
+### 窗口标题栏形态（复刻 ZCode）
+
+- **无独立标题条**：外壳不再画顶部 48px 标题栏（原 topbar 已删），内容直接从窗口顶开始，红绿灯叠加在内容之上。
+- 窗口选项：`TitleBarStyle: hidden`（不是 hiddenInset，内容真正顶到窗口顶）+ `TrafficLightPosition {x: 22, y: 23}`（ZCode `MACOS_TRAFFIC_LIGHT_BASE_POSITION`）；窗口位置与尺寸仍只按 `StateKey` 记忆（与显式 X/Y 二选一，不得并存）。
+- 顶部拖拽区（`DragWindow`，双击按系统设置缩放）分两段：
+  - 侧栏顶部 48px 空白行：外壳画的侧栏标题行，红绿灯叠在其上（y 23 + 按钮高 < 48，不遮下方内容；ZCode 的左上工具组 CraftWork 没有，96px 左避让参数不引入，机制目的是「红绿灯不遮内容」）。
+  - 会话头部行（chatHead）：整行可拖拽；行内无交互控件，无需 no-drag 划分。
+- 浮层打开时拖拽让位语义不变（模态由 mygo 的 DialogBase 接管，窗口级快捷键等待）。
+
+### 窗口材质（毛玻璃）
+
+- 窗口启用 `Transparent: true` + `Vibrancy: under-window`（ZCode 同名材质 `vibrancy: "under-window"`）；`BackgroundColor` 不再设置（Transparent 下无效）。
+- 视图底色在材质上分派（`c.Vibrancy()` 为真时）：
+  - 窗口根不铺底（`c.Root().Background(ui.Transparent)`，主题底色让位给材质）；
+  - **侧栏透材质**：侧栏底色改用半透明值（token `theme` 材质派生，对照 ZCode 侧栏不画底），外壳以改写后的色板传给侧栏视图；
+  - **对话区与面板保持实底**（对照 ZCode workspace 主区 `bg-background`）。
+- 无材质环境（`ui.Tester`、不支持的平台）自动回退全部实底，两态共用一套视图代码。
+- `SetActiveAppearance`（ZCode `visualEffectState: "active"`）暂不启用：under-window 材质失焦态由系统绘制，待实机对照后再定。
+
 ## 调研结论摘录（2026-11-03）
 
 - mygo：egoist 出品，v0.7.4，MIT，纯 Go 零 cgo（purego），1260 个 ui 测试、零 TODO、文档 ~1.27 万行、21 个 showcase 应用；`markdown.Stream` 追加 16B token 整帧 0.8ms，List 百万行可见行 14.5µs。
