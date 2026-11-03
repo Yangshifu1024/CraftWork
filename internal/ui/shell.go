@@ -1,6 +1,7 @@
 package ui
 
-// 三栏外壳：顶部 48px 拖拽区、侧栏 268 固定、聊天列自适应、面板 Split
+// 三栏外壳：无独立标题条（内容直接从窗口顶开始，红绿灯叠加在侧栏顶部
+// 拖拽行上，14 号票）、侧栏 268 固定、聊天列自适应、面板 Split
 // （320–760 可拖拽、双击恢复默认宽）。布局尺寸对照 docs/specs/interface.md；
 // 侧栏 / 聊天的具体内容由 04 / 05 号票接入，面板槽位已由 08 号票接上
 // （tab 条 + 内容区，见 panelview.go）。
@@ -68,6 +69,9 @@ type Shell struct {
 	// pane 是面板（08 号票）：多 tab 状态 + 文件树 + 编辑器。依赖由
 	// SetPanelServices / BindWindow 注入，未注入时面板渲染空态。
 	pane *Pane
+	// topDragH 是侧栏顶部拖拽行的帧内绘制高度（14 号票：容纳红绿灯的
+	// 标题行），ui.Tester 据此断言拖拽行在真实布局里生效。
+	topDragH float32
 	// workspaceSvc 提供活动工作区（面板可见性 scope 与文件树数据源）。
 	workspaceSvc *service.WorkspaceService
 	// documentSvc 提供文档预览。
@@ -212,42 +216,26 @@ func panelShown(windowW float32, open bool) bool {
 	return open && windowW >= theme.NarrowWindowWidth
 }
 
-// View 画整窗外壳。root view 每帧从这里开始：先套主题（跟随系统），
-// 再按当前窗口宽度分派三栏。
+// View 画整窗外壳。root view 每帧从这里开始：先套主题（跟随系统）；
+// 材质窗口（under-window 毛玻璃）把主题铺的根底改回透明让材质透出
+// （SetTheme 每帧重铺，所以每帧都要改），再按当前窗口宽度分派三栏。
+// 无独立标题条：内容直接从窗口顶开始，红绿灯叠加在侧栏顶部拖拽行上
+// （14 号票，窗口选项见 internal/app）。
 func (s *Shell) View(c *mygo.Context) {
 	pal := theme.Apply(c)
+	if c.Vibrancy() {
+		c.Root().Background(mygo.Transparent)
+	}
 	windowW, _ := c.Size()
 
-	mygo.Column(c).Fill().Children(func() {
-		s.topbar(c, pal)
+	mygo.Row(c).Fill().AlignItems(mygo.Stretch).Children(func() {
+		s.sidebar(c, pal)
 		s.body(c, pal, windowW)
 	})
 }
 
-// topbar 画顶部 48px 拖拽区：左段品牌名与侧栏同宽居中，右段留给运行状态
-// 与设置入口（05 / 07 号票）。c.TitleBar() 给出红绿灯占位，左右各留出避让；
-// DragWindow 让空白区域可拖动窗口，双击等价标题栏缩放。
-func (s *Shell) topbar(c *mygo.Context, pal *theme.Palette) {
-	bar := c.TitleBar()
-	mygo.Row(c).Height(theme.TopbarHeight).
-		Padding(0, bar.Right+theme.Space6, 0, bar.Left+theme.Space6).
-		DragWindow().
-		Background(pal.BgPanel).
-		BorderWidth(0, 0, 1, 0).
-		BorderColor(pal.Border).
-		Children(func() {
-			// 左段：品牌名，与侧栏同宽并居中（frontend .topbar-left）。
-			mygo.Box(c).Width(theme.SidebarWidth).Center().Children(func() {
-				mygo.Text(c, "CraftWork").Bold()
-			})
-			mygo.Spacer(c)
-			// 右段：占位留空。运行 pill 与模型 / 设置入口由 05 / 07 号票接入，
-			// 不放「看起来能点」的控件。
-		})
-}
-
-// body 画三栏主体：侧栏 268 固定；右侧用 ui.Split 分为对话列与面板，
-// 对话列宽度由面板宽度折算并钳制；窄窗时面板整体不建，对话列占满。
+// body 画侧栏右侧的主体：用 ui.Split 分为对话列与面板，对话列宽度由
+// 面板宽度折算并钳制；窄窗时面板整体不建，对话列占满。
 func (s *Shell) body(c *mygo.Context, pal *theme.Palette, windowW float32) {
 	splitW := windowW - theme.SidebarWidth
 	shown := panelShown(windowW, s.panelOpen)
@@ -273,33 +261,40 @@ func (s *Shell) body(c *mygo.Context, pal *theme.Palette, windowW float32) {
 	}
 	s.splitW = splitW
 
-	mygo.Row(c).Grow(1).AlignItems(mygo.Stretch).Children(func() {
-		s.sidebar(c, pal)
-		if shown {
-			mygo.Split(c, &s.chatWidth, func() { s.chatPane(c, pal) }, func() { s.panelPane(c, pal) }).Grow(1)
-		} else {
-			s.chatPane(c, pal).Grow(1)
-		}
-	})
+	if shown {
+		mygo.Split(c, &s.chatWidth, func() { s.chatPane(c, pal) }, func() { s.panelPane(c, pal) }).Grow(1)
+	} else {
+		s.chatPane(c, pal).Grow(1)
+	}
 }
 
-// sidebar 画 268 固定侧栏。内容经 SidebarView 委托给 04 号票的侧栏视图
-// （模式切换、会话分组列表与底部两行都在那里面）；未注入时画占位文本。
-// 侧栏自身的 48px 标题行由窗口顶栏的左段承担，槽位直接从顶栏线下方开始。
+// sidebar 画 268 固定侧栏：顶部拖拽标题行（红绿灯叠在其上，空白即拖拽
+// 区，双击按系统设置缩放）+ 侧栏内容。窗口材质开启时整列用半透明色板
+// （under-window 材质从侧栏透出，对照 ZCode 侧栏不画实底），关闭时实底
+// 回退（Tester 与无材质平台）。内容经 SidebarView 委托给 04 号票的侧栏
+// 视图（材质模式下发改写色板，侧栏视图两态共用）；未注入时画占位文本。
 func (s *Shell) sidebar(c *mygo.Context, pal *theme.Palette) {
-	if s.SidebarView != nil {
-		s.SidebarView(c, pal)
-		return
+	material := c.Vibrancy()
+	viewPal := pal
+	if material {
+		viewPal = theme.MaterialPalette(pal)
 	}
-	mygo.Column(c).Width(theme.SidebarWidth).
-		Background(pal.SidebarBg).
-		BorderWidth(0, 1, 0, 0).
-		BorderColor(pal.Border).
-		Children(func() {
-			mygo.Box(c).Grow(1).Center().Children(func() {
-				mygo.Text(c, "侧栏 · 04 号票接入").TextColor(pal.Text3)
-			})
+	column := mygo.Column(c).Width(theme.SidebarWidth).Background(viewPal.SidebarBg).
+		BorderWidth(0, 1, 0, 0).BorderColor(pal.Border)
+	column.Children(func() {
+		// 顶部拖拽行：红绿灯位置 {x:22, y:23}（ZCode 基准），按钮下缘
+		// 约 37 < 48，落在本行内不遮下方内容；ZCode 左上工具组 CraftWork
+		// 没有对应功能，不引入（本票只做形态机制）。
+		mygo.Box(c).Height(theme.SidebarTopbarHeight).FillWidth().DragWindow().
+			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.topDragH = r.H })
+		if s.SidebarView != nil {
+			s.SidebarView(c, viewPal)
+			return
+		}
+		mygo.Box(c).Grow(1).Center().Children(func() {
+			mygo.Text(c, "侧栏 · 04 号票接入").TextColor(pal.Text3)
 		})
+	})
 }
 
 // chatPane 画自适应对话列。内容经 ChatView 委托给 05 号票的聊天视图

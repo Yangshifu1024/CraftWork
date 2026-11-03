@@ -45,6 +45,34 @@ const (
 	SettingsContentMaxWidth = float32(880)
 )
 
+// 聊天正文列（14 号票：消息流与 composer 外框共用同一条居中限宽的
+// 正文列；观感约定见 docs/native-ui/spec.md）。
+const (
+	// ChatColumnMarginPercent 是正文列两侧留白占所在列宽的百分比（用户
+	// 给定参数 10）。
+	ChatColumnMarginPercent = float32(10)
+	// ChatColumnPercent 是正文列宽度占所在列的百分比，由两侧 margin 推导。
+	ChatColumnPercent = 100 - 2*ChatColumnMarginPercent
+	// ChatColumnMinWidth 是正文列的最小保底宽度：mygo 的 Markdown 在收缩
+	// 布局里会塌成零宽（AGENTS.md 第 7 节），正文列必须以显式宽度构建
+	//（WidthPercent + MinWidth），极窄列下由它保底可读；超宽的部分被
+	// 消息流 wrapper 裁剪（用户极端拖拽面板才会到达）。
+	ChatColumnMinWidth = float32(320)
+)
+
+// 窗口标题栏与材质（14 号票：复刻 ZCode 的无标题条形态，观感约定见
+// docs/native-ui/spec.md）。
+const (
+	// SidebarTopbarHeight 是侧栏顶部拖拽行的高度：红绿灯落在
+	// {x:22, y:23}（ZCode 基准），按钮下缘约 37，48px 行容纳它们且不遮
+	// 下方内容；整行 DragWindow，双击按系统设置缩放。
+	SidebarTopbarHeight = TopbarHeight
+	// TrafficLightX / TrafficLightY 是 macOS 红绿灯的窗口选项位置
+	//（ZCode MACOS_TRAFFIC_LIGHT_BASE_POSITION），app.go 建窗时取用。
+	TrafficLightX = 22
+	TrafficLightY = 23
+)
+
 // 圆角档：按 base.css 里的用途命名（控件默认 8，与 ui.Theme.Radius 一致）。
 const (
 	RadiusBadge = float32(4) // 徽章、kbd、风险徽章、计数
@@ -544,16 +572,6 @@ func Apply(c *mygo.Context) *Palette {
 	return &lightPal
 }
 
-// WindowBackgroundHex 返回窗口创建参数用的底色（首帧前的窗口表面）。
-// themeSetting 是设置里的界面主题（system/dark/light）：跟随系统与深色仍用
-// 深底，浅色用户浅底，避免首帧闪色；首帧之后由 Apply 按系统实时接管。
-func WindowBackgroundHex(themeSetting string) string {
-	if themeSetting == "light" {
-		return "#eef0f4"
-	}
-	return "#0b0d11"
-}
-
 // ThemePreview 返回外观设置里主题卡预览用的三块颜色（侧栏条、主区、强调色）。
 // 跟随系统时以「深侧栏 + 浅主区 + 深强调」示意两套并存。
 func ThemePreview(setting string) (sidebar, main, accent mygo.Color) {
@@ -565,4 +583,28 @@ func ThemePreview(setting string) (sidebar, main, accent mygo.Color) {
 	default:
 		return darkPal.SidebarBg, lightPal.ChatBg, darkPal.Accent
 	}
+}
+
+// withAlpha 返回同色不同透明度的颜色（借 mygo.RGBA 的 alpha 换算）。
+func withAlpha(c mygo.Color, a float32) mygo.Color {
+	return mygo.RGBA(c.R, c.G, c.B, a)
+}
+
+// 材质（under-window 毛玻璃）模式下侧栏各色的不透明度：底 72% 保留一层
+// 侧栏色调、悬停行 60% 更透（对照 ZCode 侧栏不画实底、悬停用半透明淡色）。
+const (
+	materialSidebarAlpha      = float32(0.72)
+	materialSidebarHoverAlpha = float32(0.6)
+)
+
+// MaterialPalette 返回窗口材质模式下的色板副本：侧栏底与侧栏悬停行改为
+// 半透明，让 under-window 材质从其下透出；对话区、面板与全部文字色保持
+// 实底（对照 ZCode 的 workspace 主区 bg-background）。外壳在 c.Vibrancy()
+// 为真时以副本替换原色板下发给侧栏视图（无材质环境继续用实底，视图代码
+// 两态共用）；返回副本，不改写深浅单例。
+func MaterialPalette(p *Palette) *Palette {
+	q := *p
+	q.SidebarBg = withAlpha(p.SidebarBg, materialSidebarAlpha)
+	q.SidebarHover = withAlpha(p.SidebarHover, materialSidebarHoverAlpha)
+	return &q
 }

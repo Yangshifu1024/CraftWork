@@ -23,9 +23,6 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
-// chatStreamWidth 是消息流内容的最大宽度（interface.md：聊天区 880px）。
-const chatStreamWidth = float32(880)
-
 // suggestions 是空会话时按模式展示的快捷提示句（ChatPane.tsx 同文案）。
 var suggestions = map[theme.Mode][]string{
 	theme.ModeCode: {"解释这个仓库的结构", "运行测试并修复失败用例", "为当前分支写一份变更摘要"},
@@ -74,9 +71,12 @@ func (s *Chat) View(c *mygo.Context, pal *theme.Palette) {
 // chatHead 画 48px 会话头部。没有会话时画空头部，保证布局高度稳定
 // （ChatHeader.tsx 同语义）。背景用 ChatBg 与 BgPanel 的 72% 混合近似
 // CSS 的 color-mix；backdrop 模糊省略（下方没有滚动内容穿透的观感差）。
+// 14 号票起本行顶到窗口顶，整行是窗口拖拽区（DragWindow，双击缩放）：
+// 行内只有标题与徽章、无交互控件，无需 no-drag 划分。
 func (s *Chat) chatHead(c *mygo.Context, v *viewSide) {
 	head := mygo.Row(c).Height(theme.TopbarHeight).Padding(0, theme.Space6, 0, 18).
-		BorderWidth(0, 0, 1, 0).BorderColor(v.pal.Border)
+		BorderWidth(0, 0, 1, 0).BorderColor(v.pal.Border).
+		DragWindow()
 	// color-mix(in srgb, chat-bg 72%, bg-panel)：B 占比 28%。
 	head.Background(v.pal.ChatBg.Mix(v.pal.BgPanel, 0.28))
 	head.Children(func() {
@@ -118,7 +118,7 @@ func modeName(m theme.Mode) string {
 }
 
 // ---------------------------------------------------------------------------
-// 消息流（.chat-scroll + .chat-stream：880px 居中、22px 上内边距）
+// 消息流（.chat-scroll + .chat-stream：正文列居中限宽、22px 上内边距）
 // ---------------------------------------------------------------------------
 
 // streamArea 画消息流与「回到底部」浮钮。列表 FollowEnd 平滑跟底；
@@ -226,28 +226,54 @@ func (s *Chat) emptyState(c *mygo.Context, v *viewSide) {
 // 单条消息（.msg：用户右对齐气泡 / 助手全宽 / 部件顺序渲染）
 // ---------------------------------------------------------------------------
 
-// messageRow 画一条消息。用户消息：右对齐、模式色软底气泡（圆角 12、
-// 右下 4、最大宽 78%）；助手消息：全宽内容区。元信息行常显时间与标签，
-// 悬停浮现复制 / 重新生成。
+// chatColumnWidth 是聊天正文列宽公式：所在列宽的 80%（两侧 margin 各
+// 10%，theme.ChatColumnMarginPercent），不低于保底 theme.ChatColumnMinWidth
+// （Markdown 收缩布局塌零宽的兜底）。消息流与 composer 外框共用这条列宽；
+// 旧版固定 880px 上限（interface.md 聊天区）由这条居中限宽列取代，
+// 超宽窗口不再出现过长行。
+func chatColumnWidth(available float32) float32 {
+	w := available * theme.ChatColumnPercent / 100
+	if w < theme.ChatColumnMinWidth {
+		return theme.ChatColumnMinWidth
+	}
+	return w
+}
+
+// messageRow 画一条消息。正文列先居中限宽（两侧 margin 各 10%、保底见
+// chatColumnWidth；显式宽度构建——Markdown 在收缩布局里会塌成零宽，
+// 限宽不允许退回纯 MaxWidth 的收缩形态）；列内用户消息右对齐、模式色
+// 软底气泡（圆角 12、右下 4、最大宽 78% 相对正文列），助手消息铺满正文
+// 列。元信息行常显时间与标签，悬停浮现复制 / 重新生成（悬停区域仍是
+// 整条消息行）。
 func (s *Chat) messageRow(c *mygo.Context, v *viewSide, m *Message) {
 	isUser := m.Role == RoleUser
-	row := mygo.Row(c).FillWidth().AlignItems(mygo.Start)
-	if isUser {
-		row.Justify(mygo.End)
-	}
+	row := mygo.Row(c).FillWidth().Justify(mygo.Center)
 	// 悬停状态取整条消息（元信息按钮的浮现条件，.msg:hover）。
 	hovered := row.Hovered()
 	row.Children(func() {
-		body := mygo.Column(c)
-		if isUser {
-			body.MaxWidthPercent(78) // msg.user .msg-body: max-width 78%
-		} else {
-			// 助手消息全宽：Markdown 在收缩布局里会塌成零宽，显式铺满。
-			body.FillWidth()
-		}
-		body.Children(func() {
-			s.messageParts(c, v, m, isUser)
-			s.messageFoot(c, v, m, isUser, hovered)
+		// 正文列：宽度 = 所在列的 80% + 保底（与 chatColumnWidth 公式同
+		// 源，布局引擎求解）；Draw 把实际列宽记给走查断言（s.lastColumnW）。
+		column := mygo.Column(c).WidthPercent(theme.ChatColumnPercent).
+			MinWidth(theme.ChatColumnMinWidth).
+			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastColumnW = r.W })
+		column.Children(func() {
+			inner := mygo.Row(c).FillWidth().AlignItems(mygo.Start)
+			if isUser {
+				inner.Justify(mygo.End)
+			}
+			inner.Children(func() {
+				body := mygo.Column(c)
+				if isUser {
+					body.MaxWidthPercent(78) // msg.user .msg-body: max-width 78%（相对正文列）
+				} else {
+					// 助手消息铺满正文列。
+					body.FillWidth()
+				}
+				body.Children(func() {
+					s.messageParts(c, v, m, isUser)
+					s.messageFoot(c, v, m, isUser, hovered)
+				})
+			})
 		})
 	})
 }

@@ -30,9 +30,12 @@ import (
 // 待确认后，窗口内再按一次才真正停止。
 const escArmWindow = 800 * time.Millisecond
 
-// composerArea 画输入区与下方的快捷键提示（.composer-wrap）。
+// composerArea 画输入区与下方的快捷键提示（.composer-wrap）。外框与
+// 消息正文列同参数限宽（80% + 保底，两段上下对齐）；聚焦态高亮整个
+// 外框（描边切模式强调色），失焦回中性描边。
 func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
-	wrap := mygo.Column(c).FillWidth().Padding(theme.Space3, 18, 9, 18).Background(v.pal.ChatBg)
+	wrap := mygo.Column(c).FillWidth().Padding(theme.Space3, 0, 9, 0).
+		AlignItems(mygo.Center).Background(v.pal.ChatBg)
 
 	// 拖放附件：整个聊天列都接收投放（React 版 onDragOver 在 .chat-pane 上）。
 	if paths := wrap.DroppedFiles(); len(paths) > 0 {
@@ -40,19 +43,38 @@ func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
 	}
 
 	wrap.Children(func() {
-		// 输入框容器（.composer：880px 居中、描边圆角、浮底）。
-		mygo.Box(c).FillWidth().MaxWidth(chatStreamWidth).Radius(12).
-			Background(v.pal.BgElevated).BorderWidth(1).BorderColor(v.pal.BorderStrong).
-			Children(func() {
-				mygo.Column(c).FillWidth().Children(func() {
-					s.attachStrip(c, v)
-					s.inputRow(c, v)
-					s.composerBar(c, v)
-				})
+		// 输入框容器（.composer：与正文列同宽居中、描边圆角、浮底）。
+		frame := mygo.Box(c).WidthPercent(theme.ChatColumnPercent).
+			MinWidth(theme.ChatColumnMinWidth).Radius(12).
+			Background(v.pal.BgElevated).
+			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastComposerW = r.W })
+		// 聚焦高亮整个外框：焦点在内部任意可编辑区（输入框）即算，
+		// 帧内记录状态供走查断言（ComposerFocused）。
+		s.composerFocused = frame.FocusWithin()
+		frame.BorderWidth(1).BorderColor(composerBorder(v.pal, v.acc, s.composerFocused))
+		frame.Children(func() {
+			mygo.Column(c).FillWidth().Children(func() {
+				s.attachStrip(c, v)
+				s.inputRow(c, v)
+				s.composerBar(c, v)
 			})
+		})
 		s.composerFoot(c, v)
 	})
 }
+
+// composerBorder 返回 composer 外框的描边色：聚焦态用模式强调色高亮
+// 整个外框（14 号票），失焦回中性强描边。
+func composerBorder(pal *theme.Palette, acc theme.AccentSet, focused bool) mygo.Color {
+	if focused {
+		return acc.Accent
+	}
+	return pal.BorderStrong
+}
+
+// ComposerFocused 报告 composer 外框是否处于聚焦态（最近一帧的
+// FocusWithin 记录；ui.Tester 走查用）。
+func (s *Chat) ComposerFocused() bool { return s.composerFocused }
 
 // attachStrip 画待发送附件条（.attach-strip：chip 可移除）。
 func (s *Chat) attachStrip(c *mygo.Context, v *viewSide) {

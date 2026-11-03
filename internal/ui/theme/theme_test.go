@@ -163,20 +163,6 @@ func TestModeAccent(t *testing.T) {
 	}
 }
 
-func TestWindowBackgroundHex(t *testing.T) {
-	cases := map[string]string{
-		"light":  "#eef0f4",
-		"dark":   "#0b0d11",
-		"system": "#0b0d11",
-		"":       "#0b0d11",
-	}
-	for setting, want := range cases {
-		if got := WindowBackgroundHex(setting); got != want {
-			t.Errorf("WindowBackgroundHex(%q) = %q, want %q", setting, got, want)
-		}
-	}
-}
-
 func TestDerivedVisualColors(t *testing.T) {
 	// 收编自视图包就地写 hex 的派生色（差异增删文本色、文件图标着色与
 	// 填充危险按钮文字色）：字面锚点与深浅差异在这里锁住。
@@ -203,5 +189,30 @@ func TestDerivedVisualColors(t *testing.T) {
 		if p.OnDanger != mygo.Hex("#ffffff") {
 			t.Errorf("OnDanger = %v, want #ffffff", p.OnDanger)
 		}
+	}
+}
+
+// TestMaterialPalette 验证窗口材质（under-window 毛玻璃，14 号票）的色板
+// 派生：侧栏底与悬停行改半透明（材质从其下透出，对照 ZCode 侧栏不画
+// 实底），其余取值与原色板同源不变；返回副本，不改写深浅单例。
+func TestMaterialPalette(t *testing.T) {
+	for _, base := range []*Palette{&darkPal, &lightPal} {
+		mat := MaterialPalette(base)
+		if mat == base {
+			t.Fatal("MaterialPalette 应返回副本，不得改写深浅单例")
+		}
+		if mat.SidebarBg.A >= base.SidebarBg.A {
+			t.Errorf("材质侧栏底应半透明: alpha %d >= %d", mat.SidebarBg.A, base.SidebarBg.A)
+		}
+		if mat.SidebarHover.A >= base.SidebarHover.A {
+			t.Errorf("材质侧栏悬停行应半透明: alpha %d >= %d", mat.SidebarHover.A, base.SidebarHover.A)
+		}
+		if mat.ChatBg != base.ChatBg || mat.BgPanel != base.BgPanel || mat.Text != base.Text {
+			t.Error("对话区、面板与文字色在材质模式下应保持原值（实底对照 ZCode workspace）")
+		}
+	}
+	// 深浅单例不被污染。
+	if darkPal.SidebarBg.A != 255 || lightPal.SidebarBg.A != 255 {
+		t.Error("MaterialPalette 不得改写深浅单例的侧栏底")
 	}
 }
