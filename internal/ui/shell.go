@@ -30,6 +30,9 @@ type Shell struct {
 	// splitW 是上一帧 split 区域的总宽：与当前一致说明宽度变化只能来自
 	// 拖拽；不一致说明窗口变了，面板保持记忆宽、对话列吸收差值。
 	splitW float32
+	// SidebarView 是侧栏槽位的内容（04 号票的 sidebar.View）；nil 时画
+	// 占位文本。委托注入而非直接引用 internal/ui/sidebar，避免包环。
+	SidebarView func(c *mygo.Context, pal *Palette)
 }
 
 // NewShell 创建外壳状态：面板默认展开、取最小宽度，把空间留给对话区。
@@ -139,15 +142,19 @@ func (s *Shell) body(c *mygo.Context, pal *Palette, windowW float32) {
 	})
 }
 
-// sidebar 画 268 固定侧栏。工作区卡片、模式切换与会话列表由 04 号票接入。
+// sidebar 画 268 固定侧栏。内容经 SidebarView 委托给 04 号票的侧栏视图
+// （模式切换、会话分组列表与底部两行都在那里面）；未注入时画占位文本。
+// 侧栏自身的 48px 标题行由窗口顶栏的左段承担，槽位直接从顶栏线下方开始。
 func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
+	if s.SidebarView != nil {
+		s.SidebarView(c, pal)
+		return
+	}
 	mygo.Column(c).Width(SidebarWidth).
 		Background(pal.SidebarBg).
 		BorderWidth(0, 1, 0, 0).
 		BorderColor(pal.Border).
 		Children(func() {
-			// 与顶栏同高的头部占位（内容随 04 号票进来）。
-			mygo.Box(c).Height(TopbarHeight)
 			mygo.Box(c).Grow(1).Center().Children(func() {
 				mygo.Text(c, "侧栏 · 04 号票接入").TextColor(pal.Text3)
 			})
