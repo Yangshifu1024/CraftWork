@@ -314,10 +314,10 @@ func TestComposerFocusHighlightsFrame(t *testing.T) {
 	if !s.ComposerFocused() {
 		t.Fatal("输入框聚焦时 composer 外框应为聚焦态")
 	}
-	// 1280 视口（≥1280 断点，测试 view 无侧栏聊天列=窗口宽）：
-	// 外框 = min(1152, 1280-384) = 896，与消息正文列同宽。
-	if s.lastComposerW != 896 {
-		t.Fatalf("composer 外框宽 = %v, want 896（断点限宽）", s.lastComposerW)
+	// 1280 视口：外框 = 固定 max-w-2xl 672（不随窗口断点，实机对照 1442
+	// 宽窗口卡片 ≈705px 与 2xl 吻合）。
+	if s.lastComposerW != 672 {
+		t.Fatalf("composer 外框宽 = %v, want 672（max-w-2xl）", s.lastComposerW)
 	}
 	// 焦点移出（点击空态建议按钮，可聚焦元素）：外框失焦。
 	clickText(t, tt, "解释这个仓库的结构")
