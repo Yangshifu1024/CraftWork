@@ -38,8 +38,15 @@ const (
 // （对照规格的窄视口 1100×800）。浮层形态由 08 号票（sidePane 移植）接管。
 const NarrowWindowWidth = float32(1100)
 
-// 聊天正文列（14 号票：消息流、空态引导与 composer 外框共用同一条居中
-// 限宽的正文列；观感约定见 docs/native-ui/spec.md）。
+// 设置中心全屏覆盖层的布局尺寸（overlay.css 全屏形态：导航列 240px，
+// 内容列居中限宽 880px，避免设置行在宽窗口里被拉散）。
+const (
+	SettingsNavWidth        = float32(240)
+	SettingsContentMaxWidth = float32(880)
+)
+
+// 聊天正文列（14 号票：消息流与 composer 外框共用同一条居中限宽的
+// 正文列；观感约定见 docs/native-ui/spec.md）。
 const (
 	// ChatColumnMarginPercent 是正文列两侧留白占所在列宽的百分比（用户
 	// 给定参数 10）。
