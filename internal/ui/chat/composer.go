@@ -8,8 +8,9 @@
 // 12MB 与视觉模型拦截提示对齐 React 版（stores/threads.ts submit 与
 // lib/paste.ts 的口径）。
 //
-// 模型切换与审批档位浮层归 07 号票：模型名与档位在这里只读展示
-//（纯文本，不做「看起来能点但无效果」的控件）。
+// 模型切换 / 审批档位 / 上下文详情三浮层与 R0–R4 说明入口在 11 号票接线：
+// composerBar 三处展示可点击，浮层本体与保存路径在 internal/ui/overlays
+//（与设置中心同源，双向同步）。
 
 package chat
 
@@ -21,6 +22,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
@@ -173,18 +175,38 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			}
 		}
 		mygo.Box(c).Width(1).Height(14).Background(v.pal.Border)
-		// 审批档位：只读展示（浮层归 07 号票）。
-		mygo.Row(c).Gap(theme.Space2).AlignItems(mygo.Center).Children(func() {
+		// 审批档位：点击开档位浮层（保存走设置服务同一路径），旁附 R0–R4
+		// 说明入口（11 号票）。
+		level := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
+			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换审批档位")
+		if level.Hovered() {
+			level.Background(v.pal.BgHover)
+		}
+		level.Children(func() {
 			icons.Icon(c, "shield").FontSize(13).TextColor(v.pal.Text3)
 			mygo.Text(c, s.levelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 		})
+		if level.Clicked() {
+			overlays.OpenComposerApproval(s.approvalLevelSynced)
+		}
+		if s.iconTool(c, v, "info", "风险等级说明", true) {
+			overlays.OpenComposerRisk()
+		}
 		mygo.Spacer(c)
-		// 右侧：上下文占用提示（只读展示，详情浮层归 07）+ 模型名 + 发送位。
+		// 右侧：上下文占用（点击开详情浮层）+ 模型名（点击开模型选择）+ 发送位。
 		s.contextHint(c, v)
-		mygo.Row(c).Gap(theme.Space2).AlignItems(mygo.Center).Children(func() {
+		pick := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
+			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换模型")
+		if pick.Hovered() {
+			pick.Background(v.pal.BgHover)
+		}
+		pick.Children(func() {
 			mygo.Box(c).Size(6, 6).Radius(theme.RadiusRound).Background(v.acc.Accent)
 			mygo.Text(c, s.modelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
 		})
+		if pick.Clicked() {
+			overlays.OpenComposerModels()
+		}
 		s.sendCluster(c, v)
 	})
 }
@@ -220,7 +242,8 @@ func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enable
 
 // contextHint 画上下文占用：圆环 + 百分比文本 + 速度（<50% 灰、50–80% 黄、
 // ≥80% 红；与审批告警色同源）。速度生成中用实时估算（字符/4 ÷ 秒），
-// 空闲时显示最近一轮的后端实测值。详情浮层归 07 号票，这里做只读展示。
+// 空闲时显示最近一轮的后端实测值。点击开详情浮层（11 号票：占用口径、
+// 会话累计、缓存命中、速度的分解展示）。
 func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	used, max, speed := s.contextStats()
 	if max <= 0 {
@@ -246,11 +269,19 @@ func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	if shown > 0 {
 		speedLabel = strconv.Itoa(int(shown)) + " tok/s"
 	}
-	mygo.Row(c).Gap(theme.Space2).AlignItems(mygo.Center).Children(func() {
+	hint := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
+		Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("上下文详情")
+	if hint.Hovered() {
+		hint.Background(v.pal.BgHover)
+	}
+	hint.Children(func() {
 		contextRing(c, 14, 2, float32(percent)/100, v.pal.Border, color)
 		mygo.Text(c, strconv.Itoa(percent)+"%").FontSize(theme.Fonts.XS()).TextColor(color)
 		mygo.Text(c, speedLabel).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 	})
+	if hint.Clicked() {
+		overlays.OpenComposerContext(s.contextDetail(used, max, shown))
+	}
 }
 
 // liveSpeed 返回运行中流式输出的实时速度估算；没有流式正文时归零。
@@ -474,3 +505,41 @@ func (s *Chat) modelLabel() string {
 
 // levelLabel 返回审批档位的中文短标签（设置服务在装配时同步进来）。
 func (s *Chat) levelLabel() string { return s.approvalLevel }
+
+// approvalLevelSynced 是档位浮层保存成功后的同步回调（帧内执行）：把新
+// 档位同步进输入区只读展示，语义与装配时的 SetApprovalLevel 一致。
+func (s *Chat) approvalLevelSynced(level string) {
+	s.approvalLevel = approvalLevelLabelOf(level)
+}
+
+// approvalLevelLabelOf 返回档位原始值的中文短标签（与 app.levelLabel /
+// React Composer.tsx levelLabel 同表；两处表收敛待 review 轮处理）。
+func approvalLevelLabelOf(level string) string {
+	switch level {
+	case "strict":
+		return "严格"
+	case "readonly":
+		return "只读"
+	case "free":
+		return "自由"
+	default:
+		return "分级"
+	}
+}
+
+// contextDetail 组装上下文详情快照（contextHint 同口径）：实测优先、估算
+// 兜底；速度运行中取实时估算。浮层只展示快照，不回读会话状态。
+func (s *Chat) contextDetail(used, max, speed float64) overlays.ContextDetail {
+	percent := 0
+	if max > 0 {
+		percent = int(used * 100 / max)
+	}
+	return overlays.ContextDetail{
+		Used:        int64(used),
+		WindowK:     int(max / 1000),
+		Percent:     percent,
+		Tokens:      s.Thread().Tokens,
+		CacheTokens: s.Thread().ContextCacheTokens,
+		Speed:       speed,
+	}
+}
