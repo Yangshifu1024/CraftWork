@@ -202,21 +202,27 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	}
 
 	s.engine.SetLevel(policy.ParseLevel(next.ApprovalLevel))
+	// 先持久化，成功后才落审计：保存失败时档位并未生效，先落账会留下
+	// 「档位已变更」的假记录（review 修复轮：此前次序相反且忽略落账错误）。
+	if err := s.db.SetSetting(settingsKey, next); err != nil {
+		return current, err
+	}
 	// 审批档位变化写审计：档位决定此后哪些操作免确认，属于必须可追溯的
 	// 安全配置变更（设置中心与输入框档位浮层共用本入口，一处落账）。
 	// Risk 记录目标档位放行的最宽风险级（自由到 R4、分级与严格到 R3、
 	// 只读 R0），Decision 用 update 表示这是配置变更而非审批决定。
+	// 落账失败同样返回错误（AGENTS.md 6.2：配置变更必须落审计，不能静默
+	// 丢失）；此时设置已持久化，如实返回 next。
 	if current.ApprovalLevel != next.ApprovalLevel {
-		_ = s.db.AddAudit(&store.AuditEntry{
+		if err := s.db.AddAudit(&store.AuditEntry{
 			Tool:     "approval_level",
 			Risk:     levelWidestRisk(next.ApprovalLevel).String(),
 			Decision: "update",
 			Scope:    "user",
 			Detail:   "审批档位：" + approvalLevelName(current.ApprovalLevel) + " → " + approvalLevelName(next.ApprovalLevel),
-		})
-	}
-	if err := s.db.SetSetting(settingsKey, next); err != nil {
-		return current, err
+		}); err != nil {
+			return next, err
+		}
 	}
 	s.bus.Publish(events.TypeSettingsUpdated, "", "", next)
 	return next, nil

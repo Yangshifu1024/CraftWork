@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/yangshifu1024/craftwork/internal/events"
@@ -62,6 +63,63 @@ func TestSaveApprovalLevelSwitchWritesAudit(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("档位未变不应写审计，实际 %d 条", len(entries))
 	}
+}
+
+// TestSaveFailureLeavesNoAudit 保存失败路径不落审计（review 修复轮）：档位
+// 变化但保存失败时，不能留下「档位已变更」的审计假记录——审计记录的事实
+// 没有发生，落了账反而污染可追溯性。
+//
+// 实现上落账移到持久化成功之后；这里锁定「失败 ⇒ 审计表无新记录」的外部
+// 契约，防止后续改动把落账挪回持久化之前。store.DB 是具体类型、没有故障
+// 注入点，「落账成功而写设置失败」的组合无法黑盒构造，两条真实失败路径
+// （工作区校验失败、存储写入失败）就是可断言的全部。
+func TestSaveFailureLeavesNoAudit(t *testing.T) {
+	assertNoAudit := func(t *testing.T, db *store.DB) {
+		t.Helper()
+		entries, err := db.ListAudit(10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("保存失败不应落审计: %+v", entries)
+		}
+	}
+
+	// 路径一：工作区校验失败（写设置之前返回错误）。
+	t.Run("workspace", func(t *testing.T) {
+		svc := newSettingsService(t)
+		_, err := svc.Save(Settings{ApprovalLevel: "strict", ActiveWorkspace: "missing"})
+		if err == nil {
+			t.Fatal("指向不存在的工作区应保存失败")
+		}
+		assertNoAudit(t, svc.db)
+	})
+
+	// 路径二：存储写入失败（库已关闭）。失败后重开同一库核对审计表。
+	t.Run("persist", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := store.Open(filepath.Join(dir, "settings.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bus := events.NewBus(func(events.Batch) {})
+		t.Cleanup(bus.Close)
+		svc := NewSettingsService(db, bus, policy.New(policy.LevelGraded))
+
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Save(Settings{ApprovalLevel: "strict"}); err == nil {
+			t.Fatal("库关闭后保存应失败")
+		}
+
+		db2, err := store.Open(filepath.Join(dir, "settings.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db2.Close() })
+		assertNoAudit(t, db2)
+	})
 }
 
 func TestNormalizeModelSettings(t *testing.T) {
