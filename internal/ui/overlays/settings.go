@@ -5,6 +5,13 @@
 // 分组内容对齐 React 版 SettingsModal：通用、模式、模型与提供商（提供商
 // 卡片 / 密钥 / 能力表 / 测试连接 / 目录与手动添加）、工具与权限（四档 +
 // 自由确认门 + R0–R4 表）、MCP、外观（主题卡 + 字号）、高级。
+//
+// 维护留档（review 判定，本轮不拆）：本文件已过千行且所有分组共用同一
+// 状态与保存链路（Divergent Change 的早期形态）。再往任一分组加内容的
+// 时候，按「一分组一文件」拆分——drawSettings 的分组分派、settingsState
+// 与 saveSettings 留在本文件，models / tools / mcp / appearance /
+// advanced 等分组的表单各成一文件（同包内拆，无接口变化）。不在本轮
+// 拆是因为 review 修复轮不应夹带大文件重构，风险大于收益。
 
 package overlays
 
