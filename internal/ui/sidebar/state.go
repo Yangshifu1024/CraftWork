@@ -16,13 +16,6 @@ type Counts struct {
 	AuditItems  int
 }
 
-// RenameDialog 是重命名浮层的临时状态；Thread 为空表示没有浮层。
-type RenameDialog struct {
-	Open  bool
-	ID    string
-	Title string // 输入框内容
-}
-
 // Sidebar 是左侧栏的界面状态壳。
 type Sidebar struct {
 	// Mode 是当前对话模式；启动时从设置恢复。
@@ -40,8 +33,6 @@ type Sidebar struct {
 	coll Collapses
 	// counts 是底部计数。
 	counts Counts
-	// rename 是重命名浮层状态。
-	rename RenameDialog
 	// pendingToast 是待弹的提示：异步动作完成后经 deliver 写入，
 	// view 下一帧开头消费（mygo 的 c.Toast 只能在 view 帧内调用）。
 	pendingToast string
@@ -79,9 +70,8 @@ type Actions struct {
 	CopyThreadID func(id string)
 	// SelectThread 选中会话后的联动（快照加载归 05 号票；本票为空实现）。
 	SelectThread func(id string)
-	// ShowRename 打开重命名浮层（先在本地状态登记目标会话）。
-	ShowRename func(t Thread)
-	// RenameThread 修改会话标题并刷新列表。
+	// RenameThread 修改会话标题并刷新列表（重命名浮层归 07 号票的
+	// overlays.Prompt，右键菜单直接发起，不再走动作表）。
 	RenameThread func(id, title string)
 	// DeleteThread 弹危险确认后彻底删除会话并刷新列表。
 	DeleteThread func(id string)
@@ -116,9 +106,6 @@ func (s *Sidebar) Collapses() Collapses { return s.coll }
 
 // Counts 返回底部计数。
 func (s *Sidebar) Counts() Counts { return s.counts }
-
-// Rename 返回重命名浮层状态。
-func (s *Sidebar) Rename() RenameDialog { return s.rename }
 
 // ThreadByID 在当前模式列表里找会话（右键菜单动作的定位用）。
 func (s *Sidebar) ThreadByID(id string) (Thread, bool) {
@@ -197,10 +184,6 @@ func (s *Sidebar) Limit(key string) int {
 	return PageSize
 }
 
-// OpenRename 打开重命名浮层并预填当前标题。
-func (s *Sidebar) OpenRename(t Thread) {
-	s.rename = RenameDialog{Open: true, ID: t.ID, Title: t.Title}
-}
-
-// CloseRename 关闭重命名浮层。
-func (s *Sidebar) CloseRename() { s.rename = RenameDialog{} }
+// OpenRename / CloseRename 已随重命名浮层的本地状态一起删除（07 号票）：
+// 重命名由 view 的右键菜单直接发起 overlays.Prompt，输入与提交状态都在
+// 浮层单例里，侧栏不再自持。

@@ -141,10 +141,12 @@ func (p *Pane) diffView(c *mygo.Context, pal *Palette) {
 	})
 }
 
-// applyDiff 应用全部修改：先确认（原生对话框放后台 goroutine 弹，避免
-// view 帧内阻塞——04 号票已知坑），确认后走既有写文件链路：WriteFile
-// 备份原文件 + 原子替换 + 落审计；不带 hash 表示允许覆盖。成功后在
-// 编辑器里打开磁盘最新状态（对齐 React 版 applyDiff 的收尾）。
+// applyDiff 应用全部修改：确认浮层在当前帧发起（overlays.Confirm 非阻塞，
+// 04 号票「原生对话框不能进 view 帧」的坑不再适用），用户确认后走既有
+// 写文件链路：WriteFile 备份原文件 + 原子替换 + 落审计；不带 hash 表示
+// 允许覆盖。成功后在编辑器里打开磁盘最新状态（对齐 React 版 applyDiff
+// 的收尾）。done 回调在主线程执行：取消只复位 applying；确认后的写盘
+// 是磁盘 IO，放后台 goroutine，结果经 update 回主线程。
 func (p *Pane) applyDiff() {
 	d := p.diff
 	if d == nil || d.applying || d.workspaceID == "" || p.workspaces() == nil {
@@ -152,28 +154,28 @@ func (p *Pane) applyDiff() {
 	}
 	d.applying = true
 	title, wsID, text := d.title, d.workspaceID, d.newText
-	go func() {
-		if !paneConfirmApplyAll(title) {
+	paneConfirmApplyAll(title, func(ok bool) {
+		if !ok {
+			if p.diff == d {
+				d.applying = false
+			}
+			return
+		}
+		go func() {
+			err := p.workspaces().WriteFile(wsID, "", title, text, "")
 			p.update(func() {
 				if p.diff == d {
 					d.applying = false
+					if err == nil {
+						d.appliedAt = panelClock()
+						// 打开文件显示磁盘最新状态（对齐 React 版 applyDiff）。
+						p.openResolved("", title, 0)
+					}
+				}
+				if err != nil {
+					p.reportError("应用失败", err.Error())
 				}
 			})
-			return
-		}
-		err := p.workspaces().WriteFile(wsID, "", title, text, "")
-		p.update(func() {
-			if p.diff == d {
-				d.applying = false
-				if err == nil {
-					d.appliedAt = panelClock()
-					// 打开文件显示磁盘最新状态（对齐 React 版 applyDiff）。
-					p.openResolved("", title, 0)
-				}
-			}
-			if err != nil {
-				p.reportError("应用失败", err.Error())
-			}
-		})
-	}()
+		}()
+	})
 }

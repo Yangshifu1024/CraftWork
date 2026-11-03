@@ -24,6 +24,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
 )
 
@@ -490,11 +491,11 @@ func (p *Pane) openResolved(folderID, path string, line int) {
 	}
 }
 
-// reportError 弹一条错误提示。07 号票浮层体系合入前用原生对话框兜底
-// （panel_desktop.go 的 paneReportError，单测可替换），届时替换为应用内
-// toast。
+// reportError 弹一条应用内错误通知（07 号票 toast 替代原生对话框：错误
+// 不再打断操作流）。Notify 内部排队，迟到上下文（update 回调）里调用
+// 同样安全。
 func (p *Pane) reportError(title, detail string) {
-	paneReportError(title, detail)
+	overlays.Notify(title, detail, overlays.ToneDanger)
 }
 
 // ---------------------------------------------------------------------------

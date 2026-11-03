@@ -210,8 +210,6 @@ func newPaneServiceHarness(t *testing.T) *paneHarness {
 	// 注入真实服务。
 	h.pane.deps.WorkspacesSvc = func() *service.WorkspaceService { return ws }
 	h.root = dir
-	// 错误对话框在单测里静默（不起真对话框；断言在各自用例里看状态）。
-	paneReportError = func(title, detail string) {}
 	return h
 }
 
@@ -320,12 +318,12 @@ func TestPaneSaveConflictReloadsAfterConfirm(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(h.root, "note.txt"), []byte("external\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 冲突确认弹窗在单测里替换为「选择重新加载」。
+	// 冲突确认浮层在单测里替换为「选择重新加载」。
 	confirmed := false
 	previousConfirm := paneConfirmReload
-	paneConfirmReload = func(path string) bool {
+	paneConfirmReload = func(path string, done func(ok bool)) {
 		confirmed = true
-		return true
+		done(true)
 	}
 	defer func() { paneConfirmReload = previousConfirm }()
 	h.pane.saveSlot(tabID)

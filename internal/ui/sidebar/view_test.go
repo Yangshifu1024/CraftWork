@@ -11,6 +11,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
 
 // settleClick 是点击后的统一等待：推进一帧再加一个动效时长，让
@@ -21,9 +22,16 @@ func settleClick(tt *mygo.Tester) {
 	tt.Frame()
 }
 
+// renamedRecord 收集重命名动作的目标与标题（右键菜单 → Prompt 提交）。
+type renamedRecord struct {
+	id    string
+	title string
+}
+
 // newSidebarTester 在 1440×900 下起一个注入了数据与本地动作的侧栏 view。
-// 返回的 recorded 收集复制与删除动作的目标会话 Id。
-func newSidebarTester(t *testing.T) (*Sidebar, *[]string, *[]string, *mygo.Tester) {
+// 返回值里的 copied / deleted / renamed 收集右键菜单动作的目标会话 Id
+// 与重命名结果（注入的本地记录函数）。
+func newSidebarTester(t *testing.T) (*Sidebar, *[]string, *[]string, *[]renamedRecord, *mygo.Tester) {
 	t.Helper()
 	s := NewSidebar()
 	s.ReplaceWorkspaces(testWorkspaces())
@@ -42,17 +50,20 @@ func newSidebarTester(t *testing.T) (*Sidebar, *[]string, *[]string, *mygo.Teste
 	})
 	// 本地动作记录：断言右键菜单到动作的接线。
 	var copied, deleted []string
+	var renamed []renamedRecord
 	s.SetActions(&Actions{
-		ShowRename:   s.OpenRename,
 		CopyThreadID: func(id string) { copied = append(copied, id) },
+		RenameThread: func(id, title string) { renamed = append(renamed, renamedRecord{id, title}) },
 		DeleteThread: func(id string) { deleted = append(deleted, id) },
 	})
 	view := func(c *mygo.Context) {
 		pal := ui.Apply(c)
 		s.View(c, pal)
+		// 重命名 Prompt 由右键菜单直接发起，浮层画在这里（生产走 RootView）。
+		overlays.View(c)
 	}
 	tt := mygo.NewTester(view, 1440, 900)
-	return s, &copied, &deleted, tt
+	return s, &copied, &deleted, &renamed, tt
 }
 
 // mustClick 点一个有文字的元素，失败直接终止用例。
@@ -72,7 +83,7 @@ func mustChoose(t *testing.T, tt *mygo.Tester, item string) {
 }
 
 func TestSidebarViewShowsGroupsAndItems(t *testing.T) {
-	_, _, _, tt := newSidebarTester(t)
+	_, _, _, _, tt := newSidebarTester(t)
 	for _, text := range []string{
 		"Code", "Work",
 		"临时会话", "临时会话一",
@@ -97,7 +108,7 @@ func TestSidebarViewShowsGroupsAndItems(t *testing.T) {
 }
 
 func TestSidebarViewShowMoreAppends(t *testing.T) {
-	_, _, _, tt := newSidebarTester(t)
+	_, _, _, _, tt := newSidebarTester(t)
 	mustClick(t, tt, "显示更多（还有 1 条）")
 	settleClick(tt)
 	if !tt.HasText("项目会话六") {
@@ -109,7 +120,7 @@ func TestSidebarViewShowMoreAppends(t *testing.T) {
 }
 
 func TestSidebarViewSelectThread(t *testing.T) {
-	s, _, _, tt := newSidebarTester(t)
+	s, _, _, _, tt := newSidebarTester(t)
 	mustClick(t, tt, "临时会话一")
 	if s.ActiveID() != "t1" {
 		t.Errorf("点击后活动会话 = %q, want t1", s.ActiveID())
@@ -117,7 +128,7 @@ func TestSidebarViewSelectThread(t *testing.T) {
 }
 
 func TestSidebarViewSwitchMode(t *testing.T) {
-	s, _, _, tt := newSidebarTester(t)
+	s, _, _, _, tt := newSidebarTester(t)
 	mustClick(t, tt, "Work")
 	settleClick(tt)
 	if s.Mode != ModeWork {
@@ -162,7 +173,7 @@ func TestSidebarViewEmptyProjectState(t *testing.T) {
 }
 
 func TestSidebarViewCollapseTempGroup(t *testing.T) {
-	_, _, _, tt := newSidebarTester(t)
+	_, _, _, _, tt := newSidebarTester(t)
 	head, ok := tt.Find("临时会话") // 组名文本（与「临时会话一」是不同元素）
 	if !ok {
 		t.Fatalf("找不到临时组头文本")
@@ -184,7 +195,7 @@ func TestSidebarViewCollapseTempGroup(t *testing.T) {
 }
 
 func TestSidebarViewContextMenuItems(t *testing.T) {
-	s, copied, deleted, tt := newSidebarTester(t)
+	_, copied, deleted, renamed, tt := newSidebarTester(t)
 	rect, ok := tt.Find("临时会话一")
 	if !ok {
 		t.Fatalf("找不到会话条目")
@@ -199,21 +210,26 @@ func TestSidebarViewContextMenuItems(t *testing.T) {
 		t.Errorf("复制动作应记录 t1, got %v", *copied)
 	}
 
-	// 重命名菜单打开浮层并预填标题。
+	// 重命名菜单发起应用内 Prompt（07 号票浮层体系）：标题预填当前值。
 	tt.RightClickAt(rect.X+10, rect.Y+5)
 	tt.Frame()
 	mustChoose(t, tt, "重命名")
-	settleClick(tt)
-	if !s.rename.Open || s.rename.ID != "t1" {
-		t.Fatalf("重命名浮层应打开且目标为 t1: %+v", s.rename)
+	tt.Frame()
+	if !tt.HasText("重命名会话") {
+		t.Fatalf("Prompt 浮层应出现: %v", tt.Texts())
 	}
-	if s.rename.Title != "临时会话一" {
-		t.Errorf("重命名浮层应预填标题, got %q", s.rename.Title)
+	// 焦点默认在输入框：清掉预填标题，输入新标题后回车提交。
+	for range "临时会话一" {
+		tt.Key(0, mygo.KeyBackspace)
 	}
-	mustClick(t, tt, "保存")
-	settleClick(tt)
-	if s.rename.Open {
-		t.Errorf("保存后浮层应关闭")
+	tt.Type("新名字")
+	tt.Key(0, mygo.KeyEnter)
+	tt.Frame()
+	if len(*renamed) != 1 || (*renamed)[0].id != "t1" || (*renamed)[0].title != "新名字" {
+		t.Fatalf("提交应重命名 t1 为新名字, got %+v", *renamed)
+	}
+	if tt.HasText("重命名会话") {
+		t.Errorf("提交后 Prompt 应关闭")
 	}
 
 	// 删除菜单项走注入动作记录。

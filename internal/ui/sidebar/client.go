@@ -8,8 +8,9 @@
 // 失败约定（AGENTS.md 6.6）：读取失败写日志并保留旧列表继续可用
 //（threads.refresh 的语义）；改动失败用 toast 提示。
 //
-// TODO(07): 删除确认与占位入口的浮层统一换成应用内浮层体系（对照
-// React 版 askConfirm / openPalette / openSettings / openData）。
+// 浮层出口（07 号票）：删除确认由装配传入的应用内 ConfirmFn（app.go
+// confirmDeleteDialog → overlays.Confirm）承担；数据浮层与命令面板在
+// Actions 里直开 overlays。
 
 package sidebar
 
@@ -88,10 +89,9 @@ func (cl *Client) Actions() *Actions {
 		CreateThreadIn:   cl.CreateThreadIn,
 		CopyThreadID:     cl.CopyThreadID,
 		SelectThread:     func(string) {}, // 快照加载归 05 号票，这里只留接线位
-		ShowRename:       cl.sb.OpenRename,
 		RenameThread:     cl.RenameThread,
 		DeleteThread:     cl.DeleteThread,
-		// 数据浮层与命令面板归 07 号票的浮层体系，这里直接打开。
+		// 数据浮层与命令面板直接打开（07 号票的浮层体系）。
 		Usage:    func() { overlays.OpenData(overlays.TabUsage) },
 		Audit:    func() { overlays.OpenData(overlays.TabAudit) },
 		Palette:  func() { overlays.TogglePalette() },
@@ -233,7 +233,7 @@ func (cl *Client) RenameThread(id, title string) {
 	}()
 }
 
-// DeleteThread 弹危险确认（原生 Dialog.Message，07 号票换应用内浮层），
+// DeleteThread 弹危险确认（装配注入的 ConfirmFn，生产是应用内浮层），
 // 确认后彻底删除并刷新列表与计数。
 func (cl *Client) DeleteThread(id string) {
 	if cl.confirmDelete == nil {

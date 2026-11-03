@@ -154,11 +154,16 @@ func (p *Pane) saveSlot(tabID string) {
 		if err != nil {
 			message := err.Error()
 			if strings.Contains(message, "外部修改") {
-				// 冲突确认在后台 goroutine 弹（Dialog.Message 阻塞到用户
-				// 选择为止，不占 UI 帧）。
-				if paneConfirmReload(path) {
-					p.update(func() { p.reloadSlot(tabID, folderID, path) })
-				}
+				// 冲突确认浮层经 update 回主线程发起（overlays 的状态只在
+				// 主线程读写）；done 同样在主线程执行，重新加载是读盘 IO，
+				// 经 loadFileSlot 自带的后台路径完成。
+				p.update(func() {
+					paneConfirmReload(path, func(ok bool) {
+						if ok {
+							p.reloadSlot(tabID, folderID, path)
+						}
+					})
+				})
 				return
 			}
 			p.reportError("保存失败", message)

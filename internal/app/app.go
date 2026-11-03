@@ -380,8 +380,9 @@ func Run(build version.Info) error {
 		sidebarClient.Boot()
 		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
 		chatClient.Boot(settingsService.Get().Mode)
-		// 审批档位的中文短标签（Composer 只读展示；浮层归 07 号票），
-		// 原始档位供审批卡判断永久授权按钮的显隐。
+		// 审批档位的中文短标签（Composer 只读展示，档位切换在设置里改；
+		// 07 号票浮层体系已合入，Composer 未挂浮层入口），原始档位供
+		// 审批卡判断永久授权按钮的显隐。
 		chatState.SetApprovalLevel(levelLabel(settingsService.Get().ApprovalLevel))
 		chatState.SetApprovalLevelRaw(settingsService.Get().ApprovalLevel)
 	})

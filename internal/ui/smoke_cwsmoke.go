@@ -27,9 +27,9 @@ import (
 
 func init() {
 	if os.Getenv("CWSMOKE_APPLY") == "1" {
-		// 自动允许确认框：与真实用户点击「应用修改」走同一条 applyDiff
-		// 链路，只是把原生对话框这一步替掉（与单测的替身同一出口）。
-		paneConfirmApplyAll = func(string) bool { return true }
+		// 自动允许确认浮层：与真实用户点击「应用修改」走同一条 applyDiff
+		// 链路，只是把浮层等待这一步替掉（与单测的替身同一出口）。
+		paneConfirmApplyAll = func(_ string, done func(ok bool)) { done(true) }
 	}
 	smokeSeed = func(s *Shell) {
 		if s.win == nil {

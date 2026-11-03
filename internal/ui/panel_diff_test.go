@@ -71,15 +71,15 @@ func TestPaneApplyDiffWritesWithBackupAfterConfirm(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(h.root, "note.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 确认框替身：选择「应用修改」。
+	// 确认浮层替身：选择「应用修改」。
 	confirmed := false
 	previous := paneConfirmApplyAll
-	paneConfirmApplyAll = func(path string) bool {
+	paneConfirmApplyAll = func(path string, done func(ok bool)) {
 		confirmed = true
 		if path != "note.txt" {
 			t.Fatalf("确认框应带文件路径, got %q", path)
 		}
-		return true
+		done(true)
 	}
 	defer func() { paneConfirmApplyAll = previous }()
 
@@ -129,9 +129,9 @@ func TestPaneApplyDiffCancelledAndGuards(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(h.root, "note.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 确认框替身：取消。
+	// 确认浮层替身：取消。
 	previous := paneConfirmApplyAll
-	paneConfirmApplyAll = func(string) bool { return false }
+	paneConfirmApplyAll = func(_ string, done func(ok bool)) { done(false) }
 	defer func() { paneConfirmApplyAll = previous }()
 
 	h.pane.OpenDiff("note.txt", "v1\n", "v2\n")

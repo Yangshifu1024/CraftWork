@@ -6,21 +6,21 @@
 // 槽位纪律：本文件只画侧栏列内部；三栏外壳（shell.go）经 Shell 的
 // SidebarView 字段把 268 列的绘制委托进来。
 //
-// 浮层留桩：会话右键菜单暂用系统菜单（ContextMenu），删除确认走
-// mygo.Dialog.Message 原生弹窗、重命名走 ui.Modal 简易浮层——07 号票
-// 统一浮层体系后整体替换为应用内浮层（对照 React 版 popover-item 的
-// 标题 + 描述双行样式）。
+// 浮层出口（07 号票）：重命名与删除确认走应用内浮层体系
+//（overlays.Prompt / overlays.Confirm，语义对齐 React 版 askPrompt /
+// askConfirm）；会话右键菜单仍是系统菜单，应用内 popover 待后续对齐
+// React 版 popover-item 的标题 + 描述双行样式。
 
 package sidebar
 
 import (
 	"strconv"
-	"strings"
 	"time"
 
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
 
 // stubNote 是 07 号票前占位入口的统一提示尾巴。
@@ -53,7 +53,6 @@ func (s *Sidebar) View(c *mygo.Context, pal *ui.Palette) {
 			s.modeSwitch(c, v)
 			s.threadList(c, v)
 			s.footer(c, v)
-			s.renameModal(c, v)
 		})
 }
 
@@ -422,7 +421,7 @@ func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 			v.acts.SelectThread(t.ID)
 		}
 	}
-	threadMenu(c, v.acts, btn, t)
+	s.threadMenu(c, v, btn, t)
 	btn.Children(func() {
 		// 选中态模式色竖条（.thread-item::before）：左缘 2px、上下缩进 9、
 		// 圆角 2；出现/消失走 160ms 透明度渐变（CSS 的 opacity 过渡）。
@@ -478,26 +477,24 @@ func statusBadge(c *mygo.Context, v *viewSide, color mygo.Color, label string, p
 	})
 }
 
-// threadMenu 挂会话右键菜单（React 版会话操作菜单的三项）。
-// 暂用系统菜单；07 号票统一浮层体系后替换为应用内 popover（标题 + 描述）。
+// threadMenu 挂会话右键菜单（React 版会话操作菜单的三项）。暂用系统
+// 菜单，应用内 popover（标题 + 描述双行样式）待后续对齐 React 版。
 //
 // 复制动作必须走注入的 Actions.CopyThreadID：mygo 剪贴板要经主循环
 // （onMain），在 view 帧内直调会死锁，app.go 里经 win.Update 排队执行。
-func threadMenu(c *mygo.Context, acts *Actions, el mygo.Element, t Thread) {
+func (s *Sidebar) threadMenu(c *mygo.Context, v *viewSide, el mygo.Element, t Thread) {
 	el.ContextMenu(func(m *mygo.Menu) {
 		if m.Item("复制会话 Id").Chosen() {
-			if acts != nil && acts.CopyThreadID != nil {
+			if acts := v.acts; acts != nil && acts.CopyThreadID != nil {
 				acts.CopyThreadID(t.ID)
 			}
 		}
 		if m.Item("重命名").Chosen() {
-			if acts != nil && acts.ShowRename != nil {
-				acts.ShowRename(t)
-			}
+			s.renamePrompt(c, v, t)
 		}
 		m.Separator()
 		if m.Item("删除").Chosen() {
-			if acts != nil && acts.DeleteThread != nil {
+			if acts := v.acts; acts != nil && acts.DeleteThread != nil {
 				acts.DeleteThread(t.ID)
 			}
 		}
@@ -599,43 +596,28 @@ func kbdBadge(c *mygo.Context, v *viewSide, label string) {
 }
 
 // ---------------------------------------------------------------------------
-// 重命名浮层（07 号票前的简易实现）
+// 重命名浮层（07 号票的统一浮层体系）
 // ---------------------------------------------------------------------------
 
-// renameModal 画重命名浮层：ui.Modal + TextInput，保存即调服务。
-// TODO(07): 换成统一浮层体系（对照 React 版 askPrompt 的标题 + 说明文案）。
-func (s *Sidebar) renameModal(c *mygo.Context, v *viewSide) {
-	if !s.rename.Open {
-		return
-	}
-	mygo.Modal(c, &s.rename.Open, func() {
-		mygo.Text(c, "重命名会话").Bold().FontSize(ui.Fonts.LG())
-		mygo.Text(c, "新标题会立即保存。").FontSize(ui.Fonts.SM()).TextColor(v.pal.Text2)
-		input := mygo.TextInput(c, &s.rename.Title).Placeholder("会话标题")
-		submitted := input.Submitted()
-		mygo.Row(c).Gap(ui.Space4 + 4).Justify(mygo.End).Children(func() {
-			if mygo.Button(c, "取消").Clicked() {
-				s.CloseRename()
-			}
-			if mygo.PrimaryButton(c, "保存").Clicked() || submitted {
-				s.submitRename(v)
-			}
-		})
+// renamePrompt 发起重命名浮层（overlays.Prompt，对照 React 版 askPrompt
+// 的标题 + 说明文案，输入框预填当前标题）：提交把去空白后的标题交给
+// RenameThread；取消按取消收尾，空内容浮层不提交（Prompt 自带约束）。
+// done 在浮层收尾的那一帧于主线程执行。
+func (s *Sidebar) renamePrompt(c *mygo.Context, v *viewSide, t Thread) {
+	overlays.Prompt(c, overlays.PromptOpts{
+		Title:       "重命名会话",
+		Label:       "新标题会立即保存。",
+		Value:       t.Title,
+		Placeholder: "会话标题",
+		ConfirmText: "保存",
+	}, func(title string, accepted bool) {
+		if !accepted {
+			return
+		}
+		if acts := v.acts; acts != nil && acts.RenameThread != nil {
+			acts.RenameThread(t.ID, title)
+		}
 	})
-}
-
-// submitRename 提交重命名：空标题按取消处理（sessionActions 语义）。
-func (s *Sidebar) submitRename(v *viewSide) {
-	title := strings.TrimSpace(s.rename.Title)
-	if title == "" {
-		s.CloseRename()
-		return
-	}
-	id := s.rename.ID
-	s.CloseRename()
-	if v.acts != nil && v.acts.RenameThread != nil {
-		v.acts.RenameThread(id, title)
-	}
 }
 
 // ---------------------------------------------------------------------------
