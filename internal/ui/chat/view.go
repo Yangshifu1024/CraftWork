@@ -62,6 +62,8 @@ func (s *Chat) View(c *mygo.Context, pal *ui.Palette) {
 		s.streamArea(c, v)
 		s.composerArea(c, v)
 	})
+	// 附件图片的放大预览浮层（DialogBase 覆盖整窗，画在聊天列槽位内）。
+	s.imagePreviewDialog(c, v)
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +328,8 @@ func (s *Chat) userBubble(c *mygo.Context, v *viewSide, m *Message, text string)
 		if hasAttachments(m) {
 			mygo.Box(c).Height(ui.Space2)
 			for _, att := range messageAttachments(m) {
-				attachChip(c, v, att.Name, formatSize(att.Size))
+				// 图片附件画缩略图（点击放大），其余画文件 chip。
+				s.attachItem(c, v, att.Path, att.Name)
 			}
 		}
 	})
@@ -335,6 +338,7 @@ func (s *Chat) userBubble(c *mygo.Context, v *viewSide, m *Message, text string)
 // messageAttachment 是消息内的一条附件显示信息。
 type messageAttachment struct {
 	Name string
+	Path string
 	Size int64
 }
 
@@ -358,11 +362,15 @@ func messageAttachments(m *Message) []messageAttachment {
 		for _, item := range list {
 			switch a := item.(type) {
 			case string:
-				out = append(out, messageAttachment{Name: baseName(a)})
+				out = append(out, messageAttachment{Name: baseName(a), Path: a})
 			case map[string]any:
-				att := messageAttachment{Name: strOf(a, "name"), Size: int64(numOf(a, "size"))}
-				if p := strOf(a, "path"); p != "" {
-					att.Name = strOr(att.Name, baseName(p))
+				att := messageAttachment{
+					Name: strOf(a, "name"),
+					Path: strOf(a, "path"),
+					Size: int64(numOf(a, "size")),
+				}
+				if att.Path != "" {
+					att.Name = strOr(att.Name, baseName(att.Path))
 				}
 				if att.Name != "" {
 					out = append(out, att)
@@ -385,20 +393,6 @@ func strOr(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// formatSize 把字节数显示成 KB / MB；0 表示未知，返回空串。
-func formatSize(size int64) string {
-	switch {
-	case size <= 0:
-		return ""
-	case size < 1024:
-		return fmt.Sprintf("%d B", size)
-	case size < 1024*1024:
-		return fmt.Sprintf("%.1f KB", float64(size)/1024)
-	default:
-		return fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
-	}
 }
 
 // streamCaret 画流式光标（.stream-caret：6×13 模式色圆角条，1s 闪烁）。

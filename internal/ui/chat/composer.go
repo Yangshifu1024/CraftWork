@@ -61,7 +61,8 @@ func (s *Chat) attachStrip(c *mygo.Context, v *viewSide) {
 		for _, att := range attachments {
 			entry := mygo.Row(c).Gap(2).AlignItems(mygo.Center)
 			entry.Children(func() {
-				attachChip(c, v, att.Name, "")
+				// 图片附件画缩略图（点击放大），其余画文件 chip。
+				s.attachItem(c, v, att.Path, att.Name)
 				// 移除只从列表删，不删磁盘文件。
 				remove := mygo.ButtonBase(c).Size(18, 18).Radius(ui.RadiusBadge).Center().
 					Label("移除 " + att.Name)

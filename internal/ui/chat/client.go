@@ -16,6 +16,7 @@ package chat
 
 import (
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -80,6 +81,8 @@ func NewClient(
 	selectInSidebar SelectInSidebar,
 	activeInMode ActiveInMode,
 ) *Client {
+	// 缩略图等后台加载的结果经同一 deliver 通道回主线程。
+	chat.SetUpdate(deliver)
 	return &Client{
 		chat:            chat,
 		chatSvc:         chatSvc,
@@ -124,6 +127,7 @@ func (cl *Client) Actions() *Actions {
 		ConfirmExternal: cl.ConfirmExternal,
 		Copy:            cl.Copy,
 		OpenDiff:        cl.OpenDiff,
+		ReadAttachment:  cl.ReadAttachment,
 	}
 }
 
@@ -505,6 +509,20 @@ func (cl *Client) OpenDiff(path, oldText, newText string) {
 	cl.deliver(func() {
 		cl.chat.QueueToast("打开差异：" + title + "（差异面板内容待 09 号票接入）")
 	})
+}
+
+// ReadAttachment 读取一张附件图片的内容（mime 与 base64；goroutine 内
+// 调用，结果经 SetUpdate 的通道回主线程写缓存）。appService 未注入时
+// 返回错误，缩略图回退为文件 chip。
+func (cl *Client) ReadAttachment(path string) (string, string, error) {
+	if appService == nil {
+		return "", "", errors.New("附件服务未接线")
+	}
+	content, err := appService.ReadAttachment(path)
+	if err != nil || content == nil {
+		return "", "", err
+	}
+	return content.Mime, content.Base64, nil
 }
 
 // ConfirmExternal 弹外链确认框，同意后交给系统浏览器。Dialog.Message

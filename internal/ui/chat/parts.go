@@ -28,6 +28,98 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// 附件 chip 与图片缩略图
+// ---------------------------------------------------------------------------
+
+// isImagePath 报告路径是否为可预览的图片（lib/utils isImagePath 同口径）。
+func isImagePath(path string) bool {
+	lower := strings.ToLower(path)
+	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// attachItem 画一枚可点击的附件：图片显示缩略图（异步解码缓存，加载
+// 完成自动替换），点击打开放大预览；其他文件与尚未读到的图片显示文件
+// chip。输入区附件条与消息附件列表共用（AttachmentItem 同语义）。
+func (s *Chat) attachItem(c *mygo.Context, v *viewSide, path, name string) {
+	if !isImagePath(path) {
+		attachChip(c, v, name, "")
+		return
+	}
+	bmp := s.thumbOf(path)
+	if bmp == nil {
+		// 缩略图尚未读到（或读取失败）时先展示文件形态。
+		attachChip(c, v, name, "")
+		return
+	}
+	btn := mygo.ButtonBase(c).Size(28, 28).Radius(cwui.RadiusRow).
+		AlignItems(mygo.Center).Justify(mygo.Center).Clip().
+		Label(name + "（点击放大）")
+	if btn.Clicked() {
+		s.OpenImagePreview(name, bmp)
+	}
+	if btn.Hovered() {
+		btn.Background(v.pal.BgHover)
+	}
+	btn.Children(func() {
+		mygo.Image(c, bmp).Width(24).Height(24)
+	})
+}
+
+// attachChip 画一枚附件 chip（.attach-chip：28 高、描边、名称省略、
+// 可选尺寸尾巴）。可移除形态由外层包按钮实现（输入区条内），
+// 消息内的展示 chip 不可移除。
+func attachChip(c *mygo.Context, v *viewSide, name, size string) {
+	mygo.Row(c).Gap(cwui.Space3).AlignItems(mygo.Center).
+		Height(28).Padding(0, cwui.Space4).Radius(cwui.RadiusRow).
+		MaxWidth(240).
+		Background(v.pal.BgPanel).
+		BorderWidth(1).BorderColor(v.pal.Border).
+		Children(func() {
+			cwui.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
+			mygo.Text(c, name).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
+			if size != "" {
+				mygo.Text(c, size).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+			}
+		})
+}
+
+// imagePreviewDialog 画附件图片的放大预览浮层（React openImagePreview
+// 的浮层形态；DialogBase 的遮罩点击与 Esc 由浮层体系处理）。
+func (s *Chat) imagePreviewDialog(c *mygo.Context, v *viewSide) {
+	st := &s.preview
+	if !st.open || st.bmp == nil {
+		return
+	}
+	w, h := c.Size()
+	panel := mygo.DialogBase(c, &st.open, func(backdrop, dialog mygo.Element) {
+		backdrop.Background(mygo.RGBA(0, 0, 0, 0.45))
+		dialog.Radius(12).Background(v.pal.BgFloat).
+			BorderWidth(1).BorderColor(v.pal.BorderStrong).
+			MaxWidth(w - 120).MaxHeight(h - 120)
+		dialog.Padding(cwui.Space5).Gap(cwui.Space3).Children(func() {
+			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(cwui.Space3).Children(func() {
+				cwui.Icon(c, "image").FontSize(14).TextColor(v.pal.Text3)
+				mygo.Text(c, st.name).FontSize(cwui.Fonts.SM()).
+					TextColor(v.pal.Text2).MaxLines(1).Grow(1)
+				if cardBtn(c, v, "关闭", "plain", false) {
+					s.CloseImagePreview()
+				}
+			})
+			// 图片按原比例铺满可用区域（Fit 默认等比缩放）。
+			mygo.Image(c, st.bmp).MaxWidth(w - 160).MaxHeight(h - 220)
+		})
+	})
+	if panel.Dismissed() {
+		s.CloseImagePreview()
+	}
+}
+
+// ---------------------------------------------------------------------------
 // 部件分派
 // ---------------------------------------------------------------------------
 
@@ -1054,22 +1146,4 @@ func (s *Chat) errorCard(c *mygo.Context, v *viewSide, part Part) {
 			}
 		})
 	})
-}
-
-// attachChip 画一枚附件 chip（.attach-chip：28 高、描边、名称省略、
-// 可选尺寸尾巴）。可移除形态由外层包按钮实现（输入区条内），
-// 消息内的展示 chip 不可移除。
-func attachChip(c *mygo.Context, v *viewSide, name, size string) {
-	mygo.Row(c).Gap(cwui.Space3).AlignItems(mygo.Center).
-		Height(28).Padding(0, cwui.Space4).Radius(cwui.RadiusRow).
-		MaxWidth(240).
-		Background(v.pal.BgPanel).
-		BorderWidth(1).BorderColor(v.pal.Border).
-		Children(func() {
-			cwui.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
-			mygo.Text(c, name).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
-			if size != "" {
-				mygo.Text(c, size).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
-			}
-		})
 }

@@ -12,6 +12,7 @@
 package chat
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -64,6 +65,9 @@ type Actions struct {
 	// OpenDiff 打开审批卡的「查看完整差异」（面板差异 tab 的入口；diff
 	// 内容渲染归 09 号票，装配接 shell 的面板打开动作）。
 	OpenDiff func(path, oldText, newText string)
+	// ReadAttachment 读取一张附件图片（mime + base64；goroutine 内调用），
+	// 供缩略图异步解码。nil 时图片附件回退为普通文件 chip。
+	ReadAttachment func(path string) (mime, base64 string, err error)
 }
 
 // Chat 是聊天列的界面状态壳（thread store 的会话内部分 + composer/附件）。
@@ -111,6 +115,12 @@ type Chat struct {
 	reasoningTouch map[string]bool
 	reasoningStart map[string]int64
 	workOpenState  map[string]bool
+
+	// thumbs 是附件图片的缩略图缓存：成功存位图、失败进负缓存、
+	// 加载中有标记防重复发起（overlays 的 logo 模式）。
+	thumbs map[string]thumbEntry
+	// preview 是附件图片的放大预览浮层（DialogBase，07 浮层体系同机制）。
+	preview imagePreviewState
 
 	// acts 是服务动作入口；SetActions 注入。
 	acts *Actions
@@ -536,6 +546,79 @@ func (s *Chat) setWorkOpen(key string, open bool) {
 	}
 	s.workOpenState[key] = open
 }
+
+// ---------------------------------------------------------------------------
+// 附件缩略图与放大预览
+// ---------------------------------------------------------------------------
+
+// thumbEntry 是一张附件图片的加载状态：成功存位图，失败进负缓存。
+type thumbEntry struct {
+	bmp     *mygo.Bitmap
+	loading bool
+	failed  bool
+}
+
+// imagePreviewState 是附件图片放大预览浮层的状态。
+type imagePreviewState struct {
+	open bool
+	name string
+	bmp  *mygo.Bitmap
+}
+
+// thumbOf 返回附件路径的缩略图位图；没有缓存时发起后台加载并返回 nil
+// （视图先画文件 chip，加载完成后自动替换）。纯 UI / 测试路径（没有注入
+// ReadAttachment）不加载，始终回退文件 chip。
+func (s *Chat) thumbOf(path string) *mygo.Bitmap {
+	if s.acts == nil || s.acts.ReadAttachment == nil || !isImagePath(path) {
+		return nil
+	}
+	if s.thumbs == nil {
+		s.thumbs = map[string]thumbEntry{}
+	}
+	entry, ok := s.thumbs[path]
+	if !ok {
+		s.thumbs[path] = thumbEntry{loading: true}
+		read := s.acts.ReadAttachment
+		notify := s.update
+		go func() {
+			_, base64Data, err := read(path)
+			var bmp *mygo.Bitmap
+			if err == nil && base64Data != "" {
+				if data, derr := base64.StdEncoding.DecodeString(base64Data); derr == nil {
+					bmp, derr = mygo.DecodeBitmap(data)
+					if derr != nil {
+						bmp = nil
+					}
+				}
+			}
+			if notify == nil {
+				return
+			}
+			// 位图解码在后台完成，经 win.Update 回主线程写缓存。
+			notify(func() {
+				e := s.thumbs[path]
+				e.loading = false
+				e.failed = bmp == nil
+				e.bmp = bmp
+				s.thumbs[path] = e
+			})
+		}()
+		return nil
+	}
+	return entry.bmp
+}
+
+// OpenImagePreview 打开一张图片的放大预览浮层（07 浮层体系的 DialogBase
+// 同机制，浮层归聊天列自持：预览的是消息附件，Esc / 遮罩点击关闭）。
+func (s *Chat) OpenImagePreview(name string, bmp *mygo.Bitmap) {
+	s.preview = imagePreviewState{open: true, name: name, bmp: bmp}
+}
+
+// Preview 返回当前打开的图片预览（无则 open 为 false）。
+func (s *Chat) Preview() imagePreviewState { return s.preview }
+
+// CloseImagePreview 关闭图片预览浮层。
+func (s *Chat) CloseImagePreview() { s.preview.open = false }
 
 // ArmInterrupt 标记双击 Esc 的第一击。
 func (s *Chat) ArmInterrupt() { s.interruptArmed = true }

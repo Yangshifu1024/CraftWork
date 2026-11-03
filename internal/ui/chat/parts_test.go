@@ -526,3 +526,31 @@ func TestApprovalLevelNoteBadge(t *testing.T) {
 		t.Fatal("分级档不应显示档位徽章")
 	}
 }
+
+// TestAttachThumbAndPreview 验证附件缩略图的回退与放大预览浮层状态：
+// 未注入 ReadAttachment（纯 UI / 单测路径）时图片附件回退文件 chip，
+// 预览浮层开合由状态驱动。
+func TestAttachThumbAndPreview(t *testing.T) {
+	s, _, tt := newEscTester(t)
+	tt.Frame()
+	// 没有 ReadAttachment：thumbOf 返回 nil，不发起加载。
+	if bmp := s.thumbOf("/tmp/pic.png"); bmp != nil {
+		t.Fatal("未注入读取动作时不应产生缩略图")
+	}
+	// 非图片路径同样不加载。
+	if bmp := s.thumbOf("/tmp/doc.md"); bmp != nil {
+		t.Fatal("非图片路径不应产生缩略图")
+	}
+	// 预览浮层：打开后状态可查，关闭后复位。
+	s.OpenImagePreview("pic.png", nil)
+	if p := s.Preview(); !p.open || p.name != "pic.png" {
+		t.Fatal("预览应处于打开状态")
+	}
+	s.CloseImagePreview()
+	if s.Preview().open {
+		t.Fatal("关闭后预览应复位")
+	}
+	if !isImagePath("/tmp/a.PNG") || isImagePath("/tmp/a.txt") {
+		t.Fatal("isImagePath 判定不符")
+	}
+}
