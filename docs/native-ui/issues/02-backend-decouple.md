@@ -1,6 +1,6 @@
 # 02. 后端解绑：service 内部化与事件投递改造
 
-Status: ready-for-agent
+Status: resolved
 
 ## 背景
 
@@ -23,3 +23,10 @@ native UI 的 view 直接调 Go 函数，绑定层与批量事件通道失去存
 ## 依赖
 
 01。
+
+## Comments
+
+- 2026-11-03 完成于 wt/native-02 分支的两个提交：`9d3b31a`（events 透传化）与 `cab1374`（app 装配切 mygo、service 去 wails），已合入 feature/native-ui。
+- 验收摘要：17 包测试/vet/lint 全绿，`go tool mygo build` 产出 .app+DMG，隔离目录 GUI 冒烟通过（含二次启动唤起与窗口状态恢复）。
+- 实现者发现的坑（后续 UI 票注意）：①native UI 窗口画出首帧才显示，空 view 必须铺主题背景，否则启动瞬间白屏；②mygo `App.SetPath` 不自动创建目录，window-state 写入前需先 mkdir。
+- 未尽事项：CI 绑定漂移检查在本分支会红（预期，10 号票改造）；OpenExternal/剪贴板/对话框待 03+ 走查覆盖。
