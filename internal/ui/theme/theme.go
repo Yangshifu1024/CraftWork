@@ -60,6 +60,19 @@ const (
 	ComposerPanelPadT = float32(14) // 浮层面板上内边距
 	ComposerPanelPadX = float32(16) // 浮层面板左右内边距
 	ComposerPanelPadB = float32(12) // 浮层面板下内边距
+
+	// 锚定落位（15 号票：四浮层贴触发控件弹出，观感约定见
+	// docs/native-ui/spec.md 的 composer 浮层小节）。
+	ComposerFlyoutGap = float32(8) // 面板与触发控件上缘的间距
+	// ComposerFlyoutEdgeMargin 是落位钳制的窗口边缘留白：面板不会贴到
+	// 窗口边框上，上下左右统一留它。
+	ComposerFlyoutEdgeMargin = float32(8)
+	// ComposerFlyoutEstH 是浮层面板高度的估算值：打开第一帧面板还没有
+	// 实测高（Bounds 是上一帧的），翻转与钳制决策先用它；落位本身用
+	// 「底边距钉锚点」机制表达，估算只影响极端小窗下的上下翻转判断，
+	// 误差不产生面板位移。值取四浮层实测高的中间量（模型浮层最高约
+	// 400，上下文浮层最矮约 200）。
+	ComposerFlyoutEstH = float32(300)
 )
 
 // 聊天正文列（14 号票：消息流与 composer 外框共用同一条居中限宽的

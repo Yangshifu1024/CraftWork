@@ -50,6 +50,27 @@ func placePanel(c *mygo.Context, backdrop, panel mygo.Element, width float32, to
 	}
 }
 
+// placePanelAnchored 把锚定决策（placeAnchored 的结果）落成面板位置：
+// 贴上方时用「底边距」把面板底边钉在锚点上缘上方——面板高度自适应，
+// 估算误差不产生位移，首帧即精确贴附；翻到下方或钳制时用上边距。水平
+// 统一用左边距（placeAnchored 已含边缘钳制）。
+func placePanelAnchored(c *mygo.Context, backdrop, panel mygo.Element, width float32, place anchoredPlace, anchor mygo.Rect) {
+	w, h := c.Size()
+	panel.Width(width).MaxWidth(w - 60)
+	backdrop.Justify(mygo.Start).AlignItems(mygo.Start)
+	switch {
+	case !place.Flipped && !place.Clamped:
+		// 贴上方：底边距 = 窗高 - 锚点上缘 + gap → 面板底边钉在锚点上方。
+		panel.Margin(0, 0, h-anchor.Y+theme.ComposerFlyoutGap, place.X)
+	case place.Flipped && !place.Clamped:
+		// 贴下方：顶边钉在锚点下缘 + gap。
+		panel.Margin(anchor.Y+anchor.H+theme.ComposerFlyoutGap, 0, 0, place.X)
+	default:
+		// 钳制：锚点越界或两侧都放不下，直接用计算出的原点。
+		panel.Margin(place.Y, 0, 0, place.X)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 按钮（base.css .btn 系）：构建后返回元素，调用方用 .Clicked() / .Disabled()。
 // ---------------------------------------------------------------------------

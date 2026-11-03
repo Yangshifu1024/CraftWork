@@ -90,9 +90,15 @@ func TestComposerBarOpensApprovalAndSyncs(t *testing.T) {
 }
 
 // TestComposerBarOpensContextDetail 上下文占用点击打开详情浮层（缺省 32k
-// 窗口恒有占用提示）。
+// 窗口恒有占用提示）。无会话模型时占用整块不渲染（15 号票空态收口，
+// React 版 currentModel 口径），注入会话模型后出现入口。
 func TestComposerBarOpensContextDetail(t *testing.T) {
-	_, tt := newComposerOverlayTester(t)
+	s, tt := newComposerOverlayTester(t)
+	tt.Frame()
+	if tt.HasText("上下文详情") {
+		t.Fatal("无会话模型时上下文占用不应渲染（React 版空态口径）")
+	}
+	s.LoadSnapshot("t1", nil, ThreadInfo{ID: "t1", ModelID: "prov/model-x"}, false, 0)
 	tt.Frame()
 	clickText(t, tt, "上下文详情")
 	tt.Frame()
@@ -101,6 +107,34 @@ func TestComposerBarOpensContextDetail(t *testing.T) {
 	}
 	if !tt.HasText("当前上下文") {
 		t.Errorf("详情行缺失: %v", tt.Texts())
+	}
+}
+
+// TestComposerFlyoutAnchorsAboveTrigger 锚定接线走查（15 号票）：点击
+// 「切换模型」后浮层出现在触发控件上方——浮层内空态文案的矩形整体不越
+// 过触发控件上缘（面板与控件之间还有 gap 与面板下内边距，容忍子像素）。
+func TestComposerFlyoutAnchorsAboveTrigger(t *testing.T) {
+	_, tt := newComposerOverlayTester(t)
+	tt.Frame()
+	btn, ok := tt.Find("切换模型")
+	if !ok || btn.H <= 0 {
+		t.Fatalf("找不到模型按钮: ok=%v rect=%v", ok, btn)
+	}
+	clickText(t, tt, "切换模型")
+	tt.Frame()
+	// 浮层空态文案（浮层特有，模型按钮此时显示灰字「选择模型」不冲突）。
+	text, ok := tt.Find("没有可用模型，请先在设置中添加提供商并配置密钥。")
+	if !ok {
+		t.Fatalf("模型浮层未打开: %v", tt.Texts())
+	}
+	if text.Y+text.H > btn.Y+0.5 {
+		t.Fatalf("浮层应整体在触发控件上方: 文本底 %v > 控件上缘 %v", text.Y+text.H, btn.Y)
+	}
+	// Esc 关闭（DialogBase 退出语义，锚定化不回退）。
+	tt.Key(0, mygo.KeyEscape)
+	tt.Frame()
+	if tt.HasText("没有可用模型") {
+		t.Error("Esc 后浮层应关闭")
 	}
 }
 

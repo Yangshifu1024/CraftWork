@@ -119,6 +119,11 @@ func (s *Chat) inputRow(c *mygo.Context, v *viewSide) {
 			Placeholder(placeholder).
 			PlaceholderColor(v.pal.Text4).
 			Lines(2, 10).
+			// 焦点环交给外框：14 号票的聚焦高亮套在 composer 整个外框上，
+			// TextArea 自带焦点环会叠成双描边（15 号票），组件级环关闭，
+			// 聚焦表达完全交给外框描边（环是绘制层，Tester 断言不到，
+			// 实机走查确认聚焦态只有外框一层描边）。
+			FocusRing(false).
 			AutoFocus()
 		input.OnTextKey(func(k mygo.TextKey) bool {
 			return s.textKey(v, k)
@@ -187,19 +192,21 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space5).
 		Padding(4, 7, 7, 8).Children(func() {
 		// 左侧工具：附件拾取、图片（不支持视觉时禁用）。
-		if s.iconTool(c, v, "paperclip", "添加附件", true) {
+		if clicked, _ := s.iconTool(c, v, "paperclip", "添加附件", true); clicked {
 			if s.acts != nil && s.acts.PickFiles != nil {
 				s.acts.PickFiles()
 			}
 		}
-		if s.iconTool(c, v, "image", s.imageToolTitle(), s.supportsVision()) {
+		if clicked, _ := s.iconTool(c, v, "image", s.imageToolTitle(), s.supportsVision()); clicked {
 			if s.acts != nil && s.acts.PickFiles != nil {
 				s.acts.PickFiles()
 			}
 		}
 		mygo.Box(c).Width(1).Height(14).Background(v.pal.Border)
 		// 审批档位：点击开档位浮层（保存走设置服务同一路径），旁附 R0–R4
-		// 说明入口（11 号票）。
+		// 说明入口（11 号票）。打开瞬间把触发控件 Bounds 传给浮层做锚定
+		//（15 号票：面板贴控件上方弹出；Bounds 是上一帧的窗口坐标，触发
+		// 控件位置帧间稳定）。
 		level := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
 			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换审批档位")
 		if level.Hovered() {
@@ -210,10 +217,10 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			mygo.Text(c, s.levelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 		})
 		if level.Clicked() {
-			overlays.OpenComposerApproval(s.approvalLevelSynced)
+			overlays.OpenComposerApproval(s.approvalLevelSynced, level.Bounds())
 		}
-		if s.iconTool(c, v, "info", "风险等级说明", true) {
-			overlays.OpenComposerRisk()
+		if clicked, bounds := s.iconTool(c, v, "info", "风险等级说明", true); clicked {
+			overlays.OpenComposerRisk(bounds)
 		}
 		mygo.Spacer(c)
 		// 右侧：上下文占用（点击开详情浮层）+ 模型名（点击开模型选择）+ 发送位。
@@ -224,12 +231,21 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			pick.Background(v.pal.BgHover)
 		}
 		pick.Children(func() {
-			mygo.Box(c).Size(6, 6).Radius(theme.RadiusRound).Background(v.acc.Accent)
-			mygo.Text(c, s.modelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
+			// 空态收口（15 号票，对照 React 版 Composer.tsx）：无会话模型
+			// 时不画强调色圆点、显示灰字占位——「蓝点 + 空文本」的孤点观感
+			// 即由此而来。React 版按可用模型数区分「未配置模型 / 选择模型」，
+			// 原生拿不到该计数，统一用动作语义的「选择模型」（点击本按钮
+			// 打开的选择浮层自带空态指引，composerFoot 也有添加提示）。
+			if name := s.modelLabel(); name != "" {
+				mygo.Box(c).Size(6, 6).Radius(theme.RadiusRound).Background(v.acc.Accent)
+				mygo.Text(c, name).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
+			} else {
+				mygo.Text(c, "选择模型").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
+			}
 		})
 		if pick.Clicked() {
 			// 勾选态优先当前会话模型；无会话模型时浮层内部退默认模型。
-			overlays.OpenComposerModels(s.Thread().ModelID)
+			overlays.OpenComposerModels(s.Thread().ModelID, pick.Bounds())
 		}
 		s.sendCluster(c, v)
 	})
@@ -243,9 +259,10 @@ func (s *Chat) imageToolTitle() string {
 	return "当前模型不支持图片输入"
 }
 
-// iconTool 画一枚 24px 图标工具按钮，返回是否被点击；enabled 为 false
-// 时不注册点击、淡化显示（禁用态）。
-func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enabled bool) bool {
+// iconTool 画一枚 24px 图标工具按钮，返回是否被点击与按钮的 Bounds
+// （点击打开锚定浮层时作锚点用；不需要的调用方弃收即可）；enabled 为
+// false 时不注册点击、淡化显示（禁用态）。
+func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enabled bool) (bool, mygo.Rect) {
 	btn := mygo.ButtonBase(c).Size(24, 24).Radius(theme.RadiusCtl).Center().Label(title)
 	clicked := false
 	if enabled {
@@ -261,14 +278,22 @@ func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enable
 		}
 		icons.Icon(c, icon).FontSize(14).TextColor(color)
 	})
-	return clicked
+	return clicked, btn.Bounds()
 }
 
 // contextHint 画上下文占用：圆环 + 百分比文本 + 速度（<50% 灰、50–80% 黄、
 // ≥80% 红；与审批告警色同源）。速度生成中用实时估算（字符/4 ÷ 秒），
 // 空闲时显示最近一轮的后端实测值。点击开详情浮层（11 号票：占用口径、
 // 会话累计、缓存命中、速度的分解展示）。
+//
+// 空态收口（15 号票，对照 React 版）：无会话模型时整块不渲染
+// （React 版 currentModel ? <ctx-hint> : null 同口径）——没有模型时占用
+// 环、0% 与速度占位「—」拼成的「○ 0% —」只是噪音；从未产生速度
+// （shown ≤ 0）时速度位不画「—」（详情浮层内的键值占位不受影响）。
 func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
+	if s.Thread().ModelID == "" {
+		return
+	}
 	used, max, speed := s.contextStats()
 	if max <= 0 {
 		return
@@ -289,10 +314,6 @@ func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	if s.Running() && live > 0 {
 		shown = live
 	}
-	speedLabel := "—"
-	if shown > 0 {
-		speedLabel = strconv.Itoa(int(shown)) + " tok/s"
-	}
 	hint := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
 		Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("上下文详情")
 	if hint.Hovered() {
@@ -301,10 +322,12 @@ func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	hint.Children(func() {
 		contextRing(c, 14, 2, float32(percent)/100, v.pal.Border, color)
 		mygo.Text(c, strconv.Itoa(percent)+"%").FontSize(theme.Fonts.XS()).TextColor(color)
-		mygo.Text(c, speedLabel).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
+		if shown > 0 {
+			mygo.Text(c, strconv.Itoa(int(shown))+" tok/s").FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
+		}
 	})
 	if hint.Clicked() {
-		overlays.OpenComposerContext(s.contextDetail(used, max, shown))
+		overlays.OpenComposerContext(s.contextDetail(used, max, shown), hint.Bounds())
 	}
 }
 

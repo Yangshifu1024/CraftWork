@@ -1,9 +1,11 @@
-// composer.go 是输入区（Composer）的三个浮层与 R0–R4 说明浮层（11 号票）：
-// 模型选择、审批档位切换、上下文详情与风险等级对照。
+// composer.go 是输入区（Composer）的三个浮层与 R0–R4 说明浮层（11 号票
+// 接线，15 号票锚定化）：模型选择、审批档位切换、上下文详情与风险等级
+// 对照。
 //
-// 形态对齐 React 版 Composer.tsx 的四个 Popover（Promise 时代是锚定下拉，
-// 原生侧统一走 DialogBase 模态：Esc / 遮罩关闭由浮层体系处理，不另起
-// 第二套退出链）。行为要点：
+// 形态对齐 React 版 Composer.tsx 的四个 Popover：面板贴触发控件锚定弹出、
+// backdrop 透明（不压暗窗口），承载仍走 DialogBase（Esc / 点击外部关闭
+// 由浮层体系处理，不另起第二套退出链；锚定落位见 anchor.go 与
+// placePanelAnchored）。行为要点：
 //   - 模型选择：清单来自用户已添加提供商下的可用模型，支持按名称 / ID /
 //     提供商搜索；勾选态优先当前会话模型，无会话模型退默认模型；选择写入
 //     设置默认模型（model.Ref 语义，服务保存时归一化），与设置中心「模型
@@ -74,14 +76,28 @@ type composerState struct {
 	onLevel func(level string)
 	// detail 是上下文详情浮层的展示数据。
 	detail ContextDetail
+	// anchor 是打开瞬间快照的触发控件 Bounds（窗口 DIP 坐标，mygo
+	// Element.Bounds 的上一帧值；触发控件位置帧间稳定）。零值（仅测试
+	// 路径会传）回退 fraction 居中落位。
+	anchor mygo.Rect
+	// panelH 是上一帧面板的实测高（Bounds 是上一帧的，打开首帧为 0，
+	// 用估算值参与翻转决策；见 placeAnchored）。
+	panelH float32
+	// place 是最近一帧的锚定落位决策（ComposerFlyoutFlipped 走查读数）。
+	place anchoredPlace
 }
 
+// composerAnchorOK 报告锚点是否有效：触发控件没画出来（测试直接调 Open
+// 传零值）时浮层退回 fraction 居中，行为与 11 号票一致。
+func composerAnchorOK(a mygo.Rect) bool { return a.W > 0 && a.H > 0 }
+
 // OpenComposerModels 打开模型选择浮层：快照用户提供商下的可用模型与当前
-// 模型引用。勾选态优先当前会话模型（current），没有会话模型时退设置里的
-// 默认模型——「当前模型勾选态」跟会话走，「选择写入默认模型」是保存语义，
-// 两句并存互不冲突（review 修复轮：此前勾选态只看默认模型，会话已切换
-// 模型时勾选落后于会话）。
-func OpenComposerModels(current string) {
+// 模型引用。anchor 是触发控件的 Bounds（面板贴它锚定弹出，见
+// placeAnchored）。勾选态优先当前会话模型（current），没有会话模型时退
+// 设置里的默认模型——「当前模型勾选态」跟会话走，「选择写入默认模型」
+// 是保存语义，两句并存互不冲突（review 修复轮：此前勾选态只看默认模型，
+// 会话已切换模型时勾选落后于会话）。
+func OpenComposerModels(current string, anchor mygo.Rect) {
 	s := &store.composer
 	s.open, s.kind = true, composerModel
 	s.query = ""
@@ -90,29 +106,46 @@ func OpenComposerModels(current string) {
 		current = store.settingsSnapshot().DefaultModel
 	}
 	s.current = current
+	s.openAt(anchor)
 }
 
 // ComposerModelsCurrent 返回模型浮层打开时快照的勾选引用（走查断言用）：
 // 当前会话模型优先，无会话模型时是设置里的默认模型。
 func ComposerModelsCurrent() string { return store.composer.current }
 
-// OpenComposerApproval 打开审批档位浮层。onChanged 在档位保存成功后于主
-// 线程执行，参数是新档位的原始字符串（graded / strict / readonly / free）。
-func OpenComposerApproval(onChanged func(level string)) {
+// OpenComposerApproval 打开审批档位浮层（anchor 语义同 OpenComposerModels）。
+// onChanged 在档位保存成功后于主线程执行，参数是新档位的原始字符串
+// （graded / strict / readonly / free）。
+func OpenComposerApproval(onChanged func(level string), anchor mygo.Rect) {
 	s := &store.composer
 	s.open, s.kind = true, composerApproval
 	s.level = store.settingsSnapshot().ApprovalLevel
 	s.onLevel = onChanged
+	s.openAt(anchor)
 }
 
-// OpenComposerRisk 打开 R0–R4 风险等级说明浮层。
-func OpenComposerRisk() { store.composer.open, store.composer.kind = true, composerRisk }
+// OpenComposerRisk 打开 R0–R4 风险等级说明浮层（anchor 语义同
+// OpenComposerModels）。
+func OpenComposerRisk(anchor mygo.Rect) {
+	store.composer.open, store.composer.kind = true, composerRisk
+	store.composer.openAt(anchor)
+}
 
-// OpenComposerContext 打开上下文详情浮层；数据由调用方快照传入。
-func OpenComposerContext(detail ContextDetail) {
+// OpenComposerContext 打开上下文详情浮层；数据由调用方快照传入（anchor
+// 语义同 OpenComposerModels）。
+func OpenComposerContext(detail ContextDetail, anchor mygo.Rect) {
 	s := &store.composer
 	s.open, s.kind = true, composerContext
 	s.detail = detail
+	s.openAt(anchor)
+}
+
+// openAt 记录打开锚点并复位落位状态：panelH 清零让首帧用估算值，
+// place 清零避免读到上一轮浮层的落位。
+func (st *composerState) openAt(anchor mygo.Rect) {
+	st.anchor = anchor
+	st.panelH = 0
+	st.place = anchoredPlace{}
 }
 
 // CloseComposer 关闭输入区浮层（供测试与外部复位）。
@@ -132,7 +165,9 @@ func (s *Store) composerModels() []service.ModelView {
 	return out
 }
 
-// drawComposer 画当前打开的输入区浮层。Dismissed（Esc / 遮罩）直接收起。
+// drawComposer 画当前打开的输入区浮层。Dismissed（Esc / 点击外部）直接
+// 收起；锚点有效时面板贴触发控件弹出、backdrop 透明（React 版 Popover
+// 形态），无效时退回 11 号票的 fraction 居中模态（测试路径兜底）。
 func (s *Store) drawComposer(c *mygo.Context) {
 	st := &s.composer
 	if !st.open {
@@ -147,10 +182,30 @@ func (s *Store) drawComposer(c *mygo.Context) {
 	case composerContext:
 		width = theme.ComposerContextWidth
 	}
+	anchored := composerAnchorOK(st.anchor)
+	if anchored {
+		// 翻转与钳制决策用上一帧实测高，首帧退估算值（误差只影响极端
+		// 小窗下的上下翻转判断，正常窗口触发控件贴底、上方总是充足）。
+		panelH := st.panelH
+		if panelH <= 0 {
+			panelH = theme.ComposerFlyoutEstH
+		}
+		w, h := c.Size()
+		st.place = placeAnchored(st.anchor, width, panelH, w, h,
+			theme.ComposerFlyoutGap, theme.ComposerFlyoutEdgeMargin)
+	}
 	panel := mygo.DialogBase(c, &st.open, func(backdrop, panel mygo.Element) {
-		styleBackdrop(backdrop)
-		stylePanel(c, panel)
-		placePanel(c, backdrop, panel, width, 0.18)
+		if anchored {
+			// 透明 backdrop：不压暗窗口（styleBackdrop 的半透明黑只属于
+			// 中央模态）；点击关闭语义由 DialogBase 的 backdrop 点击处理。
+			backdrop.Background(mygo.Transparent)
+			stylePanel(c, panel)
+			placePanelAnchored(c, backdrop, panel, width, st.place, st.anchor)
+		} else {
+			styleBackdrop(backdrop)
+			stylePanel(c, panel)
+			placePanel(c, backdrop, panel, width, 0.18)
+		}
 		panel.Padding(theme.ComposerPanelPadT, theme.ComposerPanelPadX, theme.ComposerPanelPadB).
 			Gap(theme.Space3).Children(func() {
 			switch st.kind {
@@ -165,10 +220,17 @@ func (s *Store) drawComposer(c *mygo.Context) {
 			}
 		})
 	})
+	if b := panel.Bounds(); b.H > 0 {
+		st.panelH = b.H // 上一帧实测高，下一帧翻转决策更准（帧间内容静态）
+	}
 	if panel.Dismissed() {
 		st.open = false
 	}
 }
+
+// ComposerFlyoutFlipped 报告最近一帧锚定浮层是否翻到了触发控件下方
+// （ui.Tester 走查用；正常窗口触发控件贴底，恒为否）。
+func ComposerFlyoutFlipped() bool { return store.composer.place.Flipped }
 
 // drawComposerModels 画模型选择浮层：搜索框 + 虚拟化清单 + 备注。
 func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
