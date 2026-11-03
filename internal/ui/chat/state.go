@@ -108,6 +108,18 @@ type Chat struct {
 	// list 是消息流的列表状态（Key / FollowEnd / 平滑跟底）。
 	list mygo.ListState
 
+	// lastColumnW 是最近一帧消息正文列的绘制宽度（14 号票居中限宽的帧内
+	// 记录）：messageRow 每条消息行写入，同帧同值，ui.Tester 据此断言
+	// 限宽与保底在真实布局里生效。
+	lastColumnW float32
+	// lastComposerW 是最近一帧 composer 外框的绘制宽度：外框与消息正文
+	// 列同参数限宽（14 号票），走查据此断言两段对齐。
+	lastComposerW float32
+	// composerFocused 是 composer 外框的聚焦态（外框 FocusWithin 的帧内
+	// 记录，14 号票聚焦高亮整个外框）：聚焦时描边切模式强调色，失焦回
+	// 中性描边；ComposerFocused 供走查断言。
+	composerFocused bool
+
 	// 卡片界面状态（按部件 id 键控；展开语义见各卡片）。
 	toolOpenState  map[string]bool
 	toolTouched    map[string]bool
