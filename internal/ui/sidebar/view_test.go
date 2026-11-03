@@ -314,3 +314,157 @@ func TestSidebarViewTempEmptyRowHeight(t *testing.T) {
 		t.Errorf("临时组头到空态文案的间距 = %.1f, want %.1f±3（空态顶边距应为 26）", delta, want)
 	}
 }
+
+// newBadgeTester 起一个 badge 数字互不相同的侧栏（临时组 2 条、项目 A
+// 3 条、项目 B 1 条，区头总数 4），供计数徽章位置断言用。
+func newBadgeTester(t *testing.T) (*Sidebar, *mygo.Tester) {
+	t.Helper()
+	s := NewSidebar()
+	s.ReplaceWorkspaces(testWorkspaces())
+	s.ReplaceThreads(ModeCode, []Thread{
+		{ID: "t1", Title: "临时会话一", WorkspaceID: "conv", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "t2", Title: "临时会话二", WorkspaceID: "conv", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p1", Title: "项目会话一", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p2", Title: "项目会话二", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "p3", Title: "项目会话三", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+		{ID: "q1", Title: "项目 B 会话", WorkspaceID: "ws-b", Status: "idle", UpdatedAt: theme.Now()},
+	})
+	view := func(c *mygo.Context) {
+		pal := theme.Apply(c)
+		s.View(c, pal)
+	}
+	return s, mygo.NewTester(view, 1440, 900)
+}
+
+// TestSidebarViewCountBadgeFollowsName 校验组头计数徽章紧跟分组文字
+//（13 号票）：徽章文本与组名的间距应等于组头 6px 间距 + 徽章自身的
+// 8px 水平内边距，而不是被组名的 Grow 推到最右贴着 + 按钮。
+func TestSidebarViewCountBadgeFollowsName(t *testing.T) {
+	_, tt := newBadgeTester(t)
+	tt.Frame()
+	name, ok := tt.Find("项目 A")
+	if !ok {
+		t.Fatalf("找不到项目组名: %v", tt.Texts())
+	}
+	badge, ok := tt.Find("3")
+	if !ok {
+		t.Fatalf("找不到项目 A 的计数徽章: %v", tt.Texts())
+	}
+	delta := badge.X - (name.X + name.W)
+	want := theme.Space3 + theme.Space4 // 组头 gap 6 + 徽章内边距 8
+	if delta < want-2 || delta > want+2 {
+		t.Errorf("计数徽章与组名的间距 = %.1f, want %.0f±2（徽章应紧跟组名）", delta, want)
+	}
+}
+
+// TestSidebarViewLongGroupNameClamps 校验超长项目名在去掉 Grow 后仍被
+// 单行截断（.thread-group-name 的 min-width:0 + ellipsis），不把计数
+// 徽章与 + 按钮推出侧栏可视区。
+func TestSidebarViewLongGroupNameClamps(t *testing.T) {
+	s := NewSidebar()
+	longName := "一个特别特别长的项目名称用来验证组名截断行为是否正确"
+	s.ReplaceWorkspaces([]Workspace{
+		{ID: "conv", Name: "临时会话", Purpose: "conversation"},
+		{ID: "ws-a", Name: longName, Purpose: "project"},
+	})
+	s.ReplaceThreads(ModeCode, []Thread{
+		{ID: "p1", Title: "项目会话一", WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+	})
+	view := func(c *mygo.Context) {
+		pal := theme.Apply(c)
+		s.View(c, pal)
+	}
+	tt := mygo.NewTester(view, 1440, 900)
+	tt.Frame()
+	name, ok := tt.Find(longName)
+	if !ok {
+		t.Fatalf("找不到长组名: %v", tt.Texts())
+	}
+	badge, ok := tt.Find("1")
+	if !ok {
+		t.Fatalf("找不到计数徽章: %v", tt.Texts())
+	}
+	// 组名应被截断到行内（远短于自然宽），徽章右缘留在侧栏可视区内。
+	if name.W > threadTitleWidth() {
+		t.Errorf("长组名应被截断, 宽 %.1f 超过行可用宽 %.1f", name.W, threadTitleWidth())
+	}
+	if right := badge.X + badge.W; right > theme.SidebarWidth-theme.Space4-4 {
+		t.Errorf("徽章右缘 %.1f 应留在侧栏内（列表右内边距 %.0f 之前）", right, theme.Space4+4)
+	}
+}
+
+// longTitle 是超过一行可用宽度的会话标题（15px 字号下约 340px 宽）。
+const longTitle = "解释这个仓库的整体架构与模块划分，从入口开始讲"
+
+// TestSidebarViewItemTitleTwoRows 校验会话行的两行布局（13 号票）：
+// 标题在上、时间与状态在下（.thread-item 的 flex-direction: column），
+// 且标题列占满行内容宽。此前标题与时间行被 ButtonBase 的 Row 语义排成
+// 一行，标题只能拿时间行之外的剩余宽度，截断远早于旧版。
+func TestSidebarViewItemTitleTwoRows(t *testing.T) {
+	s := NewSidebar()
+	s.ReplaceWorkspaces(testWorkspaces())
+	s.ReplaceThreads(ModeCode, []Thread{
+		{ID: "p1", Title: longTitle, WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+	})
+	view := func(c *mygo.Context) {
+		pal := theme.Apply(c)
+		s.View(c, pal)
+	}
+	tt := mygo.NewTester(view, 1440, 900)
+	tt.Frame()
+	title, ok := tt.Find(longTitle)
+	if !ok {
+		t.Fatalf("找不到长标题: %v", tt.Texts())
+	}
+	idle, ok := tt.Find("已完成")
+	if !ok {
+		t.Fatalf("找不到状态文本: %v", tt.Texts())
+	}
+	if title.Y+title.H >= idle.Y {
+		t.Errorf("标题底 %.1f 应在状态行顶 %.1f 之上（两行布局）", title.Y+title.H, idle.Y)
+	}
+	// 标题列占满行内容宽：268 - 列表左右 12×2 - 行左右 5×2 - 描边 2。
+	wantW := threadTitleWidth()
+	if title.W < wantW-40 {
+		t.Errorf("标题宽 %.1f 应接近可用宽 %.1f（截断放宽）", title.W, wantW)
+	}
+}
+
+// TestSidebarViewMarqueeHover 冒烟校验标题跑马灯（13 号票）：悬停长标题
+// 推进超过两个滚动周期，view 不崩、标题仍渲染；ReduceMotion 下同样悬停
+// 不滚动也不崩（装饰性循环动效在减少动效偏好下停用，AGENTS.md 6.4）。
+func TestSidebarViewMarqueeHover(t *testing.T) {
+	s := NewSidebar()
+	s.ReplaceWorkspaces(testWorkspaces())
+	s.ReplaceThreads(ModeCode, []Thread{
+		{ID: "p1", Title: longTitle, WorkspaceID: "ws-a", Status: "idle", UpdatedAt: theme.Now()},
+	})
+	view := func(c *mygo.Context) {
+		pal := theme.Apply(c)
+		s.View(c, pal)
+	}
+	tt := mygo.NewTester(view, 1440, 900)
+	tt.Frame()
+	title, ok := tt.Find(longTitle)
+	if !ok {
+		t.Fatalf("找不到长标题: %v", tt.Texts())
+	}
+	tt.Move(title.X+10, title.Y+title.H/2)
+	tt.Frame()
+	// 直接推进 30s，覆盖任何溢出量对应的滚动周期两轮以上。
+	tt.Advance(30 * time.Second)
+	tt.Frame()
+	if !tt.HasText(longTitle) {
+		t.Errorf("跑马灯滚动后标题应仍渲染")
+	}
+
+	// ReduceMotion：悬停同样推进，不应崩（Loop 不启动）。
+	tt.SetPreferences(mygo.Preferences{ReduceMotion: true})
+	tt.Move(title.X+10, title.Y+title.H/2)
+	tt.Frame()
+	tt.Advance(30 * time.Second)
+	tt.Frame()
+	if !tt.HasText(longTitle) {
+		t.Errorf("ReduceMotion 下标题应仍渲染")
+	}
+}

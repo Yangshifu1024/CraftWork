@@ -205,12 +205,15 @@ func (s *Sidebar) tempGroup(c *mygo.Context, v *viewSide, g Group) {
 }
 
 // tempGroupHead 画临时组头：箭头开关 + 名称 + 计数 + 右侧 + 新建。
+// 计数徽章紧跟组名（组名不 Grow），弹性 spacer 把 + 按钮推到行尾
+//（13 号票：对齐 .thread-group-add 的 margin-left: auto）。
 func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onToggle func(), onCreate func()) {
 	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			groupToggle(c, v, open, "临时会话", "chevron-down", "chevron-right", onToggle)
-			mygo.Text(c, "临时会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			mygo.Text(c, "临时会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, len(items))
+			mygo.Spacer(c)
 			groupAdd(c, v, "新建临时会话", onCreate)
 		})
 }
@@ -243,8 +246,9 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 			} else {
 				mygo.Box(c).Width(theme.Space4 + theme.Space6 + theme.Space4) // 无开关时对齐临时组的箭头位（18）
 			}
-			mygo.Text(c, "项目会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			mygo.Text(c, "项目会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, ProjectThreadCount(groups))
+			mygo.Spacer(c)
 			groupAdd(c, v, "创建项目", func() {
 				// 创建项目对话框归 07 号票（React 版 openCreateProject）；
 				// 先占位提示，不做假入口。
@@ -311,8 +315,9 @@ func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 				icons.Icon(c, fold).FontSize(13).TextColor(v.pal.Text4)
 			})
 			mygo.Text(c, g.Name).FontSize(theme.Fonts.SM()).FontWeight(500).
-				TextColor(v.pal.Text4).Grow(1).SingleLine()
+				TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, len(g.Items))
+			mygo.Spacer(c)
 			groupAdd(c, v, "新建会话", func() {
 				if v.acts != nil && v.acts.CreateThreadIn != nil {
 					v.acts.CreateThreadIn(g.WorkspaceID)
@@ -331,7 +336,7 @@ func (s *Sidebar) orphanGroup(c *mygo.Context, v *viewSide, g Group) {
 		Children(func() {
 			mygo.Box(c).Width(18) // 对齐有开关的组头
 			icons.Icon(c, "archive").FontSize(13).TextColor(v.pal.Text4)
-			mygo.Text(c, g.Name).FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			mygo.Text(c, g.Name).FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, len(g.Items))
 		})
 	for _, t := range g.Items {
@@ -435,14 +440,19 @@ func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 		alpha := bar.AnimateTo("bar", boolAlpha(active), mygo.Animation{Duration: theme.Duration, Ease: theme.Ease})
 		bar.Background(v.accent).Opacity(alpha)
 
-		mygo.Text(c, t.Title).FontSize(theme.Fonts.Base()).
-			TextColor(v.pal.Text).SingleLine()
-		mygo.Row(c).Fill().AlignItems(mygo.Center).Justify(mygo.SpaceBetween).Gap(theme.Space3).
-			Children(func() {
-				mygo.Text(c, FormatTime(t.UpdatedAt, theme.Now())).
-					FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
-				statusNode(c, v, t.Status)
-			})
+		// 两行布局（.thread-item 的 flex-direction: column，行间距 3px）：
+		// 标题在上占满行宽，时间与状态在下。ButtonBase 本身是 Row，此前
+		// 标题与时间行被排成一行，标题只能拿剩余宽度、截断远早于旧版
+		//（13 号票）。
+		mygo.Column(c).Fill().Gap(theme.Space1 + 1).Children(func() {
+			threadTitle(c, v, t.Title, btn.Hovered())
+			mygo.Row(c).Fill().AlignItems(mygo.Center).Justify(mygo.SpaceBetween).Gap(theme.Space3).
+				Children(func() {
+					mygo.Text(c, FormatTime(t.UpdatedAt, theme.Now())).
+						FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
+					statusNode(c, v, t.Status)
+				})
+		})
 	})
 }
 
