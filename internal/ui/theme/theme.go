@@ -38,6 +38,13 @@ const (
 // （对照规格的窄视口 1100×800）。浮层形态由 08 号票（sidePane 移植）接管。
 const NarrowWindowWidth = float32(1100)
 
+// 设置中心全屏覆盖层的布局尺寸（overlay.css 全屏形态：导航列 240px，
+// 内容列居中限宽 880px，避免设置行在宽窗口里被拉散）。
+const (
+	SettingsNavWidth        = float32(240)
+	SettingsContentMaxWidth = float32(880)
+)
+
 // 圆角档：按 base.css 里的用途命名（控件默认 8，与 ui.Theme.Radius 一致）。
 const (
 	RadiusBadge = float32(4) // 徽章、kbd、风险徽章、计数
