@@ -4,6 +4,8 @@
 
 `README.md` 面向使用者与贡献者，介绍功能、架构与贡献流程；本文件回答「在这个仓库里应该怎么改、怎么验证、哪些东西不能碰」。
 
+> **当前处于原生 UI 迁移期**（ADR-0014）：主导架构是 mygo 原生 UI；Wails3 + React 是双轨期遗留，只做最小维护，随收尾票删除。两边规则分开写，注意自己在哪条轨道上。
+
 ## Agent skills
 
 ### Issue tracker
@@ -22,121 +24,103 @@ issue 以 markdown 形式存放在仓库 `docs/<feature>/` 下（spec 为 `spec.
 
 ## 1. 项目现状
 
-CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成**（骨架、对话、Code 闭环、文档文本级读写）：
+CraftWork 是一个本地优先、可审计的桌面 Agent。M0–M3 已在 Wails3 + React 形态下交付（对话、Code 闭环、Work 模式文本级读写）；**主导工作现在是原生 UI 迁移**（`docs/adr/0014-native-ui-via-mygo.md`，规格与分阶段票见 `docs/native-ui/`）：
 
-- Wails3 v3.0.0 桌面外壳 + 系统 WebView。
-- 同一份代码支持 **server 模式**（`-tags server`）：不创建窗口，由 Go 提供 HTTP 服务，可在浏览器里运行完整应用（见第 2 节）。
-- Go 1.27.3 后端：Agent 循环、工具、策略、审批、SQLite、PTY、密钥。
-- React 19 + TypeScript 前端：三栏界面、聊天、面板、浮层。
-- 已打通：多提供商（OpenAI、Anthropic、OpenAI 兼容）、流式回复、工具与审批、上下文压缩、消息分页、附件、通知、文件树、CodeMirror、差异、补丁、Git、终端、设置、审计、用量、备份、Word / Excel / PDF 文本级读写。
-- 提供商与模型完全由用户添加；目录来自 models.dev 的构建期快照，应用不内置任何提供商。
-
-M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界面标注。M3 的文本级限制见第 10 节。
-
-### 1.2 原生 UI 迁移进行中（feature/native-ui 分支）
-
-桌面外壳已决定从 Wails3 + WebView + React 切换为 **mygo v0.7.4 原生 UI**（`package ui`，GPU 自绘，应用内不再有任何 WebView）。决策见 `docs/adr/0014-native-ui-via-mygo.md`，迁移规格与分阶段 issue 见 `docs/native-ui/`。双轨期规则：
-
-- **main 保持 Wails 架构可构建、可发布**；迁移只在 `feature/native-ui` 分支进行，收尾票（`docs/native-ui/issues/10`）完成前不切换入口、不删 `frontend/`、不动 server 模式代码。
-- **后端内核对两条 UI 路线共用**：`internal/agent`、`internal/tools`、`internal/policy`、`internal/store`、`internal/secret`、`internal/model`、`internal/editor`、`internal/events` 的改动照常在 main 评审，迁移分支及时合并。
-- **mygo 版本精确锁定 v0.7.4**，CLI 统一走 `go tool mygo`（go.mod 的 tool 指令），不要升级或换装；API 未到 1.0，升级前先读 mygo 仓库 `docs/ui/migration.md` 并显式提出。
-- 迁移分支的日常命令：`go tool mygo dev`（开发）、`go tool mygo build`（打包）；运行必须用 `CRAFTWORK_HOME=/tmp/...` 隔离数据目录，避免与 Wails 版共写同一个库。
-- libghostty 分发机制：`mygo build`/`mygo dev` 会把 dylib 打进 .app 并随应用签名，**打包应用运行时永不下载**；只有裸 `go run`/`go test` 首次运行会下载到 `~/Library/Caches/mygo/natives/`（SHA-256 校验，全项目共用缓存）。
-- P0 尖刺已通过（结论在 `docs/native-ui/issues/01-`）：窗口壳、Split + 中文流式 Markdown、编辑器三项验证通过；**终端 PTY 网格尺寸协商在本机（Retina 双屏）失效**，属已知风险，由 09 票处理，不阻断迁移。
+- **目标态**：mygo v0.7.4 原生 UI（`package ui`，GPU 自绘，应用内无任何 WebView）；Go 内核不变；IPC/绑定层消失，view 直调 Go 函数。
+- **迁移进度**：P0 尖刺已通过（结论在 `docs/native-ui/issues/01-`，终端网格尺寸协商为已知风险，由 09 票处理）；P1 自 issue 02（后端解绑）起。
+- **双轨期规则**：
+  - 迁移工作只在 `feature/native-ui` 分支；**main 保持 Wails 架构可构建、可发布**，收尾票（`docs/native-ui/issues/10`）完成前不切换入口、不删 `frontend/`。
+  - **`frontend/` 冻结**：只修阻断性 bug 保编译与测试绿，不做新功能——新界面能力一律做进原生 UI。
+  - **后端内核两条轨道共用**：`internal/agent`、`tools`、`policy`、`store`、`secret`、`model`、`editor`、`events` 的改动照常在 main 评审，迁移分支及时合并。
 
 ### 1.1 技术栈
 
+目标态（迁移完成后）：
+
 | 层 | 选型 |
 | --- | --- |
-| 桌面外壳 | Wails3 v3.0.0（系统 WebView，不打包 Chromium） |
-| 后端 | Go 1.27.3、SQLite（modernc.org/sqlite）、creack/pty |
-| 前端 | React 19、TypeScript 5、Vite 8 |
-| 对话界面 | @assistant-ui/react 0.15（headless primitives） |
-| 编辑器 / 终端 | CodeMirror 6 / xterm.js 6 |
-| 图标 / 样式 | lucide-react 1.66；自研 CSS token 与 class（`frontend/src/styles`），不使用 Tailwind |
+| 桌面外壳与界面 | mygo v0.7.4 原生 UI（`package ui`，立即模式 view；GPU 自绘，无 WebView） |
+| 对话渲染 | `ui/markdown`（流式）、`ui/editor`（代码）、`editor.DiffView`（差异） |
+| 终端 | `plugins/terminal`（libghostty，自管 PTY，macOS 13+） |
+| 图表 / 图标 | `ui/chart`；lucide SVG 由 `ui.Icon` 渲染（go:embed） |
+| 后端 | Go 1.27.3、SQLite（modernc.org/sqlite）、内部领域包（原 `internal/service`） |
+
+双轨期遗留（main，P3 删除）：Wails3 v3.1.0 + 系统 WebView、React 19 + TS 5 + Vite 8、@assistant-ui/react、CodeMirror 6、xterm.js 6、lucide-react、自研 CSS token（`frontend/src/styles`，不用 Tailwind）。
 
 ## 2. 环境与工具链
 
 | 工具 | 版本 | 说明 |
 | --- | --- | --- |
 | Go | 1.27.3+ | 以 `go.mod` 的 `go` 指令为准 |
-| Node.js | 24.22.2+ | 以 Vite / `package.json` 要求为准 |
-| Wails3 CLI | v3.0.0 | 需在 PATH 中；用 `wails3 doctor` 检查环境 |
-| mygo CLI | v0.7.4 | 仅原生 UI 迁移分支使用（见 1.2 节）；项目内统一 `go tool mygo` 按锁定版本执行，不要另行升级 |
-| golangci-lint | v2.15.0 | Go lint 与格式化；配置见 `.golangci.yml`；安装 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` |
-| pnpm | 12.16.1 | 前端包管理器；安装 `npm install -g pnpm`；版本锁定在 `frontend/package.json` 的 `packageManager` 字段，Taskfile 与 wails3 构建链统一走 pnpm |
-| 前端依赖 | — | `cd frontend && pnpm install` |
+| mygo CLI | v0.7.4 | 原生 UI 主工具链；项目内统一 `go tool mygo`（go.mod 的 tool 指令）按锁定版本执行，不要升级或换装 |
+| golangci-lint | v2.15.0 | Go lint 与格式化；配置见 `.golangci.yml`；安装 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`（落在 `$(go env GOPATH)/bin`，注意本机 GOPATH 不是 `~/go`） |
+| Wails3 CLI | v3.0.0 | 双轨期遗留（main 的 dev/build/task）；用 `wails3 doctor` 检查 |
+| Node.js / pnpm | 24.22.2+ / 12.16.1 | 双轨期遗留（frontend）；`packageManager` 字段锁定 pnpm 版本 |
 
 规则：
 
 - **不要擅自安装或升级工具**；需要新工具或版本时先向用户提出请求。
-- 使用 PATH 中已配置的 Go / Node / Wails3，不通过临时环境变量切换到其他版本或位置。
-- `wails3` 不在 PATH 时，先确认用户的环境配置；不要假设固定的安装路径。
-- Wails3 未安装时，按官方文档安装 v3.0.0；安装前先征求用户同意。
+- 使用 PATH 或 `$(go env GOPATH)/bin` 中已配置的版本，不通过临时环境变量切换。
+- **mygo 升级是显式决策**：API 未到 1.0，升级前先读 mygo 仓库 `docs/ui/migration.md`，向用户提出并更新 `go.mod` 与本文件。
 
 ### 数据目录
 
 - 默认 `~/.craftwork`：`craftwork.db`、`keys.json`、`backups/`、`attachments/`（粘贴附件）。
-- `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录。
+- `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录；迁移分支运行原生 UI 时也必须隔离，避免与 Wails 版共写同一个库。
 
-### server 模式（用浏览器运行完整应用）
+### server 模式（双轨期遗留，迁移后删除）
 
-Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不创建原生窗口，前端由 Go 直接提供，绑定调用走 `/wails/runtime`，后端事件走 `/wails/events` 的 WebSocket。**在本机浏览器里验证真实后端时用这种方式，不要依赖 Mock。**
-
-- 开发运行：`wails3 task run:server` → `http://localhost:8080/`。前端是构建产物，没有 HMR，改完前端要重新构建。
-- 生产构建：`wails3 task build:server` → `bin/CraftWork-server`（`-tags server,production`）。
-- 容器：`wails3 task build:docker` / `wails3 task run:docker`（`build/docker/Dockerfile.server`）。
-- 地址与端口：默认只绑 `localhost:8080`；用 `WAILS_SERVER_HOST`、`WAILS_SERVER_PORT` 覆盖，容器里通常设 `WAILS_SERVER_HOST=0.0.0.0`。
-- 健康检查：`GET /health` 返回 `{"status":"ok"}`；页面与静态资源走 `/`。
-- 服务端参数如需调整（TLS、超时、跨域白名单），在 `internal/app/app.go` 的 `application.Options` 里加 `Server: application.ServerOptions{...}`；反代场景把公网 origin 加进 `WebSocketOriginPatterns`。
-- 能力差异：窗口、托盘、原生菜单、原生文件对话框、单实例在 server 模式都是空实现；Agent、终端、文件、SQLite 等后端能力完整可用。
-- 安全：server 模式没有内置认证，等于把 shell 与文件读写暴露给能访问该端口的人。只在本机或可信内网使用；对外必须前置认证与 TLS。
-- 前端宿主判断：`frontend/src/lib/bus.ts` 的 `isDesktop` 把 `wails:` / `wails.localhost` 以及非 mock 构建都视为「真实宿主」，所以 server 模式直接使用 Go 绑定，不需要额外开关。
+`-tags server` 把 Wails 版编译成纯 HTTP 服务（`wails3 task run:server` → `localhost:8080`，`/health` 检查），浏览器里运行完整应用。**迁移决策已确认放弃该能力**（ADR-0014：mygo 的 WASM 目标只能带 UI 不能带后端）；P3 收尾票删除相关代码与 Taskfile 任务。在那之前 main 上的 server 模式照旧可用：无内置认证，只在本机或可信内网用，对外必须前置认证与 TLS。
 
 ### 不能提交的生成物
 
-`bin/`、`frontend/dist/`、`frontend/node_modules/`、`.task/`、`.DS_Store`。
+`bin/`、`frontend/dist/`、`frontend/node_modules/`、`.task/`、`.DS_Store`、`build/`（mygo build 产物）。
 
-`frontend/bindings/` 是 Wails3 生成的 TypeScript 绑定，**需要提交**，保证 server 模式预览与 CI 类型检查可用；不要手工编辑，通过 `wails3 generate bindings` 重新生成。
+双轨期遗留：`frontend/bindings/`（Wails 生成的 TS 绑定）**需要提交**，不要手改，用 `wails3 generate bindings` 重新生成；迁移完成后随 `frontend/` 一起删除。
 
 ## 3. 常用命令
 
+通用（两条轨道共用）：
+
 | 目的 | 命令 |
 | --- | --- |
-| 安装前端依赖 | `cd frontend && pnpm install` |
-| 生成绑定 | `wails3 generate bindings -clean=true -ts -i` |
-| 桌面开发模式 | `wails3 dev` |
-| 浏览器运行完整应用（server 模式） | `wails3 task run:server` → `http://localhost:8080/` |
-| server 模式生产构建 | `wails3 task build:server` → `bin/CraftWork-server` |
-| server 模式容器 | `wails3 task build:docker` / `wails3 task run:docker` |
-| 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && pnpm run dev` → `http://127.0.0.1:9245/` |
-| 生产构建 | `wails3 build` → `bin/CraftWork` |
-| macOS 打包 | `wails3 package` → `bin/CraftWork.app` |
-| 原生 UI 开发（迁移分支） | `go tool mygo dev` |
-| 原生 UI 打包（迁移分支） | `go tool mygo build` |
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
-| Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查格式） |
-| 前端类型检查 | `cd frontend && pnpm run typecheck` |
-| 前端 lint / 格式化 | `cd frontend && pnpm run lint`（检查）；`pnpm run lint:fix`（安全修复）；`pnpm run format`（格式化，配置见 `frontend/biome.json`） |
-| 前端单元测试 | `cd frontend && pnpm run test` |
-| 浏览器端到端测试 | `cd frontend && pnpm run test:e2e`（本机已有 Edge / Chrome 时用 `PLAYWRIGHT_CHANNEL=msedge`；过滤与更新基线等参数请用 `pnpm exec playwright test` 直连，`pnpm run --` 透传在 pnpm 12 下不可靠） |
-| 截图回归 | `cd frontend && pnpm run test:e2e -- --grep @screenshot`（基线按操作系统保存） |
-| 前端构建 | `cd frontend && pnpm run build` |
-| 一键测试 | `wails3 task test` |
-| 一键检查 | `wails3 task check` |
-| 同步模型目录 | `wails3 task models:sync`（生成 `internal/model/catalogdata/catalog.json.gz`） |
-| 检查目录漂移 | `wails3 task models:check` |
+| Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查） |
+| 同步模型目录 | `go run ./cmd/modelsync`（检查漂移加 `-check`；生成 `internal/model/catalogdata/catalog.json.gz`） |
 
-> 修改 Go 服务的导出方法签名后，必须重新生成绑定，否则前端类型会与后端不一致。
+原生 UI（迁移分支，在仓库根执行）：
+
+| 目的 | 命令 |
+| --- | --- |
+| 开发（编译失败保留旧进程） | `go tool mygo dev` |
+| 打包 .app / DMG | `go tool mygo build` |
+| view 无窗口测试 | `go test ./...`（`ui.Tester` headless） |
+
+双轨期遗留（main 上的 Wails 形态，P3 删除）：
+
+| 目的 | 命令 |
+| --- | --- |
+| 桌面开发模式 | `wails3 dev` |
+| 生产构建 / macOS 打包 | `wails3 build` → `bin/CraftWork`；`wails3 package` → `bin/CraftWork.app` |
+| 生成绑定 | `wails3 generate bindings -clean=true -ts -i` |
+| server 模式 | `wails3 task run:server` → `localhost:8080` |
+| 纯 UI 走查（Mock，无 Go） | `cd frontend && pnpm run dev` → `http://127.0.0.1:9245/` |
+| 前端检查 | `cd frontend && pnpm run lint`、`pnpm exec tsc --noEmit`、`pnpm run test`、`pnpm run build` |
+| 浏览器端到端测试 | `PLAYWRIGHT_CHANNEL=msedge pnpm run test:e2e`（迁移后由 `ui.Tester` 测试替代） |
+| 一键任务 | `wails3 task test` / `check` / `models:sync` |
+
+> 双轨期内修改 Go 服务导出方法签名后，仍须重新生成绑定并同步 `desktop.ts`/`mock.ts`，否则 main 的前端类型与后端不一致。
 
 ## 4. 目录与职责
 
 ```text
-main.go                  入口：embed frontend/dist，交给 internal/app
-internal/app/            窗口、单实例、CSP、服务装配、关闭钩子
-internal/service/        Wails 绑定层（App / Settings / Thread / Chat /
-                         Workspace / Provider / Audit / Terminal / Document）
+main.go                  入口：装配交给 internal/app（双轨期仍 embed frontend/dist）
+internal/app/            进程装配：窗口、单实例、生命周期、服务装配
+internal/ui/             （迁移新增）原生界面：theme / shell / sidebar / chat /
+                         panel / overlays；view 直调内部领域包
+internal/service/        双轨期为 Wails 绑定层；迁移中降级为内部领域包
+                         （参数校验、编排与错误转换留在这一层）
 internal/agent/          Run 循环、审批状态机、授权缓存
 internal/record/         事件写入与广播（落库 + 推送的唯一出口）
 internal/platform/       原子写、哈希、环境清洗、子进程执行
@@ -148,35 +132,30 @@ cmd/modelsync/           从 models.dev 同步并生成目录快照
 internal/store/          SQLite、迁移、事件、审计、用量、设置、种子数据
 internal/secret/         keys.json 读写与权限
 internal/editor/         行级 diff
-internal/events/         事件类型与批量总线
-frontend/src/app/        AppShell、全局快捷键
-frontend/src/features/   sidebar / chat / panel / overlays / statusbar
-frontend/src/components/ Icon、BrandMark、Popover、Toast、Dialog
-frontend/src/lib/        API、真实宿主绑定、Mock（仅 pnpm run dev）、类型、工具
-frontend/src/stores/     app / threads / panel / workspace / terminal / ui
-frontend/src/styles/     样式分区 base / chat / panel / overlay + highlight + app-extra + desktop
-docs/                    adr（决策记录）、specs（行为规格）、agents（技能配置）
+internal/events/         事件类型与（迁移后内部）事件总线
+frontend/                双轨期遗留：React 界面，冻结待删（见 1.1）
+docs/                    adr（决策记录）、specs（行为规格）、native-ui（迁移）、agents（技能配置）
 ```
 
-新增能力时优先落到对应领域包，不要在 `internal/service` 里堆业务逻辑；服务层只做参数校验、编排与错误转换。
+新增能力优先落到对应领域包；`internal/service` 只做参数校验、编排与错误转换，原生 UI 的 view 不得绕过它直接操作 store 或 agent。
 
 ## 5. 改动流程
 
-1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/specs/`（行为规格）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
-2. **改 Go 接口**：修改服务方法或 `RegisterEvent` 后重新生成绑定。
-3. **改前端**：保持既有 class 名与 CSS token（视觉规格见 `docs/specs/interface.md`）；类型检查必须通过。
-4. **补测试**：核心逻辑（策略、路径、事件、存储、Agent 循环、diff）必须有 Go 单测；前端关键 reducer 在 M1 接入 Vitest。
+1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/specs/`（行为规格）、`docs/adr/`（决策记录）、迁移工作先读 `docs/native-ui/spec.md`；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
+2. **改后端**：领域包的改动两条轨道共用，保持 service 方法签名稳定；迁移分支不引入新的绑定方法。
+3. **改 UI**：原生 UI 遵守 6.4 节约定；双轨期 `frontend/` 冻结，只做阻断性修复。
+4. **补测试**：核心逻辑（策略、路径、事件、存储、Agent 循环、diff、UI 状态机/reducer）必须有 Go 单测；迁移中移植的纯函数（threadReducer、sidePane）逐行对齐既有用例。
 5. **跑验证**：见第 8 节。
 6. **同步文档**：见第 9 节。
 
-### 新增一个绑定服务
+### 新增一个原生 UI 界面/能力
 
-1. 在 `internal/service/` 新建具体类型与构造函数。
-2. 在 `internal/app/app.go` 的 `application.Options.Services` 注册。
-3. `wails3 generate bindings`。
-4. 在 `frontend/src/lib/desktop.ts` 实现；纯 UI 预览的 `mock.ts` 也要补，否则 `pnpm run dev` 会缺接口。
-   `Api` 类型从 `desktopApi` 推导，不再手写接口文件；浏览器验证真实后端用 `wails3 task run:server`。
-5. 补 Go 单测与前端类型。
+1. 数据与行为先落在领域包（`internal/service` 或更深的包），写成普通 Go 方法。
+2. 界面放 `internal/ui/<区域>/`（shell / sidebar / chat / panel / overlays），view 函数从 app 状态构建；状态机写成纯函数便于单测。
+3. 后台 goroutine 更新界面一律经 `win.Update(func(){...})`。
+4. 颜色、字号、间距取自 `internal/ui/theme.go` 的主题常量，不写死值。
+5. 图标在 `internal/ui/icons.go` 登记 lucide SVG 名称。
+6. 补 `ui.Tester` 单测与必要的走查记录。
 
 ### 新增一个工具
 
@@ -192,28 +171,24 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 2. 同步规则在 `internal/model/catalogdata/rules.json`，只允许 `openai`、`anthropic`、`openai-compatible` 三种协议；Google / Gemini 原生协议、Azure、Bedrock、Vertex 一律排除。
 3. 用户提供商保存在 `settings.model.custom_providers`；线程与设置保存 `providerID/modelID` 引用，不要只存原始模型 ID。
 4. 首次启动没有默认模型；发送消息前必须由用户添加提供商并选择模型。
-5. 修改目录后运行 `wails3 task models:sync`，并提交生成的 gzip 与 manifest。
+5. 修改目录后运行 `go run ./cmd/modelsync`，并提交生成的 gzip 与 manifest。
 
-### 新增一个前端面板或浮层
+### 双轨期遗留流程（frontend，冻结）
 
-1. 面板放 `features/panel/`，用 `lazy()` 按需加载（编辑器、终端、文档较重）。
-2. 浮层放 `features/overlays/`，通过 `useUiStore` 控制开关，并用 Portal 挂到 `document.body`。
-3. 复用 `styles/` 里的 class 与 token；新增样式放 `app-extra.css` 或对应分区文件。
-4. 图标只通过 `Icon` 组件使用，在 `components/Icon.tsx` 登记新名称。
+`frontend/` 不新增功能。确需修阻断性 bug 时：保持既有 class 名与 CSS token（视觉规格见 `docs/specs/interface.md`），类型检查必须通过；新增 API 需同步 `desktop.ts` 与 `mock.ts`（`Api` 类型从 `desktopApi` 推导，不要手写第二份接口签名），并重新生成绑定。
 
 ## 6. 实现约束（必须遵守）
 
-### 6.1 IPC
+### 6.1 UI 与数据流
 
-- 命令走绑定方法；事件只走 `cw:events` 批量通道。
-- 文本/推理增量在 Go 侧按 33ms 合并；不要逐 token 推送。
-- 非增量事件（工具、审批、生命周期）立即推送，保持顺序。
-- 大对象（文件内容、差异、终端历史）用命令按需拉取，不塞进事件。
-- 事件类型与载荷在 `internal/events/events.go` 与 `frontend/src/lib/types.ts` 两处保持一致。
+- view 直调 Go 函数，**没有 IPC 与批量事件通道**；`internal/events` 的事件类型表保留为内部契约（`record` 落库 + bus 发布 → UI 订阅回调）。
+- 后台事件到界面只经 `win.Update(func(){...})`（主线程执行并重绘，自动合并）；禁止在 view 外直接改 UI 状态。
+- 大对象（文件内容、差异、终端历史）按需调用方法获取，不要常驻 app 状态。
+- 界面状态机写成纯函数转移（参考移植的 threadReducer / sidePane），可单测、可重放。
 
 ### 6.2 审批
 
-- 审批必须跨 IPC：`approval.requested` 事件 + `ChatService.DecideApproval` 命令，不允许在 Go 侧静默放行。
+- 审批必须显式决定：请求 → 卡片 → 用户决定 → 执行/跳过，**不允许 Go 侧静默放行**；「跨 IPC」变为「跨 UI 线程」，决定与执行仍走 `ChatService.DecideApproval` 语义。
 - `once / session / workspace` 三种范围由服务端校验；`AllowPermanent` 为 false 时禁止 session/workspace。
 - 受限工作区：R3 直接拒绝、不提供永久授权、已有授权不生效。
 - 取消、窗口关闭、应用退出统一按拒绝或取消落审计。
@@ -221,23 +196,21 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 
 ### 6.3 安全
 
-- 窗口只加载 `/`，**禁止把绝对 URL 传给窗口**；外链只走 `AppService.OpenExternal`（http/https）。
-- 修改资源响应头时保留 CSP；生产构建不允许内联脚本与远程资源。
-- Markdown 不渲染原始 HTML；图片不加载远程地址。
-- 所有路径校验在 Go 侧完成：`policy.Resolve` 先词法校验，再解析符号链接；不信任前端路径。
-- 密钥只存在 Go 进程与 `~/.craftwork/keys.json`；不进入日志、数据库、事件、导出包。
+- **外链唯一出口**：http/https 经确认后走 `mygo.Shell.OpenExternal`；应用不加载任何远程页面。
+- Markdown 不渲染原始 HTML（`ui/markdown` 默认按文本显示，模型常写的 `<b>/<code>` 等格式化标签除外）；图片默认只显示 alt 文本，加载需显式启用且仅限本地/受控来源。
+- 所有路径校验在 Go 侧完成：`policy.Resolve` 先词法校验，再解析符号链接；不信任 UI 传来的路径。
+- 密钥只存在 Go 进程与 `~/.craftwork/keys.json`；不进入日志、数据库、导出包。
 - `shell_exec` 必须清洗敏感环境变量、杀进程组、限制输出。
-- server 模式默认只绑 `localhost`；对外提供服务必须前置认证与 TLS，禁止用 `WebSocketAllowAllOrigins` 把 shell 与文件读写直接暴露出去。
+- libghostty dylib 由 `mygo build` 打进 .app 并随应用签名（运行时不下载）；不要改用运行时网络获取。
 
-### 6.4 前端
+### 6.4 原生 UI 约定
 
-- 使用 assistant-ui **headless primitives**，不要引入 `@assistant-ui/react-ui` 或 Tailwind。
-- 自定义消息部件使用 `data-cw-*`，在 `MessageView.tsx` 的 `partComponents.data.by_name` 注册。
-- 用户消息不能带 `status` 字段（assistant-ui 约束）；只有 assistant 消息带状态。
-- 图标只用 `lucide-react` 并通过 `Icon` 包装；不手写 SVG path（品牌 logo 除外）。
-- 颜色、间距、圆角来自 `styles/base.css` 的 CSS 变量；不新增第二套 token。
-- 设置项必须立即生效；未接线的控件要禁用并标注里程碑，不要做“看起来能改但无效果”的控件。
-- 面板、终端、编辑器、设置等重组件用 `lazy()` 拆分，控制首屏体积。
+- 立即模式：view 是每帧执行的普通函数；状态放 app 结构体；元素身份靠兄弟位置或 `Key` 保持，列表必须给稳定 `Key`。
+- 样式没有 CSS：观感由 `internal/ui/theme.go` 主题常量 + 链式 setter 决定；深浅色实时切换来自 `ui.Theme`，不要自建第二套色板。
+- 设置项必须立即生效；未接线的控件要禁用并标注里程碑，不要做「看起来能改但无效果」的控件。
+- 长列表用 `ui.List`（虚拟化）+ 稳定 Key；聊天流式用 `markdown.Stream`，完成态切 `markdown.View`。
+- 动效用 `Animate`/`Transition`；遵循系统 `ReduceMotion`。
+- 不写包装层封装 mygo API；版本锁定在 go.mod，升级走显式决策。
 
 ### 6.5 数据
 
@@ -249,81 +222,74 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 
 ### 6.6 错误处理
 
-- Go 侧返回可读错误；不要 panic 到用户界面。
-- 模型调用错误统一使用 `internal/model` 的 `Error` 与错误码（`auth`、`rate_limit`、`timeout`、`context_overflow` 等）；新增提供商必须映射到既有错误码，不要向前端抛原始 HTTP 错误。
-- 前端调用失败要 `toast` 提示，不能只 `console.error`。
-- 后台 goroutine 失败要写日志并推送 `error` 事件，不能静默退出。
+- Go 侧返回可读错误；不要 panic 到界面（view 内的 recover 只兜底，不当流程用）。
+- 模型调用错误统一使用 `internal/model` 的 `Error` 与错误码（`auth`、`rate_limit`、`timeout`、`context_overflow` 等）；新增提供商必须映射到既有错误码，不要向 UI 抛原始 HTTP 错误。
+- UI 调用失败要 `c.Toast` 提示，不能只写日志。
+- 后台 goroutine 失败要写日志并投递 `error` 事件，不能静默退出。
 
 ## 7. 已知坑
 
-- Wails3 **没有默认 CSP，也不拦截窗口导航**；安全靠 Go 中间件与统一外链出口。
-- Wails3 `SingleInstance` 只通知，不自动唤起窗口；回调里要 `Restore/Show/Focus`。
-- macOS 图标使用 `icons.icns`；不要重新引入 `Assets.car` 或 `CFBundleIconName`，否则会覆盖新图标。
-- `wails3 build` 需要 `frontend/dist`；正常流程会自动构建前端。
-- Vite HMR 与 Zustand 同时存在时，模式切换可能出现旧 store 实例；验证时整页重载。
-- `isDesktop` 表示「后端在 Go 进程里」：桌面是 `wails:` / `wails.localhost`，server 模式是 http(s) 且 `import.meta.env.MODE !== "mock"`；只有 `pnpm run dev`（`vite --mode mock`）走 Mock。新增 API 要改 `desktop.ts`，保留的 Mock 同步改 `mock.ts`；端口类型由 `desktopApi` 推导。
-- server 模式下窗口、托盘、原生菜单、原生对话框、单实例都是空实现；`Window.NewWithOptions` 不会报错，但也不会产生窗口。
-- server 模式的页面是构建产物，没有 HMR；改完前端要重新 `wails3 task build:server` 或 `wails3 task run:server`。
-- server 模式生产构建的 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）；如果浏览器拦截同源 WebSocket 导致事件不刷新，显式放行 `ws://`。
-- `wails3 dev` / `wails3 build` 只产出桌面窗口；server 模式走 Taskfile 的 `build:server`（本质是 `go build -tags server`）。
-- `frontend/bindings` 不要手改；重新生成即可。
-- xterm 通过 canvas 渲染，`fontFamily` 不能使用 `var(--font-mono)` 这类 CSS 变量，必须传具体字体栈，并在末尾补 Nerd Font 回退。
-- 应用没有任何内置提供商；不要写死 `openai`、`gemini` 等提供商分支，也不要提供“推荐模型”。
-- 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
-- `catalog.json.gz` 是生成物，不要手改；更新目录用 `wails3 task models:sync`。
-- `pnpm run dev` 的 Mock 只是前端开发工具，不是产品里的本地演示提供商。
-- Mock 的定位是「伪造数据，不复刻行为规则」：分页切片、事件编排（simulateRun）、diff 呈现与搜索命中是**已知且有意的近似**，e2e 跑在 Mock 上，失败时先区分是产品 bug 还是 Mock 演砸。行为规则以 Go 为唯一事实源；新增后端校验/规则时不要在 mock.ts 里复刻一遍（空消息校验、标题提取等此前都复刻过，已删）。端口类型由 `desktopApi` 推导（81531bb 的既定决策），不要改成手写第二份接口签名。
-- `scrollbar-gutter: stable` 的预留宽度在两个内核不一致：Chromium 按自定义 `::-webkit-scrollbar` 宽度预留且与滚动条本体不叠加；WKWebView 按系统滚动条宽度（约 11px）预留并与滚动条叠加。本项目桌面（WKWebView）与 server 浏览器（Chromium）会因此出现约 11px 的内容宽度差，**不要在布局里依赖 `scrollbar-gutter`**；滚动条占位以 `::-webkit-scrollbar` 自定义宽度为准（见 `.thread-list`）。
-
-mygo 原生 UI（迁移分支，P0 实测）：
+mygo 原生 UI（P0 实测，持续补充）：
 
 - `ui.Split` 的宽度指针初值必须非零（如 280），0 会让左栏直接不可见。
 - `WindowOptions.StateKey`（窗口状态记忆）与显式 `X/Y` 并存时，显式坐标被记忆值覆盖；两者二选一。
-- `plugins/terminal` 的 PTY 网格在 `terminal.New` 后 0.5 秒内由视图尺寸协商，错过则卡在 80×24；本机实测即使协商也会失效（Retina 双屏），处理方案见 `docs/native-ui/issues/01-`。
-- mygo 立即模式下，后台 goroutine 改 UI 状态必须经 `win.Update(func(){...})`，在 view 外直接改状态不会触发重绘或引发数据竞争。
+- `plugins/terminal` 的 PTY 网格在 `terminal.New` 后 0.5 秒内由视图尺寸协商，错过则卡在 80×24；本机（Retina 双屏）实测协商仍可能失效——处理方案与验证见 `docs/native-ui/issues/01-`，终端票（09）实施时优先解决。
+- 立即模式下，后台 goroutine 改 UI 状态必须经 `win.Update`，直接改不会重绘或引发数据竞争。
+- libghostty 首次裸 `go run` 会下载 dylib 到 `~/Library/Caches/mygo/natives/`（SHA-256 校验）；打包应用永不下载。网络受限环境可设 `$MYGO_GHOSTTY_VT` 指向本地文件。
+- macOS 签名：`mygo build` 内置 Developer ID 签名与公证流程，需要证书时先向用户要，不要自己折腾 codesign。
+
+双轨期遗留（Wails/前端，随 `frontend/` 删除失效）：
+
+- Wails3 没有默认 CSP、不拦截窗口导航；单实例只通知不唤起窗口（回调里 `Restore/Show/Focus`）。
+- server 模式下窗口、托盘、原生菜单、原生对话框、单实例都是空实现；页面是构建产物无 HMR；生产 CSP 是 `connect-src 'self'`（`internal/app/csp_prod.go`）。
+- `isDesktop` 表示「后端在 Go 进程里」；Mock 的定位是「伪造数据，不复刻行为规则」，行为规则以 Go 为唯一事实源，e2e 失败先区分产品 bug 还是 Mock 演砸。
+- xterm 通过 canvas 渲染，`fontFamily` 必须传具体字体栈并在末尾补 Nerd Font 回退。
+- Vite HMR 与 Zustand 并存时模式切换可能出现旧 store 实例；验证时整页重载。
+
+两条轨道通用：
+
+- 应用没有任何内置提供商；不要写死 `openai`、`gemini` 等提供商分支，也不要提供「推荐模型」。
+- 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `model.Ref` / `FindModelByRef`；只有兼容旧数据时才用 `Resolve` 的原始 ID 回退。
+- `catalog.json.gz` 是生成物，不要手改；更新目录用 `go run ./cmd/modelsync`。
 
 ## 8. 验证清单
 
-提交前至少执行：
+通用（提交前必跑）：
 
 ```bash
 go test ./...
 go vet ./...
 golangci-lint run
+```
+
+迁移分支额外：
+
+```bash
+go tool mygo build          # 产出可启动 .app
+CRAFTWORK_HOME=/tmp/cw-native go tool mygo dev   # 隔离目录冒烟
+```
+
+冒烟走查：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 选择模型 → 发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 终端 → 审计记录；1440×900 与 1100×800 两个窗口尺寸对照 `docs/native-ui/spec.md`（原生 UI 阶段不再对照 interface.md 的 CSS 细节，行为对照不变）。
+
+双轨期遗留（main 上动 Wails/前端代码时）：
+
+```bash
 cd frontend && pnpm run lint && pnpm exec tsc --noEmit && pnpm run build
 wails3 build
+PLAYWRIGHT_CHANNEL=msedge pnpm run test:e2e -- --grep @screenshot
 ```
 
-涉及 UI 时额外：
-
-- 浏览器验证真实后端用 `wails3 task run:server`；只做样式走查时可用 `cd frontend && pnpm run dev`（Mock）。在 1440×900 与 1100×800 两个视口对照 `docs/specs/interface.md` 的布局尺寸与视觉 token。
-- 检查三栏布局、48px 顶行、27px 状态栏、窄窗口折叠、深浅主题。
-- 走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 选择模型 → 发送消息 → 工具调用 → 审批允许/拒绝 → 差异面板 → 审计记录。
-- 桌面端启动冒烟（建议隔离目录）：
-
-```bash
-CRAFTWORK_HOME=/tmp/cw-smoke ./bin/CraftWork
-```
-
-- server 模式冒烟（建议隔离目录）：
-
-```bash
-CRAFTWORK_HOME=/tmp/cw-server wails3 task run:server
-# 另开终端
-curl -fsS http://localhost:8080/health
-```
-
-CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`govulncheck`、`ppnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run build`、`pnpm audit`，并重新生成绑定检查 `frontend/bindings` 是否漂移。本地提交前仍以本节命令为准。
+CI（`.github/workflows/ci.yml`）目前跑 `go test`、`go vet`、`govulncheck`、frontend 检查与绑定漂移；P3 收尾票改为 Go 侧 + `mygo build` 冒烟，删除 Playwright 与绑定漂移检查。本地提交前仍以本节命令为准。
 
 ## 9. 文档同步
 
 | 改动 | 需要同步 |
 | --- | --- |
-| 技术栈、分层、IPC、安全机制 | `docs/specs/architecture.md` |
+| 技术栈、分层、安全机制 | `docs/specs/architecture.md` |
 | 系统提示词分节、缓存层级、文案与测试约束 | `docs/specs/prompt-contract.md` |
 | 产品定位、范围、非功能指标、验收 | `docs/specs/product.md` |
 | 功能与验收要点、工具与规则 | `docs/specs/features.md` |
-| 布局、组件、交互、图标、视觉 | `docs/specs/interface.md` |
+| 布局、组件、交互、图标、视觉 | `docs/specs/interface.md`（双轨期）；原生 UI 的观感约定进 `docs/native-ui/spec.md` |
 | 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
@@ -332,14 +298,14 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 
 ## 10. 当前留桩
 
-- M4：沙箱、更新下载/替换与回滚、Streamable HTTP MCP、MCP 信任列表；签名/公证/DMG 已接入 Wails 工具链，需要开发者证书与发布密钥。
-- M3 限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
-- 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。
-- 跨平台：Windows 系统通知、Linux 打包与 CI 兼容性需要实机验证。
+- 迁移相关：编辑器/终端/diff 按裁剪清单验收（`docs/native-ui/spec.md`）；终端网格尺寸协商问题（09 票）；自动更新改接线 mygo 内置 `Updater`（Ed25519 签名 + 增量），取代原 Wails 更新留桩。
+- M3 限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑（文档富预览不在迁移范围）。
+- 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环（原生 UI MVP 后重跑）。
+- 跨平台：Windows（WebView2 → 原生 UI + ConPTY 终端）与 Linux 打包需要实机验证；迁移前仅 macOS 实测。
 
 ## 11. 提交规范
 
 - 提交信息使用中文，一次提交只做一件逻辑上的事。
-- 提交前运行第 8 节的检查；不要提交 `bin/`、`frontend/dist/`、`node_modules/`。
+- 提交前运行第 8 节的检查；不要提交 `bin/`、`frontend/dist/`、`node_modules/`、`build/`。
 - 贡献使用 DCO：`git commit -s`。
-- 界面视觉与交互的变更先更新 `docs/specs/interface.md`，再改实现；行为变更同步受影响的 spec，决策变更走 `docs/adr/`。
+- 界面视觉与交互的变更先更新规格（双轨期 `docs/specs/interface.md`，原生 UI `docs/native-ui/spec.md`），再改实现；行为变更同步受影响的 spec，决策变更走 `docs/adr/`。
