@@ -27,6 +27,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/service"
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
+	cwui "github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
@@ -209,11 +210,12 @@ func Run(build version.Info) error {
 	})
 
 	// 窗口底色跟随主题：显式浅色的用户在首帧前不再看到深色窗口。
-	// dark 与跟随系统仍用深底；跟随系统的实际解析由界面完成。
-	windowBackground := "#0b0d11"
-	if settings.Theme == "light" {
-		windowBackground = "#eeeff4"
-	}
+	// dark 与跟随系统仍用深底；首帧之后由外壳 view 按系统实时接管。
+	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
+
+	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
+	// 由后续 UI 票接线写入。
+	shell := cwui.NewShell()
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -227,12 +229,10 @@ func Run(build version.Info) error {
 			StateKey: windowStateKey,
 			// 隐藏标题栏：界面顶部自画拖拽区并避让红绿灯。
 			TitleBarStyle: mygo.TitleBarHiddenInset,
-			// 界面票落地前只铺一层主题底色占住原生表面：native UI 窗口
-			// 要画出首帧才显示，完全空白的视图不会产生帧；窗口没有页面
-			// 可加载，应用内不出现任何 WebView。
-			Content: ui.View(func(c *ui.Context) {
-				ui.Column(c).Fill().Background(c.Theme().Background)
-			}),
+			// 三栏外壳：顶部拖拽区 + 侧栏 / 对话 / 面板；主题在 view 内
+			// 每帧套用并跟随系统。窗口没有页面可加载，应用内不出现任何
+			// WebView。
+			Content: ui.View(shell.View),
 		})
 		// 绑定之后，事件总线产生的事件才会真正进主线程。
 		emitter.bind(win)
