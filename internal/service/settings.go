@@ -73,7 +73,7 @@ func DefaultSettings() Settings {
 		ApprovalLevel:    string(policy.LevelGraded),
 		DefaultModel:     "",
 		Language:         "zh-CN",
-		FontSize:         14,
+		FontSize:         15,
 		CodeTheme:        "dark",
 		TerminalFontSize: 12,
 		AutoUpdate:       true,
@@ -177,7 +177,7 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 		next.PanelWidth = 760
 	}
 	if next.FontSize < 11 || next.FontSize > 18 {
-		next.FontSize = 14
+		next.FontSize = 15
 	}
 	if next.TerminalFontSize < 10 || next.TerminalFontSize > 20 {
 		next.TerminalFontSize = 12

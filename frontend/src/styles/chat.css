@@ -2079,12 +2079,12 @@ html[data-theme="light"] .diff-line.del {
   margin-top: 4px;
 }
 .empty-suggestions button {
-  padding: 6px 11px;
+  padding: 7px 12px;
   border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--text-2);
-  font-size: var(--text-ui-sm);
+  font-size: var(--text-ui-caption);
 }
 .empty-suggestions button:hover {
   border-color: var(--mode-accent-line);

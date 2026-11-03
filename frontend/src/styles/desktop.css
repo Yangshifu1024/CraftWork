@@ -9,7 +9,8 @@ body,
 /* Wails3 通过 CSS 变量标记可拖拽区域。 */
 .sidebar-head,
 .chat-head,
-.panel-tabs {
+.panel-tabs,
+.settings-head {
   --wails-draggable: drag;
 }
 
@@ -18,12 +19,17 @@ body,
 .chat-head button,
 .chat-head a,
 .panel-tabs button,
-.panel-tabs .panel-tab {
+.panel-tabs .panel-tab,
+.settings-head button,
+.settings-head a,
+.settings-head .settings-search {
   --wails-draggable: no-drag;
 }
 
-/* macOS 使用隐藏式标题栏时，为左上角红绿灯预留空间。 */
-html[data-desktop="darwin"] .sidebar-head {
+/* macOS 使用隐藏式标题栏时，为左上角红绿灯预留空间。
+   设置页头部同为最左 48px 顶行，同样需要避让。 */
+html[data-desktop="darwin"] .sidebar-head,
+html[data-desktop="darwin"] .settings-head {
   padding-left: 82px;
 }
 

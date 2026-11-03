@@ -64,8 +64,8 @@
     color var(--dur) var(--ease);
 }
 .panel-tab .ico {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
 }
 .panel-tab:hover {
   background: var(--sidebar-hover);
@@ -79,8 +79,8 @@
   color: var(--mode-accent);
 }
 .panel-tab .tab-badge {
-  min-width: 15px;
-  height: 14px;
+  min-width: 16px;
+  height: 15px;
   padding: 0 4px;
   border-radius: 4px;
   background: var(--warn-soft);
