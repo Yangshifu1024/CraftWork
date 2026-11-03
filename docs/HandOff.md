@@ -1,64 +1,54 @@
-# HandOff：wails3 → mygo 原生 UI 迁移（2026-11-03）
+# HandOff：CraftWork ⇄ ZCode 观感一比一对齐（2026-11-04）
 
-> 交接文档：写给接手本仓库的下一个 Agent/开发者。目标读者已具备仓库基础认知（先读根目录 `AGENTS.md`）。本文只记「不在其他工件里的会话级上下文」，不重复 spec/票/提交已有内容。
+> 交接文档：写给接手本仓库的下一个 Agent/开发者。目标读者已具备仓库基础认知（先读根目录 `AGENTS.md`）。本文只记「不在其他工件里的会话级上下文」；规格与历史见文内引用，不重复。
 
 ## 一句话现状
 
-桌面外壳已从 Wails3 + WebView + React 完整切换为 mygo v0.7.4 原生 UI：迁移分支 `feature/native-ui` 上 10 张实现票（01–10）全部完成合入，code-review 两轴（Standards/Spec）已完成，**review 修复轮正在进行/刚完成**（见下文「接手时先确认」）。分支尚未推送、尚未开 PR。
+ZCode 观感一比一对齐进行中（分支 `feature/ui-fixups`，19 个提交未推送）：**亮色主题四大区域（composer / 侧栏 / 消息流 / 空态）已收敛并实机截图验证**；未完成的三件事按优先级——① 模型选择浮层的**真机交互复验**（代码已改完未实机确认，见下）；② **暗色主题**精调（ZCode 默认 Zai Dark）；③ 小项「侧栏审计计数不随档位切换刷新」。
 
-## 决策与规格（读这些，不要问）
+## 用户已拍板的观感决策（不要再改回去）
 
-- 决策：`docs/adr/0014-native-ui-via-mygo.md`（取代 ADR-0001/0009；放弃 server 模式与浏览器验证是用户明确拍板）
-- 权威规格：`docs/native-ui/spec.md`（架构映射、约束、编辑器/终端/diff 裁剪清单）
-- 任务分解与实现记录：`docs/native-ui/issues/01`–`10`——**每张票的 `## Comments` 是实现决策与 mygo 框架坑的第一手来源**，改 `internal/ui` 前先读相关票
+1. **聊天内容区域恒定 80% 居中、两侧各 10%**（消息列与 composer 同参数）——ZCode 源码的三档断点（672/896/1152，conversationLayout.ts）**只属于 ZCode 自己**，用户明确推翻过一次：我曾按 ZCode 断点改，被要求恢复 80%。别再「对齐源码」改回去。
+2. **侧栏行的高亮/选中用模式色**（Soft 底 + Line 描边，Code 蓝 / Work 橙，参考空态建议按钮）——不是 zai 的中性 5% 色块。
+3. **空会话引导区域（「模式已就绪」+ 建议句）整体移除**——聊天列空态直接留白。
+4. 浮层底部的「所选模型将设为默认…」「档位与设置双向同步」类备注是废话，删（风险等级说明保留，它是内容）。
+5. 工具条图标与文字**垂直居中**对齐（zai 的 items-end 在按钮高度不一时中心线错位）。
 
-## 接手时先确认（本文写作时的在途状态）
+## 在途：模型选择浮层（最后一个用户报障，代码已改完未实机复验）
 
-1. **review 修复轮**：一个后台实现者正在集成分支修复 review 发现的问题——theme 外写死 hex 收编、`panel_desktop.go` 三处 TODO(07) 换浮层、`sidebar/view.go` 重命名换 `overlays.Prompt`、`chat/client.go` 失败加 toast、`WriteClipboard` 契约修复、时钟/剪贴板/参数结构体等 smell 收敛。**`settings.go`（1191 行九 tab）明确不拆**，只留档注释。
-2. 修复轮的验收基线：`go build ./...`、`go test ./...`（25 包）、`go vet`、`golangci-lint run` 0 issues、`go tool mygo build`。
-3. 待办：推送分支 → 开 PR（→ main）→ 跟进 CI。
+用户实机报四项：选择无效 / 弹窗丑 / 搜索无效 / 底部废话。已改（`a90eb69`）：
 
-## 本机环境事实（GUI 验证相关，踩过的坑）
+- **选择语义双写**：点选模型 = 写默认模型（原保存路径）+ `Actions.SetThreadModel` 切换当前会话模型（`service.ThreadService.SetModel` 广播快照）。此前只写默认、当前会话不变 = 「选择无效」的感知来源。
+- 浮层 zai 菜单形态：删大标题与搜索 Field 标题、去非激活灰点、删底部备注、菜单 180→200、菜单项文字 SingleLine。
+- mygo 主题 `Accent` 中性化（亮 #52525b / 暗 #a1a1aa）：内置控件聚焦描边/勾选不再用品牌蓝。
 
-- **osascript 无辅助功能权限**：无法合成键鼠/窗口断言（历票反复确认）。交互验证走 `ui.Tester`（headless）+ 真实服务链；截图用「窗口固定 X/Y + `AlwaysOnTop` + `screencapture -x -R`」。**屏幕锁定时截屏拍到的是锁屏画面**（06 票踩过）。
-- 双显示器（主屏 1512×982@2x + 副屏负坐标）；全屏截图会截到无关应用，务必区域截图。
-- 本机 GOPATH 是 `/Users/yzb/Developer/go-workspace`（**不是 `~/go`**）；`mygo`/`golangci-lint` 在 `$(go env GOPATH)/bin`。
-- mygo CLI v0.7.4 已装，但项目内统一用 `go tool mygo`（go.mod tool 指令锁版本）；升级 mygo 是显式决策（读其 `docs/ui/migration.md` 先）。
-- libghostty dylib 在 `~/Library/Caches/mygo/natives/`（裸 `go run` 首次下载；`mygo build` 产物内置，运行时不下载）。
-- 冒烟一律 `CRAFTWORK_HOME=/tmp/...` 隔离；验证桩（OpenAI 兼容 SSE 假端点、cwsmoke 标签种子）模式见 05/06/09 票 Comments。
+**未复验**：真机（`go tool mygo dev`，正式数据有 GLM 清单）上——搜索打字过滤、点模型后 composer 按钮变模型名、双写落库。Tester 链路已绿（`toggle_click_test.go` 同期文件与 `composer_test.go`），但**此前 Tester 过而真机挂过**（布局/输入事件路径差异），必须实机复验。用户特别点过「搜索无效」——若仍无效，头号嫌疑是中文输入法组合串未写回 `st.query`（mygo TextInput 的 IME 边界），需实机确认。
 
-## 流程惯例（本会话的实际工作方式，接手可复用）
+## 实机验证的方式（本会话踩实了的）
 
-- implement-spec 流程：每票一个 git worktree（`/Users/yzb/Code/Personal/craftwork-wt-NN`，分支 `wt/native-NN`）+ 后台实现者子代理 + 合并者子代理合入集成分支；槽位纪律（shell.go 各票只动自己的列）+ 冲突「他人槽位采用对方版本并报告」。
-- 提交规范：中文信息、一票多提交按逻辑粒度、全部 `git commit -s`（DCO）。
-- 每票完成后：实现者把「实现决策 + 框架坑 + 未尽事项」写回票 Comments——**这是本会话最有价值的沉淀习惯**。
+- **computer-use 技能可用但一次性**：调过 `agent.computerUse.stop()` 后状态持久、本会话无法复活（报 "Computer control was stopped"）——**新会话直接可用**，用户点名优先用它。
+- **System Events 辅助功能权限已授予**（备援）：`click at {x,y}` / `set frontmost of process` / AX 元素定位点击（`entire contents of window 1` 过滤 `button whose name is ...`）都实测可用。坑：① **ZCode 窗口会覆盖并抢前台**（用户的 ZCode 活跃会话），坐标点击会落到 ZCode 上——先 `set frontmost of process "CraftWork Dev" to true`，用 AX 元素点击而非坐标；② 权限偶发 -25211 拒绝，隔几秒重试即过；③ mygo 折叠按钮此前只有 Tooltip 没有 Label，不进 AX/元素树（既「点不动」又不可定位）——已补 Label，同类控件记得加。
+- **别用临时目录冒烟验证交互**（用户明确要求 `go tool mygo dev` 正式数据）；`screencapture -x` 全屏 + sips 裁剪做静态截图，注意窗口 StateKey 记忆的尺寸可能超屏（工具条截不到时先查窗口 bounds）。
 
-## mygo 框架坑速查（详情在各票 Comments）
+## 规格与工具（对齐的依据）
 
-- view 帧内直调 `Clipboard`/`Dialog` 会死锁（onMain 等主循环而主循环跑帧中）→ 一律 `win.Update`/goroutine（04 票）。
-- 空 view 窗口不显示：首帧必须画内容（铺主题背景）（02 票）。
-- `App.SetPath` 不自动建目录（02 票）；`ui.Split` 宽度指针初值必须非零（01 票）；`StateKey` 与显式 X/Y 二选一（01 票）。
-- 已注册快捷键不再投给焦点元素（engine.claimed）→ 焦点守卫用条件注册（10 票）。
-- `Scroll` 无界约束下 Fill/Grow 高度归零 → 集合用 `ui.List` + 显式高度（07 票）。
-- `ReduceMotion`：Animate/Transition 自动跟随系统，Loop 需 `theme.ReduceMotion(c)` 手动门控（10 票）。
-- P0 报过的「终端 PTY 网格协商失效」已在 09 票**证伪**（早期 80×24 兜底暂态被误读），风险关闭。
+- `cw-parity-notes/`（仓库外）：ZCode 源码提取的规格 `00-design-tokens.md`~`07-topbar-titlebar.md`（每条带 ZCode 文件:行号）、`SUMMARY.md`、`WORKFLOW.md`（验收口径与截图流程）、`tools/pixdiff`（像素 diff，已自测）。**关键事实**：ZCode 默认主题是 Zai Dark（纯黑/纯白反色、聚焦只加深不变色、深色无 composer 阴影）；字号 text-ui-* 七档基准 14px；圆角三族 8/12/16。
+- 本会话新增 theme token：`Brand/OnBrand/ComposerBorder/Focus/Shadow`、`UserBubble`、`AccentMuted`、`ComposerMaxWidth` 已删（80% 方案不需要）。
 
-## 已知未尽事项（合并 PR 后仍有效的）
+## 本分支提交与验证基线
 
-- 真实密钥 GUI 全链路走查（键鼠送不进窗口，假端点链路已由 e2e/Tester 覆盖）——AGENTS.md 第 10 节保留该验收项。
-- Developer ID 签名与公证：当前 adhoc 签名，需要用户证书。
-- 新 CI 的 macOS `go tool mygo build` 段未实机首跑（PR CI 即首跑）。
-- `internal/ui/overlays/settings.go` 九 tab 同文件（1191 行）拆分留档未做（review 判定风险>收益）。
-- 文档预览仍为文本级、面板最大化留桩——均有注释标注归属。
-- 等待审批中 Esc 的审计口径是 `canceled`（非 deny），与 React 版同语义，验收方需知悉（Spec 轴 review 记录）。
+`feature/ui-fixups`（未推送）自 `origin/main` 起 19+ 提交：11-14 号票实现与 review 修复 → 15 号票浮层返工（DialogBase 锚定 → 原生 PopoverBase）→ 亮色四区域对齐（上表）→ 模型浮层双写。验证基线：`go test ./...`、`go vet`、`golangci-lint run` 0 issues、`go tool mygo build`。**全部未推送**，用户要求本地验证后再推。
+
+## 已知未尽
+
+- 暗色精调（theme 暗色值是过渡版；Zai Dark 全量表在 `cw-parity-notes/00` 末段与 `styles.css:689-780`）。
+- 侧栏「审计」计数在档位切换写审计后不刷新（侧栏计数疑似装配时快照，未查）。
+- Zai 语义的「孤儿组不被批量折叠波及」是既有测试锁定的 React 版语义（`model_test.go:183`）——空区点击已单独处理（折叠空态文案），纯孤儿组场景点击仍无反馈，属已知边界。
+- mygo `WidthPercent` 首帧求解对构建时序敏感（曾致 composer 与消息列基准不一致）——列宽一律显式计算（上一帧容器实测宽，首帧窗口宽近似）。
 
 ## Suggested skills（下一个 Agent 按需调用）
 
-- 开 PR / 跟 CI：`pr`
-- 继续票流程或新增收尾票：`implement-spec`（issue tracker 在 `docs/<feature>/issues/`）
-- 再次全量审查：`code-review`
-- GUI 交互走查（若辅助功能权限已授予）：`computer-use:computer-use`
-
-## 环境清理提醒
-
-合并与推送后：删除 9 个 worktree（`git worktree remove craftwork-wt-NN` + `git branch -d wt/native-NN`）与磁盘残留未跟踪的 `frontend/` 构建产物目录（dist/node_modules/test-results——gitignore 已移除前端条目所以它们显示为未跟踪）。
+- 实机交互验证：`computer-use:computer-use`（新会话直接可用；备援 System Events）
+- 继续票流程 / 开暗色票：`implement-spec`（issue tracker 在 `docs/native-ui/issues/`，15 号票已 resolved）
+- 全量再审一轮：`code-review`（本次对齐改动量大，推送前建议再审）
+- 界面观感变更：先改 `docs/native-ui/spec.md` 再动手（AGENTS.md 第 11 节）
