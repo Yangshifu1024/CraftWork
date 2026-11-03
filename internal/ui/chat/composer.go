@@ -195,11 +195,10 @@ func (s *Chat) paste(text string) bool {
 // submit 走状态壳的提交入口（Actions.Submit；失败由 client 还原草稿）。
 func (s *Chat) submit() { s.Submit() }
 
-// composerBar 画工具条（zai 布局，ChatPromptEditor.tsx:452-465：左动作组、
-// 右侧收尾、底对齐）：左侧「+」动作菜单（附件 / 图片）与审批档位、R0–R4
-// 说明入口；右侧上下文占用、模型名与发送位（.composer-bar）。
+// composerBar 画工具条（左动作组、右侧收尾）：三个图标按钮与文字垂直
+// 居中对齐（用户指定——zai 的 items-end 在按钮高度不一时中心线错位）。
 func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
-	mygo.Row(c).FillWidth().AlignItems(mygo.End).Gap(theme.Space3).
+	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).
 		Padding(4, 12, 10, 12).Children(func() {
 		// 左侧动作组：「+」动作菜单——附件与图片入口收进菜单（ZCode 的
 		// + 菜单同构，ChatPromptEditor.tsx:440-441），面板用 PopoverBase。
