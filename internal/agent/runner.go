@@ -153,8 +153,8 @@ type Runner struct {
 	steers map[string][]SteerItem
 	// titlePending 标记正在进行自动命名的会话，避免并发消息重复请求模型。
 	titlePending map[string]bool
-	// notify 是系统通知回调，未设置时为 nil。
-	notify func(title, message string)
+	// notify 是系统通知回调（会话 Id + 标题 + 正文），未设置时为 nil。
+	notify func(threadID, title, message string)
 	// maxIterationsFn 实时读取最大往返上限（来自设置服务），未注入时为 nil。
 	maxIterationsFn func() int
 	// dataDir 是本地数据目录，用于读取用户全局指令文件（AGENTS.md）；
@@ -184,8 +184,9 @@ func NewRunner(db *store.DB, records *record.Recorder, registry *tools.Registry,
 	}
 }
 
-// SetNotifier 设置系统通知回调。宿主通常在这里判断窗口是否聚焦。
-func (r *Runner) SetNotifier(notifier func(title, message string)) {
+// SetNotifier 设置系统通知回调。宿主通常在这里判断窗口是否聚焦；
+// 会话 Id 供通知点击后跳转到对应会话。
+func (r *Runner) SetNotifier(notifier func(threadID, title, message string)) {
 	r.mu.Lock()
 	r.notify = notifier
 	r.mu.Unlock()
@@ -212,12 +213,12 @@ func (r *Runner) maxIterationsLimit() int {
 }
 
 // sendNotification 读取通知回调并调用；没有配置回调时什么也不做。
-func (r *Runner) sendNotification(title, message string) {
+func (r *Runner) sendNotification(threadID, title, message string) {
 	r.mu.Lock()
 	notifier := r.notify
 	r.mu.Unlock()
 	if notifier != nil {
-		notifier(title, message)
+		notifier(threadID, title, message)
 	}
 }
 
@@ -803,7 +804,7 @@ func (r *Runner) runTool(ctx context.Context, thread store.Thread, runID, messag
 				}
 
 				// 审批必须跨进程完成：先发系统通知提醒用户，再挂起等待前端决定。
-				r.sendNotification("需要审批", title+" · "+summary)
+				r.sendNotification(thread.ID, "需要审批", title+" · "+summary)
 				outcome, err := r.approvals.Request(ctx, ApprovalRequest{
 					ID:             approvalID,
 					PartID:         approvalPartID,
@@ -906,7 +907,7 @@ func (r *Runner) complete(thread store.Thread, runID, messageID string, startedA
 		"status":     "done",
 		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
-	r.sendNotification("CraftWork", "本轮回复已完成。")
+	r.sendNotification(thread.ID, "CraftWork", "本轮回复已完成。")
 }
 
 // canceled 结束一次被取消的运行：记录取消原因，并把会话状态恢复为空闲。
@@ -944,7 +945,7 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"message":    message,
 		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
-	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
+	r.sendNotification(thread.ID, "CraftWork 运行失败", truncateRunes(message, 120))
 }
 
 // failWithError 从模型错误里取出标准错误码后交给 fail。

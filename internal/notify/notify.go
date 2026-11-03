@@ -1,56 +1,79 @@
 // Package notify 发送尽力而为的系统通知。
 //
-// 通知失败不影响业务流程；Windows 暂未接入，调用会静默返回。
+// 通知失败不影响业务流程：系统不支持（mygo.NotificationsSupported 为否，
+// 如未打包的 go build 运行）或用户拒绝授权时静默跳过，其余失败只记日志。
 //
-// 本文件负责按操作系统选择通知方式：macOS 通过 osascript 调用系统通知中心，
-// Linux 使用 notify-send；命令在后台执行并带 5 秒超时，通知只用于提醒，
-// 点击通知不会回调应用内逻辑。
+// 发送走 mygo.NewNotification（10 号票：替换 Wails 时期的 osascript /
+// notify-send 方案），带 threadID 的通知以 "thread/<id>" 为 ID 在通知中心
+// 聚成一组，点击回调进应用聚焦窗口并跳到对应会话（装配层经 SetClickHandler
+// 注入跳转动作）。展示与点击回调都不阻塞调用方。
 package notify
 
 import (
-	"context"
-	"os/exec"
-	"runtime"
+	"errors"
+	"log/slog"
 	"strings"
-	"time"
+	"sync"
+
+	"github.com/egoist/mygo"
 )
+
+// clickHandler 是通知点击回调（装配层注入）：参数是通知携带的会话 Id。
+// 回调在 mygo 的主线程触发，实现方自行决定是否再编排。
+var (
+	clickMu      sync.RWMutex
+	clickHandler func(threadID string)
+)
+
+// SetClickHandler 注入通知点击回调；装配阶段调用一次。传 nil 清除。
+func SetClickHandler(fn func(threadID string)) {
+	clickMu.Lock()
+	clickHandler = fn
+	clickMu.Unlock()
+}
+
+// loadClick 读当前点击回调（Send.OnClick 用）。
+func loadClick() func(threadID string) {
+	clickMu.RLock()
+	defer clickMu.RUnlock()
+	return clickHandler
+}
 
 // Send 异步发送一条系统通知。
 //
-// 标题与正文都会去掉首尾空白；两者都为空时不发送。命令在独立协程中执行，
-// 调用方不会等待，也不会收到错误：通知是尽力而为的附属功能，失败只影响
-// 提醒本身。macOS 使用 AppleScript 的 display notification，Linux 使用
-// notify-send；未安装对应命令或系统不支持时静默跳过。
-func Send(title, message string) {
+// 标题与正文都会去掉首尾空白；两者都为空时不发送。threadID 非空时通知
+// 以它分组，点击后由点击回调跳会话；为空时点击只走回调（threadID 为空串）。
+// macOS 首次发送会向用户请求授权，Show 等待授权结果；拒绝后这里静默
+// 放弃（ErrNotificationsDenied），后续调用同样安静失败。
+func Send(threadID, title, message string) {
 	title = strings.TrimSpace(title)
 	message = strings.TrimSpace(message)
 	if title == "" && message == "" {
 		return
 	}
+	if !mygo.NotificationsSupported() {
+		// 未打包的运行（go run / go test）不接系统通知中心：静默跳过，
+		// 与 Wails 时期「无 osascript / notify-send 即跳过」的探测语义一致。
+		return
+	}
+	opts := mygo.NotificationOptions{Title: title, Body: message}
+	if threadID != "" {
+		// 同一会话的多条通知在通知中心聚成一叠；同 ID 的通知被新的一条
+		// 替换（运行中反复审批 / 失败时不堆积）。
+		opts.ID = "thread/" + threadID
+		opts.Group = threadID
+	}
+	n := mygo.NewNotification(opts)
+	n.OnClick(func() {
+		// macOS 的已点通知会留在通知中心，点击后主动移除。
+		n.Close()
+		if fn := loadClick(); fn != nil {
+			fn(threadID)
+		}
+	})
 	go func() {
-		// 限制命令执行时间，避免外部命令卡住后台协程。
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		switch runtime.GOOS {
-		case "darwin":
-			// 标题与正文都需要转义，防止内容里的引号破坏脚本结构。
-			script := "display notification " + appleScriptString(message) +
-				" with title " + appleScriptString(title)
-			_ = exec.CommandContext(ctx, "osascript", "-e", script).Run()
-		case "linux":
-			// 没有 notify-send 的桌面环境直接跳过。
-			if _, err := exec.LookPath("notify-send"); err != nil {
-				return
-			}
-			_ = exec.CommandContext(ctx, "notify-send", title, message).Run()
+		if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
+			slog.Warn("发送系统通知失败", "err", err)
 		}
 	}()
-}
-
-// appleScriptString 把文本转成 AppleScript 字符串字面量：先转义反斜杠，
-// 再转义双引号，最后用双引号包起来。顺序不能颠倒，否则会重复转义。
-func appleScriptString(value string) string {
-	value = strings.ReplaceAll(value, `\`, `\\`)
-	value = strings.ReplaceAll(value, `"`, `\"`)
-	return `"` + value + `"`
 }
