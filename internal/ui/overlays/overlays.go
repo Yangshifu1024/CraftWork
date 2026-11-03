@@ -73,9 +73,10 @@ type Store struct {
 	// logos 是目录提供商 logo 的解码缓存（catalogID → 位图 / 失败标记）。
 	logos map[string]logoEntry
 
-	confirm confirmState
-	prompt  promptState
-	free    freeState
+	confirm  confirmState
+	prompt   promptState
+	free     freeState
+	composer composerState
 
 	settings settingsState
 	data     dataState
@@ -97,12 +98,13 @@ func BindHooks(h Hooks) { store.hooks = h }
 func BindWindow(win *mygoapp.Window) { store.win = win }
 
 // View 画全部浮层。根 view 在外壳之后调用：模态（设置 / 数据 / 创建项目 /
-// 命令面板）压在外壳上，全局对话框压在模态上，通知在最上层。
+// 命令面板 / 输入区三浮层）压在外壳上，全局对话框压在模态上，通知在最上层。
 func View(c *mygo.Context) {
 	store.drawSettings(c)
 	store.drawData(c)
 	store.drawProject(c)
 	store.drawPalette(c)
+	store.drawComposer(c)
 	store.drawConfirm(c)
 	store.drawPrompt(c)
 	store.drawFree(c)

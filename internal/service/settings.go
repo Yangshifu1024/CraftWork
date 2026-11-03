@@ -202,9 +202,49 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	}
 
 	s.engine.SetLevel(policy.ParseLevel(next.ApprovalLevel))
+	// 审批档位变化写审计：档位决定此后哪些操作免确认，属于必须可追溯的
+	// 安全配置变更（设置中心与输入框档位浮层共用本入口，一处落账）。
+	// Risk 记录目标档位放行的最宽风险级（自由到 R4、分级与严格到 R3、
+	// 只读 R0），Decision 用 update 表示这是配置变更而非审批决定。
+	if current.ApprovalLevel != next.ApprovalLevel {
+		_ = s.db.AddAudit(&store.AuditEntry{
+			Tool:     "approval_level",
+			Risk:     levelWidestRisk(next.ApprovalLevel).String(),
+			Decision: "update",
+			Scope:    "user",
+			Detail:   "审批档位：" + approvalLevelName(current.ApprovalLevel) + " → " + approvalLevelName(next.ApprovalLevel),
+		})
+	}
 	if err := s.db.SetSetting(settingsKey, next); err != nil {
 		return current, err
 	}
 	s.bus.Publish(events.TypeSettingsUpdated, "", "", next)
 	return next, nil
+}
+
+// approvalLevelName 返回审批档位的中文短标签（审计说明用）。
+func approvalLevelName(level string) string {
+	switch policy.ParseLevel(level) {
+	case policy.LevelStrict:
+		return "严格"
+	case policy.LevelReadonly:
+		return "只读"
+	case policy.LevelFree:
+		return "自由"
+	default:
+		return "分级"
+	}
+}
+
+// levelWidestRisk 返回审批档位放行的最宽风险级：只读止步 R0；分级与
+// 严格都会询问到 R3（R4 始终阻止）；自由放行包括 R4 在内的全部操作。
+func levelWidestRisk(level string) policy.Risk {
+	switch policy.ParseLevel(level) {
+	case policy.LevelFree:
+		return policy.R4
+	case policy.LevelReadonly:
+		return policy.R0
+	default:
+		return policy.R3
+	}
 }
