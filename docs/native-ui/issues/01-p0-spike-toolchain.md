@@ -1,6 +1,6 @@
 # 01. P0 尖刺：工具链与四件套验证
 
-Status: ready-for-agent
+Status: resolved
 
 ## 背景
 
@@ -25,3 +25,12 @@ Status: ready-for-agent
 ## 依赖
 
 无。所有后续票依赖本票。
+
+## Comments
+
+- 2026-11-03 完成（spike 工程在 `/tmp/cw-native-spike`，不进仓库）。`mygo` CLI v0.7.4 安装成功，`mygo doctor` 通过（Go 1.27.3、macOS 27.2 ✓；bun/makensis/codesign 可选项缺失不影响）。
+- **窗口壳 ✓**：`TitleBarHiddenInset` + `c.TitleBar()` 避让 + `.DragWindow()` + `Segmented` 换页全部正常；`StateKey` 与显式 `X/Y` 并存时显式坐标被记忆值覆盖（转正工程二选一即可）。
+- **分栏 + 中文流式 Markdown ✓**：`ui.Split`（初始宽度必须非零）+ `markdown.Stream` 词级 reveal、GFM 表格、代码块高亮 + 语言标签 + Copy 按钮、行内代码、链接、中文注释高亮全部正确；流式 goroutine 经 `win.Update` 回主线程符合预期。
+- **编辑器 ✓**：`ui/editor` 打开真实 Go 文件，高亮/行号/光标状态条/中文注释正常。
+- **终端 ⚠️ 已知风险**：`plugins/terminal` 管线全通（libghostty 自动下载到 `~/Library/Caches/mygo/natives/`，zsh + powerlevel10k 渲染、光标活动），但 **PTY 网格尺寸未跟随视图**（提示符挤在约半尺寸区域；官方裸渲染复现，排除包装层因素）。文档约定「New 后 0.5s 内由视图尺寸协商，否则 80×24」，本机（Retina 双屏）协商失效。结论：不阻断迁移；09 票实施时优先验证升级版 mygo、布局稳定后显式 `Terminal.Resize`、或终端 tab 常驻布局三个方案。
+- 截图档：`/tmp/spike-page{0,1,2}.png`（深色主题；浅色验证留待 P1 主题翻译票）。
