@@ -46,10 +46,11 @@ func TestIconsFallback(t *testing.T) {
 	_ = tt
 }
 
-func TestIconsMatchFrontendRegistry(t *testing.T) {
-	// 登记表对齐 frontend/src/components/Icon.tsx：86 个登记名
-	// （84 个 lucide 文件，branch 与 list-filter 是别名）。
+func TestIconsRegistrySize(t *testing.T) {
+	// 登记名 86 个（84 个 lucide 文件，branch 与 list-filter 是别名）；
+	// 数量锁定自迁移时对齐 React 版 Icon.tsx 登记表（该表已随 frontend/
+	// 删除，历史在 git）。
 	if len(iconFiles) != 86 {
-		t.Errorf("登记名数量 = %d, want 86（对齐 Icon.tsx）", len(iconFiles))
+		t.Errorf("登记名数量 = %d, want 86", len(iconFiles))
 	}
 }
