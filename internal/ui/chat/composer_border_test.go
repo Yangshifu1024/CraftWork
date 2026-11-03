@@ -5,11 +5,16 @@ package chat
 import (
 	"testing"
 
+	mygo "github.com/egoist/mygo/ui"
+
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 func TestComposerBorderColors(t *testing.T) {
-	pal := theme.Apply(nil)
+	pal := &theme.Palette{
+		ComposerBorder:      mygo.Hex("#111111"),
+		ComposerBorderFocus: mygo.Hex("#222222"),
+	}
 	if got := composerBorder(pal, true); got != pal.ComposerBorderFocus {
 		t.Error("聚焦态描边应取 ComposerBorderFocus（zai 聚焦灰加深，非模式色）")
 	}

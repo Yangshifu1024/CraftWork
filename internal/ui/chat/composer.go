@@ -214,7 +214,7 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			s.plusOpen = !s.plusOpen
 		}
 		mygo.PopoverBase(c, plus, &s.plusOpen, func(panel mygo.Element) {
-			panel.Width(180).Radius(10).Background(v.pal.BgFloat).
+			panel.Width(200).Radius(10).Background(v.pal.BgFloat).
 				BorderWidth(1).BorderColor(v.pal.Border).Shadow(0, 6, 18, 0, v.pal.ComposerShadow).
 				Padding(theme.Space2).Gap(2).Children(func() {
 				s.plusItem(c, v, "paperclip", "添加附件", true)
@@ -288,7 +288,7 @@ func (s *Chat) plusItem(c *mygo.Context, v *viewSide, icon, label string, enable
 			color = v.pal.Text4
 		}
 		icons.Icon(c, icon).FontSize(14).TextColor(color)
-		mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(color)
+		mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(color).SingleLine()
 	})
 	if item.Clicked() && enabled {
 		s.plusOpen = false
@@ -303,7 +303,7 @@ func (s *Chat) imageToolTitle() string {
 	if s.supportsVision() {
 		return "添加图片"
 	}
-	return "当前模型不支持图片输入"
+	return "当前模型不支持图片"
 }
 
 // iconTool 画一枚 24px 图标工具按钮，返回按钮元素（调用方用 Clicked()
