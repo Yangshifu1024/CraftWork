@@ -33,6 +33,9 @@ type Shell struct {
 	// SidebarView 是侧栏槽位的内容（04 号票的 sidebar.View）；nil 时画
 	// 占位文本。委托注入而非直接引用 internal/ui/sidebar，避免包环。
 	SidebarView func(c *mygo.Context, pal *Palette)
+	// ChatView 是聊天列槽位的内容（05 号票的 chat.View）；nil 时画
+	// 占位文本。
+	ChatView func(c *mygo.Context, pal *Palette)
 }
 
 // NewShell 创建外壳状态：面板默认展开、取最小宽度，把空间留给对话区。
@@ -161,8 +164,14 @@ func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
 		})
 }
 
-// chatPane 画自适应对话列。会话头部、消息流与输入区由 05 号票接入。
+// chatPane 画自适应对话列。内容经 ChatView 委托给 05 号票的聊天视图
+// （会话头部、消息流与输入区）；未注入时画占位文本。
 func (s *Shell) chatPane(c *mygo.Context, pal *Palette) mygo.Element {
+	if s.ChatView != nil {
+		return mygo.Column(c).Fill().Children(func() {
+			s.ChatView(c, pal)
+		})
+	}
 	return mygo.Column(c).Fill().
 		Background(pal.ChatBg).
 		Children(func() {

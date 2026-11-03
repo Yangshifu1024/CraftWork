@@ -108,6 +108,9 @@ func (s *Sidebar) Groups() []Group {
 // ActiveID 返回当前模式选中的会话 Id。
 func (s *Sidebar) ActiveID() string { return s.active[s.Mode] }
 
+// ActiveInMode 返回指定模式记忆的选中会话 Id（05 号票聊天列恢复选中用）。
+func (s *Sidebar) ActiveInMode(m Mode) string { return s.active[NormalizeMode(string(m))] }
+
 // Collapses 返回折叠与分页记忆（view 读取）。
 func (s *Sidebar) Collapses() Collapses { return s.coll }
 

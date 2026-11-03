@@ -28,6 +28,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	cwchat "github.com/yangshifu1024/craftwork/internal/ui/chat"
 	cwsidebar "github.com/yangshifu1024/craftwork/internal/ui/sidebar"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
@@ -44,26 +45,38 @@ const (
 // 事件总线在装配早期就需要一个派发函数，而窗口要到 WhenReady 里才创建，
 // 因此这里用一层可延迟绑定的包装，读路径加读锁保证并发安全。
 type emitter struct {
-	// mu 保护 win 指针，允许绑定与派发并发进行。
+	// mu 保护 win 与 batchHandler 指针，允许绑定与派发并发进行。
 	mu sync.RWMutex
 	// win 是主窗口，未绑定时为 nil。
 	win *mygo.Window
+	// onBatch 是界面侧的批次处理入口（05 号票聊天列的 reducer 派发），
+	// 装配聊天列后设置；为空时事件进主线程即止。
+	onBatch func(batch events.Batch)
 }
 
 // emit 把一批事件转交给主线程；窗口尚未绑定时直接丢弃——与 Wails 时期
 // 「应用未创建前事件丢弃」的语义一致。win.Update 保证回调在主线程执行，
-// 界面在下一帧统一消费；界面状态装配完成前（后续 UI 票接线）回调为空，
-// 事件进主线程即止。
+// 界面在下一帧统一消费。
 func (e *emitter) emit(batch events.Batch) {
 	e.mu.RLock()
 	current := e.win
+	handler := e.onBatch
 	e.mu.RUnlock()
 	if current == nil {
 		return
 	}
 	current.Update(func() {
-		// 界面状态装配（后续 UI 票）会在这里把 batch 写进界面状态。
+		if handler != nil {
+			handler(batch)
+		}
 	})
+}
+
+// setBatchHandler 在装配聊天列后登记批次处理入口（主线程状态写入）。
+func (e *emitter) setBatchHandler(fn func(batch events.Batch)) {
+	e.mu.Lock()
+	e.onBatch = fn
+	e.mu.Unlock()
 }
 
 // bind 在主窗口创建完成后记录实例，后续事件即可正常进主线程。
@@ -188,12 +201,9 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：chat / provider / document / mcp
-	// 仍由后续 UI 票按槽位接入；侧栏（04 号票）已经接线。
-	_ = []any{
-		appService, chatService,
-		providerService, documentService, mcpService,
-	}
+	// native UI 的 view 直调服务方法：provider / document / mcp 仍由
+	// 后续 UI 票按槽位接入；侧栏（04 号票）与聊天列（05 号票）已经接线。
+	_ = []any{providerService, documentService, mcpService}
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
 	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
@@ -240,7 +250,37 @@ func Run(build version.Info) error {
 		func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
 		confirmDeleteDialog(),
 	)
-	sidebarState.SetActions(sidebarClient.Actions())
+
+	// 聊天列（05 号票）：状态壳 + 服务接线。事件总线经 emitter 桥进主线程
+	// 后交给 reducer 派发；需要刷新会话列表时联动侧栏 Refresh。
+	chatState := cwchat.NewChat()
+	shell.ChatView = chatState.View
+	cwchat.SetAppService(appService)
+	chatClient := cwchat.NewClient(
+		chatState, chatService, threadService, workspaceService,
+		emitter.update,
+		sidebarClient.Refresh,
+		func(id string) { sidebarState.Select(id) },
+		func(mode string) string { return sidebarState.ActiveInMode(cwsidebar.Mode(mode)) },
+	)
+	emitter.setBatchHandler(func(batch events.Batch) {
+		if chatClient.ApplyBatch(batch) {
+			// 其他会话有变更或一次运行收尾：侧栏列表的排序与状态跟上数据库。
+			sidebarClient.Refresh()
+		}
+	})
+
+	// 侧栏动作接缝（04 号票留下的接线位）：选中会话 → 聊天列加载快照；
+	// 模式切换 → 聊天列同步兜底模式并加载该模式的选中 / 第一条会话。
+	acts := sidebarClient.Actions()
+	acts.SelectThread = chatClient.SelectThread
+	switchMode := acts.SwitchMode
+	acts.SwitchMode = func(m cwsidebar.Mode) {
+		chatState.SetFallbackMode(cwchat.ModeFromSidebar(string(m)))
+		switchMode(m)
+		chatClient.SelectThreadOrFirst(sidebarState.ActiveInMode(m), string(m))
+	}
+	sidebarState.SetActions(acts)
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -263,6 +303,10 @@ func Run(build version.Info) error {
 		emitter.bind(win)
 		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
 		sidebarClient.Boot()
+		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
+		chatClient.Boot(settingsService.Get().Mode)
+		// 审批档位的中文短标签（Composer 只读展示；浮层归 07 号票）。
+		chatState.SetApprovalLevel(levelLabel(settingsService.Get().ApprovalLevel))
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
@@ -280,6 +324,20 @@ func Run(build version.Info) error {
 	go mcpService.Restore()
 
 	return mygo.App.Run()
+}
+
+// levelLabel 返回审批档位的中文短标签（Composer.tsx levelLabel 同表）。
+func levelLabel(level string) string {
+	switch level {
+	case "strict":
+		return "严格"
+	case "readonly":
+		return "只读"
+	case "free":
+		return "自由"
+	default:
+		return "分级"
+	}
 }
 
 // confirmDeleteDialog 返回侧栏删除确认的原生实现（04 号票的简易路径）：
