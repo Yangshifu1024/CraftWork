@@ -391,10 +391,10 @@ func Run(build version.Info) error {
 		sidebarClient.Boot()
 		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
 		chatClient.Boot(settingsService.Get().Mode)
-		// 审批档位的中文短标签（Composer 只读展示，档位切换在设置里改；
-		// 07 号票浮层体系已合入，Composer 未挂浮层入口），原始档位供
-		// 审批卡判断永久授权按钮的显隐。
-		chatState.SetApprovalLevel(levelLabel(settingsService.Get().ApprovalLevel))
+		// 审批档位的中文短标签（Composer 只读展示；与审计说明共用
+		// service.ApprovalLevelName 一张表），原始档位供审批卡判断永久
+		// 授权按钮的显隐。
+		chatState.SetApprovalLevel(service.ApprovalLevelName(settingsService.Get().ApprovalLevel))
 		chatState.SetApprovalLevelRaw(settingsService.Get().ApprovalLevel)
 	})
 
@@ -419,20 +419,6 @@ func Run(build version.Info) error {
 	go mcpService.Restore()
 
 	return mygo.App.Run()
-}
-
-// levelLabel 返回审批档位的中文短标签（Composer.tsx levelLabel 同表）。
-func levelLabel(level string) string {
-	switch level {
-	case "strict":
-		return "严格"
-	case "readonly":
-		return "只读"
-	case "free":
-		return "自由"
-	default:
-		return "分级"
-	}
 }
 
 // wireOverlayHooks 把浮层体系的跨视图钩子接到侧栏编排与外壳 / 面板状态：

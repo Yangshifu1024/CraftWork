@@ -219,7 +219,7 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 			Risk:     levelWidestRisk(next.ApprovalLevel).String(),
 			Decision: "update",
 			Scope:    "user",
-			Detail:   "审批档位：" + approvalLevelName(current.ApprovalLevel) + " → " + approvalLevelName(next.ApprovalLevel),
+			Detail:   "审批档位：" + ApprovalLevelName(current.ApprovalLevel) + " → " + ApprovalLevelName(next.ApprovalLevel),
 		}); err != nil {
 			return next, err
 		}
@@ -228,8 +228,10 @@ func (s *SettingsService) Save(next Settings) (Settings, error) {
 	return next, nil
 }
 
-// approvalLevelName 返回审批档位的中文短标签（审计说明用）。
-func approvalLevelName(level string) string {
+// ApprovalLevelName 返回审批档位的中文短标签（分级 / 严格 / 只读 / 自由）。
+// 审计说明与界面只读展示（app 装配同步、composer 档位回调）共用本表，
+// 不再各留一份（review 修复轮：原私有 approvalLevelName 收敛导出）。
+func ApprovalLevelName(level string) string {
 	switch policy.ParseLevel(level) {
 	case policy.LevelStrict:
 		return "严格"

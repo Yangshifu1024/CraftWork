@@ -21,6 +21,7 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
+	"github.com/yangshifu1024/craftwork/internal/service"
 	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
@@ -530,24 +531,10 @@ func (s *Chat) modelLabel() string {
 func (s *Chat) levelLabel() string { return s.approvalLevel }
 
 // approvalLevelSynced 是档位浮层保存成功后的同步回调（帧内执行）：把新
-// 档位同步进输入区只读展示，语义与装配时的 SetApprovalLevel 一致。
+// 档位同步进输入区只读展示，语义与装配时的 SetApprovalLevel 一致；中文
+// 短标签与审计说明共用 service.ApprovalLevelName 一张表。
 func (s *Chat) approvalLevelSynced(level string) {
-	s.approvalLevel = approvalLevelLabelOf(level)
-}
-
-// approvalLevelLabelOf 返回档位原始值的中文短标签（与 app.levelLabel /
-// React Composer.tsx levelLabel 同表；两处表收敛待 review 轮处理）。
-func approvalLevelLabelOf(level string) string {
-	switch level {
-	case "strict":
-		return "严格"
-	case "readonly":
-		return "只读"
-	case "free":
-		return "自由"
-	default:
-		return "分级"
-	}
+	s.approvalLevel = service.ApprovalLevelName(level)
 }
 
 // contextDetail 组装上下文详情快照（contextHint 同口径）：实测优先、估算
