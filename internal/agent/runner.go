@@ -928,9 +928,9 @@ func (r *Runner) canceled(thread store.Thread, runID, messageID string, startedA
 // retryable 表示用户是否可以原样重试；false 通常意味着需要调整配置或输入。
 // startedAt 的含义与 complete 一致，失败事件同样携带已进行的时长。
 func (r *Runner) fail(thread store.Thread, runID, messageID, code, message string, retryable bool, startedAt time.Time) {
-	_ = r.db.FinishRun(runID, "error", code, message)
-	_ = r.records.SetThreadStatus(thread.ID, runID, "error")
-
+	// 错误部件先于状态落库：等待方以「会话进入 error」为完成信号读取
+	// 快照（Runner 测试与前端刷新都是这个顺序），部件后写会留下读到
+	// 半状态的窗口——CI 上偶发的 max_iterations 快照缺失即来自这里。
 	partID := id.New("part")
 	payload := map[string]any{
 		"partId":    partID,
@@ -939,6 +939,8 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"retryable": retryable,
 	}
 	r.persist(thread.ID, messageID, runID, partID, "error", payload)
+	_ = r.db.FinishRun(runID, "error", code, message)
+	_ = r.records.SetThreadStatus(thread.ID, runID, "error")
 	r.records.Emit(events.TypeRunFailed, thread.ID, runID, map[string]any{
 		"status":     "error",
 		"code":       code,
