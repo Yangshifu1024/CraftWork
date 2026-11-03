@@ -1,6 +1,6 @@
 # 10. 收尾：快捷键动效、打包、清理与文档同步
 
-Status: needs-triage
+Status: ready-for-agent
 
 ## 背景
 
