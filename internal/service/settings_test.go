@@ -3,8 +3,66 @@ package service
 import (
 	"testing"
 
+	"github.com/yangshifu1024/craftwork/internal/events"
 	"github.com/yangshifu1024/craftwork/internal/model"
+	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/store"
 )
+
+// newSettingsService 起一个落在临时目录的设置服务（审计用例的公共底座）。
+func newSettingsService(t *testing.T) *SettingsService {
+	t.Helper()
+	db, err := store.Open(t.TempDir() + "/settings.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	bus := events.NewBus(func(events.Batch) {})
+	t.Cleanup(bus.Close)
+	return NewSettingsService(db, bus, policy.New(policy.LevelGraded))
+}
+
+func TestSaveApprovalLevelSwitchWritesAudit(t *testing.T) {
+	svc := newSettingsService(t)
+
+	// 默认档是分级；切到严格应留一条可追溯的审计记录。
+	next, err := svc.Save(Settings{ApprovalLevel: "strict"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ApprovalLevel != "strict" {
+		t.Fatalf("保存后的档位不符: %s", next.ApprovalLevel)
+	}
+	entries, err := svc.db.ListAudit(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("档位切换应写一条审计，实际 %d 条", len(entries))
+	}
+	entry := entries[0]
+	if entry.Tool != "approval_level" {
+		t.Errorf("审计 Tool 不符: %s", entry.Tool)
+	}
+	if entry.Detail == "" {
+		t.Errorf("审计 Detail 应包含档位说明")
+	}
+	if entry.Scope != "user" {
+		t.Errorf("审计 Scope 应为 user: %s", entry.Scope)
+	}
+
+	// 保存其他设置（档位未变）不应再写审计。
+	if _, err := svc.Save(Settings{ApprovalLevel: "strict", FontSize: 14}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = svc.db.ListAudit(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("档位未变不应写审计，实际 %d 条", len(entries))
+	}
+}
 
 func TestNormalizeModelSettings(t *testing.T) {
 	t.Cleanup(func() { model.SetCustomProviders(nil) })
