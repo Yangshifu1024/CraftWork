@@ -216,8 +216,9 @@ func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enable
 	return clicked
 }
 
-// contextHint 画上下文占用：百分比文本 + 速度（<50% 灰、50–80% 黄、
-// ≥80% 红）。详情浮层归 07 号票，这里做只读展示。
+// contextHint 画上下文占用：圆环 + 百分比文本 + 速度（<50% 灰、50–80% 黄、
+// ≥80% 红；与审批告警色同源）。速度生成中用实时估算（字符/4 ÷ 秒），
+// 空闲时显示最近一轮的后端实测值。详情浮层归 07 号票，这里做只读展示。
 func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	used, max, speed := s.contextStats()
 	if max <= 0 {
@@ -231,13 +232,81 @@ func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 	case percent >= 50:
 		color = v.pal.Warn
 	}
+	// 实时速度估算（Composer.tsx liveSpeed 同口径）：统计当前流式回复的
+	// 字符数，按每 4 字符约 1 token 折算，除以自首个增量起的秒数；
+	// 流式结束清零，由最近一轮的真实速度（thread.contextSpeed）接管。
+	live := s.liveSpeed()
+	shown := speed
+	if s.Running() && live > 0 {
+		shown = live
+	}
 	speedLabel := "—"
-	if speed > 0 {
-		speedLabel = strconv.Itoa(int(speed)) + " tok/s"
+	if shown > 0 {
+		speedLabel = strconv.Itoa(int(shown)) + " tok/s"
 	}
 	mygo.Row(c).Gap(ui.Space2).AlignItems(mygo.Center).Children(func() {
-		mygo.Text(c, speedLabel).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text3)
+		contextRing(c, 14, 2, float32(percent)/100, v.pal.Border, color)
 		mygo.Text(c, strconv.Itoa(percent)+"%").FontSize(ui.Fonts.XS()).TextColor(color)
+		mygo.Text(c, speedLabel).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text3)
+	})
+}
+
+// liveSpeed 返回运行中流式输出的实时速度估算；没有流式正文时归零。
+func (s *Chat) liveSpeed() float64 {
+	characters := 0
+	for _, m := range s.slice.Messages {
+		if m.Role != RoleAssistant || m.Status != StatusStreaming {
+			continue
+		}
+		for i := range m.Parts {
+			if m.Parts[i].Kind == PartText {
+				characters += len([]rune(strOf(m.Parts[i].Data, "text")))
+			}
+		}
+	}
+	if characters == 0 {
+		s.streamStartMs = 0
+		return 0
+	}
+	if s.streamStartMs == 0 {
+		s.streamStartMs = time.Now().UnixMilli()
+	}
+	elapsed := float64(time.Now().UnixMilli()-s.streamStartMs) / 1000
+	if elapsed <= 0 {
+		return 0
+	}
+	return float64(characters) / 4 / elapsed
+}
+
+// contextRing 画上下文占用圆环（ContextRing.tsx 的移植）：SVG dasharray
+// 语义用 mygo 的 Draw 弧线实现——底环整圆描边，进度弧按 ratio 钳制后从
+// 12 点方向顺时针描边，颜色三档（调用方给色）。
+func contextRing(c *mygo.Context, size, strokeWidth float32, ratio float32, base, color mygo.Color) {
+	box := mygo.Box(c).Size(size, size)
+	radius := (size - strokeWidth) / 2
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1 // 超出窗口时画满环（红色档自然生效）
+	}
+	box.Draw(func(p *mygo.Painter, r mygo.Rect) {
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		// 底环：完整圆（SVG circle 底描边同位）。
+		var full mygo.Path
+		full.Circle(cx, cy, radius)
+		p.StrokePath(&full, strokeWidth, base)
+		if ratio <= 0 {
+			return
+		}
+		// 进度弧：Trim 按比例取圆的一部分，旋转 -90° 让起点在 12 点方向
+		//（ContextRing 的 rotate(-90) 同语义）。
+		var arc mygo.Path
+		arc.Circle(cx, cy, radius)
+		arc.Trim(0, ratio)
+		p.Transform(mygo.Rotation(-90), cx, cy, func() {
+			p.StrokePath(&arc, strokeWidth, color)
+		})
 	})
 }
 

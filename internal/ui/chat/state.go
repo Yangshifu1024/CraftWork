@@ -115,6 +115,14 @@ type Chat struct {
 	// acts 是服务动作入口；SetActions 注入。
 	acts *Actions
 
+	// update 把回调投回主线程（缩略图等后台加载完成后的写回通道）；
+	// Client 构造时经 SetUpdate 注入，nil 时后台结果丢弃（单测路径）。
+	update func(fn func())
+
+	// streamStartMs 是当前流式回复首个增量的本地起点（实时速度估算用；
+	// 没有流式正文时归零）。
+	streamStartMs int64
+
 	// mdOpts 是共享的 Markdown 渲染选项（解析缓存随视图帧保持），
 	// mdTheme 是它的主题（每帧从当前色板同步，跟随系统深浅切换）。
 	mdOpts  markdown.Options
@@ -131,6 +139,9 @@ func NewChat() *Chat {
 
 // SetActions 注入服务动作集合（app.go 装配时调用一次；nil 合法）。
 func (s *Chat) SetActions(a *Actions) { s.acts = a }
+
+// SetUpdate 注入主线程投递通道（Client 构造时调用；nil 合法）。
+func (s *Chat) SetUpdate(fn func(fn func())) { s.update = fn }
 
 // Actions 返回动作集合（view 读取）。
 func (s *Chat) Actions() *Actions { return s.acts }
