@@ -53,6 +53,8 @@ type Shell struct {
 	workspaceSvc *service.WorkspaceService
 	// documentSvc 提供文档预览。
 	documentSvc *service.DocumentService
+	// settingsSvc 提供设置快照（终端字号等）。
+	settingsSvc *service.SettingsService
 	// win 是主窗口：面板后台 IO 的结果经 win.Update 回主线程。
 	win *cwmygo.Window
 	// wsCache / wsCacheAt 是活动工作区的短 TTL 缓存。
@@ -74,6 +76,12 @@ func NewShell() *Shell {
 		Thread:        func() string { return "" },
 		WorkspacesSvc: func() *service.WorkspaceService { return s.workspaceSvc },
 		DocumentsSvc:  func() *service.DocumentService { return s.documentSvc },
+		Settings: func() service.Settings {
+			if s.settingsSvc == nil {
+				return service.DefaultSettings()
+			}
+			return s.settingsSvc.Get()
+		},
 		Update: func(fn func()) {
 			if s.win != nil {
 				s.win.Update(fn)
@@ -93,9 +101,28 @@ func (s *Shell) SetPanelServices(workspace *service.WorkspaceService, document *
 	s.documentSvc = document
 }
 
+// SetSettingsService 注入设置服务（终端字号等设置项的面板数据源）。
+func (s *Shell) SetSettingsService(settings *service.SettingsService) {
+	s.settingsSvc = settings
+}
+
+// Shutdown 回收面板持有的长生命周期资源（终端进程等）。窗口关闭 /
+// 应用退出时由装配层调用。
+func (s *Shell) Shutdown() {
+	s.pane.Shutdown()
+}
+
+// smokeSeed 是 GUI 冒烟的装配钩子（cwsmoke 构建标签下由 smoke_cwsmoke.go
+// 注册，正常构建恒为 nil）：窗口绑定后把界面状态预置到截图走查需要的
+// 形态（打开终端 / 差异 tab、固定窗口位置），免键鼠驱动。
+var smokeSeed func(s *Shell)
+
 // BindWindow 在窗口创建后记录实例，面板后台 IO 的结果经它回主线程。
 func (s *Shell) BindWindow(win *cwmygo.Window) {
 	s.win = win
+	if smokeSeed != nil {
+		win.Update(func() { smokeSeed(s) })
+	}
 }
 
 // activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。

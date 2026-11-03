@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
@@ -62,6 +63,8 @@ type PaneDeps struct {
 	WorkspacesSvc func() *service.WorkspaceService
 	// DocumentsSvc 返回文档预览服务（Word / Excel / PDF 文本级）。
 	DocumentsSvc func() *service.DocumentService
+	// Settings 返回当前设置快照（终端字号等）；nil 时用默认值。
+	Settings func() service.Settings
 	// Update 把回调切到主线程执行（窗口 win.Update）；为 nil 时同步执行。
 	Update func(fn func())
 	// Collapse 请求外壳收起面板（末 tab 关闭 / 关闭全部时）。
@@ -91,6 +94,24 @@ type Pane struct {
 	// 文档（Word / Excel / PDF）预览单槽与加载标记。
 	doc        *service.DocumentPreview
 	docLoading bool
+
+	// 差异 singleton tab 的数据槽（单份全局，对齐 React 版 workspace
+	// store 的 diff）与视图方式记忆（0 统一 / 1 并排，跨打开保留）。
+	diff        *DiffSlot
+	diffViewIdx int
+	// 终端会话状态（plugins/terminal 自管 PTY）：见 panel_terminal.go。
+	termRequested  bool
+	term           *terminal.Terminal
+	termErr        error
+	termTitle      string
+	termExited     bool
+	termExitCode   int
+	termGen        int
+	termWsID       string
+	termDir        string
+	termFont       int
+	termSettings   service.Settings
+	termSettingsAt time.Time
 
 	// 文件树状态：组合键（folderID|path）到子节点、展开状态、过滤关键字、
 	// Git 字母与加载防重入标记。
@@ -334,8 +355,8 @@ func (p *Pane) ActivateTab(tabID string) {
 // 可见集清空时收起面板。file tab 的数据槽与 tab 同生共死。
 func (p *Pane) CloseTab(tabID string) {
 	// 关闭终端 tab：全局开关复位，其他工作区的桶静默移除；当前桶交给
-	// 下面的统一提交（删除 + 入最近关闭栈）。重开终端 tab 时会话仍在
-	// （会话管理归 09 号票）。
+	// 下面的统一提交（删除 + 入最近关闭栈）。终端会话不随 tab 关闭：
+	// 重开 tab 重新接上（会话随窗口关闭 / 工作区切换 / 用户重起回收）。
 	if tabID == cwpanel.TerminalTabID && p.terminalOpen {
 		p.terminalOpen = false
 		current := p.scope().WorkspaceID
@@ -755,25 +776,16 @@ func (p *Pane) content(c *mygo.Context, pal *Palette, visible []cwpanel.Tab, act
 	case cwpanel.TabFile:
 		p.editorView(c, pal, *active)
 	case cwpanel.TabDiff:
-		// 差异 tab：由 09 号票接入（editor.DiffView），本票渲染空态占位。
-		panePlaceholder(c, pal, "diff", "差异预览", "由 09 号票接入")
+		// 差异 tab：数据槽为空时由 diffView 自显空态。
+		p.diffView(c, pal)
 	case cwpanel.TabTerminal:
-		// 终端 tab：由 09 号票接入（plugins/terminal），本票渲染空态占位。
-		panePlaceholder(c, pal, "terminal", "终端", "由 09 号票接入")
+		// 终端 tab：会话惰性创建与重起都在 terminalView 里保证。
+		p.terminalView(c, pal)
 	case cwpanel.TabDocument:
 		p.docView(c, pal, *active)
 	default:
 		p.filesView(c, pal)
 	}
-}
-
-// panePlaceholder 画 09 号票接入前的空态占位。
-func panePlaceholder(c *mygo.Context, pal *Palette, icon, title, hint string) {
-	mygo.Column(c).Grow(1).Center().Gap(6).Children(func() {
-		Icon(c, icon).FontSize(22).TextColor(pal.Text4)
-		mygo.Text(c, title).TextColor(pal.Text2)
-		mygo.Text(c, hint).FontSize(Fonts.SM()).TextColor(pal.Text3)
-	})
 }
 
 // baseName 取路径的最后一段作为展示名。

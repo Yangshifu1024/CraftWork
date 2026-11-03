@@ -227,9 +227,11 @@ func Run(build version.Info) error {
 	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
 
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
-	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务。
+	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务，
+	// 09 号票的终端（plugins/terminal 自管 PTY）经设置服务读字号。
 	shell := cwui.NewShell()
 	shell.SetPanelServices(workspaceService, documentService)
+	shell.SetSettingsService(settingsService)
 
 	// 侧栏（04 号票）：状态壳 + 服务接线。异步动作在 goroutine 里调服务，
 	// 结果经 emitter.update（win.Update）回主线程写状态。
@@ -265,6 +267,9 @@ func Run(build version.Info) error {
 		emitter.bind(win)
 		// 面板的后台 IO（文件树、读写、保存）结果经窗口回主线程。
 		shell.BindWindow(win)
+		// 窗口关闭 / 应用退出回收面板的终端进程（插件挂断 PTY，不留
+		// 孤儿 shell）。
+		win.OnClosed(func() { shell.Shutdown() })
 		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
 		sidebarClient.Boot()
 	})
