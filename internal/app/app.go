@@ -294,6 +294,9 @@ func Run(build version.Info) error {
 	// 模式切换 → 聊天列同步兜底模式并加载该模式的选中 / 第一条会话。
 	acts := sidebarClient.Actions()
 	acts.SelectThread = chatClient.SelectThread
+	// ⌘N 新建会话与侧栏 + / 命令面板走同一条侧栏编排路径（10 号票
+	// 快捷键全表）。
+	shell.NewThread = sidebarClient.CreateThreadInActive
 	// path:line 引用（markdown.OnLink → craftwork://）→ 面板打开文件定位行。
 	// 审批卡的「查看完整差异」→ 面板差异槽（09 号票 OpenDiff，「应用全部」
 	// 走面板的 WriteFile 链路）；标题按主要目录的相对路径解析（09 号票

@@ -54,6 +54,15 @@ type Shell struct {
 	// EscapeKey 处理窗口级 Esc 的聊天列两级（06 号票注入：运行中双击
 	// 停止、待审批 Esc=拒绝）；返回 true 表示按键已消费。
 	EscapeKey func() bool
+	// NewThread 新建当前模式的会话（⌘N 用，装配注入侧栏的
+	// CreateThreadInActive；未注入时 ⌘N 不消费按键）。
+	NewThread func()
+
+	// panelFocus 是面板区域是否持有键盘焦点（panelPane 每帧经
+	// FocusWithin 写入）：Esc 退出链据此跳过「关闭激活 tab」层级——
+	// 焦点在面板内（终端 / 编辑器 / 过滤框）时 Esc 是输入本身，
+	// 不能被窗口快捷键抢走（React 版 isEditingInsidePanel 同语义）。
+	panelFocus bool
 
 	// pane 是面板（08 号票）：多 tab 状态 + 文件树 + 编辑器。依赖由
 	// SetPanelServices / BindWindow 注入，未注入时面板渲染空态。
@@ -322,7 +331,7 @@ func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
 	// 面板内容：多 tab 状态机（internal/ui/panel）+ 文件树 / 编辑器；
 	// 末 tab 关闭 / 关闭全部会经 Collapse 回调把 panelOpen 置 false，
 	// 下一帧这里整体消失。
-	mygo.Column(c).Fill().
+	pane := mygo.Column(c).Fill().
 		Background(pal.SidebarBg).
 		BorderWidth(0, 0, 0, 1).
 		BorderColor(pal.Border).
@@ -335,9 +344,12 @@ func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
 				s.panelReset = true
 			}
 		})
+	// 焦点守卫：焦点（终端 / 编辑器 / 过滤框）落在面板内时，RootView 不
+	// 注册窗口级 Esc，键盘输入完整交给焦点元素（HandleWindowEscape 注释）。
+	s.panelFocus = pane.FocusWithin()
 }
 
-// TogglePanel 切换面板展开 / 收起偏好（命令面板用；窄窗自动收起不改它）。
+// TogglePanel 切换面板展开 / 收起偏好（命令面板与 ⌘B 用；窄窗自动收起不改它）。
 func (s *Shell) TogglePanel() { s.panelOpen = !s.panelOpen }
 
 // PanelOpen 报告面板是否展开（命令面板据此显示动作方向）。
@@ -345,3 +357,38 @@ func (s *Shell) PanelOpen() bool { return s.panelOpen }
 
 // ClosePanelActiveTab 关闭面板当前工作区桶的激活 tab（命令面板 ⌘W 用）。
 func (s *Shell) ClosePanelActiveTab() { s.pane.CloseActiveTab() }
+
+// PanelHasActiveTab 报告面板当前是否有激活 tab（⌘W 是否消费按键用）。
+func (s *Shell) PanelHasActiveTab() bool { return s.pane.HasActiveTab() }
+
+// PanelHasFocus 报告键盘焦点是否在面板区域内（panelPane 每帧写入）。
+func (s *Shell) PanelHasFocus() bool { return s.panelFocus }
+
+// HandleWindowEscape 处理窗口级 Esc 退出链。浮层模态（命令面板、设置、
+// 数据、图片预览、全局对话框）由 DialogBase 的 OverlayShortcut 在更上层
+// 消费 Esc，走不到这里；本函数接 React AppShell Esc 链的剩余层级：
+//
+//  1. 焦点在面板内（终端 / 编辑器 / 过滤框）：Esc 是输入本身，整链跳过
+//     （RootView 据此不注册 Esc，让焦点元素先拿到按键）；
+//  2. 面板激活 tab：关闭它；
+//  3. 面板最大化还原：08 号票未实现最大化形态，留桩；
+//  4. 聊天列两级（EscapeKey）：运行中双击 Esc 停止（800ms 确认窗）、
+//     空闲但有待审批时拒绝最后一条。
+//
+// 输入法组合期间的按键不会到达这里：mygo 把组合串作为 TextComposition
+// 事件直送焦点文本控件，不产生 keyDown，Esc 取消候选由输入法自行消费
+// （React 版 isComposing 守卫的等价物）。
+func (s *Shell) HandleWindowEscape() {
+	if s.panelFocus {
+		return
+	}
+	if s.pane.HasActiveTab() {
+		s.pane.CloseActiveTab()
+		return
+	}
+	// 最大化还原留桩：面板最大化形态未实现（见 panelPane 注释），
+	// 实现后在这里先于聊天列两级消费。
+	if s.EscapeKey != nil {
+		s.EscapeKey()
+	}
+}

@@ -164,3 +164,87 @@ func TestShellViewPanelDragClampAndDoubleClick(t *testing.T) {
 		t.Errorf("双击恢复后占位文本 X = %v, want 约 %v", restored.X, at320.X)
 	}
 }
+
+func TestShellEscapeChainClosesPanelTab(t *testing.T) {
+	s, tt := newShellTester(t)
+	tt.Frame()
+	if s.PanelHasActiveTab() {
+		t.Fatalf("空面板不应有激活 tab")
+	}
+	// 打开一个差异 tab（singleton，无需服务）：Esc 第一层关闭它。
+	s.pane.OpenDiffTab("notes.txt")
+	tt.Frame()
+	if !s.PanelHasActiveTab() {
+		t.Fatalf("OpenDiffTab 后应有激活 tab")
+	}
+	s.HandleWindowEscape()
+	tt.Frame()
+	if s.PanelHasActiveTab() {
+		t.Fatalf("Esc 应关闭面板激活 tab")
+	}
+}
+
+func TestShellEscapeChainFallsThroughToChat(t *testing.T) {
+	s, tt := newShellTester(t)
+	tt.Frame()
+	calls := 0
+	s.EscapeKey = func() bool { calls++; return true }
+	// 无 tab 且无焦点守卫：落到聊天列两级。
+	s.HandleWindowEscape()
+	if calls != 1 {
+		t.Fatalf("无 tab 时应落到聊天列两级，调用 %d 次", calls)
+	}
+	// 焦点在面板内：整链跳过（终端把 Esc 当输入）。
+	s.panelFocus = true
+	s.HandleWindowEscape()
+	if calls != 1 {
+		t.Fatalf("焦点守卫应跳过整条链，实际调用 %d 次", calls)
+	}
+}
+
+func TestShellViewShortcuts(t *testing.T) {
+	s := NewShell()
+	chatEsc := 0
+	s.EscapeKey = func() bool { chatEsc++; return true }
+	newThreads := 0
+	s.NewThread = func() { newThreads++ }
+	tt := mygo.NewTester(RootView(s), 1440, 900)
+	tt.Frame()
+
+	// ⌘W 无激活 tab：不消费（无菜单接管，按键落空）。
+	tt.Key(mygo.Cmd, mygo.KeyW)
+	tt.Frame()
+	if s.PanelHasActiveTab() {
+		t.Fatalf("⌘W 不应凭空建 tab")
+	}
+	// ⌘N 走侧栏编排。
+	tt.Key(mygo.Cmd, mygo.KeyN)
+	tt.Frame()
+	if newThreads != 1 {
+		t.Fatalf("⌘N 应新建会话一次，实际 %d 次", newThreads)
+	}
+	// ⌘B 开合面板。
+	open := s.PanelOpen()
+	tt.Key(mygo.Cmd, mygo.KeyB)
+	tt.Frame()
+	if s.PanelOpen() == open {
+		t.Fatalf("⌘B 应切换面板偏好")
+	}
+	// 打开 tab 后 Esc（走 RootView 的退出链注册）关闭它，而非聊天列两级。
+	s.pane.OpenDiffTab("a.txt")
+	tt.Frame()
+	tt.Key(0, mygo.KeyEscape)
+	tt.Frame()
+	if s.PanelHasActiveTab() {
+		t.Fatalf("Esc 应经 RootView 关闭激活 tab")
+	}
+	if chatEsc != 0 {
+		t.Fatalf("有 tab 时 Esc 不应落到聊天列两级，实际 %d 次", chatEsc)
+	}
+	// 再按一次：落到聊天列两级（消费）。
+	tt.Key(0, mygo.KeyEscape)
+	tt.Frame()
+	if chatEsc != 1 {
+		t.Fatalf("无层级时 Esc 应落到聊天列两级，实际 %d 次", chatEsc)
+	}
+}

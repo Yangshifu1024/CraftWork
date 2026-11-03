@@ -831,3 +831,11 @@ func (p *Pane) CloseActiveTab() {
 	}
 	p.CloseTab(b.state.ActiveTabID)
 }
+
+// HasActiveTab 报告当前工作区桶是否有激活 tab（⌘W 与窗口级 Esc 退出链
+// 据此决定是否拦截按键：没有 tab 时不消费，保持与 React 版一致）。
+// 只读查询：与 CloseActiveTab 不同，这里不惰性创建桶。
+func (p *Pane) HasActiveTab() bool {
+	b, ok := p.buckets[p.scope().WorkspaceID]
+	return ok && b != nil && b.state.ActiveTabID != ""
+}
