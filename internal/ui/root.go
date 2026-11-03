@@ -29,12 +29,3 @@ func RootView(shell *Shell) func(c *mygo.Context) {
 		overlays.View(c)
 	}
 }
-
-// BindOverlayHooks 把浮层触达外壳状态的回调接线到当前 Shell：
-// 面板展开 / 收起是外壳自己的状态，其余钩子等 04 / 05 / 08 号票合入后补。
-func BindOverlayHooks(shell *Shell) {
-	overlays.BindHooks(overlays.Hooks{
-		TogglePanel: func() { shell.panelOpen = !shell.panelOpen },
-		PanelOpen:   func() bool { return shell.panelOpen },
-	})
-}

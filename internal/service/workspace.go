@@ -190,10 +190,21 @@ func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
 		return WorkspaceView{}, err
 	}
+	// 主要目录同样落一条文件夹记录：没有它，GetWorkspace 每次都会合成
+	// 一个新的 folder ID，跨调用携带 folderID 的读写（定位后重读等）
+	// 会得到「源文件夹不存在」。
+	if err := s.db.ReplaceWorkspaceFolders(workspace.ID, []string{abs}); err != nil {
+		return WorkspaceView{}, err
+	}
 	if err := s.activate(workspace); err != nil {
 		return WorkspaceView{}, err
 	}
-	return toWorkspaceView(*workspace), nil
+	// 重新读取以装配文件夹列表，返回值与 List 接口口径一致。
+	saved, err := s.db.GetWorkspace(workspace.ID)
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	return toWorkspaceView(*saved), nil
 }
 
 // AddProject 创建一个多文件夹项目并设为当前活动工作区。

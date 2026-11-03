@@ -153,7 +153,7 @@ func TestPaletteCommandsAndFilter(t *testing.T) {
 	BindHooks(Hooks{
 		NewThread:  func() {},
 		OpenThread: func(string) {},
-		OpenFile:   func(string, string) {},
+		OpenFile:   func(string, int) {},
 	})
 	TogglePalette()
 	tt.Frame()

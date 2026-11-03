@@ -191,6 +191,10 @@ type Palette struct {
 	SidebarHover mygo.Color // --sidebar-hover
 	ChatBg       mygo.Color // --chat-bg
 
+	// Dark 标记这套色板是否为深色外观：个别视觉细节（如文件树目录图标的
+	// 着色）在深浅两模式下取不同值。
+	Dark bool
+
 	// WorkMode 是 Work 模式的琥珀强调色组（Code 模式用 Accent 系字段）。
 	WorkMode AccentSet
 
@@ -228,6 +232,7 @@ func (p *Palette) ModeAccent(mode Mode) AccentSet {
 // darkPalette 返回深色色板（base.css :root 默认值）。
 func darkPalette() Palette {
 	return Palette{
+		Dark:       true,
 		Bg:         mygo.Hex("#0b0d11"),
 		BgSunken:   mygo.Hex("#08090c"),
 		BgPanel:    mygo.Hex("#101318"),
@@ -293,6 +298,7 @@ func darkPalette() Palette {
 // lightPalette 返回浅色色板（base.css html[data-theme="light"]）。
 func lightPalette() Palette {
 	return Palette{
+		Dark:       false,
 		Bg:         mygo.Hex("#eef0f4"),
 		BgSunken:   mygo.Hex("#e7eaf0"),
 		BgPanel:    mygo.Hex("#ffffff"),

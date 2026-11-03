@@ -55,8 +55,8 @@ type Hooks struct {
 	MaximizePanel func()
 	// ClosePanelTab 关闭面板当前标签页（08 号票接线）。
 	ClosePanelTab func()
-	// OpenFile 在面板打开文件（08 号票接线）。
-	OpenFile func(workspaceID, rel string)
+	// OpenFile 在面板打开文件并定位行（08 号票接线，OpenFileAt）。
+	OpenFile func(path string, line int)
 	// ProjectCreated 创建项目成功后刷新侧栏并新建会话（04 号票接线）。
 	ProjectCreated func(workspaceID string)
 }

@@ -88,6 +88,10 @@ const (
 	BaseFontSize = theme.BaseFontSize
 )
 
+// Fonts 是全局字号档（设置改基准字号后全档跟随；指针共享 theme 包的
+// 全局值，SetAppearance 更新后这里同步可见）。
+var Fonts = &theme.Fonts
+
 // Apply 把窗口主题切换为与当前外观（系统偏好或用户显式设置）匹配的
 // CraftWork 主题，并返回其色板。
 func Apply(c *mygo.Context) *Palette { return theme.Apply(c) }

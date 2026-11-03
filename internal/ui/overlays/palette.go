@@ -348,7 +348,7 @@ func (s *Store) paletteItems(c *mygo.Context, st *paletteState) []paletteItem {
 			sub:      f.path,
 			icon:     "file-code",
 			disabled: s.hooks.OpenFile == nil,
-			run:      func() { s.hooks.OpenFile(f.workspaceID, f.path) },
+			run:      func() { s.hooks.OpenFile(f.path, 0) },
 		})
 		shown++
 	}

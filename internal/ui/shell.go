@@ -2,15 +2,26 @@ package ui
 
 // 三栏外壳：顶部 48px 拖拽区、侧栏 268 固定、聊天列自适应、面板 Split
 // （320–760 可拖拽、双击恢复默认宽）。布局尺寸对照 docs/specs/interface.md；
-// 侧栏 / 聊天 / 面板的具体内容由 04 / 05 / 08 号票接入，这里放占位。
+// 侧栏 / 聊天的具体内容由 04 / 05 号票接入，面板槽位已由 08 号票接上
+// （tab 条 + 内容区，见 panelview.go）。
 
 import (
+	"time"
+
+	cwmygo "github.com/egoist/mygo"
 	mygo "github.com/egoist/mygo/ui"
+
+	"github.com/yangshifu1024/craftwork/internal/service"
 )
 
 // panelGripWidth 是面板左缘双击恢复条的宽度（DIP）；ui.Split 的拖拽把手
 // 盖住分隔线两侧各约 3 DIP，双击条落在它外侧。
 const panelGripWidth = float32(8)
+
+// wsCacheTTL 是活动工作区缓存的存活时间：面板每帧都要读当前工作区做
+// 可见性过滤，而 service.Active() 是两次 SQLite 查询，用短 TTL 缓存挡住
+// 帧率级的重复查询（工作区切换最迟 1 秒后被面板看到）。
+const wsCacheTTL = time.Second
 
 // Shell 持有三栏外壳的界面状态。立即模式约定：只在主线程（view 或
 // win.Update 回调）里读写，不放锁。
@@ -30,15 +41,79 @@ type Shell struct {
 	// splitW 是上一帧 split 区域的总宽：与当前一致说明宽度变化只能来自
 	// 拖拽；不一致说明窗口变了，面板保持记忆宽、对话列吸收差值。
 	splitW float32
+
+	// SidebarView 是侧栏槽位的内容（04 号票的 sidebar.View）；nil 时画
+	// 占位文本。委托注入而非直接引用 internal/ui/sidebar，避免包环。
+	SidebarView func(c *mygo.Context, pal *Palette)
+
+	// pane 是面板（08 号票）：多 tab 状态 + 文件树 + 编辑器。依赖由
+	// SetPanelServices / BindWindow 注入，未注入时面板渲染空态。
+	pane *Pane
+	// workspaceSvc 提供活动工作区（面板可见性 scope 与文件树数据源）。
+	workspaceSvc *service.WorkspaceService
+	// documentSvc 提供文档预览。
+	documentSvc *service.DocumentService
+	// win 是主窗口：面板后台 IO 的结果经 win.Update 回主线程。
+	win *cwmygo.Window
+	// wsCache / wsCacheAt 是活动工作区的短 TTL 缓存。
+	wsCache   *service.WorkspaceView
+	wsCacheAt time.Time
 }
 
 // NewShell 创建外壳状态：面板默认展开、取最小宽度，把空间留给对话区。
 func NewShell() *Shell {
-	return &Shell{
+	s := &Shell{
 		chatWidth:  chatWidthFor(DefWindowWidth-SidebarWidth, PanelDefWidth),
 		panelWidth: PanelDefWidth,
 		panelOpen:  true,
 	}
+	s.pane = NewPane(PaneDeps{
+		Workspace: s.activeWorkspace,
+		// Thread 的真实状态归 05 号票；在此之前所有 tab 都归属草稿上下文，
+		// 与「未发送首条消息」的可见性一致。
+		Thread:        func() string { return "" },
+		WorkspacesSvc: func() *service.WorkspaceService { return s.workspaceSvc },
+		DocumentsSvc:  func() *service.DocumentService { return s.documentSvc },
+		Update: func(fn func()) {
+			if s.win != nil {
+				s.win.Update(fn)
+			}
+			// 窗口尚未创建时丢弃：面板交互只存在于窗口建立之后，与
+			// emitter「应用未创建前事件丢弃」的语义一致。
+		},
+		Collapse: func() { s.panelOpen = false },
+	})
+	return s
+}
+
+// SetPanelServices 注入面板依赖的后端服务（native UI 约定：view 直调）。
+// 在装配期、窗口创建前调用。
+func (s *Shell) SetPanelServices(workspace *service.WorkspaceService, document *service.DocumentService) {
+	s.workspaceSvc = workspace
+	s.documentSvc = document
+}
+
+// BindWindow 在窗口创建后记录实例，面板后台 IO 的结果经它回主线程。
+func (s *Shell) BindWindow(win *cwmygo.Window) {
+	s.win = win
+}
+
+// activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。
+func (s *Shell) activeWorkspace() *service.WorkspaceView {
+	if s.workspaceSvc == nil {
+		return nil
+	}
+	if s.wsCache != nil && time.Since(s.wsCacheAt) < wsCacheTTL {
+		return s.wsCache
+	}
+	ws, err := s.workspaceSvc.Active()
+	if err != nil || ws == nil {
+		// 没有活动工作区：缓存空值同样吃 TTL，避免每帧重查。
+		s.wsCache, s.wsCacheAt = nil, time.Now()
+		return nil
+	}
+	s.wsCache, s.wsCacheAt = ws, time.Now()
+	return ws
 }
 
 // clampPanel 把面板宽度钳制进 [PanelMinWidth, PanelMaxWidth]。
@@ -139,15 +214,19 @@ func (s *Shell) body(c *mygo.Context, pal *Palette, windowW float32) {
 	})
 }
 
-// sidebar 画 268 固定侧栏。工作区卡片、模式切换与会话列表由 04 号票接入。
+// sidebar 画 268 固定侧栏。内容经 SidebarView 委托给 04 号票的侧栏视图
+// （模式切换、会话分组列表与底部两行都在那里面）；未注入时画占位文本。
+// 侧栏自身的 48px 标题行由窗口顶栏的左段承担，槽位直接从顶栏线下方开始。
 func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
+	if s.SidebarView != nil {
+		s.SidebarView(c, pal)
+		return
+	}
 	mygo.Column(c).Width(SidebarWidth).
 		Background(pal.SidebarBg).
 		BorderWidth(0, 1, 0, 0).
 		BorderColor(pal.Border).
 		Children(func() {
-			// 与顶栏同高的头部占位（内容随 04 号票进来）。
-			mygo.Box(c).Height(TopbarHeight)
 			mygo.Box(c).Grow(1).Center().Children(func() {
 				mygo.Text(c, "侧栏 · 04 号票接入").TextColor(pal.Text3)
 			})
@@ -165,23 +244,25 @@ func (s *Shell) chatPane(c *mygo.Context, pal *Palette) mygo.Element {
 		})
 }
 
-// panelPane 画停靠面板。占位内容之外，面板左缘有一条 8 DIP 的双击区：
-// 双击把面板宽度恢复为默认 320。
+// panelPane 画停靠面板：08 号票的 tab 条 + 内容区（文件树 / 编辑器；
+// 差异与终端 tab 由 09 号票接入，先渲染空态占位）。面板左缘有一条
+// 8 DIP 的双击区：双击把面板宽度恢复为默认 320。
 //
 // 面板三形态的骨架归属：
-//   - 停靠（本票）：占第三栏，Split 拖拽 320–760，双击恢复默认宽。
+//   - 停靠（已接）：占第三栏，Split 拖拽 320–760，双击恢复默认宽。
 //   - 窄窗浮层（08 号票）：窄窗时面板覆盖聊天区右侧、不挤压对话列；
 //     本票骨架为窄窗直接收起（见 panelShown）。
 //   - 最大化（08 号票）：面板覆盖中间区域、左缘压住侧栏边框，留桩。
 func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
+	// 面板内容：多 tab 状态机（internal/ui/panel）+ 文件树 / 编辑器；
+	// 末 tab 关闭 / 关闭全部会经 Collapse 回调把 panelOpen 置 false，
+	// 下一帧这里整体消失。
 	mygo.Column(c).Fill().
 		Background(pal.SidebarBg).
 		BorderWidth(0, 0, 0, 1).
 		BorderColor(pal.Border).
 		Children(func() {
-			mygo.Box(c).Grow(1).Center().Children(func() {
-				mygo.Text(c, "面板 · 08 号票接入").TextColor(pal.Text3)
-			})
+			s.pane.View(c, pal, s.panelWidth)
 			// 双击恢复默认宽度；标记在下一帧 body 里生效。
 			grip := mygo.Box(c).Absolute().Top(0).Bottom(0).Left(0).Width(panelGripWidth)
 			if grip.DoubleClicked() {
@@ -190,3 +271,15 @@ func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
 			}
 		})
 }
+
+// TogglePanel 切换面板展开 / 收起偏好（命令面板用；窄窗自动收起不改它）。
+func (s *Shell) TogglePanel() { s.panelOpen = !s.panelOpen }
+
+// PanelOpen 报告面板是否展开（命令面板据此显示动作方向）。
+func (s *Shell) PanelOpen() bool { return s.panelOpen }
+
+// ClosePanelActiveTab 关闭面板当前工作区桶的激活 tab（命令面板 ⌘W 用）。
+func (s *Shell) ClosePanelActiveTab() { s.pane.CloseActiveTab() }
+
+// OpenFileAt 在面板打开文件并定位行（命令面板文件搜索用）。
+func (s *Shell) OpenFileAt(path string, line int) { s.pane.OpenFileAt(path, line) }

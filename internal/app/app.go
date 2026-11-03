@@ -29,6 +29,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
+	cwsidebar "github.com/yangshifu1024/craftwork/internal/ui/sidebar"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
@@ -71,6 +72,18 @@ func (e *emitter) bind(win *mygo.Window) {
 	e.mu.Lock()
 	e.win = win
 	e.mu.Unlock()
+}
+
+// update 把一个函数调度进主线程（win.Update 的空安全包装）；窗口尚未
+// 绑定时丢弃。侧栏等服务接线的异步回调用它把结果写进界面状态。
+func (e *emitter) update(fn func()) {
+	e.mu.RLock()
+	current := e.win
+	e.mu.RUnlock()
+	if current == nil {
+		return
+	}
+	current.Update(fn)
 }
 
 // Run 启动桌面应用，阻塞直到应用退出。
@@ -177,9 +190,10 @@ func Run(build version.Info) error {
 	mcpService := service.NewMCPService(db, registry)
 
 	// native UI 的 view 直调服务方法：浮层（设置中心、数据面板、命令面板）
-	// 与后续视图票需要的后端门面在这里装配。chatService / documentService
-	// 属 05 / 08 号票的门面，等各自票接入后传入；先构造保持装配顺序校验。
-	_, _ = chatService, documentService
+	// 的后端门面在这里装配；workspace / document（08 面板）、thread / audit
+	// （04 侧栏）由下文的侧栏与面板接线消费。chatService 属 05 号票的门面，
+	// 等其接入后传入；先构造保持装配顺序校验。
+	_ = chatService
 	overlays.Bind(&overlays.Backend{
 		Settings:  settingsService,
 		Providers: providerService,
@@ -224,10 +238,25 @@ func Run(build version.Info) error {
 	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
 
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
-	// 由后续 UI 票接线写入。
+	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务。
 	shell := cwui.NewShell()
-	// 浮层触达外壳状态的回调（面板展开 / 收起）在这里接线。
-	cwui.BindOverlayHooks(shell)
+	shell.SetPanelServices(workspaceService, documentService)
+
+	// 侧栏（04 号票）：状态壳 + 服务接线。异步动作在 goroutine 里调服务，
+	// 结果经 emitter.update（win.Update）回主线程写状态。
+	sidebarState := cwsidebar.NewSidebar()
+	shell.SidebarView = sidebarState.View
+	sidebarClient := cwsidebar.NewClient(
+		sidebarState, threadService, workspaceService, settingsService, auditService,
+		emitter.update,
+		func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
+		confirmDeleteDialog(),
+	)
+	sidebarState.SetActions(sidebarClient.Actions())
+
+	// 浮层触达其他视图状态的回调在这里接线：面板展开 / 收起是外壳状态；
+	// 会话 / 模式 / 项目动作委托侧栏编排；文件打开走面板的 OpenFileAt。
+	wireOverlayHooks(shell, sidebarClient, sidebarClient.Actions())
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -246,10 +275,15 @@ func Run(build version.Info) error {
 			// 加载，应用内不出现任何 WebView。
 			Content: ui.View(cwui.RootView(shell)),
 		})
-		// 绑定之后，事件总线产生的事件才会真正进主线程。
+		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台
+		// IO（文件树、读写、保存）结果也经这里回主线程。
 		emitter.bind(win)
 		// 浮层后台结果（连接测试、MCP 连接）经窗口投回主线程。
 		overlays.BindWindow(win)
+		// 面板的后台 IO（文件树、读写、保存）结果经窗口回主线程。
+		shell.BindWindow(win)
+		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
+		sidebarClient.Boot()
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
@@ -267,6 +301,39 @@ func Run(build version.Info) error {
 	go mcpService.Restore()
 
 	return mygo.App.Run()
+}
+
+// wireOverlayHooks 把浮层体系的跨视图钩子接到侧栏编排与外壳 / 面板状态：
+// 面板展开 / 收起、关闭当前 tab、打开文件归外壳与面板；新建会话、临时
+// 会话、切模式、创建项目后续动作委托侧栏编排。依赖缺失的槽保持 nil，
+// 对应命令在命令面板里置灰并标注待接线。
+func wireOverlayHooks(shell *cwui.Shell, sidebarClient *cwsidebar.Client, acts *cwsidebar.Actions) {
+	hooks := overlays.Hooks{
+		TogglePanel: func() { shell.TogglePanel() },
+		PanelOpen:   func() bool { return shell.PanelOpen() },
+	}
+	hooks.ClosePanelTab = func() { shell.ClosePanelActiveTab() }
+	hooks.OpenFile = func(path string, line int) { shell.OpenFileAt(path, line) }
+	hooks.NewThread = sidebarClient.CreateThreadInActive
+	hooks.NewTempThread = acts.CreateTempThread
+	hooks.SetMode = func(mode string) { acts.SwitchMode(cwsidebar.NormalizeMode(mode)) }
+	hooks.ProjectCreated = func(workspaceID string) { sidebarClient.CreateThreadIn(workspaceID) }
+	overlays.BindHooks(hooks)
+}
+
+// confirmDeleteDialog 返回侧栏删除确认（07 号票浮层体系）：应用内危险
+// 样式确认框替代 04 号票的原生 Dialog.Message；回调已在主线程执行，
+// 与侧栏 deliver 的线程约定一致。
+func confirmDeleteDialog() cwsidebar.ConfirmFn {
+	return func(title, message, detail string, onDone func(ok bool)) {
+		overlays.Confirm(nil, overlays.ConfirmOpts{
+			Title:       title,
+			Description: message,
+			Detail:      detail,
+			ConfirmText: "删除",
+			Danger:      true,
+		}, onDone)
+	}
 }
 
 // resolveDataDir 返回本地数据目录，默认 ~/.craftwork。
