@@ -126,8 +126,8 @@ type Pane struct {
 	// treeFor 是已完成根加载的工作区 id：切换工作区后重新加载根。
 	treeFor string
 
-	// savedAt 记录各 tab 最近一次保存成功的毫秒时间（07 号票 toast 合入
-	// 前在编辑器状态条展示保存反馈）。
+	// savedAt 记录各 tab 最近一次保存成功的毫秒时间，在编辑器状态条展示
+	// 保存反馈（就地反馈与 toast 并存：回到 tab 能看到上次保存时间）。
 	savedAt map[string]int64
 }
 
