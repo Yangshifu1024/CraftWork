@@ -906,7 +906,6 @@ func (r *Runner) complete(thread store.Thread, runID, messageID string, startedA
 		"status":     "done",
 		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
-	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork", "本轮回复已完成。")
 }
 
@@ -921,7 +920,6 @@ func (r *Runner) canceled(thread store.Thread, runID, messageID string, startedA
 		"status":     "canceled",
 		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
-	r.records.Flush(thread.ID)
 }
 
 // fail 结束一次失败的运行：写错误事件让界面显示可重试的错误卡片，并发送系统通知。
@@ -946,7 +944,6 @@ func (r *Runner) fail(thread store.Thread, runID, messageID, code, message strin
 		"message":    message,
 		"durationMs": time.Since(startedAt).Milliseconds(),
 	})
-	r.records.Flush(thread.ID)
 	r.sendNotification("CraftWork 运行失败", truncateRunes(message, 120))
 }
 

@@ -98,7 +98,7 @@ func newHarnessWithFactory(t *testing.T, factory ModelFactory) *harness {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 
 	if err := db.UpsertWorkspace(&store.Workspace{

@@ -39,7 +39,7 @@ func TestSnapshotPagePagination(t *testing.T) {
 		seqs = append(seqs, seq)
 	}
 
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 	service := NewThreadService(db, record.New(db, bus))
 

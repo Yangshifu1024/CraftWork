@@ -94,12 +94,10 @@ func newChatHarness(t *testing.T, client model.Client) *chatHarness {
 	t.Cleanup(func() { db.Close() })
 
 	h := &chatHarness{}
-	bus := events.NewBus(func(_ string, data any) {
-		if batch, ok := data.(events.Batch); ok {
-			h.mu.Lock()
-			h.batches = append(h.batches, batch)
-			h.mu.Unlock()
-		}
+	bus := events.NewBus(func(batch events.Batch) {
+		h.mu.Lock()
+		h.batches = append(h.batches, batch)
+		h.mu.Unlock()
 	})
 	t.Cleanup(bus.Close)
 

@@ -60,7 +60,7 @@ func (r *Recorder) AppendOrWarn(event store.EventRecord) {
 
 // Emit 只广播，不写入数据库。用于增量片段与生命周期事件。
 //
-// 增量片段本身会被合并成完整的部件再写入数据库，因此这里不再重复写入。
+// 增量片段在运行收尾时会合并成完整的部件再写入数据库，因此这里不重复写入。
 func (r *Recorder) Emit(eventType, threadID, runID string, payload any) {
 	r.bus.Publish(eventType, threadID, runID, payload)
 }
@@ -77,11 +77,4 @@ func (r *Recorder) SetThreadStatus(threadID, runID, status string) error {
 		"status":   status,
 	})
 	return nil
-}
-
-// Flush 把会话内合并中的增量事件立即推送。
-//
-// 正常收尾时调用，避免最后的增量还停留在合并窗口里没有发出。
-func (r *Recorder) Flush(threadID string) {
-	r.bus.Flush(threadID)
 }
