@@ -21,3 +21,7 @@ Status: ready-for-agent
 ## 依赖
 
 03。
+
+## Comments
+
+- 2026-11-03 实现者留档（对兄弟票关键的坑）：mygo 剪贴板/原生对话框在 view 帧内直调会死锁（`onMain` 等主循环而主循环正在跑帧），必须经 `win.Update` 或 goroutine 排到帧后；绝对定位子元素会盖住普通兄弟，垫底用 `track.Draw`；`ui.Tester` 连点需 `Advance` 动效时长。
