@@ -45,6 +45,12 @@ type Shell struct {
 	// SidebarView 是侧栏槽位的内容（04 号票的 sidebar.View）；nil 时画
 	// 占位文本。委托注入而非直接引用 internal/ui/sidebar，避免包环。
 	SidebarView func(c *mygo.Context, pal *Palette)
+	// ChatView 是聊天列槽位的内容（05 号票的 chat.View）；nil 时画
+	// 占位文本。
+	ChatView func(c *mygo.Context, pal *Palette)
+	// ThreadID 返回当前会话 Id（05 号票注入）：面板 tab 按「工作区 +
+	// 线程」过滤显隐；未注入时全部归属草稿上下文。
+	ThreadID func() string
 
 	// pane 是面板（08 号票）：多 tab 状态 + 文件树 + 编辑器。依赖由
 	// SetPanelServices / BindWindow 注入，未注入时面板渲染空态。
@@ -69,9 +75,14 @@ func NewShell() *Shell {
 	}
 	s.pane = NewPane(PaneDeps{
 		Workspace: s.activeWorkspace,
-		// Thread 的真实状态归 05 号票；在此之前所有 tab 都归属草稿上下文，
-		// 与「未发送首条消息」的可见性一致。
-		Thread:        func() string { return "" },
+		// Thread 由 05 号票的聊天列经 ThreadID 注入；未注入时所有 tab
+		// 归属草稿上下文，与「未发送首条消息」的可见性一致。
+		Thread: func() string {
+			if s.ThreadID != nil {
+				return s.ThreadID()
+			}
+			return ""
+		},
 		WorkspacesSvc: func() *service.WorkspaceService { return s.workspaceSvc },
 		DocumentsSvc:  func() *service.DocumentService { return s.documentSvc },
 		Update: func(fn func()) {
@@ -96,6 +107,12 @@ func (s *Shell) SetPanelServices(workspace *service.WorkspaceService, document *
 // BindWindow 在窗口创建后记录实例，面板后台 IO 的结果经它回主线程。
 func (s *Shell) BindWindow(win *cwmygo.Window) {
 	s.win = win
+}
+
+// OpenFileAt 打开文件并定位到行（path:line 引用与命令面板文件搜索的
+// 正式入口，转面板 Pane.OpenFileAt；短路径经 LocateFile 唯一匹配）。
+func (s *Shell) OpenFileAt(path string, line int) {
+	s.pane.OpenFileAt(path, line)
 }
 
 // activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。
@@ -233,8 +250,14 @@ func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
 		})
 }
 
-// chatPane 画自适应对话列。会话头部、消息流与输入区由 05 号票接入。
+// chatPane 画自适应对话列。内容经 ChatView 委托给 05 号票的聊天视图
+// （会话头部、消息流与输入区）；未注入时画占位文本。
 func (s *Shell) chatPane(c *mygo.Context, pal *Palette) mygo.Element {
+	if s.ChatView != nil {
+		return mygo.Column(c).Fill().Children(func() {
+			s.ChatView(c, pal)
+		})
+	}
 	return mygo.Column(c).Fill().
 		Background(pal.ChatBg).
 		Children(func() {
@@ -280,6 +303,3 @@ func (s *Shell) PanelOpen() bool { return s.panelOpen }
 
 // ClosePanelActiveTab 关闭面板当前工作区桶的激活 tab（命令面板 ⌘W 用）。
 func (s *Shell) ClosePanelActiveTab() { s.pane.CloseActiveTab() }
-
-// OpenFileAt 在面板打开文件并定位行（命令面板文件搜索用）。
-func (s *Shell) OpenFileAt(path string, line int) { s.pane.OpenFileAt(path, line) }

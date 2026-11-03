@@ -100,6 +100,12 @@ func (cl *Client) Actions() *Actions {
 	}
 }
 
+// Refresh 重新拉取当前模式列表与计数（05 号票聊天列的 refreshNeeded
+// 联动：运行收尾与其他会话变更后，侧栏排序与状态跟上数据库）。
+func (cl *Client) Refresh() {
+	cl.refreshAsync(cl.sb.Mode, nil)
+}
+
 // Boot 启动首拉：恢复上次模式、工作区清单、当前模式列表与底部计数。
 // 在窗口创建后由 app.go 调用一次。
 func (cl *Client) Boot() {
