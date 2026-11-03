@@ -661,9 +661,9 @@ func diffLine(c *mygo.Context, v *viewSide, line diffPreviewLine) {
 	textColor := v.pal.Text3
 	switch line.kind {
 	case "add":
-		textColor = diffAddText(v.pal)
+		textColor = v.pal.DiffAddText
 	case "del":
-		textColor = diffDelText(v.pal)
+		textColor = v.pal.DiffDelText
 	}
 	sign := " "
 	switch line.kind {
@@ -690,21 +690,6 @@ func signColor(v *viewSide, kind string) mygo.Color {
 	default:
 		return v.pal.Text4
 	}
-}
-
-// diffAddText / diffDelText 是增删行文本色（深浅主题各取 base.css 的值）。
-func diffAddText(p *cwui.Palette) mygo.Color {
-	if p.Dark {
-		return mygo.Hex("#a6e3c7")
-	}
-	return mygo.Hex("#146c43")
-}
-
-func diffDelText(p *cwui.Palette) mygo.Color {
-	if p.Dark {
-		return mygo.Hex("#f0b3b3")
-	}
-	return mygo.Hex("#a12a2a")
 }
 
 // ---------------------------------------------------------------------------

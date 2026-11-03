@@ -102,25 +102,23 @@ func fileIconName(name string) string {
 }
 
 // fileIconColor 返回文件后缀对应的图标着色（panel.css 的 .f-ico.go/.doc/
-// .sheet/.pdf；md 与未识别类型用默认 text-3）。dir 为 true 时按深浅模式
-// 返回目录图标色。
+// .sheet/.pdf；md 与未识别类型用默认 text-3）。色值收在 theme 色板的
+// File*Icon 字段里，深浅模式差异也由色板承担。dir 为 true 时返回目录
+// 图标色。
 func fileIconColor(pal *Palette, name string, dir bool) mygo.Color {
 	if dir {
-		if pal.Dark {
-			return mygo.Hex("#d6a45c")
-		}
-		return mygo.Hex("#b07a24")
+		return pal.FileDirIcon
 	}
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, ".go"):
-		return mygo.Hex("#59b7d6")
+		return pal.FileCodeIcon
 	case strings.HasSuffix(lower, ".docx"):
-		return mygo.Hex("#5b9dff")
+		return pal.FileDocIcon
 	case strings.HasSuffix(lower, ".xlsx"):
-		return mygo.Hex("#43c08d")
+		return pal.FileSheetIcon
 	case strings.HasSuffix(lower, ".pdf"):
-		return mygo.Hex("#e07070")
+		return pal.FilePdfIcon
 	}
 	return pal.Text3
 }

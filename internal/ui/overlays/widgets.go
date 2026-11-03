@@ -106,7 +106,7 @@ func dangerBtn(c *mygo.Context, label string, filled bool) mygo.Element {
 	b := btnBase(c)
 	if filled {
 		b.Background(pal(c).Danger).Children(func() {
-			mygo.Text(c, label).TextColor(mygo.Hex("#ffffff"))
+			mygo.Text(c, label).TextColor(pal(c).OnDanger)
 		})
 		return b
 	}

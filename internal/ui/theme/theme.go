@@ -209,6 +209,26 @@ type Palette struct {
 	SidebarHover mygo.Color // --sidebar-hover
 	ChatBg       mygo.Color // --chat-bg
 
+	// 以下不是 base.css token，是视图包曾经就地写 hex 的派生视觉色；
+	// 收进色板是为了让主题 hex 在 theme 一个出口管理（AGENTS.md 6.4）。
+
+	// DiffAddText / DiffDelText 是差异预览增删行的文本色（审批卡 diffLine，
+	// React 版 .diff-line.add / .del 的文字色），深浅两套各取对应值。
+	DiffAddText mygo.Color
+	DiffDelText mygo.Color
+
+	// FileDirIcon 是文件树目录图标的着色；FileCodeIcon / FileDocIcon /
+	// FileSheetIcon / FilePdfIcon 是按扩展名的文件图标着色（panel.css 的
+	// .f-ico.go/.doc/.sheet/.pdf；md 与未识别类型仍用 Text3）。
+	FileDirIcon   mygo.Color
+	FileCodeIcon  mygo.Color
+	FileDocIcon   mygo.Color
+	FileSheetIcon mygo.Color
+	FilePdfIcon   mygo.Color
+
+	// OnDanger 是填充式危险按钮上的文字色（.btn.danger 的填充档）。
+	OnDanger mygo.Color
+
 	// Dark 标记这套色板是否为深色外观：个别视觉细节（如文件树目录图标的
 	// 着色）在深浅两模式下取不同值。
 	Dark bool
@@ -298,6 +318,17 @@ func darkPalette() Palette {
 		SidebarHover: mygo.Hex("#1a1f28"),
 		ChatBg:       mygo.Hex("#0b0d11"),
 
+		DiffAddText: mygo.Hex("#a6e3c7"),
+		DiffDelText: mygo.Hex("#f0b3b3"),
+
+		FileDirIcon:   mygo.Hex("#d6a45c"),
+		FileCodeIcon:  mygo.Hex("#59b7d6"),
+		FileDocIcon:   mygo.Hex("#5b9dff"),
+		FileSheetIcon: mygo.Hex("#43c08d"),
+		FilePdfIcon:   mygo.Hex("#e07070"),
+
+		OnDanger: mygo.Hex("#ffffff"),
+
 		WorkMode: AccentSet{
 			Accent: mygo.Hex("#f0b354"),
 			Soft:   mygo.RGBA(240, 179, 84, 0.14),
@@ -363,6 +394,17 @@ func lightPalette() Palette {
 		SidebarBg:    mygo.Hex("#f3f3f2"),
 		SidebarHover: mygo.Hex("#e8e8e8"),
 		ChatBg:       mygo.Hex("#f8f8f8"),
+
+		DiffAddText: mygo.Hex("#146c43"),
+		DiffDelText: mygo.Hex("#a12a2a"),
+
+		FileDirIcon:   mygo.Hex("#b07a24"),
+		FileCodeIcon:  mygo.Hex("#59b7d6"),
+		FileDocIcon:   mygo.Hex("#5b9dff"),
+		FileSheetIcon: mygo.Hex("#43c08d"),
+		FilePdfIcon:   mygo.Hex("#e07070"),
+
+		OnDanger: mygo.Hex("#ffffff"),
 
 		WorkMode: AccentSet{
 			Accent: mygo.Hex("#b06f0c"),

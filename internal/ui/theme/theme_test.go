@@ -176,3 +176,32 @@ func TestWindowBackgroundHex(t *testing.T) {
 		}
 	}
 }
+
+func TestDerivedVisualColors(t *testing.T) {
+	// 收编自视图包就地写 hex 的派生色（差异增删文本色、文件图标着色与
+	// 填充危险按钮文字色）：字面锚点与深浅差异在这里锁住。
+	d := darkPalette()
+	if d.DiffAddText != mygo.Hex("#a6e3c7") || d.DiffDelText != mygo.Hex("#f0b3b3") {
+		t.Errorf("深色差异文本色错误: %v / %v", d.DiffAddText, d.DiffDelText)
+	}
+	if d.FileDirIcon != mygo.Hex("#d6a45c") {
+		t.Errorf("深色目录图标色 = %v", d.FileDirIcon)
+	}
+	l := lightPalette()
+	if l.DiffAddText != mygo.Hex("#146c43") || l.DiffDelText != mygo.Hex("#a12a2a") {
+		t.Errorf("浅色差异文本色错误: %v / %v", l.DiffAddText, l.DiffDelText)
+	}
+	if l.FileDirIcon != mygo.Hex("#b07a24") {
+		t.Errorf("浅色目录图标色 = %v", l.FileDirIcon)
+	}
+	// 扩展名着色不分深浅；填充危险按钮文字恒为白。
+	for _, p := range []Palette{d, l} {
+		if p.FileCodeIcon != mygo.Hex("#59b7d6") || p.FileDocIcon != mygo.Hex("#5b9dff") ||
+			p.FileSheetIcon != mygo.Hex("#43c08d") || p.FilePdfIcon != mygo.Hex("#e07070") {
+			t.Errorf("文件图标着色错误: %+v", p)
+		}
+		if p.OnDanger != mygo.Hex("#ffffff") {
+			t.Errorf("OnDanger = %v, want #ffffff", p.OnDanger)
+		}
+	}
+}
