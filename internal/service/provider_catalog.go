@@ -7,9 +7,14 @@
 package service
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/yangshifu1024/craftwork/internal/model"
 	"github.com/yangshifu1024/craftwork/internal/model/catalogdata"
@@ -102,6 +107,23 @@ type CatalogImportInput struct {
 // maxImportedModels 限制单次导入的模型数量，避免误操作写入过大的配置。
 const maxImportedModels = 500
 
+// 目录 logo 的抓取限制：超时、体积上限与失败负缓存的存活时间。
+// logo 以 data URL 返回给前端，CSP 的 img-src 无需放开远程地址。
+const (
+	logoFetchTimeout = 6 * time.Second
+	logoMaxBytes     = 512 * 1024
+	logoNegativeTTL  = 10 * time.Minute
+)
+
+// logoCacheEntry 是一次 logo 抓取的结果。
+type logoCacheEntry struct {
+	// dataURL 是 image/* 的 data URL；failed 时为空。
+	dataURL string
+	// failed 表示上次抓取失败，negative TTL 内不再重试。
+	failed    bool
+	fetchedAt time.Time
+}
+
 // CatalogMeta 返回嵌入目录的版本、来源与规模。
 func (s *ProviderService) CatalogMeta() (CatalogMeta, error) {
 	dataset, err := catalogdata.Load()
@@ -167,6 +189,106 @@ func (s *ProviderService) CatalogModels(providerID string) ([]CatalogModelView, 
 		result = append(result, toCatalogModelView(provider, item))
 	}
 	return result, nil
+}
+
+// CatalogLogo 返回目录提供商 logo 的 data URL。
+//
+// URL 只来自嵌入目录（不接受前端传地址，避免变成任意网络探针）；抓取结果
+// 带内存缓存，失败进入负缓存。离线或校验失败时返回错误，前端回退文字头像。
+func (s *ProviderService) CatalogLogo(providerID string) (string, error) {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return "", errors.New("提供商标识不能为空")
+	}
+
+	s.logoMu.Lock()
+	entry, cached := s.logoCache[providerID]
+	s.logoMu.Unlock()
+	if cached && (!entry.failed || time.Since(entry.fetchedAt) < logoNegativeTTL) {
+		if entry.failed {
+			return "", errors.New("logo 暂不可用")
+		}
+		return entry.dataURL, nil
+	}
+
+	dataset, err := catalogdata.Load()
+	if err != nil {
+		return "", err
+	}
+	provider, found := dataset.Provider(providerID)
+	if !found || provider.Logo == "" {
+		return "", fmt.Errorf("目录中没有提供商 %s 的 logo", providerID)
+	}
+	dataURL, err := fetchLogoDataURL(provider.Logo)
+
+	s.logoMu.Lock()
+	if err != nil {
+		s.logoCache[providerID] = logoCacheEntry{failed: true, fetchedAt: time.Now()}
+	} else {
+		s.logoCache[providerID] = logoCacheEntry{dataURL: dataURL, fetchedAt: time.Now()}
+	}
+	s.logoMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return dataURL, nil
+}
+
+// fetchLogoDataURL 抓取 logo 并编码成 data URL。
+//
+// 只接受 HTTPS 地址；重定向必须保持 HTTPS；响应必须是 image/* 且不超过
+// logoMaxBytes。返回的 Content-Type 保留原始值，交给浏览器判断具体格式。
+func fetchLogoDataURL(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || parsed.Scheme != "https" {
+		return "", errors.New("logo 地址必须是 HTTPS")
+	}
+	client := &http.Client{
+		Timeout: logoFetchTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" {
+				return errors.New("logo 重定向必须保持 HTTPS")
+			}
+			if len(via) >= 3 {
+				return errors.New("logo 重定向次数过多")
+			}
+			return nil
+		},
+	}
+	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("User-Agent", "CraftWork")
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("logo 请求返回 %d", response.StatusCode)
+	}
+	contentType := strings.TrimSpace(response.Header.Get("Content-Type"))
+	if index := strings.Index(contentType, ";"); index >= 0 {
+		contentType = strings.TrimSpace(contentType[:index])
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, logoMaxBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(body) == 0 {
+		return "", errors.New("logo 响应为空")
+	}
+	if len(body) > logoMaxBytes {
+		return "", errors.New("logo 超过大小限制")
+	}
+	if contentType == "" {
+		contentType = http.DetectContentType(body)
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", errors.New("logo 响应不是图片")
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(body), nil
 }
 
 // LookupCatalogModel 按提供商与模型标识查找目录条目，用于手工添加模型时补全。

@@ -1,0 +1,63 @@
+# 原生 UI 迁移（native UI）规格
+
+状态：**已完成**（P0–P3 全部票关闭；P3 收尾见 `issues/10-finish-line.md` 的 Comments。桌面外壳已切换为 mygo 原生 UI，仓库无 WebView / React 残留；现行观感与布局约定以本文为准。决策背景见 [ADR-0014](../adr/0014-native-ui-via-mygo.md)；两轮调研结论摘录在文末。）本文是迁移行为规格：范围、架构映射、约束、分阶段验收。
+
+## 范围
+
+- 把桌面外壳从 Wails3 + WebView + React 切换为 **mygo v0.7.4 原生 UI**（`package ui`），应用内不再有任何 WebView。
+- **后端内核不动**：`internal/agent`、`internal/tools`、`internal/policy`、`internal/store`、`internal/secret`、`internal/model`、`internal/editor`、`internal/platform`、`internal/events` 原样保留；`internal/service` 的业务逻辑降级为内部领域包，绑定层语义消失。
+- **明确不做**：server 模式、Docker、浏览器验证、WASM 目标、保留 React 前端、CodeMirror/xterm 的全功能对齐。
+- 界面功能以 `frontend/` 当前实现为基线（不是 interface.md 里的全部愿景，如文档富预览、逐块 diff 应用不在此迁移范围）。
+
+## 架构映射
+
+| 现状 | 迁移后 |
+| --- | --- |
+| `application.New` + 10 个绑定 Service | `mygo.App` 单例 + `ui.View`；service 层内部化，view 直调 Go 函数 |
+| `cw:events` 批量事件 + 33ms 合并 | bus 订阅回调 + `win.Update(func)`（自动合并）；`internal/events` 类型表保留为契约 |
+| `internal/service` Wails 绑定 | 同包普通方法；参数校验与错误转换逻辑保留 |
+| 绑定代码生成 + `frontend/bindings/` | 无；类型即 Go 类型 |
+| `frontend/src/lib/desktop.ts` 的 `Api` 形状 | `internal/ui` 的 `app` 状态结构持有的后端门面（同方法分组） |
+| `threadReducer.ts`（511 行纯函数） | `internal/ui/chat/reducer.go` 逐行移植，Go 单测对齐既有用例 |
+| `sidePane.ts`（519 行纯函数） | `internal/ui/panel/tabs.go` 逐行移植 |
+| `base.css` token 体系 | `internal/ui/theme.go` 常量（色板/字号档/间距/圆角/阴影），深浅色两套 |
+| lucide-react 87 个图标名 | go:embed lucide SVG + `ui.Icon`（`components/Icon.tsx` 登记表即清单） |
+| TerminalService（creack/pty + 事件流） | `plugins/terminal`（libghostty 自管 PTY），服务层删除 |
+| Wails 单实例/通知/剪贴板/对话框/外链 | `mygo` 对应模块（`RequestSingleInstanceLock`/`NewNotification`/`Clipboard`/`Dialog`/`Shell.OpenExternal`） |
+| CSP 中间件、`csp_dev/prod.go` | 无 web 层，全部删除；「不可信内容按文本渲染」边界由 markdown 包默认行为承接 |
+| 自动更新留桩（M4） | 接线 mygo 内置 `Updater`（Ed25519 签名 + 增量），作为可选后续项 |
+
+## 约束
+
+- **版本锁定**：`go.mod` 精确锁 mygo v0.7.4，CLI 走 `go tool mygo`；不写包装层，升级时读 mygo 的 `docs/ui/migration.md`。
+- **隔离开发**：native UI 开发期用 `CRAFTWORK_HOME=/tmp/...` 隔离数据目录，不碰现网 `~/.craftwork`；`frontend/` 在收尾票之前保持可构建（并行期两套 UI 共存，入口暂不切换）。
+- **范式**：立即模式 view 函数；状态集中在 `app` 结构体；后台 goroutine 更新 UI 一律经 `win.Update`，禁止在 view 外直接改 UI 状态。
+- **审批边界不变**（ADR-0003/0004 原则）：审批必须显式决定、决定与执行落审计、禁止 Go 侧静默放行；只是「跨 IPC」变为「跨 UI 线程」。
+- **文案与行为规则以 Go 为唯一事实源**；原 mock.ts 的近似不复刻。
+
+## 分阶段与验收
+
+各阶段拆票见 `issues/`。每票自带 `ui.Tester` 单测或手工走查清单；阶段验收统一跑：
+
+- `go test ./... && go vet ./...`（golangci-lint 安装后加入）
+- `go tool mygo build` 产出可运行 .app
+- 隔离目录冒烟：添加提供商 → 发消息 → 工具调用 → 审批允许/拒绝 → diff → 终端 → 重启恢复
+
+| 阶段 | 内容 | 验收 |
+| --- | --- | --- |
+| P0 尖刺 | CLI 安装、四件套验证（标题栏拖拽/分栏+中文流式 markdown/编辑器/终端） | spike 工程四视图可运行，CJK 与深浅色正常 |
+| P1 MVP | 后端解绑、外壳+主题、侧栏、聊天主链路、审批闭环、设置基础 | 完整对话闭环可用，数据与 Wails 版互通 |
+| P2 对齐 | 面板 tab 体系、文件树、编辑器、diff、终端、设置全量、浮层 | 界面表面全覆盖（按裁剪清单） |
+| P3 收尾 | 快捷键/动效/通知、测试体系、删 `frontend/`、文档同步、打包签名 | 验收清单全绿，仓库无 webview 残留 |
+
+## 编辑器/终端裁剪清单（P2 验收基线）
+
+- **编辑器**（`ui/editor`）：语法高亮、行号、软换行、查找、撤销、保存前备份与外部修改确认、`path:line` 跳转。不做：多光标、折叠、LSP、搜索替换正则模式。
+- **终端**（`plugins/terminal`）：起默认 shell、真彩、scrollback、选区复制粘贴、Ctrl+L、主题跟随应用、标题跟随、退出提示。不做：搜索、鼠标报告应用、缩放、多会话镜像。
+- **diff**（`editor.DiffView`）：统一/并排、词级高亮、应用全部（含备份）。不做：逐块应用/跳过、可编辑新侧。
+- **文档预览**：维持文本级（与当前实现一致），富预览不在此迁移范围。
+
+## 调研结论摘录（2026-11-03）
+
+- mygo：egoist 出品，v0.7.4，MIT，纯 Go 零 cgo（purego），1260 个 ui 测试、零 TODO、文档 ~1.27 万行、21 个 showcase 应用；`markdown.Stream` 追加 16B token 整帧 0.8ms，List 百万行可见行 14.5µs。
+- CraftWork 前端 25,887 行（styles 7.8k / stores 4.2k / chat 3.0k / overlays 3.1k / panel 1.9k）；四个 hard 件全部由内置件覆盖；估算全量对齐 10k–15k 行 Go UI + 后端解绑 ~1k。

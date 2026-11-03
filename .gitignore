@@ -1,16 +1,9 @@
 .DS_Store
 .zcode
 *.exe
-# Wails3 构建产物
+# 构建产物（go tool mygo build 的输出目录与任务运行缓存）
 .task
 bin
-build/linux/appimage/build
-build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
-# 前端
-frontend/node_modules
-frontend/dist
-frontend/test-results
-frontend/playwright-report
-frontend/blob-report
 *.log
 output/
+.mygo

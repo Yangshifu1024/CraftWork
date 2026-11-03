@@ -20,7 +20,7 @@ func newApprovalHarness(t *testing.T) (*Approvals, *store.DB, store.Thread) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 
 	approvals := NewApprovals(db, record.New(db, bus))

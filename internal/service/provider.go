@@ -71,6 +71,8 @@ type ProviderView struct {
 	KeyMasked string `json:"keyMasked"`
 	// Available 表示提供商当前是否可用。
 	Available bool `json:"available"`
+	// CatalogID 是来源目录的提供商标识，用于请求目录 logo；手工添加为空。
+	CatalogID string `json:"catalogId,omitempty"`
 	// Models 是该提供商下的模型列表。
 	Models []ModelView `json:"models"`
 }
@@ -136,11 +138,20 @@ type ProviderService struct {
 	mu sync.RWMutex
 	// custom 是当前生效的自定义提供商配置。
 	custom []model.Provider
+
+	// logoMu 保护 logoCache 的读写。
+	logoMu sync.Mutex
+	// logoCache 缓存目录 logo 的抓取结果：成功存数据 URL，失败负缓存避免反复请求。
+	logoCache map[string]logoCacheEntry
 }
 
 // NewProviderService 创建提供商服务，并加载已保存的自定义提供商配置。
 func NewProviderService(db *store.DB, secrets *secret.Store) *ProviderService {
-	service := &ProviderService{db: db, secrets: secrets}
+	service := &ProviderService{
+		db:        db,
+		secrets:   secrets,
+		logoCache: make(map[string]logoCacheEntry),
+	}
 	var custom []model.Provider
 	if db != nil {
 		if err := db.GetSetting(customProvidersKey, &custom); err != nil {
@@ -178,6 +189,7 @@ func (s *ProviderService) viewFor(provider model.Provider) ProviderView {
 		KeySource:   keySource,
 		KeyMasked:   s.secrets.MaskedFor(provider.ID, provider.EnvVars),
 		Available:   available,
+		CatalogID:   provider.CatalogID,
 	}
 	for _, item := range provider.Models {
 		view.Models = append(view.Models, ModelView{

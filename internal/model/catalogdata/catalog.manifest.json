@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:38:34Z",
-  "version": "6729b4be11c02879",
+  "generatedAt": "2026-11-03T06:28:28Z",
+  "version": "173fa8636edbecb9",
   "source": "https://models.dev/api.json",
-  "sourceEtag": "W/\"f8d44e95283687a2f2526bfae047321c\"",
+  "sourceEtag": "W/\"14037e0af646a616e0a3f8d242a63017\"",
   "license": "MIT",
   "providerCount": 216,
-  "modelCount": 7288,
-  "sha256": "75ed0cacb739ca1836581cad21f7dba6bc2a1a85726504bc9714c3c31259ec84"
+  "modelCount": 7285,
+  "sha256": "20a4bcbe5e6be58db5c80516394973b9b8e720e53febff46eb7c8f1431d5948f"
 }

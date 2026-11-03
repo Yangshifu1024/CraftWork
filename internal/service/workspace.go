@@ -1,4 +1,4 @@
-// 本文件是工作区相关的前端绑定：工作区增删切换、信任状态、文件树、
+// 本文件是工作区相关的界面服务：工作区增删切换、信任状态、文件树、
 // 文件读写、行级差异与 Git 状态。所有路径都经 policy.Resolve 校验，
 // 保存文件前会备份并在检测到外部修改时拒绝覆盖。
 
@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/egoist/mygo"
+
 	"github.com/yangshifu1024/craftwork/internal/editor"
 	"github.com/yangshifu1024/craftwork/internal/events"
 	"github.com/yangshifu1024/craftwork/internal/id"
@@ -20,8 +22,6 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/policy"
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // WorkspaceView 是工作区的展示结构。
@@ -145,16 +145,22 @@ func (s *WorkspaceService) List() ([]WorkspaceView, error) {
 
 // PickFolder 打开系统文件夹选择对话框。
 func (s *WorkspaceService) PickFolder() (string, error) {
-	current := application.Get()
-	if current == nil {
+	if !mygo.App.IsReady() {
 		return "", errors.New("应用尚未初始化")
 	}
-	return current.Dialog.OpenFile().
-		SetTitle("选择工作区").
-		CanChooseDirectories(true).
-		CanChooseFiles(false).
-		CanCreateDirectories(true).
-		PromptForSingleSelection()
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Title:             "选择工作区",
+		Directory:         true,
+		CreateDirectories: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	// 用户取消时返回空路径，与既有调用方的约定一致。
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return paths[0], nil
 }
 
 // Add 添加工作区并设为当前活动工作区。
@@ -184,10 +190,21 @@ func (s *WorkspaceService) Add(path, trust string) (WorkspaceView, error) {
 	if err := s.db.UpsertWorkspace(workspace); err != nil {
 		return WorkspaceView{}, err
 	}
+	// 主要目录同样落一条文件夹记录：没有它，GetWorkspace 每次都会合成
+	// 一个新的 folder ID，跨调用携带 folderID 的读写（定位后重读等）
+	// 会得到「源文件夹不存在」。
+	if err := s.db.ReplaceWorkspaceFolders(workspace.ID, []string{abs}); err != nil {
+		return WorkspaceView{}, err
+	}
 	if err := s.activate(workspace); err != nil {
 		return WorkspaceView{}, err
 	}
-	return toWorkspaceView(*workspace), nil
+	// 重新读取以装配文件夹列表，返回值与 List 接口口径一致。
+	saved, err := s.db.GetWorkspace(workspace.ID)
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	return toWorkspaceView(*saved), nil
 }
 
 // AddProject 创建一个多文件夹项目并设为当前活动工作区。
@@ -357,8 +374,9 @@ func (s *WorkspaceService) Active() (*WorkspaceView, error) {
 // workspace/default（默认 ~/.craftwork/workspace/default），随
 // CRAFTWORK_HOME 一起隔离；被用户删除后下次启动会自动重建。
 // 幂等：记录已存在时直接沿用，不刷新最近打开时间。
-// 它只在启动期由 app 装配调用，特意实现为包级函数而不是服务方法，
-// 避免被 Wails 绑定成前端 API。
+// 它只在启动期由 app 装配调用，特意实现为包级函数而不是服务方法：
+// 一次性引导逻辑不进服务面（native UI 迁移前是避免被 Wails 绑定成
+// 前端 API，迁移后维持这一边界）。
 func EnsureConversationWorkspace(db *store.DB, dataDir string) (*store.Workspace, error) {
 	dir := filepath.Join(dataDir, "workspace", "default")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

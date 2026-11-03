@@ -1,0 +1,7 @@
+{
+  "name": "CraftWork",
+  "identifier": "com.craftwork.app",
+  "version": "0.1.0",
+  "icon": "assets/appicon.png",
+  "out": "bin"
+}

@@ -59,6 +59,10 @@ type rawProvider struct {
 	Models map[string]rawModel `json:"models"`
 }
 
+// logoBaseURL 是 models.dev 站点的图标资源路径；api.json 不含 logo 字段，
+// 但站点按 logos/<id>.svg 为每个提供商提供图标（覆盖全部目录条目）。
+const logoBaseURL = "https://models.dev/logos/"
+
 // rawModel 是 models.dev api.json 中的模型结构；只声明用到的字段。
 type rawModel struct {
 	Name             string        `json:"name"`
@@ -109,7 +113,7 @@ type manifest struct {
 func main() {
 	if err := run(); err != nil {
 		if errors.Is(err, errOutdated) {
-			fmt.Fprintln(os.Stderr, "模型目录与上游不一致，请运行 wails3 task models:sync")
+			fmt.Fprintln(os.Stderr, "模型目录与上游不一致，请运行 go run ./cmd/modelsync")
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "同步模型目录失败:", err)
@@ -321,6 +325,7 @@ func buildDataset(body []byte, loadedRules rules, source, etag string) (*catalog
 			Kind:     kind,
 			Endpoint: endpoint,
 			Doc:      strings.TrimSpace(raw.Doc),
+			Logo:     validLogoURL(logoBaseURL + providerID + ".svg"),
 			Env:      append([]string(nil), raw.Env...),
 			Models:   models,
 		})
@@ -380,6 +385,20 @@ func validEndpoint(endpoint string) bool {
 		return false
 	}
 	return parsed.Scheme == "https" || parsed.Scheme == "http"
+}
+
+// validLogoURL 清洗 models.dev 给出的 logo 地址：只保留合法的 HTTPS 地址，
+// 其余（含模板变量与空值）一律丢弃，宁可回退文字头像也不引入奇怪的资源。
+func validLogoURL(raw string) string {
+	logo := strings.TrimSpace(raw)
+	if logo == "" || len(logo) > 512 || strings.ContainsAny(logo, " \t\n\"'<>") {
+		return ""
+	}
+	parsed, err := url.Parse(logo)
+	if err != nil || parsed.Host == "" || parsed.Scheme != "https" {
+		return ""
+	}
+	return logo
 }
 
 // supportedKind 判断协议是否在当前支持范围内。

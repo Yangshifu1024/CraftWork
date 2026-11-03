@@ -21,7 +21,7 @@ func newWorkspaceService(t *testing.T) (*store.DB, *WorkspaceService) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 	service := NewWorkspaceService(db, bus, "")
 	return db, service
@@ -101,7 +101,7 @@ func TestCreateRejectsMissingWorkspace(t *testing.T) {
 	if _, err := EnsureConversationWorkspace(db, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 	threads := NewThreadService(db, record.New(db, bus))
 

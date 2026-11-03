@@ -17,11 +17,7 @@ func newRecorder(t *testing.T) (*Recorder, *store.DB, *[]string) {
 	t.Cleanup(func() { db.Close() })
 
 	var names []string
-	bus := events.NewBus(func(_ string, data any) {
-		batch, ok := data.(events.Batch)
-		if !ok {
-			return
-		}
+	bus := events.NewBus(func(batch events.Batch) {
 		for _, event := range batch.Events {
 			names = append(names, event.Type)
 		}

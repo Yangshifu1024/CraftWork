@@ -43,7 +43,7 @@ func TestMCPServicePersistsAndReportsConnectionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	bus := events.NewBus(func(string, any) {})
+	bus := events.NewBus(func(events.Batch) {})
 	t.Cleanup(bus.Close)
 	registry := tools.NewRegistry(tools.Options{})
 	service := NewMCPService(db, registry)
