@@ -45,6 +45,23 @@ const (
 	SettingsContentMaxWidth = float32(880)
 )
 
+// 输入区浮层（11 号票：模型选择 / 审批档位 / 上下文详情 / R0–R4 说明）
+// 的布局尺寸。行高取显式值的原因见 drawComposerModels / drawComposerApproval
+// 的注释（Tester 800 高窗口里行必须全部落在 placePanel 的可视区内）。
+const (
+	ComposerApprovalWidth  = float32(360) // 审批档位浮层宽（四浮层的默认宽）
+	ComposerModelWidth     = float32(420) // 模型选择浮层宽
+	ComposerRiskWidth      = float32(400) // 风险等级说明浮层宽
+	ComposerContextWidth   = float32(320) // 上下文详情浮层宽
+	ComposerListHeight     = float32(300) // 模型清单高度（固定，限制浮层尺寸）
+	ComposerModelRowHeight = float32(44)  // 模型行高
+	ComposerLevelRowHeight = float32(48)  // 档位行高
+
+	ComposerPanelPadT = float32(14) // 浮层面板上内边距
+	ComposerPanelPadX = float32(16) // 浮层面板左右内边距
+	ComposerPanelPadB = float32(12) // 浮层面板下内边距
+)
+
 // 聊天正文列（14 号票：消息流与 composer 外框共用同一条居中限宽的
 // 正文列；观感约定见 docs/native-ui/spec.md）。
 const (

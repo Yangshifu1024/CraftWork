@@ -138,20 +138,21 @@ func (s *Store) drawComposer(c *mygo.Context) {
 	if !st.open {
 		return
 	}
-	width := float32(360)
+	width := theme.ComposerApprovalWidth
 	switch st.kind {
 	case composerModel:
-		width = 420
+		width = theme.ComposerModelWidth
 	case composerRisk:
-		width = 400
+		width = theme.ComposerRiskWidth
 	case composerContext:
-		width = 320
+		width = theme.ComposerContextWidth
 	}
 	panel := mygo.DialogBase(c, &st.open, func(backdrop, panel mygo.Element) {
 		styleBackdrop(backdrop)
 		stylePanel(c, panel)
 		placePanel(c, backdrop, panel, width, 0.18)
-		panel.Padding(14, 16, 12, 16).Gap(theme.Space3).Children(func() {
+		panel.Padding(theme.ComposerPanelPadT, theme.ComposerPanelPadX, theme.ComposerPanelPadB).
+			Gap(theme.Space3).Children(func() {
 			switch st.kind {
 			case composerModel:
 				s.drawComposerModels(c, st)
@@ -204,7 +205,7 @@ func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 		m := visible[i]
 		active := m.Ref == st.current
 		item := mygo.ButtonBase(c)
-		item.Fill().Height(44).Radius(theme.RadiusRow).
+		item.Fill().Height(theme.ComposerModelRowHeight).Radius(theme.RadiusRow).
 			Padding(0, theme.Space4).AlignItems(mygo.Center).Gap(theme.Space4).
 			Label("选择 " + m.Name)
 		if item.Hovered() {
@@ -233,7 +234,7 @@ func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 			s.save(c, func(x *service.Settings) { x.DefaultModel = m.Ref })
 			st.kind = ""
 		}
-	}).Height(300).Justify(mygo.Start)
+	}).Height(theme.ComposerListHeight).Justify(mygo.Start)
 	mutedText(c, "所选模型将设为默认，新建会话使用；与设置中心「模型与提供商」双向同步。")
 }
 
@@ -279,8 +280,8 @@ func (s *Store) drawComposerApproval(c *mygo.Context, st *composerState) {
 		active := st.level == opt.level
 		item := mygo.ButtonBase(c)
 		// 显式高度：Tester 800 高窗口里四行 + 标题 + 备注必须全部落在
-		// placePanel 的可视区内（模型行 Height(44) 同理）。
-		item.Fill().Height(48).Radius(theme.RadiusRow).
+		// placePanel 的可视区内（模型行 ComposerModelRowHeight 同理）。
+		item.Fill().Height(theme.ComposerLevelRowHeight).Radius(theme.RadiusRow).
 			Padding(0, theme.Space4).AlignItems(mygo.Center).Gap(theme.Space4)
 		if item.Hovered() {
 			item.Background(p.BgHover)
