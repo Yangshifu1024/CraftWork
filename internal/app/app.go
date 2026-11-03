@@ -247,10 +247,6 @@ func Run(build version.Info) error {
 		bus.Close()
 	})
 
-	// 窗口底色跟随主题：显式浅色的用户在首帧前不再看到深色窗口。
-	// dark 与跟随系统仍用深底；首帧之后由外壳 view 按系统实时接管。
-	windowBackground := cwtheme.WindowBackgroundHex(settings.Theme)
-
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
 	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务，
 	// 09 号票的终端（plugins/terminal 自管 PTY）经设置服务读字号。
@@ -355,19 +351,30 @@ func Run(build version.Info) error {
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           appName,
-			Width:           1440,
-			Height:          900,
-			MinWidth:        960,
-			MinHeight:       640,
-			BackgroundColor: windowBackground,
-			// 窗口位置与尺寸按状态键记忆，下次启动回到原位。
+			Title:     appName,
+			Width:     1440,
+			Height:    900,
+			MinWidth:  960,
+			MinHeight: 640,
+			// 窗口位置与尺寸按状态键记忆，下次启动回到原位（与显式 X/Y
+			// 二选一，不并存——mygo 已知坑）。
 			StateKey: windowStateKey,
-			// 隐藏标题栏：界面顶部自画拖拽区并避让红绿灯。
-			TitleBarStyle: mygo.TitleBarHiddenInset,
-			// 三栏外壳 + 浮层体系：顶部拖拽区、侧栏 / 对话 / 面板，浮层压在
-			// 外壳之上。主题在 view 内每帧套用并跟随系统。窗口没有页面可
-			// 加载，应用内不出现任何 WebView。
+			// 无独立标题条（ZCode 同款 hidden，不是 hiddenInset）：内容
+			// 直接从窗口顶开始，红绿灯位置完全由 TrafficLightPosition
+			// 指定为 ZCode 基准，叠加在外壳侧栏的顶部拖拽行上（shell.go
+			// 的 sidebar，行高容纳按钮不遮内容）。
+			TitleBarStyle:        mygo.TitleBarHidden,
+			TrafficLightPosition: &mygo.Point{X: cwtheme.TrafficLightX, Y: cwtheme.TrafficLightY},
+			// 透明窗口 + under-window 毛玻璃（ZCode vibrancy
+			// "under-window" 同名材质）：外壳在 c.Vibrancy() 为真时让材质
+			// 从侧栏透出，对话区与面板保持实底；无材质环境回退实底。
+			// Transparent 与 BackgroundColor 互斥（Transparent 优先），
+			// 不再设置窗口底色。
+			Transparent: true,
+			Vibrancy:    mygo.VibrancyUnderWindow,
+			// 三栏外壳 + 浮层体系：侧栏 / 对话 / 面板，浮层压在外壳之上。
+			// 主题在 view 内每帧套用并跟随系统。窗口没有页面可加载，
+			// 应用内不出现任何 WebView。
 			Content: ui.View(cwui.RootView(shell)),
 		})
 		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台

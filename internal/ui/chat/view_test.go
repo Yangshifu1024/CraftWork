@@ -225,3 +225,96 @@ func batchOf(eventType string, data any, seq int64, threadID string) events.Batc
 		Seq: seq, Type: eventType, ThreadID: threadID, TS: 0, Data: data,
 	}}}
 }
+
+// ---------------------------------------------------------------------------
+// 14 号票：聊天正文列居中限宽（两侧 margin 各 10%）与保底宽度
+// ---------------------------------------------------------------------------
+
+// TestChatColumnWidthFormula 是正文列宽公式：所在列宽的 80%
+// （两侧 margin 各 10%，用户给定参数），不低于保底宽度——Markdown 在
+// 收缩布局里会塌零宽（AGENTS.md 第 7 节），正文列必须显式保底。
+func TestChatColumnWidthFormula(t *testing.T) {
+	cases := []struct{ avail, want float32 }{
+		{2000, 1600}, // 超宽窗（约 2000px）：80% 限宽生效
+		{1200, 960},
+		{400, 320}, // 80% 低于保底：保底生效
+		{300, 320}, // 列本身比保底还窄：仍取保底（溢出被消息流裁剪）
+	}
+	for _, c := range cases {
+		if got := chatColumnWidth(c.avail); got != c.want {
+			t.Errorf("chatColumnWidth(%v) = %v, want %v", c.avail, got, c.want)
+		}
+	}
+}
+
+// TestChatViewColumnWidthWideAndFloored 验证 view 真按公式构建正文列：
+// 超宽窗下限宽居中、极窄窗下保底生效、零宽不塌；用户气泡不超出正文列
+// （78% 上限改为相对正文列后的真实布局验证）。
+func TestChatViewColumnWidthWideAndFloored(t *testing.T) {
+	s, _, tt := newChatTester(t)
+	long := strings.Repeat("这是一段很长的用户消息内容，", 40) // 560 字，远超列宽
+	s.LoadSnapshot("th", []*Message{
+		{
+			ID: "u1", ThreadID: "th", Role: RoleUser, Status: StatusComplete, CreatedAt: time.Now().UnixMilli(),
+			Parts: []Part{{ID: "up", Kind: PartText, Data: map[string]any{"text": long}}},
+		},
+		{
+			ID: "a1", ThreadID: "th", Role: RoleAssistant, Status: StatusComplete, CreatedAt: time.Now().UnixMilli(),
+			Parts: []Part{{ID: "at", Kind: PartText, Data: map[string]any{"text": "回答"}}},
+		},
+	}, ThreadInfo{ID: "th", Title: "限宽会话", Status: ThreadStatusIdle}, false, 0)
+
+	// 超宽窗（约 2000px）：正文列 = 80% 限宽，消息行帧内记录的列宽与
+	// 公式一致（messageRow 每条消息都写，取任意一条即整列的值）。
+	tt.SetSize(2000, 800)
+	tt.Frame()
+	if w := chatColumnWidth(2000); w != 1600 {
+		t.Fatalf("公式应在 2000 列宽下给出 1600，得 %v", w)
+	}
+	if s.lastColumnW != 1600 {
+		t.Fatalf("超宽窗下正文列宽 = %v, want 1600（80%% 限宽）", s.lastColumnW)
+	}
+	rect, ok := tt.Find(long)
+	if !ok {
+		t.Fatal("用户消息文本应渲染（零宽不塌的文本可见性底线）")
+	}
+	if rect.W <= 0 {
+		t.Fatalf("用户消息文本宽度 = %v，不得塌零宽", rect.W)
+	}
+	// 用户气泡右对齐且不超出正文列右缘（列右缘 = 2000×90% = 1800）。
+	if right := rect.X + rect.W; right > 2000*0.9+1 {
+		t.Fatalf("用户气泡文本右缘 = %v，超出正文列右缘 1800", right)
+	}
+
+	// 极窄窗：保底宽度生效，正文列不随列宽跌落、不为零。
+	tt.SetSize(360, 800)
+	tt.Frame()
+	if s.lastColumnW != theme.ChatColumnMinWidth {
+		t.Fatalf("极窄窗下正文列宽 = %v, want 保底 %v", s.lastColumnW, theme.ChatColumnMinWidth)
+	}
+	rect, ok = tt.Find(long)
+	if !ok || rect.W <= 0 {
+		t.Fatalf("极窄窗下用户消息文本应可见且非零宽: rect=%v ok=%v", rect, ok)
+	}
+}
+
+// TestComposerFocusHighlightsFrame 验证 composer 聚焦态标记整个外框：
+// AutoFocus 让输入框取得焦点后外框为聚焦态（FocusWithin），焦点移出后
+// 失焦恢复；外框宽度与消息正文列同参数（80% 限宽），两段对齐。
+func TestComposerFocusHighlightsFrame(t *testing.T) {
+	s, _, tt := newChatTester(t)
+	tt.Frame() // AutoFocus：输入框取得焦点
+	if !s.ComposerFocused() {
+		t.Fatal("输入框聚焦时 composer 外框应为聚焦态")
+	}
+	// 1200 视口：外框 = 80% 限宽 = 960，与消息正文列同宽。
+	if s.lastComposerW != 960 {
+		t.Fatalf("composer 外框宽 = %v, want 960（80%% 限宽）", s.lastComposerW)
+	}
+	// 焦点移出（点击空态建议按钮，可聚焦元素）：外框失焦。
+	clickText(t, tt, "解释这个仓库的结构")
+	settleClick(tt)
+	if s.ComposerFocused() {
+		t.Fatal("焦点移出后 composer 外框应为失焦态")
+	}
+}
