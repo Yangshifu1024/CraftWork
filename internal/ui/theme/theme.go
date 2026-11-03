@@ -400,7 +400,7 @@ func darkPalette() Palette {
 		ScrollThumb: mygo.Hex("#2b323e"),
 
 		SidebarBg:    mygo.Hex("#101318"),
-		SidebarHover: mygo.Hex("#1a1f28"),
+		SidebarHover: mygo.RGBA(255, 255, 255, 0.05),
 		ChatBg:       mygo.Hex("#0b0d11"),
 
 		DiffAddText: mygo.Hex("#a6e3c7"),
@@ -483,7 +483,7 @@ func lightPalette() Palette {
 		ScrollThumb: mygo.Hex("#c3ccdb"),
 
 		SidebarBg:    mygo.Hex("#f3f3f2"),
-		SidebarHover: mygo.Hex("#e8e8e8"),
+		SidebarHover: mygo.RGBA(13, 13, 13, 0.05),
 		ChatBg:       mygo.Hex("#f8f8f8"),
 
 		DiffAddText: mygo.Hex("#146c43"),

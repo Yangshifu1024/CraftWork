@@ -151,8 +151,8 @@ func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, labe
 // 都按右值 5 算，与真实布局漂移 6px。
 const (
 	threadListPadX = theme.Space4 + 4 // 列表容器左右内边距（12）
-	threadItemPadL = theme.Space5 + 1 // 会话行左内边距（11）
-	threadItemPadR = theme.Space1 + 3 // 会话行右内边距（5）
+	threadItemPadL = 10               // 会话行左内边距（TaskListItem pl-2.5）
+	threadItemPadR = 4                // 会话行右内边距（TaskListItem pr-1）
 )
 
 // threadList 画滚动列表区（.thread-list，内边距 2 8 8）：临时组置顶、
@@ -221,7 +221,7 @@ func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onTo
 	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			groupToggle(c, v, open, "临时会话", "chevron-down", "chevron-right", onToggle)
-			mygo.Text(c, "临时会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
+			mygo.Text(c, "临时会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, len(items))
 			mygo.Spacer(c)
 			groupAdd(c, v, "新建临时会话", onCreate)
@@ -256,7 +256,7 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 			} else {
 				mygo.Box(c).Width(theme.Space4 + theme.Space6 + theme.Space4) // 无开关时对齐临时组的箭头位（18）
 			}
-			mygo.Text(c, "项目会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
+			mygo.Text(c, "项目会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, ProjectThreadCount(groups))
 			mygo.Spacer(c)
 			groupAdd(c, v, "创建项目", func() {
@@ -423,16 +423,17 @@ func listEmpty(c *mygo.Context, v *viewSide, text string) {
 func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 	active := t.ID == s.ActiveID()
 	btn := mygo.ButtonBase(c).Fill().AlignItems(mygo.Stretch).Key(t.ID).
-		Padding(theme.Space4, threadItemPadR, theme.Space4, threadItemPadL). // 8 5 8 11
+		Padding(4, threadItemPadR, 4, threadItemPadL). // py-1 4（TaskListItem.tsx:570）
 		Radius(theme.RadiusCtl).
 		Margin(0, 0, 1, 0). // 行间距 1（.thread-item margin-bottom）
 		Transition(mygo.ElementTransition{
 			Enter: &mygo.Motion{Collapse: true},
 			Exit:  &mygo.Motion{Collapse: true},
 		})
-	if active {
-		btn.Background(v.pal.SidebarHover).BorderWidth(1).BorderColor(v.pal.Border)
-	} else if btn.Hovered() {
+	// hover 与激活同色块（zai：bg-surface-hover / bg-selected 同为 5% 黑，
+	// 无描边——zai 气质「聚焦只加深边框」也不给行加框，选中语义由左侧
+	// 模式色竖条承担）。
+	if active || btn.Hovered() {
 		btn.Background(v.pal.SidebarHover)
 	}
 	if btn.Clicked() {
