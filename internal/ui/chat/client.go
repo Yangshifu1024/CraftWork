@@ -499,15 +499,15 @@ func (cl *Client) OpenFile(path string, line int) {
 }
 
 // OpenDiff 打开审批卡的「查看完整差异」：生产装配把本动作覆盖为面板的
-// 差异 tab 打开入口（shell.Pane.OpenDiffTab，08 号票骨架）；差异内容
-// 渲染归 09 号票，这里先收下旧 / 新文本并给出装配缺失时的提示。
+// 差异槽入口（shell.OpenDiff → Pane.OpenDiff，「应用全部」走面板的
+// WriteFile 链路）；这里的 toast 是装配缺失时（Tester / 兜底）的行为。
 func (cl *Client) OpenDiff(path, oldText, newText string) {
 	title := path
 	if idx := strings.LastIndex(title, "/"); idx >= 0 {
 		title = title[idx+1:]
 	}
 	cl.deliver(func() {
-		cl.chat.QueueToast("打开差异：" + title + "（差异面板内容待 09 号票接入）")
+		cl.chat.QueueToast("打开差异：" + title + "（面板差异槽未接线）")
 	})
 }
 

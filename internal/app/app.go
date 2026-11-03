@@ -295,15 +295,17 @@ func Run(build version.Info) error {
 	acts := sidebarClient.Actions()
 	acts.SelectThread = chatClient.SelectThread
 	// path:line 引用（markdown.OnLink → craftwork://）→ 面板打开文件定位行。
-	// 审批卡的「查看完整差异」→ 面板差异 tab（差异内容渲染归 09 号票）。
+	// 审批卡的「查看完整差异」→ 面板差异槽（09 号票 OpenDiff，「应用全部」
+	// 走面板的 WriteFile 链路）；标题按主要目录的相对路径解析（09 号票
+	// 既定限制，与 React 版一致）。
 	chatActions := chatClient.Actions()
 	chatActions.OpenFile = shell.OpenFileAt
-	chatActions.OpenDiff = func(path, _, _ string) {
+	chatActions.OpenDiff = func(path, oldText, newText string) {
 		title := path
 		if idx := strings.LastIndex(title, "/"); idx >= 0 {
 			title = title[idx+1:]
 		}
-		shell.OpenDiffTab(title)
+		shell.OpenDiff(title, oldText, newText)
 	}
 	chatState.SetActions(chatActions)
 	// 窗口级 Esc 退出链的聊天列两级：运行中双击停止、待审批 Esc=拒绝。

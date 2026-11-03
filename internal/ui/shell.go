@@ -145,10 +145,16 @@ func (s *Shell) OpenFileAt(path string, line int) {
 	s.pane.OpenFileAt(path, line)
 }
 
-// OpenDiffTab 打开面板的差异 singleton tab（审批卡「查看完整差异」的
-// 入口；差异内容渲染归 09 号票）。
+// OpenDiffTab 打开面板的差异 singleton tab（快捷按钮入口；审批卡的
+// 「查看完整差异」走带内容的 OpenDiff）。
 func (s *Shell) OpenDiffTab(title string) {
 	s.pane.OpenDiffTab(title)
+}
+
+// OpenDiff 写入差异槽并聚焦差异 tab（审批卡「查看完整差异」的正式入口，
+// 转 Pane.OpenDiff；「应用全部」走面板的 WriteFile 链路）。
+func (s *Shell) OpenDiff(title, oldText, newText string) {
+	s.pane.OpenDiff(title, oldText, newText)
 }
 
 // activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。
