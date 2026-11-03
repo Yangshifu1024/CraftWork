@@ -10,7 +10,9 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // openDocument 请求文档预览并打开（或聚焦）对应文档 tab。预览成功后在
@@ -44,7 +46,7 @@ func (p *Pane) openDocument(folderID, path string) {
 
 // docView 画文档预览：数据在单槽上，切换 document tab 时若预览的不是本
 // tab 的文件，重新请求预览。
-func (p *Pane) docView(c *mygo.Context, pal *Palette, tab cwpanel.Tab) {
+func (p *Pane) docView(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab) {
 	if p.doc == nil || p.doc.Path != tab.Path {
 		if !p.docLoading {
 			p.openDocument(tab.FolderID, tab.Path)
@@ -65,12 +67,12 @@ func (p *Pane) docView(c *mygo.Context, pal *Palette, tab cwpanel.Tab) {
 			BorderWidth(0, 0, 1, 0).BorderColor(pal.BorderSoft).
 			Shrink(0).
 			Children(func() {
-				Icon(c, "file-text").FontSize(14).TextColor(pal.Text2)
-				mygo.Text(c, doc.Name).FontSize(Fonts.SM()).TextColor(pal.Text)
+				icons.Icon(c, "file-text").FontSize(14).TextColor(pal.Text2)
+				mygo.Text(c, doc.Name).FontSize(theme.Fonts.SM()).TextColor(pal.Text)
 				paneBadge(c, pal, paneUpperKind(doc.Kind), pal.BgActive, pal.Text2)
 				mygo.Spacer(c)
 				mygo.Text(c, formatBytes(doc.Size)+" · "+paneFormatTime(doc.Modified)).
-					FontSize(Fonts.XS()).TextColor(pal.Text3)
+					FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 				if paneIconButton(c, pal, "refresh", "重新加载预览") {
 					p.doc = nil
 					p.openDocument(tab.FolderID, tab.Path)
@@ -84,13 +86,13 @@ func (p *Pane) docView(c *mygo.Context, pal *Palette, tab cwpanel.Tab) {
 				paneBadge(c, pal, "无法预览", pal.WarnSoft, pal.Warn)
 			}
 			if doc.Note != "" {
-				mygo.Text(c, doc.Note).FontSize(Fonts.XS()).TextColor(pal.Text3)
+				mygo.Text(c, doc.Note).FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 			}
 		})
 		if doc.Supported && doc.Text != "" {
 			// 提取出的纯文本按原样展示，不做富文本样式还原。
 			mygo.Scroll(c).Grow(1).Padding(10, 12, 16, 12).Children(func() {
-				mygo.Text(c, doc.Text).FontSize(Fonts.SM()).TextColor(pal.Text2)
+				mygo.Text(c, doc.Text).FontSize(theme.Fonts.SM()).TextColor(pal.Text2)
 			})
 			return
 		}

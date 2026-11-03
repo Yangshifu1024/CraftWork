@@ -18,13 +18,13 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/events"
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // escView 把聊天列包进 RootView 的同序 Esc 接线（窗口级退出链）。
 func escView(s *Chat) func(c *mygo.Context) {
 	return func(c *mygo.Context) {
-		pal := cwui.Apply(c)
+		pal := theme.Apply(c)
 		s.View(c, pal)
 		if c.Shortcut(0, mygo.KeyEscape) {
 			s.HandleWindowEscape()

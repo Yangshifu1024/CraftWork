@@ -18,6 +18,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
@@ -196,7 +197,7 @@ func (p *Pane) reloadSlot(tabID, folderID, path string) {
 }
 
 // editorView 画一个 file tab 的编辑器。
-func (p *Pane) editorView(c *mygo.Context, pal *Palette, tab cwpanel.Tab) {
+func (p *Pane) editorView(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab) {
 	slot := p.files[tab.ID]
 	if slot == nil {
 		// 槽被清（重开 / 状态重建）时按需补读一次，渲染层只读状态。
@@ -249,7 +250,7 @@ func (p *Pane) editorView(c *mygo.Context, pal *Palette, tab cwpanel.Tab) {
 }
 
 // editorHead 画面包屑 + 状态徽标 + 关闭文件按钮。
-func (p *Pane) editorHead(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
+func (p *Pane) editorHead(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
 	mygo.Row(c).MinHeight(editorBarH).Padding(6, 10, 6, 10).Gap(8).
 		AlignItems(mygo.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(pal.BorderSoft).
@@ -260,13 +261,13 @@ func (p *Pane) editorHead(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *
 				crumbs := strings.Split(content.Path, "/")
 				for i, crumb := range crumbs {
 					if i > 0 {
-						mygo.Text(c, "/").FontSize(Fonts.XS()).TextColor(pal.Text4)
+						mygo.Text(c, "/").FontSize(theme.Fonts.XS()).TextColor(pal.Text4)
 					}
 					color := pal.Text3
 					if i == len(crumbs)-1 {
 						color = pal.Text
 					}
-					mygo.Text(c, crumb).FontSize(Fonts.XS()).TextColor(color)
+					mygo.Text(c, crumb).FontSize(theme.Fonts.XS()).TextColor(color)
 				}
 			})
 			// 状态徽标：编辑中 / 只读，以及文件语言。
@@ -291,7 +292,7 @@ func paneEditorModeName(mode string) string {
 }
 
 // editorToolbar 画工具条：只读 / 编辑切换、搜索、复制与保存。
-func (p *Pane) editorToolbar(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
+func (p *Pane) editorToolbar(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
 	mygo.Row(c).Padding(5, 9, 5, 9).Gap(5).AlignItems(mygo.Center).
 		BorderWidth(0, 0, 1, 0).BorderColor(pal.BorderSoft).
 		Shrink(0).
@@ -335,14 +336,14 @@ func paneEditorEditTip(content *service.FileContent) string {
 }
 
 // paneToolButton 画一个工具条按钮（.tool-btn），返回是否被点击。
-func paneToolButton(c *mygo.Context, pal *Palette, icon, label string, on bool) bool {
+func paneToolButton(c *mygo.Context, pal *theme.Palette, icon, label string, on bool) bool {
 	return paneToolButtonDisabled(c, pal, icon, label, on, true, "")
 }
 
 // paneToolButtonDisabled 是带禁用态与提示的工具条按钮。
-func paneToolButtonDisabled(c *mygo.Context, pal *Palette, icon, label string, on, enabled bool, tip string) bool {
+func paneToolButtonDisabled(c *mygo.Context, pal *theme.Palette, icon, label string, on, enabled bool, tip string) bool {
 	el := mygo.ButtonBase(c).Height(toolBtnHeight).Padding(0, 7, 0, 7).Gap(4).
-		AlignItems(mygo.Center).Radius(RadiusBadge)
+		AlignItems(mygo.Center).Radius(theme.RadiusBadge)
 	if tip != "" {
 		el = el.Tooltip(tip)
 	}
@@ -361,22 +362,22 @@ func paneToolButtonDisabled(c *mygo.Context, pal *Palette, icon, label string, o
 		iconColor, textColor = pal.Text4, pal.Text4
 	}
 	el.Children(func() {
-		Icon(c, icon).FontSize(11).TextColor(iconColor)
-		mygo.Text(c, label).FontSize(Fonts.XS()).TextColor(textColor)
+		icons.Icon(c, icon).FontSize(11).TextColor(iconColor)
+		mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(textColor)
 	})
 	return enabled && el.Clicked()
 }
 
 // binaryView 画二进制文件的信息视图（不尝试文本渲染）。
-func (p *Pane) binaryView(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
+func (p *Pane) binaryView(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
 	mygo.Column(c).Fill().Children(func() {
 		p.editorHead(c, pal, tab, slot, content)
 		p.editorToolbar(c, pal, tab, slot, content)
 		mygo.Column(c).Grow(1).Center().Gap(8).Padding(16, 16, 16, 16).Children(func() {
-			Icon(c, "file").FontSize(24).TextColor(pal.Text3)
+			icons.Icon(c, "file").FontSize(24).TextColor(pal.Text3)
 			mygo.Text(c, "二进制文件，无法以文本方式预览。").TextColor(pal.Text2)
-			mygo.Text(c, "大小："+formatBytes(content.Size)).FontSize(Fonts.SM()).TextColor(pal.Text3)
-			mygo.Text(c, "SHA-256："+content.Hash).FontSize(Fonts.SM()).TextColor(pal.Text3)
+			mygo.Text(c, "大小："+formatBytes(content.Size)).FontSize(theme.Fonts.SM()).TextColor(pal.Text3)
+			mygo.Text(c, "SHA-256："+content.Hash).FontSize(theme.Fonts.SM()).TextColor(pal.Text3)
 		})
 		p.editorNote(c, pal, tab, slot, content)
 	})
@@ -384,7 +385,7 @@ func (p *Pane) binaryView(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *
 
 // editorNote 画底部状态条：左侧是按文件状态切换的说明（含保存反馈），
 // 右侧是光标行列、行数、语言与大小（参照 examples/code-editor 的状态条）。
-func (p *Pane) editorNote(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
+func (p *Pane) editorNote(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab, slot *FileSlot, content *service.FileContent) {
 	note := "只读预览；切换到编辑态后可修改。"
 	switch {
 	case content.Binary:
@@ -413,9 +414,9 @@ func (p *Pane) editorNote(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slot *
 		BorderWidth(1, 0, 0, 0).BorderColor(pal.BorderSoft).
 		Shrink(0).
 		Children(func() {
-			Icon(c, "info").FontSize(12).TextColor(pal.Text4)
-			mygo.Text(c, note).FontSize(Fonts.XS()).TextColor(pal.Text3)
+			icons.Icon(c, "info").FontSize(12).TextColor(pal.Text4)
+			mygo.Text(c, note).FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 			mygo.Spacer(c)
-			mygo.Text(c, status).FontSize(Fonts.XS()).TextColor(pal.Text3)
+			mygo.Text(c, status).FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 		})
 }

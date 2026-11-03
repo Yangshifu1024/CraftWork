@@ -21,7 +21,6 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"github.com/yangshifu1024/craftwork/internal/events"
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
@@ -103,7 +102,7 @@ type Chat struct {
 	approvalLevelRaw string
 	// fallbackMode 是无选中会话时的兜底模式（侧栏当前模式，app 装配
 	// 在模式切换时写入）；有会话时以会话自身 Mode 为准。
-	fallbackMode cwui.Mode
+	fallbackMode theme.Mode
 	// tempWorkspace 报告当前上下文是否为内置临时会话目录（空态文案分支）。
 	tempWorkspace bool
 	// list 是消息流的列表状态（Key / FollowEnd / 平滑跟底）。
@@ -414,15 +413,15 @@ func (s *Chat) RestoreDraft(text string, attachments []Attachment) {
 func (s *Chat) SetRunning(v bool) { s.slice.Running = v }
 
 // SetFallbackMode 写入无会话时的兜底模式（侧栏模式切换时由装配同步）。
-func (s *Chat) SetFallbackMode(m cwui.Mode) { s.fallbackMode = m }
+func (s *Chat) SetFallbackMode(m theme.Mode) { s.fallbackMode = m }
 
 // ModeFromSidebar 把侧栏的模式字符串（code / work）换算为 ui 模式枚举；
 // 未知值按 Code 处理。
-func ModeFromSidebar(mode string) cwui.Mode {
+func ModeFromSidebar(mode string) theme.Mode {
 	if mode == "work" {
-		return cwui.ModeWork
+		return theme.ModeWork
 	}
-	return cwui.ModeCode
+	return theme.ModeCode
 }
 
 // SetTempWorkspace 写入临时会话目录标记（空态文案分支）。

@@ -1,5 +1,5 @@
 // 本文件是侧栏的立即模式 view：模式切换轨道滑块、会话分组列表与底部
-// 两行入口。视觉取值全部来自 internal/ui/theme.go 的 token（base.css 的
+// 两行入口。视觉取值全部来自 internal/ui/theme 的 token（base.css 的
 // 机械翻译，CSS 像素值在注释里对照），class 对照 frontend/src/styles/
 // base.css 的 .sidebar 区段。
 //
@@ -19,7 +19,7 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
-	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
@@ -29,7 +29,7 @@ const stubNote = "待 07 号票（浮层与入口）接入"
 
 // viewSide 是 view 帧内的一次性派生：色板 + 模式强调色 + 动作入口。
 type viewSide struct {
-	pal    *ui.Palette
+	pal    *theme.Palette
 	accent mygo.Color // 模式强调色（选中竖条、状态点、滑块）
 	on     mygo.Color // 强调色之上的文字
 	acts   *Actions
@@ -37,7 +37,7 @@ type viewSide struct {
 
 // View 画 268 固定侧栏列。由 shell.go 的侧栏槽位调用，pal 来自外壳
 // 每帧套用的主题色板。
-func (s *Sidebar) View(c *mygo.Context, pal *ui.Palette) {
+func (s *Sidebar) View(c *mygo.Context, pal *theme.Palette) {
 	// 异步动作排队 的提示在帧开头弹出（c.Toast 只能在 view 帧内调用）。
 	if message := s.TakeToast(); message != "" {
 		c.Toast(message)
@@ -46,7 +46,7 @@ func (s *Sidebar) View(c *mygo.Context, pal *ui.Palette) {
 	acc := pal.ModeAccent(uiMode(s.Mode))
 	v.accent, v.on = acc.Accent, acc.On
 
-	mygo.Column(c).Width(ui.SidebarWidth).
+	mygo.Column(c).Width(theme.SidebarWidth).
 		Background(pal.SidebarBg).
 		BorderWidth(0, 1, 0, 0).
 		BorderColor(pal.Border).
@@ -58,11 +58,11 @@ func (s *Sidebar) View(c *mygo.Context, pal *ui.Palette) {
 }
 
 // uiMode 把侧栏字符串模式映射为 ui 包的模式枚举。
-func uiMode(m Mode) ui.Mode {
+func uiMode(m Mode) theme.Mode {
 	if m == ModeWork {
-		return ui.ModeWork
+		return theme.ModeWork
 	}
-	return ui.ModeCode
+	return theme.ModeCode
 }
 
 // ---------------------------------------------------------------------------
@@ -78,16 +78,16 @@ func uiMode(m Mode) ui.Mode {
 // 滑块之上。滑块的软投影（CSS box-shadow 0 2px 10px mode-accent-soft）
 // 略去：Painter 无模糊阴影，色块本身已足够区分。
 func (s *Sidebar) modeSwitch(c *mygo.Context, v *viewSide) {
-	mygo.Box(c).Height(ui.Space5) // 上边距 10（.sidebar > .mode-switch 的 margin）
+	mygo.Box(c).Height(theme.Space5) // 上边距 10（.sidebar > .mode-switch 的 margin）
 	// 轨道宽 = 侧栏宽 - 左右各 10。
-	const trackW = ui.SidebarWidth - 2*ui.Space5
-	anim := mygo.Animation{Duration: ui.Duration, Ease: ui.Ease}
+	const trackW = theme.SidebarWidth - 2*theme.Space5
+	anim := mygo.Animation{Duration: theme.Duration, Ease: theme.Ease}
 	// 滑块宽 = 内容区一半 - 4（.mode-glider 的 calc(50% - 4px)）。
-	const gliderW = (trackW-2*ui.Space4-2)/2 - ui.Space4
+	const gliderW = (trackW-2*theme.Space4-2)/2 - theme.Space4
 
-	track := mygo.Row(c).Width(trackW).Height(ui.HeightModeSwitch).
-		Padding(ui.Space4).
-		Radius(ui.RadiusPill).
+	track := mygo.Row(c).Width(trackW).Height(theme.HeightModeSwitch).
+		Padding(theme.Space4).
+		Radius(theme.RadiusPill).
 		Background(v.pal.BgSunken).
 		BorderWidth(1).
 		BorderColor(v.pal.Border)
@@ -100,11 +100,11 @@ func (s *Sidebar) modeSwitch(c *mygo.Context, v *viewSide) {
 	gbg := track.AnimateColor("glider-bg", v.accent, anim)
 	track.Draw(func(p *mygo.Painter, r mygo.Rect) {
 		p.Fill(mygo.Rect{
-			X: r.X + ui.Space4 + gx,
-			Y: r.Y + ui.Space4,
+			X: r.X + theme.Space4 + gx,
+			Y: r.Y + theme.Space4,
 			W: gliderW,
-			H: r.H - 2*ui.Space4 - 2, // 减上下 padding 与描边
-		}, gbg, ui.RadiusCtl)
+			H: r.H - 2*theme.Space4 - 2, // 减上下 padding 与描边
+		}, gbg, theme.RadiusCtl)
 	})
 	track.Children(func() {
 		s.modeButton(c, v, ModeCode, "code", "Code")
@@ -116,7 +116,7 @@ func (s *Sidebar) modeSwitch(c *mygo.Context, v *viewSide) {
 // 加粗（600），未选中次要色、悬停提亮。
 func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, label string) {
 	selected := s.Mode == mode
-	btn := mygo.ButtonBase(c).Grow(1).Radius(ui.RadiusCtl)
+	btn := mygo.ButtonBase(c).Grow(1).Radius(theme.RadiusCtl)
 	if btn.Clicked() {
 		// 本地先切（列表立即按该模式渲染）；服务同步由注入的动作做
 		//（持久化到设置 + 拉新列表），未注入时（单测路径）也保持可用。
@@ -135,8 +135,8 @@ func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, labe
 		weight = 600
 	}
 	btn.Children(func() {
-		ui.Icon(c, icon).FontSize(15).TextColor(color)
-		mygo.Text(c, label).FontSize(ui.Fonts.Base()).TextColor(color).FontWeight(weight)
+		icons.Icon(c, icon).FontSize(15).TextColor(color)
+		mygo.Text(c, label).FontSize(theme.Fonts.Base()).TextColor(color).FontWeight(weight)
 	})
 }
 
@@ -149,7 +149,7 @@ func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, labe
 func (s *Sidebar) threadList(c *mygo.Context, v *viewSide) {
 	groups := s.Groups()
 	mygo.Scroll(c).Grow(1).
-		Padding(ui.Space1, ui.Space4+4, ui.Space4+4).
+		Padding(theme.Space1, theme.Space4+4, theme.Space4+4).
 		Children(func() {
 			s.tempGroup(c, v, findGroup(groups, GroupTemp))
 			s.projectSection(c, v, groups)
@@ -167,7 +167,7 @@ func findGroup(groups []Group, kind GroupKind) Group {
 }
 
 // groupHeadPad 是组头内边距（.thread-group-head：12 6 5）。
-var groupHeadPad = pad{t: ui.Space6 + ui.Space4 + ui.Space1, r: ui.Space3, b: ui.Space1 + 3}
+var groupHeadPad = pad{t: theme.Space6 + theme.Space4 + theme.Space1, r: theme.Space3, b: theme.Space1 + 3}
 
 // projectGroups 只取项目组。
 func projectGroups(groups []Group) []Group {
@@ -204,10 +204,10 @@ func (s *Sidebar) tempGroup(c *mygo.Context, v *viewSide, g Group) {
 
 // tempGroupHead 画临时组头：箭头开关 + 名称 + 计数 + 右侧 + 新建。
 func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onToggle func(), onCreate func()) {
-	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			groupToggle(c, v, open, "临时会话", "chevron-down", "chevron-right", onToggle)
-			mygo.Text(c, "临时会话").FontSize(ui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			mygo.Text(c, "临时会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
 			countBadge(c, v, len(items))
 			groupAdd(c, v, "新建临时会话", onCreate)
 		})
@@ -226,8 +226,8 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 
 	// 区头（.thread-group-head.is-section，margin-top 6）：批量折叠开关
 	// （有项目组才出现）+ 标题 + 总数 + 创建项目占位入口。
-	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space3).
-		Padding(groupHeadPad.t+ui.Space3, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).
+		Padding(groupHeadPad.t+theme.Space3, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			if len(projects) > 0 {
 				allCollapsed := s.coll.AllProjectsCollapsed(groups)
@@ -239,9 +239,9 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 					groupToggle(c, v, true, "折叠所有项目", "chevron-down", "chevron-right", onToggle)
 				}
 			} else {
-				mygo.Box(c).Width(ui.Space4 + ui.Space6 + ui.Space4) // 无开关时对齐临时组的箭头位（18）
+				mygo.Box(c).Width(theme.Space4 + theme.Space6 + theme.Space4) // 无开关时对齐临时组的箭头位（18）
 			}
-			mygo.Text(c, "项目会话").FontSize(ui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			mygo.Text(c, "项目会话").FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
 			countBadge(c, v, ProjectThreadCount(groups))
 			groupAdd(c, v, "创建项目", func() {
 				// 创建项目对话框归 07 号票（React 版 openCreateProject）；
@@ -274,8 +274,8 @@ func (s *Sidebar) groupItems(c *mygo.Context, v *viewSide, g Group) {
 	}
 	remaining := len(g.Items) - limit
 	more := mygo.ButtonBase(c).Fill().AlignItems(mygo.Start).
-		Padding(ui.Space4, ui.Space4+4, ui.Space3+ui.Space4, ui.Space4+ui.Space5+ui.Space7+ui.Space1). // 4 8 6 26
-		Radius(ui.RadiusRow)
+		Padding(theme.Space4, theme.Space4+4, theme.Space3+theme.Space4, theme.Space4+theme.Space5+theme.Space7+theme.Space1). // 4 8 6 26
+		Radius(theme.RadiusRow)
 	if more.Hovered() {
 		more.Background(v.pal.SidebarHover)
 	}
@@ -284,7 +284,7 @@ func (s *Sidebar) groupItems(c *mygo.Context, v *viewSide, g Group) {
 	}
 	more.Children(func() {
 		mygo.Text(c, "显示更多（还有 "+strconv.Itoa(remaining)+" 条）").
-			FontSize(ui.Fonts.SM()).TextColor(v.pal.Text3)
+			FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 	})
 }
 
@@ -292,7 +292,7 @@ func (s *Sidebar) groupItems(c *mygo.Context, v *viewSide, g Group) {
 // folder），组头 + 在该项目新建会话，组内分页。
 func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 	open := !s.coll.IsCollapsed(g.Key)
-	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			fold, name := "folder", "折叠项目会话"
 			if open {
@@ -301,14 +301,14 @@ func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 				name = "展开项目会话"
 			}
 			foldBtn := mygo.ButtonBase(c).Size(18, 18).Center().
-				Radius(ui.RadiusBadge).Tooltip(name)
+				Radius(theme.RadiusBadge).Tooltip(name)
 			if foldBtn.Clicked() {
 				s.ToggleProject(g.Key)
 			}
 			foldBtn.Children(func() {
-				ui.Icon(c, fold).FontSize(13).TextColor(v.pal.Text4)
+				icons.Icon(c, fold).FontSize(13).TextColor(v.pal.Text4)
 			})
-			mygo.Text(c, g.Name).FontSize(ui.Fonts.SM()).FontWeight(500).
+			mygo.Text(c, g.Name).FontSize(theme.Fonts.SM()).FontWeight(500).
 				TextColor(v.pal.Text4).Grow(1).SingleLine()
 			countBadge(c, v, len(g.Items))
 			groupAdd(c, v, "新建会话", func() {
@@ -325,11 +325,11 @@ func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 
 // orphanGroup 画「其他」组：归档图标组头，条目全量展示（React 版无分页）。
 func (s *Sidebar) orphanGroup(c *mygo.Context, v *viewSide, g Group) {
-	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
+	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
 			mygo.Box(c).Width(18) // 对齐有开关的组头
-			ui.Icon(c, "archive").FontSize(13).TextColor(v.pal.Text4)
-			mygo.Text(c, g.Name).FontSize(ui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
+			icons.Icon(c, "archive").FontSize(13).TextColor(v.pal.Text4)
+			mygo.Text(c, g.Name).FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text4).Grow(1)
 			countBadge(c, v, len(g.Items))
 		})
 	for _, t := range g.Items {
@@ -341,7 +341,7 @@ func (s *Sidebar) orphanGroup(c *mygo.Context, v *viewSide, g Group) {
 // 在 down / right 两个登记名间切换；点击调 onToggle。
 func groupToggle(c *mygo.Context, v *viewSide, open bool, title, openIcon, closedIcon string, onToggle func()) {
 	btn := mygo.ButtonBase(c).Size(18, 18).Center().
-		Radius(ui.RadiusBadge).Tooltip(title)
+		Radius(theme.RadiusBadge).Tooltip(title)
 	if btn.Clicked() && onToggle != nil {
 		onToggle()
 	}
@@ -350,14 +350,14 @@ func groupToggle(c *mygo.Context, v *viewSide, open bool, title, openIcon, close
 		name = openIcon
 	}
 	btn.Children(func() {
-		ui.Icon(c, name).FontSize(13).TextColor(v.pal.Text4)
+		icons.Icon(c, name).FontSize(13).TextColor(v.pal.Text4)
 	})
 }
 
 // groupAdd 画组头右侧的 + 按钮（20×20，悬停提亮）。
 func groupAdd(c *mygo.Context, v *viewSide, title string, onClick func()) {
 	btn := mygo.ButtonBase(c).Size(20, 20).Center().
-		Radius(ui.RadiusChip).Tooltip(title)
+		Radius(theme.RadiusChip).Tooltip(title)
 	hover := btn.Hovered()
 	if hover {
 		btn.Background(v.pal.BgHover)
@@ -370,7 +370,7 @@ func groupAdd(c *mygo.Context, v *viewSide, title string, onClick func()) {
 		color = v.pal.Text
 	}
 	btn.Children(func() {
-		ui.Icon(c, "plus").FontSize(14).TextColor(color)
+		icons.Icon(c, "plus").FontSize(14).TextColor(color)
 	})
 }
 
@@ -378,19 +378,19 @@ func groupAdd(c *mygo.Context, v *viewSide, title string, onClick func()) {
 // 圆角 4、BgActive 底、XS 字号。
 func countBadge(c *mygo.Context, v *viewSide, n int) {
 	mygo.Box(c).MinWidth(16).Height(15).
-		Padding(0, ui.Space4).Center().Radius(ui.RadiusBadge).
+		Padding(0, theme.Space4).Center().Radius(theme.RadiusBadge).
 		Background(v.pal.BgActive).
 		Children(func() {
-			mygo.Text(c, strconv.Itoa(n)).FontSize(ui.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text3)
+			mygo.Text(c, strconv.Itoa(n)).FontSize(theme.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text3)
 		})
 }
 
 // listEmpty 画空态文案（.thread-empty：26 16 内边距、居中、次要色）。
 func listEmpty(c *mygo.Context, v *viewSide, text string) {
 	mygo.Box(c).Fill().Center().
-		Padding(ui.Space6+ui.Space7+ui.Space4, ui.Space6+ui.Space7+ui.Space1). // 26 16
+		Padding(theme.Space6+theme.Space7+theme.Space4, theme.Space6+theme.Space7+theme.Space1). // 26 16
 		Children(func() {
-			mygo.Text(c, text).FontSize(ui.Fonts.SM()).TextColor(v.pal.Text3).
+			mygo.Text(c, text).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3).
 				TextAlign(mygo.Center)
 		})
 }
@@ -404,8 +404,8 @@ func listEmpty(c *mygo.Context, v *viewSide, text string) {
 func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 	active := t.ID == s.ActiveID()
 	btn := mygo.ButtonBase(c).Fill().AlignItems(mygo.Stretch).Key(t.ID).
-		Padding(ui.Space4, ui.Space1+3, ui.Space4, ui.Space5+1). // 8 5 8 11
-		Radius(ui.RadiusCtl).
+		Padding(theme.Space4, theme.Space1+3, theme.Space4, theme.Space5+1). // 8 5 8 11
+		Radius(theme.RadiusCtl).
 		Margin(0, 0, 1, 0). // 行间距 1（.thread-item margin-bottom）
 		Transition(mygo.ElementTransition{
 			Enter: &mygo.Motion{Collapse: true},
@@ -427,16 +427,16 @@ func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 		// 选中态模式色竖条（.thread-item::before）：左缘 2px、上下缩进 9、
 		// 圆角 2；出现/消失走 160ms 透明度渐变（CSS 的 opacity 过渡）。
 		bar := mygo.Box(c).Absolute().Left(0).Top(9).Bottom(9).
-			Width(2).Radius(ui.RadiusBadge)
-		alpha := bar.AnimateTo("bar", boolAlpha(active), mygo.Animation{Duration: ui.Duration, Ease: ui.Ease})
+			Width(2).Radius(theme.RadiusBadge)
+		alpha := bar.AnimateTo("bar", boolAlpha(active), mygo.Animation{Duration: theme.Duration, Ease: theme.Ease})
 		bar.Background(v.accent).Opacity(alpha)
 
-		mygo.Text(c, t.Title).FontSize(ui.Fonts.Base()).
+		mygo.Text(c, t.Title).FontSize(theme.Fonts.Base()).
 			TextColor(v.pal.Text).SingleLine()
-		mygo.Row(c).Fill().AlignItems(mygo.Center).Justify(mygo.SpaceBetween).Gap(ui.Space3).
+		mygo.Row(c).Fill().AlignItems(mygo.Center).Justify(mygo.SpaceBetween).Gap(theme.Space3).
 			Children(func() {
 				mygo.Text(c, FormatTime(t.UpdatedAt, theme.Now())).
-					FontSize(ui.Fonts.SM()).TextColor(v.pal.Text4)
+					FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
 				statusNode(c, v, t.Status)
 			})
 	})
@@ -462,19 +462,19 @@ func statusNode(c *mygo.Context, v *viewSide, status string) {
 	case StatusError:
 		statusBadge(c, v, v.pal.Danger, "错误", false)
 	default:
-		mygo.Text(c, "已完成").FontSize(ui.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text4)
+		mygo.Text(c, "已完成").FontSize(theme.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text4)
 	}
 }
 
 // statusBadge 画「圆点 + 文案」的状态徽标；pulse 时圆点透明度往复
 // （Loop 类装饰动效在系统要求减少动效时停用，见 theme.ReduceMotion）。
 func statusBadge(c *mygo.Context, v *viewSide, color mygo.Color, label string, pulse bool) {
-	mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space4).Children(func() {
-		dot := mygo.Box(c).Size(5, 5).Radius(ui.RadiusRound).Background(color)
-		if pulse && !ui.ReduceMotion(c) {
+	mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space4).Children(func() {
+		dot := mygo.Box(c).Size(5, 5).Radius(theme.RadiusRound).Background(color)
+		if pulse && !theme.ReduceMotion(c) {
 			dot.Opacity(1 - 0.55*dot.Loop("pulse", 1400*time.Millisecond, mygo.Bounce(mygo.EaseInOut)))
 		}
-		mygo.Text(c, label).FontSize(ui.Fonts.XS()).FontWeight(500).TextColor(color)
+		mygo.Text(c, label).FontSize(theme.Fonts.XS()).FontWeight(500).TextColor(color)
 	})
 }
 
@@ -510,13 +510,13 @@ func (s *Sidebar) threadMenu(c *mygo.Context, v *viewSide, el mygo.Element, t Th
 // 用量 / 审计；命令面板 ⌘K / 设置 ⌘,。
 func (s *Sidebar) footer(c *mygo.Context, v *viewSide) {
 	mygo.Column(c).
-		Padding(ui.Space3, ui.Space4+4, ui.Space4+4).
-		Gap(ui.Space1).
+		Padding(theme.Space3, theme.Space4+4, theme.Space4+4).
+		Gap(theme.Space1).
 		BorderWidth(1, 0, 0, 0).
 		BorderColor(v.pal.Border).
 		Background(v.pal.SidebarBg).
 		Children(func() {
-			mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space4).Children(func() {
+			mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space4).Children(func() {
 				sideLink(c, v, "zap", "用量", strconv.FormatInt(s.counts.UsageTokens, 10), "", func() {
 					if v.acts != nil && v.acts.Usage != nil {
 						v.acts.Usage()
@@ -532,7 +532,7 @@ func (s *Sidebar) footer(c *mygo.Context, v *viewSide) {
 					}
 				})
 			})
-			mygo.Row(c).AlignItems(mygo.Center).Gap(ui.Space4).Children(func() {
+			mygo.Row(c).AlignItems(mygo.Center).Gap(theme.Space4).Children(func() {
 				sideLink(c, v, "command", "命令面板", "", "⌘K", func() {
 					if v.acts != nil && v.acts.Palette != nil {
 						v.acts.Palette()
@@ -555,10 +555,10 @@ func (s *Sidebar) footer(c *mygo.Context, v *viewSide) {
 // 右侧计数或快捷键徽章；悬停提亮）。
 func sideLink(c *mygo.Context, v *viewSide, icon, label, value, kbd string, onClick func()) {
 	btn := mygo.ButtonBase(c).Grow(1).AlignItems(mygo.Center).
-		Height(ui.HeightSideLink).
-		Padding(0, ui.Space4+3).
-		Gap(ui.Space3).
-		Radius(ui.RadiusRow)
+		Height(theme.HeightSideLink).
+		Padding(0, theme.Space4+3).
+		Gap(theme.Space3).
+		Radius(theme.RadiusRow)
 	hover := btn.Hovered()
 	if hover {
 		btn.Background(v.pal.SidebarHover)
@@ -571,10 +571,10 @@ func sideLink(c *mygo.Context, v *viewSide, icon, label, value, kbd string, onCl
 		color = v.pal.Text2
 	}
 	btn.Children(func() {
-		ui.Icon(c, icon).FontSize(14).TextColor(color)
-		mygo.Text(c, label).FontSize(ui.Fonts.SM()).TextColor(color).Grow(1).SingleLine()
+		icons.Icon(c, icon).FontSize(14).TextColor(color)
+		mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(color).Grow(1).SingleLine()
 		if value != "" {
-			mygo.Text(c, value).FontSize(ui.Fonts.SM()).TextColor(v.pal.Text4)
+			mygo.Text(c, value).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
 		}
 		if kbd != "" {
 			kbdBadge(c, v, kbd)
@@ -584,15 +584,15 @@ func sideLink(c *mygo.Context, v *viewSide, icon, label, value, kbd string, onCl
 
 // kbdBadge 画键位小徽章（.kbd：min-width 19、高 19、描边底边加粗、XS）。
 func kbdBadge(c *mygo.Context, v *viewSide, label string) {
-	mygo.Box(c).MinWidth(ui.HeightKbd).Height(ui.HeightKbd).
-		Padding(0, ui.Space1+3).
+	mygo.Box(c).MinWidth(theme.HeightKbd).Height(theme.HeightKbd).
+		Padding(0, theme.Space1+3).
 		Center().
-		Radius(ui.RadiusBadge).
+		Radius(theme.RadiusBadge).
 		Background(v.pal.BgElevated).
 		BorderWidth(1, 1, 2, 1).
 		BorderColor(v.pal.BorderStrong).
 		Children(func() {
-			mygo.Text(c, label).FontSize(ui.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text3)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).FontWeight(500).TextColor(v.pal.Text3)
 		})
 }
 

@@ -12,6 +12,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // panelGripWidth 是面板左缘双击恢复条的宽度（DIP）；ui.Split 的拖拽把手
@@ -44,10 +45,10 @@ type Shell struct {
 
 	// SidebarView 是侧栏槽位的内容（04 号票的 sidebar.View）；nil 时画
 	// 占位文本。委托注入而非直接引用 internal/ui/sidebar，避免包环。
-	SidebarView func(c *mygo.Context, pal *Palette)
+	SidebarView func(c *mygo.Context, pal *theme.Palette)
 	// ChatView 是聊天列槽位的内容（05 号票的 chat.View）；nil 时画
 	// 占位文本。
-	ChatView func(c *mygo.Context, pal *Palette)
+	ChatView func(c *mygo.Context, pal *theme.Palette)
 	// ThreadID 返回当前会话 Id（05 号票注入）：面板 tab 按「工作区 +
 	// 线程」过滤显隐；未注入时全部归属草稿上下文。
 	ThreadID func() string
@@ -83,8 +84,8 @@ type Shell struct {
 // NewShell 创建外壳状态：面板默认展开、取最小宽度，把空间留给对话区。
 func NewShell() *Shell {
 	s := &Shell{
-		chatWidth:  chatWidthFor(DefWindowWidth-SidebarWidth, PanelDefWidth),
-		panelWidth: PanelDefWidth,
+		chatWidth:  chatWidthFor(theme.DefWindowWidth-theme.SidebarWidth, theme.PanelDefWidth),
+		panelWidth: theme.PanelDefWidth,
 		panelOpen:  true,
 	}
 	s.pane = NewPane(PaneDeps{
@@ -186,35 +187,35 @@ func (s *Shell) activeWorkspace() *service.WorkspaceView {
 
 // clampPanel 把面板宽度钳制进 [PanelMinWidth, PanelMaxWidth]。
 func clampPanel(v float32) float32 {
-	if v < PanelMinWidth {
-		return PanelMinWidth
+	if v < theme.PanelMinWidth {
+		return theme.PanelMinWidth
 	}
-	if v > PanelMaxWidth {
-		return PanelMaxWidth
+	if v > theme.PanelMaxWidth {
+		return theme.PanelMaxWidth
 	}
 	return v
 }
 
 // chatWidthFor 由面板宽度算对话列宽度（split 总宽扣除 1 DIP 分隔线）。
 func chatWidthFor(splitW, panelW float32) float32 {
-	return splitW - DividerWidth - panelW
+	return splitW - theme.DividerWidth - panelW
 }
 
 // panelWidthFromChat 由对话列宽度（用户拖拽的结果）反推面板宽度并钳制。
 func panelWidthFromChat(splitW, chatW float32) float32 {
-	return clampPanel(splitW - DividerWidth - chatW)
+	return clampPanel(splitW - theme.DividerWidth - chatW)
 }
 
 // panelShown 判断面板停靠栏是否显示：用户偏好展开，且窗口不窄于
 // NarrowWindowWidth（窄窗收起是浮层形态的骨架替代，浮层归 08 号票）。
 func panelShown(windowW float32, open bool) bool {
-	return open && windowW >= NarrowWindowWidth
+	return open && windowW >= theme.NarrowWindowWidth
 }
 
 // View 画整窗外壳。root view 每帧从这里开始：先套主题（跟随系统），
 // 再按当前窗口宽度分派三栏。
 func (s *Shell) View(c *mygo.Context) {
-	pal := Apply(c)
+	pal := theme.Apply(c)
 	windowW, _ := c.Size()
 
 	mygo.Column(c).Fill().Children(func() {
@@ -226,17 +227,17 @@ func (s *Shell) View(c *mygo.Context) {
 // topbar 画顶部 48px 拖拽区：左段品牌名与侧栏同宽居中，右段留给运行状态
 // 与设置入口（05 / 07 号票）。c.TitleBar() 给出红绿灯占位，左右各留出避让；
 // DragWindow 让空白区域可拖动窗口，双击等价标题栏缩放。
-func (s *Shell) topbar(c *mygo.Context, pal *Palette) {
+func (s *Shell) topbar(c *mygo.Context, pal *theme.Palette) {
 	bar := c.TitleBar()
-	mygo.Row(c).Height(TopbarHeight).
-		Padding(0, bar.Right+Space6, 0, bar.Left+Space6).
+	mygo.Row(c).Height(theme.TopbarHeight).
+		Padding(0, bar.Right+theme.Space6, 0, bar.Left+theme.Space6).
 		DragWindow().
 		Background(pal.BgPanel).
 		BorderWidth(0, 0, 1, 0).
 		BorderColor(pal.Border).
 		Children(func() {
 			// 左段：品牌名，与侧栏同宽并居中（frontend .topbar-left）。
-			mygo.Box(c).Width(SidebarWidth).Center().Children(func() {
+			mygo.Box(c).Width(theme.SidebarWidth).Center().Children(func() {
 				mygo.Text(c, "CraftWork").Bold()
 			})
 			mygo.Spacer(c)
@@ -247,8 +248,8 @@ func (s *Shell) topbar(c *mygo.Context, pal *Palette) {
 
 // body 画三栏主体：侧栏 268 固定；右侧用 ui.Split 分为对话列与面板，
 // 对话列宽度由面板宽度折算并钳制；窄窗时面板整体不建，对话列占满。
-func (s *Shell) body(c *mygo.Context, pal *Palette, windowW float32) {
-	splitW := windowW - SidebarWidth
+func (s *Shell) body(c *mygo.Context, pal *theme.Palette, windowW float32) {
+	splitW := windowW - theme.SidebarWidth
 	shown := panelShown(windowW, s.panelOpen)
 	switch {
 	case !shown:
@@ -257,7 +258,7 @@ func (s *Shell) body(c *mygo.Context, pal *Palette, windowW float32) {
 		s.chatWidth = chatWidthFor(splitW, s.panelWidth)
 	case s.panelReset:
 		// 双击恢复：直接按默认宽重排，清掉标记。
-		s.panelWidth = PanelDefWidth
+		s.panelWidth = theme.PanelDefWidth
 		s.chatWidth = chatWidthFor(splitW, s.panelWidth)
 		s.panelReset = false
 	case s.splitW == splitW:
@@ -285,12 +286,12 @@ func (s *Shell) body(c *mygo.Context, pal *Palette, windowW float32) {
 // sidebar 画 268 固定侧栏。内容经 SidebarView 委托给 04 号票的侧栏视图
 // （模式切换、会话分组列表与底部两行都在那里面）；未注入时画占位文本。
 // 侧栏自身的 48px 标题行由窗口顶栏的左段承担，槽位直接从顶栏线下方开始。
-func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
+func (s *Shell) sidebar(c *mygo.Context, pal *theme.Palette) {
 	if s.SidebarView != nil {
 		s.SidebarView(c, pal)
 		return
 	}
-	mygo.Column(c).Width(SidebarWidth).
+	mygo.Column(c).Width(theme.SidebarWidth).
 		Background(pal.SidebarBg).
 		BorderWidth(0, 1, 0, 0).
 		BorderColor(pal.Border).
@@ -303,7 +304,7 @@ func (s *Shell) sidebar(c *mygo.Context, pal *Palette) {
 
 // chatPane 画自适应对话列。内容经 ChatView 委托给 05 号票的聊天视图
 // （会话头部、消息流与输入区）；未注入时画占位文本。
-func (s *Shell) chatPane(c *mygo.Context, pal *Palette) mygo.Element {
+func (s *Shell) chatPane(c *mygo.Context, pal *theme.Palette) mygo.Element {
 	if s.ChatView != nil {
 		return mygo.Column(c).Fill().Children(func() {
 			s.ChatView(c, pal)
@@ -327,7 +328,7 @@ func (s *Shell) chatPane(c *mygo.Context, pal *Palette) mygo.Element {
 //   - 窄窗浮层（08 号票）：窄窗时面板覆盖聊天区右侧、不挤压对话列；
 //     本票骨架为窄窗直接收起（见 panelShown）。
 //   - 最大化（08 号票）：面板覆盖中间区域、左缘压住侧栏边框，留桩。
-func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
+func (s *Shell) panelPane(c *mygo.Context, pal *theme.Palette) {
 	// 面板内容：多 tab 状态机（internal/ui/panel）+ 文件树 / 编辑器；
 	// 末 tab 关闭 / 关闭全部会经 Collapse 回调把 panelOpen 置 false，
 	// 下一帧这里整体消失。
@@ -340,7 +341,7 @@ func (s *Shell) panelPane(c *mygo.Context, pal *Palette) {
 			// 双击恢复默认宽度；标记在下一帧 body 里生效。
 			grip := mygo.Box(c).Absolute().Top(0).Bottom(0).Left(0).Width(panelGripWidth)
 			if grip.DoubleClicked() {
-				s.panelWidth = PanelDefWidth
+				s.panelWidth = theme.PanelDefWidth
 				s.panelReset = true
 			}
 		})

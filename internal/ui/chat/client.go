@@ -26,7 +26,7 @@ import (
 
 	"github.com/yangshifu1024/craftwork/internal/events"
 	"github.com/yangshifu1024/craftwork/internal/service"
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // maxPastedAttachmentBytes 是粘贴/拾取图片附件的大小上限（lib/paste.ts
@@ -325,7 +325,7 @@ func (cl *Client) currentMode() string {
 	if th := cl.chat.Thread(); th.Mode == "work" || th.Mode == "code" {
 		return th.Mode
 	}
-	if cl.chat.fallbackMode == cwui.ModeWork {
+	if cl.chat.fallbackMode == theme.ModeWork {
 		return "work"
 	}
 	return "code"

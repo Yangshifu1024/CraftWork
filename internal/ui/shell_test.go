@@ -7,15 +7,17 @@ import (
 	"time"
 
 	mygo "github.com/egoist/mygo/ui"
+
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 func TestClampPanel(t *testing.T) {
 	cases := []struct{ in, want float32 }{
-		{100, PanelMinWidth},
-		{PanelMinWidth, PanelMinWidth},
+		{100, theme.PanelMinWidth},
+		{theme.PanelMinWidth, theme.PanelMinWidth},
 		{500, 500},
-		{PanelMaxWidth, PanelMaxWidth},
-		{1200, PanelMaxWidth},
+		{theme.PanelMaxWidth, theme.PanelMaxWidth},
+		{1200, theme.PanelMaxWidth},
 	}
 	for _, c := range cases {
 		if got := clampPanel(c.in); got != c.want {
@@ -25,7 +27,7 @@ func TestClampPanel(t *testing.T) {
 }
 
 func TestChatPanelWidthRoundTrip(t *testing.T) {
-	const splitW = 1440 - SidebarWidth
+	const splitW = 1440 - theme.SidebarWidth
 	// 对话列宽度与面板宽度互为反函数（分隔线 1 DIP 计入）。
 	chat := chatWidthFor(splitW, 480)
 	if chat != splitW-1-480 {
@@ -35,12 +37,12 @@ func TestChatPanelWidthRoundTrip(t *testing.T) {
 		t.Errorf("panelWidthFromChat = %v, want 480", got)
 	}
 	// 拖过头时钳制生效：对话列被压得只剩 100，面板顶到上限 760。
-	if got := panelWidthFromChat(splitW, 100); got != PanelMaxWidth {
-		t.Errorf("上限钳制 = %v, want %v", got, PanelMaxWidth)
+	if got := panelWidthFromChat(splitW, 100); got != theme.PanelMaxWidth {
+		t.Errorf("上限钳制 = %v, want %v", got, theme.PanelMaxWidth)
 	}
 	// 反向拖到最右：面板只剩 100，回到下限 320。
-	if got := panelWidthFromChat(splitW, splitW-1-100); got != PanelMinWidth {
-		t.Errorf("下限钳制 = %v, want %v", got, PanelMinWidth)
+	if got := panelWidthFromChat(splitW, splitW-1-100); got != theme.PanelMinWidth {
+		t.Errorf("下限钳制 = %v, want %v", got, theme.PanelMinWidth)
 	}
 }
 
@@ -48,10 +50,10 @@ func TestPanelShown(t *testing.T) {
 	if !panelShown(1440, true) {
 		t.Errorf("宽窗且展开时应显示")
 	}
-	if panelShown(NarrowWindowWidth-1, true) {
+	if panelShown(theme.NarrowWindowWidth-1, true) {
 		t.Errorf("窄窗应自动收起")
 	}
-	if !panelShown(NarrowWindowWidth, true) {
+	if !panelShown(theme.NarrowWindowWidth, true) {
 		t.Errorf("阈值宽度应视为宽窗（>= 判定）")
 	}
 	if panelShown(1440, false) {
@@ -65,10 +67,10 @@ func TestNewShellDefaults(t *testing.T) {
 	if s.chatWidth <= 0 {
 		t.Fatalf("chatWidth 初值 = %v，必须非零", s.chatWidth)
 	}
-	if s.chatWidth != chatWidthFor(DefWindowWidth-SidebarWidth, PanelDefWidth) {
+	if s.chatWidth != chatWidthFor(theme.DefWindowWidth-theme.SidebarWidth, theme.PanelDefWidth) {
 		t.Errorf("chatWidth 初值与默认面板宽不自洽: %v", s.chatWidth)
 	}
-	if s.panelWidth != PanelDefWidth || !s.panelOpen || s.panelReset {
+	if s.panelWidth != theme.PanelDefWidth || !s.panelOpen || s.panelReset {
 		t.Errorf("默认状态错误: %+v", *s)
 	}
 }
@@ -101,7 +103,7 @@ func TestShellViewShowsThreePanes(t *testing.T) {
 func TestShellViewCollapsesPanelWhenNarrow(t *testing.T) {
 	_, tt := newShellTester(t)
 	// 窄于阈值：面板整体不建，对话列占满。
-	tt.SetSize(int(NarrowWindowWidth-100), 800)
+	tt.SetSize(int(theme.NarrowWindowWidth-100), 800)
 	if tt.HasText(textPanel) {
 		t.Errorf("窄窗下面板未收起")
 	}
@@ -144,19 +146,19 @@ func TestShellViewPanelDragClampAndDoubleClick(t *testing.T) {
 	tt.Move(200, dividerY)
 	tt.Release(200, dividerY)
 	tt.Frame()
-	if s.panelWidth != PanelMaxWidth {
-		t.Fatalf("上限钳制后 = %v, want %v", s.panelWidth, PanelMaxWidth)
+	if s.panelWidth != theme.PanelMaxWidth {
+		t.Fatalf("上限钳制后 = %v, want %v", s.panelWidth, theme.PanelMaxWidth)
 	}
 
 	// 面板左缘（分隔线右侧 4 DIP，落在双击条上、拖拽把手之外）双击：
 	// 恢复默认 320。
-	gripX := (1440 - PanelMaxWidth) + 4
+	gripX := (1440 - theme.PanelMaxWidth) + 4
 	tt.ClickAt(gripX, dividerY)
 	tt.Advance(80 * time.Millisecond)
 	tt.ClickAt(gripX, dividerY)
 	tt.Frame()
-	if s.panelWidth != PanelDefWidth || s.panelReset {
-		t.Fatalf("双击恢复后面板宽 = %v (reset=%v), want %v", s.panelWidth, s.panelReset, PanelDefWidth)
+	if s.panelWidth != theme.PanelDefWidth || s.panelReset {
+		t.Fatalf("双击恢复后面板宽 = %v (reset=%v), want %v", s.panelWidth, s.panelReset, theme.PanelDefWidth)
 	}
 	// 几何确认：占位文本回到初始位置（view 真的重排了）。
 	restored := panelBox(t)

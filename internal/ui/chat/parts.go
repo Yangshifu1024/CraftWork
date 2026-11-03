@@ -24,7 +24,8 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/editor"
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ func (s *Chat) attachItem(c *mygo.Context, v *viewSide, path, name string) {
 		attachChip(c, v, name, "")
 		return
 	}
-	btn := mygo.ButtonBase(c).Size(28, 28).Radius(cwui.RadiusRow).
+	btn := mygo.ButtonBase(c).Size(28, 28).Radius(theme.RadiusRow).
 		AlignItems(mygo.Center).Justify(mygo.Center).Clip().
 		Label(name + "（点击放大）")
 	if btn.Clicked() {
@@ -74,16 +75,16 @@ func (s *Chat) attachItem(c *mygo.Context, v *viewSide, path, name string) {
 // 可选尺寸尾巴）。可移除形态由外层包按钮实现（输入区条内），
 // 消息内的展示 chip 不可移除。
 func attachChip(c *mygo.Context, v *viewSide, name, size string) {
-	mygo.Row(c).Gap(cwui.Space3).AlignItems(mygo.Center).
-		Height(28).Padding(0, cwui.Space4).Radius(cwui.RadiusRow).
+	mygo.Row(c).Gap(theme.Space3).AlignItems(mygo.Center).
+		Height(28).Padding(0, theme.Space4).Radius(theme.RadiusRow).
 		MaxWidth(240).
 		Background(v.pal.BgPanel).
 		BorderWidth(1).BorderColor(v.pal.Border).
 		Children(func() {
-			cwui.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
-			mygo.Text(c, name).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
+			icons.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
+			mygo.Text(c, name).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
 			if size != "" {
-				mygo.Text(c, size).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+				mygo.Text(c, size).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 			}
 		})
 }
@@ -101,10 +102,10 @@ func (s *Chat) imagePreviewDialog(c *mygo.Context, v *viewSide) {
 		dialog.Radius(12).Background(v.pal.BgFloat).
 			BorderWidth(1).BorderColor(v.pal.BorderStrong).
 			MaxWidth(w - 120).MaxHeight(h - 120)
-		dialog.Padding(cwui.Space5).Gap(cwui.Space3).Children(func() {
-			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(cwui.Space3).Children(func() {
-				cwui.Icon(c, "image").FontSize(14).TextColor(v.pal.Text3)
-				mygo.Text(c, st.name).FontSize(cwui.Fonts.SM()).
+		dialog.Padding(theme.Space5).Gap(theme.Space3).Children(func() {
+			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).Children(func() {
+				icons.Icon(c, "image").FontSize(14).TextColor(v.pal.Text3)
+				mygo.Text(c, st.name).FontSize(theme.Fonts.SM()).
 					TextColor(v.pal.Text2).MaxLines(1).Grow(1)
 				if cardBtn(c, v, "关闭", "plain", false) {
 					s.CloseImagePreview()
@@ -149,14 +150,14 @@ func partPlaceholder(c *mygo.Context, v *viewSide, part Part) {
 	if title == "" {
 		return
 	}
-	mygo.Row(c).Gap(cwui.Space3).AlignItems(mygo.Center).
-		Height(cwui.HeightBtnSmall+2*cwui.Space3).
-		Padding(0, cwui.Space4).Radius(cwui.RadiusRow).
+	mygo.Row(c).Gap(theme.Space3).AlignItems(mygo.Center).
+		Height(theme.HeightBtnSmall+2*theme.Space3).
+		Padding(0, theme.Space4).Radius(theme.RadiusRow).
 		Background(v.pal.BgHover).
 		Children(func() {
-			cwui.Icon(c, icon).FontSize(13).TextColor(v.pal.Text3)
-			mygo.Text(c, title).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
-			mygo.Box(c).Size(6, 6).Radius(cwui.RadiusRound).Background(status)
+			icons.Icon(c, icon).FontSize(13).TextColor(v.pal.Text3)
+			mygo.Text(c, title).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
+			mygo.Box(c).Size(6, 6).Radius(theme.RadiusRound).Background(status)
 		})
 }
 
@@ -233,13 +234,13 @@ func riskBadge(c *mygo.Context, v *viewSide, level string) {
 	mygo.Box(c).Height(19).Padding(0, 5).Radius(4).
 		Background(color.Alpha(0.13)).Center().
 		Children(func() {
-			mygo.Text(c, level).Font(cwui.MonoFont).
-				FontSize(cwui.Fonts.XS()).TextColor(color).FontWeight(500)
+			mygo.Text(c, level).Font(theme.MonoFont).
+				FontSize(theme.Fonts.XS()).TextColor(color).FontWeight(500)
 		})
 }
 
 // riskColor 把 R0–R4 字符串映射到色板；越界回退 R0 中性色。
-func riskColor(p *cwui.Palette, level string) mygo.Color {
+func riskColor(p *theme.Palette, level string) mygo.Color {
 	switch level {
 	case "R1":
 		return p.R1
@@ -267,10 +268,10 @@ func levelBadge(c *mygo.Context, v *viewSide, level string) {
 	if label == "" {
 		label = level + "档位"
 	}
-	mygo.Box(c).Height(16).Padding(0, cwui.Space3).Radius(cwui.RadiusBadge).
+	mygo.Box(c).Height(16).Padding(0, theme.Space3).Radius(theme.RadiusBadge).
 		Background(bg).Center().
 		Children(func() {
-			mygo.Text(c, label).FontSize(cwui.Fonts.XS()).TextColor(fg)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(fg)
 		})
 }
 
@@ -291,16 +292,16 @@ func approvalLevelNote(level string) string {
 // cardBtn 画卡片按钮行里的一枚 27px 按钮（.approval-actions .btn），返回
 // 是否被点击。变体：plain（面板底描边）/ ghost（无底）/ danger（危险描边）。
 func cardBtn(c *mygo.Context, v *viewSide, label, variant string, autoFocus bool) bool {
-	btn := mygo.ButtonBase(c).Height(27).Padding(0, 12).Radius(cwui.RadiusBtn)
+	btn := mygo.ButtonBase(c).Height(27).Padding(0, 12).Radius(theme.RadiusBtn)
 	switch variant {
 	case "ghost":
-		btn.Children(func() { mygo.Text(c, label).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2) })
+		btn.Children(func() { mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2) })
 	case "danger":
 		btn.BorderWidth(1).BorderColor(v.pal.Danger)
-		btn.Children(func() { mygo.Text(c, label).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Danger) })
+		btn.Children(func() { mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(v.pal.Danger) })
 	default:
 		btn.Background(v.pal.BgElevated).BorderWidth(1).BorderColor(v.pal.BorderStrong)
-		btn.Children(func() { mygo.Text(c, label).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text) })
+		btn.Children(func() { mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text) })
 	}
 	if autoFocus {
 		btn = btn.AutoFocus()
@@ -346,14 +347,14 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 		mygo.Box(c).Height(2).FillWidth().
 			Gradient(color, color.Alpha(0), 90)
 		// 头部：盾牌 + 标题 + 风险徽章 + 工具名 + 档位徽章 + 右侧提示。
-		mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(cwui.Space3).
+		mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).
 			Padding(10, 12, 8, 12).Children(func() {
-			cwui.Icon(c, "shield").FontSize(14).TextColor(v.pal.Warn)
-			mygo.Text(c, "需要你的批准").FontSize(cwui.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text)
+			icons.Icon(c, "shield").FontSize(14).TextColor(v.pal.Warn)
+			mygo.Text(c, "需要你的批准").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text)
 			riskBadge(c, v, strOf(d, "risk"))
 			if tool := strOf(d, "tool"); tool != "" {
-				mygo.Text(c, tool).Font(cwui.MonoFont).
-					FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text)
+				mygo.Text(c, tool).Font(theme.MonoFont).
+					FontSize(theme.Fonts.SM()).TextColor(v.pal.Text)
 			}
 			levelBadge(c, v, s.approvalLevelRaw)
 			mygo.Spacer(c)
@@ -365,31 +366,31 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 			}
 			// 等待决定带扫光（10 号票动效补齐，思考块同机制换警示色）：
 			// 提示用户的决定还悬着；减少动效偏好下停用。
-			if waiting && !cwui.ReduceMotion(c) {
+			if waiting && !theme.ReduceMotion(c) {
 				sweep := card.Loop("approval-sweep", 2200*time.Millisecond, mygo.Bounce(mygo.EaseInOut))
-				mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).
+				mygo.Text(c, hint).FontSize(theme.Fonts.XS()).
 					TextColor(v.pal.Text3.Mix(v.pal.Warn, sweep))
 			} else {
-				mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+				mygo.Text(c, hint).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 			}
 		})
 		// 主体：摘要、目标、事实列表、预览。
 		mygo.Column(c).FillWidth().Padding(0, 12, 10, 12).Children(func() {
 			summary := strOr(strOf(d, "detail"), strOf(d, "title"))
 			if summary != "" {
-				mygo.Text(c, summary).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).FillWidth()
-				mygo.Box(c).Height(cwui.Space3)
+				mygo.Text(c, summary).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2).FillWidth()
+				mygo.Box(c).Height(theme.Space3)
 			}
 			if target := strOf(d, "target"); target != "" {
 				mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(6).
 					Padding(6, 8).Radius(5).
 					Background(v.pal.BgSunken).BorderWidth(1).BorderColor(v.pal.BorderSoft).
 					Children(func() {
-						cwui.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
-						mygo.Text(c, target).Font(cwui.MonoFont).
-							FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
+						icons.Icon(c, "file").FontSize(12).TextColor(v.pal.Text3)
+						mygo.Text(c, target).Font(theme.MonoFont).
+							FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2).MaxLines(1).Grow(1)
 					})
-				mygo.Box(c).Height(cwui.Space3)
+				mygo.Box(c).Height(theme.Space3)
 			}
 			if facts := approvalFacts(d); len(facts) > 0 {
 				mygo.Row(c).FillWidth().AlignItems(mygo.Start).Gap(5).Children(func() {
@@ -398,9 +399,9 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 							Padding(2, 6).Radius(4).
 							Background(v.pal.BgPanel).BorderWidth(1).BorderColor(v.pal.Border).
 							Children(func() {
-								cwui.Icon(c, "info").FontSize(11).TextColor(v.pal.Text3)
+								icons.Icon(c, "info").FontSize(11).TextColor(v.pal.Text3)
 								mygo.Text(c, f.label+"："+f.value).
-									FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+									FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 							})
 					}
 				})
@@ -439,9 +440,9 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 				})
 			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(4).
 				Padding(0, 12, 8, 12).Children(func() {
-				cwui.Icon(c, "info").FontSize(10).TextColor(v.pal.Text4)
+				icons.Icon(c, "info").FontSize(10).TextColor(v.pal.Text4)
 				mygo.Text(c, approvalLevelNote(s.approvalLevelRaw)).
-					FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+					FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 			})
 		}
 		// 决定后的结果条：授权范围与审计提示（approved）或未执行提示。
@@ -449,22 +450,22 @@ func (s *Chat) approvalCard(c *mygo.Context, v *viewSide, part Part) {
 			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(6).
 				Padding(8, 12).Background(v.pal.OKSoft).
 				Children(func() {
-					cwui.Icon(c, "check-circle").FontSize(13).TextColor(v.pal.OK)
+					icons.Icon(c, "check-circle").FontSize(13).TextColor(v.pal.OK)
 					mygo.Text(c, "已允许"+scopeLabel(strOf(d, "scope"))).
-						FontSize(cwui.Fonts.SM()).FontWeight(500).TextColor(v.pal.OK)
-					mygo.Text(c, "· 已写入审计").FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text3)
+						FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.OK)
+					mygo.Text(c, "· 已写入审计").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 				})
 		} else if denied {
 			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(6).
 				Padding(8, 12).Background(v.pal.BgHover).
 				Children(func() {
-					cwui.Icon(c, "x-circle").FontSize(13).TextColor(v.pal.Text3)
+					icons.Icon(c, "x-circle").FontSize(13).TextColor(v.pal.Text3)
 					label := "已拒绝"
 					if status == "canceled" {
 						label = "已取消"
 					}
-					mygo.Text(c, label).FontSize(cwui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text3)
-					mygo.Text(c, "· 未执行任何修改").FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text3)
+					mygo.Text(c, label).FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text3)
+					mygo.Text(c, "· 未执行任何修改").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 				})
 		}
 	})
@@ -558,8 +559,8 @@ func (s *Chat) approvalPreview(c *mygo.Context, v *viewSide, d map[string]any) {
 		Children(func() {
 			mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(6).
 				Padding(4, 8).Children(func() {
-				cwui.Icon(c, "diff").FontSize(12).TextColor(v.pal.Text3)
-				mygo.Text(c, head).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+				icons.Icon(c, "diff").FontSize(12).TextColor(v.pal.Text3)
+				mygo.Text(c, head).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 				mygo.Spacer(c)
 				if showFullDiff {
 					if cardBtn(c, v, "查看完整差异", "ghost", false) {
@@ -673,9 +674,9 @@ func diffLine(c *mygo.Context, v *viewSide, line diffPreviewLine) {
 		sign = "−"
 	}
 	row.Children(func() {
-		mygo.Text(c, sign).Font(cwui.MonoFont).Width(8).
+		mygo.Text(c, sign).Font(theme.MonoFont).Width(8).
 			FontSize(10.5).TextColor(signColor(v, line.kind))
-		mygo.Text(c, line.text).Font(cwui.MonoFont).
+		mygo.Text(c, line.text).Font(theme.MonoFont).
 			FontSize(10.5).TextColor(textColor).Grow(1)
 	})
 }
@@ -747,7 +748,7 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 		// 卡片左缘 2px 状态竖条（.tool-card::before 的绝对定位近似）。
 		mygo.Box(c).Absolute().Left(0).Top(0).Bottom(0).Width(2).Background(barColor)
 		// 头部行（点击切换展开）。
-		head := mygo.ButtonBase(c).FillWidth().AlignItems(mygo.Center).Gap(cwui.Space3).
+		head := mygo.ButtonBase(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).
 			Padding(8, 10, 8, 12)
 		clicked := head.Clicked()
 		if head.Hovered() {
@@ -757,31 +758,31 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 			// 22px 圆角方块内的工具图标。
 			mygo.Box(c).Size(22, 22).Radius(6).Background(v.pal.BgActive).Center().
 				Children(func() {
-					cwui.Icon(c, toolIcon(name)).FontSize(12).TextColor(v.pal.Text2)
+					icons.Icon(c, toolIcon(name)).FontSize(12).TextColor(v.pal.Text2)
 				})
-			mygo.Text(c, name).Font(cwui.MonoFont).
-				FontSize(cwui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text)
+			mygo.Text(c, name).Font(theme.MonoFont).
+				FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text)
 			riskBadge(c, v, strOf(d, "risk"))
 			if summary := strOf(d, "summary"); summary != "" {
-				mygo.Text(c, summary).FontSize(cwui.Fonts.SM()).
+				mygo.Text(c, summary).FontSize(theme.Fonts.SM()).
 					TextColor(v.pal.Text3).MaxLines(1).Grow(1)
 			} else {
 				mygo.Spacer(c)
 			}
 			if ms := int64(numOf(d, "durationMs")); ms > 0 {
 				mygo.Text(c, strconv.FormatInt(ms, 10)+" ms").
-					FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+					FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 			}
 			mygo.Row(c).Gap(4).AlignItems(mygo.Center).Children(func() {
-				icon := cwui.Icon(c, statusIcon).FontSize(12).TextColor(statusColor)
+				icon := icons.Icon(c, statusIcon).FontSize(12).TextColor(statusColor)
 				if status == "running" {
 					// 运行中：图标旋转（.tool-status .spin）。
 					icon.Rotate(icon.Loop("tool-spin", 900*time.Millisecond, mygo.Linear) * 360)
 				}
-				mygo.Text(c, statusLabel).FontSize(cwui.Fonts.XS()).
+				mygo.Text(c, statusLabel).FontSize(theme.Fonts.XS()).
 					FontWeight(500).TextColor(statusColor)
 			})
-			chev := cwui.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
+			chev := icons.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
 			if open {
 				chev.Rotate(90)
 			}
@@ -797,8 +798,8 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 					mygo.Row(c).FillWidth().AlignItems(mygo.Start).GapX(14).GapY(4).Children(func() {
 						for _, arg := range args {
 							mygo.Row(c).AlignItems(mygo.Start).Gap(4).Children(func() {
-								mygo.Text(c, arg.key).FontSize(cwui.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text2)
-								mygo.Text(c, arg.value).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2)
+								mygo.Text(c, arg.key).FontSize(theme.Fonts.SM()).FontWeight(500).TextColor(v.pal.Text2)
+								mygo.Text(c, arg.value).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
 							})
 						}
 					})
@@ -809,8 +810,8 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 					mygo.Box(c).FillWidth().MaxHeight(240).Radius(5).
 						Background(v.pal.Bg).BorderWidth(1).BorderColor(v.pal.BorderSoft).
 						Padding(7, 9).Clip().Children(func() {
-						mygo.Text(c, output).Font(cwui.MonoFont).
-							FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text2).FillWidth()
+						mygo.Text(c, output).Font(theme.MonoFont).
+							FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2).FillWidth()
 					})
 					mygo.Box(c).Height(6)
 				}
@@ -820,8 +821,8 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 				} else if status == "running" {
 					foot = "正在执行"
 				}
-				mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(cwui.Space3).Children(func() {
-					mygo.Text(c, foot).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+				mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).Children(func() {
+					mygo.Text(c, foot).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 					mygo.Spacer(c)
 					btn := mygo.ButtonBase(c).Height(18).Padding(0, 5).Radius(4).
 						AlignItems(mygo.Center).Gap(3)
@@ -830,8 +831,8 @@ func (s *Chat) toolCard(c *mygo.Context, v *viewSide, part Part) {
 						btn.Background(v.pal.BgHover)
 					}
 					btn.Children(func() {
-						cwui.Icon(c, "copy").FontSize(11).TextColor(v.pal.Text3)
-						mygo.Text(c, "复制输出").FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+						icons.Icon(c, "copy").FontSize(11).TextColor(v.pal.Text3)
+						mygo.Text(c, "复制输出").FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 					})
 					if copyOut && s.acts != nil && s.acts.Copy != nil {
 						// 剪贴板要经主循环，走 client 的 Copy 动作排队执行。
@@ -937,25 +938,25 @@ func (s *Chat) reasoningBlock(c *mygo.Context, v *viewSide, part Part, streaming
 			head.Background(v.pal.BgHover)
 		}
 		head.Children(func() {
-			chev := cwui.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
+			chev := icons.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
 			if open {
 				chev.Rotate(90)
 			}
-			cwui.Icon(c, "sparkles").FontSize(12).TextColor(v.pal.Text3)
+			icons.Icon(c, "sparkles").FontSize(12).TextColor(v.pal.Text3)
 			// 「正在思考」扫光：文字色在弱化与强调色间往复（.r-thinking 的
 			// 渐变扫光近似）；减少动效偏好下停用 Loop 类装饰动效。
-			if streaming && !open && !cwui.ReduceMotion(c) {
+			if streaming && !open && !theme.ReduceMotion(c) {
 				sweep := head.Loop("think-sweep", 2200*time.Millisecond, mygo.Bounce(mygo.EaseInOut))
-				mygo.Text(c, headLabel).FontSize(cwui.Fonts.SM()).
+				mygo.Text(c, headLabel).FontSize(theme.Fonts.SM()).
 					TextColor(v.pal.Text3.Mix(v.pal.Accent, sweep))
 			} else {
-				mygo.Text(c, headLabel).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text3)
+				mygo.Text(c, headLabel).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 			}
 			// 流式收起态：右侧浮现思考文本的最后一个非空行。
 			if streaming && !open {
 				if summary := lastNonEmptyLine(text); summary != "" {
-					mygo.Text(c, "·").FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
-					mygo.Text(c, summary).FontSize(cwui.Fonts.XS()).
+					mygo.Text(c, "·").FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
+					mygo.Text(c, summary).FontSize(theme.Fonts.XS()).
 						TextColor(v.pal.Text4).MaxLines(1).Grow(1)
 				}
 			}
@@ -964,7 +965,7 @@ func (s *Chat) reasoningBlock(c *mygo.Context, v *viewSide, part Part, streaming
 			s.setReasoningOpen(part.ID, !open)
 		}
 		if open {
-			mygo.Text(c, text).FontSize(cwui.Fonts.SM()).
+			mygo.Text(c, text).FontSize(theme.Fonts.SM()).
 				TextColor(v.pal.Text2).FillWidth().
 				Padding(2, 12, 10, 12)
 		}
@@ -1014,12 +1015,12 @@ func todoCard(c *mygo.Context, v *viewSide, part Part) {
 		// 头部：图标 + 「任务清单」+ 计数 + 64px 进度条。
 		mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(7).
 			Padding(7, 11).Children(func() {
-			cwui.Icon(c, "list-todo").FontSize(13).TextColor(v.acc.Accent)
-			mygo.Text(c, "任务清单").FontSize(cwui.Fonts.SM()).
+			icons.Icon(c, "list-todo").FontSize(13).TextColor(v.acc.Accent)
+			mygo.Text(c, "任务清单").FontSize(theme.Fonts.SM()).
 				FontWeight(500).TextColor(v.pal.Text2)
 			mygo.Spacer(c)
 			mygo.Text(c, strconv.Itoa(done)+" / "+strconv.Itoa(total)).
-				Font(cwui.MonoFont).FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text3)
+				Font(theme.MonoFont).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 			// 进度条：3px 圆角槽 + ok 色填充。
 			mygo.Box(c).Width(64).Height(3).Radius(2).Background(v.pal.BgActive).Clip().
 				Children(func() {
@@ -1044,7 +1045,7 @@ func todoCard(c *mygo.Context, v *viewSide, part Part) {
 				case "active":
 					rowColor = v.pal.Text
 				}
-				mygo.Row(c).FillWidth().AlignItems(mygo.Start).Gap(cwui.Space3).
+				mygo.Row(c).FillWidth().AlignItems(mygo.Start).Gap(theme.Space3).
 					Padding(4, 11).Children(func() {
 					// 13px 勾选框：完成填 ok 色打勾，进行中描边用强调色。
 					boxColor := v.pal.Text4
@@ -1059,17 +1060,17 @@ func todoCard(c *mygo.Context, v *viewSide, part Part) {
 					}
 					tbox.Children(func() {
 						if status == "done" {
-							cwui.Icon(c, "check").FontSize(9).TextColor(v.pal.Bg)
+							icons.Icon(c, "check").FontSize(9).TextColor(v.pal.Bg)
 						}
 					})
-					label := mygo.Text(c, text).FontSize(cwui.Fonts.SM()).TextColor(rowColor).Grow(1)
+					label := mygo.Text(c, text).FontSize(theme.Fonts.SM()).TextColor(rowColor).Grow(1)
 					if status == "done" {
 						// 完成项删除线（.todo-item.done .tlabel）。
 						label = label.Strikethrough()
 					}
 					_ = label
 					if status == "active" {
-						mygo.Text(c, "进行中").FontSize(cwui.Fonts.XS()).TextColor(v.pal.Text4)
+						mygo.Text(c, "进行中").FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 					}
 				})
 			}
@@ -1107,23 +1108,23 @@ func (s *Chat) errorCard(c *mygo.Context, v *viewSide, part Part) {
 	card.Children(func() {
 		mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(7).
 			Padding(8, 11).Children(func() {
-			cwui.Icon(c, "alert").FontSize(14).TextColor(v.pal.Danger)
-			mygo.Text(c, "执行出错").FontSize(cwui.Fonts.SM()).
+			icons.Icon(c, "alert").FontSize(14).TextColor(v.pal.Danger)
+			mygo.Text(c, "执行出错").FontSize(theme.Fonts.SM()).
 				FontWeight(500).TextColor(v.pal.Danger)
 			mygo.Spacer(c)
-			mygo.Box(c).Height(19).Padding(0, 7).Radius(cwui.RadiusBadge).
+			mygo.Box(c).Height(19).Padding(0, 7).Radius(theme.RadiusBadge).
 				Background(v.pal.Danger.Alpha(0.15)).Center().
 				Children(func() {
 					mygo.Text(c, strOr(code, "error")).
-						FontSize(cwui.Fonts.XS()).TextColor(v.pal.Danger)
+						FontSize(theme.Fonts.XS()).TextColor(v.pal.Danger)
 				})
 		})
 		if message != "" {
-			mygo.Text(c, message).FontSize(cwui.Fonts.SM()).
+			mygo.Text(c, message).FontSize(theme.Fonts.SM()).
 				TextColor(v.pal.Text2).FillWidth().Padding(0, 11, 9, 11)
 		}
 		if hasHint {
-			mygo.Text(c, hint).FontSize(cwui.Fonts.XS()).
+			mygo.Text(c, hint).FontSize(theme.Fonts.XS()).
 				TextColor(v.pal.Text3).FillWidth().Padding(7, 11, 9, 11)
 		}
 		mygo.Row(c).FillWidth().Gap(6).Padding(8, 11).Children(func() {

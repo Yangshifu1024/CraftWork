@@ -24,8 +24,10 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // 桶数量上限：防止工作区数量增长后内存无限上涨（对齐 panel store）。
@@ -504,7 +506,7 @@ func (p *Pane) reportError(title, detail string) {
 
 // View 画整个面板：tab 条 + 内容区。panelW 是面板列宽（外壳传入，用于
 // 均分 tab 宽度）。
-func (p *Pane) View(c *mygo.Context, pal *Palette, panelW float32) {
+func (p *Pane) View(c *mygo.Context, pal *theme.Palette, panelW float32) {
 	scope := p.scope()
 	bucket := p.bucketFor(scope.WorkspaceID)
 	p.syncScope(bucket, scope)
@@ -572,7 +574,7 @@ func tabWidth(panelW float32, actionsW float32, n int) float32 {
 
 // tabBar 画 tab 条：当前上下文可见的 tab（点击切换、中键或关闭按钮关闭、
 // 右键弹菜单）+ singleton 快捷入口（还没有对应 tab 时才显示）。
-func (p *Pane) tabBar(c *mygo.Context, pal *Palette, visible []cwpanel.Tab, activeID string, state cwpanel.State, scope cwpanel.Scope, panelW float32) {
+func (p *Pane) tabBar(c *mygo.Context, pal *theme.Palette, visible []cwpanel.Tab, activeID string, state cwpanel.State, scope cwpanel.Scope, panelW float32) {
 	hasFiles, hasTerminal, hasDiff := false, false, false
 	for _, tab := range visible {
 		switch tab.Type {
@@ -623,7 +625,7 @@ func (p *Pane) tabBar(c *mygo.Context, pal *Palette, visible []cwpanel.Tab, acti
 }
 
 // shortcutButtons 画 singleton 快捷入口（React：对应 tab 缺失时才显示）。
-func (p *Pane) shortcutButtons(c *mygo.Context, pal *Palette, hasFiles, hasTerminal, hasDiff bool) {
+func (p *Pane) shortcutButtons(c *mygo.Context, pal *theme.Palette, hasFiles, hasTerminal, hasDiff bool) {
 	if !hasFiles {
 		if paneIconButton(c, pal, "folder-open", "打开文件树") {
 			p.OpenFilesTab()
@@ -642,36 +644,36 @@ func (p *Pane) shortcutButtons(c *mygo.Context, pal *Palette, hasFiles, hasTermi
 }
 
 // paneIconButton 画一个 28×28 的 icon 按钮（.icon-btn.sm），返回是否被点击。
-func paneIconButton(c *mygo.Context, pal *Palette, name, tip string) bool {
-	el := mygo.ButtonBase(c).Size(tabActionBtn, tabActionBtn).Radius(RadiusCtl).
+func paneIconButton(c *mygo.Context, pal *theme.Palette, name, tip string) bool {
+	el := mygo.ButtonBase(c).Size(tabActionBtn, tabActionBtn).Radius(theme.RadiusCtl).
 		Tooltip(tip)
 	if el.Hovered() {
 		el.Background(pal.BgHover)
 	}
 	el.Children(func() {
-		Icon(c, name).FontSize(actionIconSize).TextColor(pal.Text2)
+		icons.Icon(c, name).FontSize(actionIconSize).TextColor(pal.Text2)
 	})
 	return el.Clicked()
 }
 
 // tabItem 画 tab 条上的单个 tab：主按钮（图标 + 标题）+ 关闭按钮；
 // 中键关闭；右键弹菜单。宽度 156→60 收缩带 Size 过渡动画。
-func (p *Pane) tabItem(c *mygo.Context, pal *Palette, tab cwpanel.Tab, active bool, width float32, reopenable []cwpanel.Tab) {
+func (p *Pane) tabItem(c *mygo.Context, pal *theme.Palette, tab cwpanel.Tab, active bool, width float32, reopenable []cwpanel.Tab) {
 	row := mygo.Row(c.Key(tab.ID)).
 		Width(width).
 		Height(tabHeight).
 		Padding(0, 4, 0, 9).
 		Gap(5).
 		AlignItems(mygo.Center).
-		Radius(RadiusRow).
+		Radius(theme.RadiusRow).
 		Shrink(0).
 		ClipX().
 		// 宽度收缩 / 底色的过渡动画（面板 spec：宽度 156→60 收缩）。
 		Transition(mygo.ElementTransition{
 			Size:     true,
 			Colors:   true,
-			Duration: Duration,
-			Ease:     Ease,
+			Duration: theme.Duration,
+			Ease:     theme.Ease,
 		})
 
 	hover := row.Hovered()
@@ -731,8 +733,8 @@ func (p *Pane) tabItem(c *mygo.Context, pal *Palette, tab cwpanel.Tab, active bo
 		main := mygo.ButtonBase(c).Grow(1).Height(tabHeight).Gap(5).
 			AlignItems(mygo.Center).Tooltip(tab.Title)
 		main.Children(func() {
-			Icon(c, tabIconName(tab)).FontSize(tabIconSize).TextColor(icoColor)
-			mygo.Text(c, tab.Title).FontSize(Fonts.Base()).TextColor(textColor)
+			icons.Icon(c, tabIconName(tab)).FontSize(tabIconSize).TextColor(icoColor)
+			mygo.Text(c, tab.Title).FontSize(theme.Fonts.Base()).TextColor(textColor)
 		})
 		if main.Clicked() {
 			p.ActivateTab(tab.ID)
@@ -741,12 +743,12 @@ func (p *Pane) tabItem(c *mygo.Context, pal *Palette, tab cwpanel.Tab, active bo
 		// 立即模式下简化为条件构建）。
 		if active || hover {
 			closeBtn := mygo.ButtonBase(c).Size(tabCloseSize, tabCloseSize).
-				Radius(RadiusBadge).Tooltip("关闭 " + tab.Title)
+				Radius(theme.RadiusBadge).Tooltip("关闭 " + tab.Title)
 			if closeBtn.Hovered() {
 				closeBtn.Background(pal.BgHover)
 			}
 			closeBtn.Children(func() {
-				Icon(c, "x").FontSize(10).TextColor(pal.Text4)
+				icons.Icon(c, "x").FontSize(10).TextColor(pal.Text4)
 			})
 			if closeBtn.Clicked() {
 				p.CloseTab(tab.ID)
@@ -758,7 +760,7 @@ func (p *Pane) tabItem(c *mygo.Context, pal *Palette, tab cwpanel.Tab, active bo
 }
 
 // content 画内容区：按激活 tab 分派；没有激活 tab 时显示文件树兜底视图。
-func (p *Pane) content(c *mygo.Context, pal *Palette, visible []cwpanel.Tab, activeID string) {
+func (p *Pane) content(c *mygo.Context, pal *theme.Palette, visible []cwpanel.Tab, activeID string) {
 	var active *cwpanel.Tab
 	for i := range visible {
 		if visible[i].ID == activeID {

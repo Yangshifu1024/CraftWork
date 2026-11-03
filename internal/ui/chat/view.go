@@ -19,38 +19,39 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
-	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // chatStreamWidth 是消息流内容的最大宽度（interface.md：聊天区 880px）。
 const chatStreamWidth = float32(880)
 
 // suggestions 是空会话时按模式展示的快捷提示句（ChatPane.tsx 同文案）。
-var suggestions = map[ui.Mode][]string{
-	ui.ModeCode: {"解释这个仓库的结构", "运行测试并修复失败用例", "为当前分支写一份变更摘要"},
-	ui.ModeWork: {"总结这份文档的要点", "把会议纪要整理成待办表", "草拟一封回复邮件"},
+var suggestions = map[theme.Mode][]string{
+	theme.ModeCode: {"解释这个仓库的结构", "运行测试并修复失败用例", "为当前分支写一份变更摘要"},
+	theme.ModeWork: {"总结这份文档的要点", "把会议纪要整理成待办表", "草拟一封回复邮件"},
 }
 
 // viewSide 是 view 帧内的一次性派生：色板、模式强调色与动作入口。
 type viewSide struct {
-	pal  *ui.Palette
-	acc  ui.AccentSet // 当前模式强调色（气泡底、发送按钮、光标）
-	mode ui.Mode
+	pal  *theme.Palette
+	acc  theme.AccentSet // 当前模式强调色（气泡底、发送按钮、光标）
+	mode theme.Mode
 	acts *Actions
 }
 
 // View 画整个聊天列：头部、消息流、输入区。由 shell.go 的聊天槽位调用，
 // pal 来自外壳每帧套用的主题色板。
-func (s *Chat) View(c *mygo.Context, pal *ui.Palette) {
+func (s *Chat) View(c *mygo.Context, pal *theme.Palette) {
 	// 异步动作排队的提示在帧开头弹出（c.Toast 只能在 view 帧内调用）。
 	if message := s.TakeToast(); message != "" {
 		c.Toast(message)
 	}
 
 	v := &viewSide{pal: pal, acts: s.acts}
-	mode := ui.ModeCode
+	mode := theme.ModeCode
 	if th := s.Thread(); th.Mode == "work" {
-		mode = ui.ModeWork
+		mode = theme.ModeWork
 	} else if th.Mode == "" {
 		mode = s.fallbackMode
 	}
@@ -74,7 +75,7 @@ func (s *Chat) View(c *mygo.Context, pal *ui.Palette) {
 // （ChatHeader.tsx 同语义）。背景用 ChatBg 与 BgPanel 的 72% 混合近似
 // CSS 的 color-mix；backdrop 模糊省略（下方没有滚动内容穿透的观感差）。
 func (s *Chat) chatHead(c *mygo.Context, v *viewSide) {
-	head := mygo.Row(c).Height(ui.TopbarHeight).Padding(0, ui.Space6, 0, 18).
+	head := mygo.Row(c).Height(theme.TopbarHeight).Padding(0, theme.Space6, 0, 18).
 		BorderWidth(0, 0, 1, 0).BorderColor(v.pal.Border)
 	// color-mix(in srgb, chat-bg 72%, bg-panel)：B 占比 28%。
 	head.Background(v.pal.ChatBg.Mix(v.pal.BgPanel, 0.28))
@@ -101,16 +102,16 @@ func (s *Chat) chatHead(c *mygo.Context, v *viewSide) {
 
 // badge 画一枚小徽章（.badge：软底 + 主色文字）。
 func badge(c *mygo.Context, v *viewSide, label string, bg, fg mygo.Color) {
-	mygo.Box(c).Height(ui.HeightBadge).Padding(0, ui.Space3).Radius(ui.RadiusBadge).
+	mygo.Box(c).Height(theme.HeightBadge).Padding(0, theme.Space3).Radius(theme.RadiusBadge).
 		Background(bg).Center().
 		Children(func() {
-			mygo.Text(c, label).FontSize(ui.Fonts.XS()).TextColor(fg).FontWeight(600)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(fg).FontWeight(600)
 		})
 }
 
 // modeName 返回模式徽章文案。
-func modeName(m ui.Mode) string {
-	if m == ui.ModeWork {
+func modeName(m theme.Mode) string {
+	if m == theme.ModeWork {
 		return "Work"
 	}
 	return "Code"
@@ -133,7 +134,7 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 		lst := mygo.List(c, &s.list, len(messages), func(i int) {
 			s.messageRow(c, v, messages[i])
 		}).Grow(1).Gap(22).Justify(mygo.End).
-			Padding(ui.Space7, 0, 26, 0) // chat-stream: 22px 顶 26px 底
+			Padding(theme.Space7, 0, 26, 0) // chat-stream: 22px 顶 26px 底
 		// 空会话引导：标题、说明与按模式区分的快捷提示句（List 无行时的
 		// 附加内容，官方文档的空态模式）。
 		lst.Children(func() {
@@ -153,7 +154,7 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 			overlay := mygo.Box(c).Absolute().Left(0).Right(0).Bottom(14)
 			overlay.Children(func() {
 				mygo.Row(c).FillWidth().Justify(mygo.Center).Children(func() {
-					btn := mygo.ButtonBase(c).Height(ui.HeightBtnSmall).Padding(0, 11).
+					btn := mygo.ButtonBase(c).Height(theme.HeightBtnSmall).Padding(0, 11).
 						Radius(20).
 						Background(v.pal.BgFloat).
 						BorderWidth(1).BorderColor(v.pal.BorderStrong)
@@ -165,8 +166,8 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 					}
 					btn.Children(func() {
 						mygo.Row(c).Gap(5).Center().Children(func() {
-							ui.Icon(c, "arrow-down").FontSize(12).TextColor(v.pal.Text2)
-							mygo.Text(c, "回到底部").FontSize(ui.Fonts.SM()).TextColor(v.pal.Text2)
+							icons.Icon(c, "arrow-down").FontSize(12).TextColor(v.pal.Text2)
+							mygo.Text(c, "回到底部").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
 						})
 					})
 				})
@@ -183,26 +184,26 @@ func (s *Chat) emptyState(c *mygo.Context, v *viewSide) {
 	if temp {
 		title = "临时会话已就绪"
 		desc = "无需选择工作区，直接提问即可；产生的文件会保存在内置临时目录，随时可在侧栏切回工作区会话。"
-	} else if v.mode == ui.ModeWork {
+	} else if v.mode == theme.ModeWork {
 		title = "Work 模式已就绪"
 		desc = "读取文档、修改 Word 与 Excel、汇总邮件与日历。所有文档写入都会在审批后执行并自动备份。"
 		icon = "briefcase"
 	}
 
 	mygo.Box(c).Grow(1).FillWidth().Center().Padding(40, 20).Children(func() {
-		mygo.Column(c).Gap(ui.Space5).AlignItems(mygo.Center).MaxWidth(380).Children(func() {
+		mygo.Column(c).Gap(theme.Space5).AlignItems(mygo.Center).MaxWidth(380).Children(func() {
 			// 模式图标：46px 圆角方块，模式色软底（.empty-mark）。
 			mark := mygo.Box(c).Size(46, 46).Radius(13).
 				Background(v.acc.Soft).Center()
 			mark.BorderWidth(1).BorderColor(v.acc.Line)
 			mark.Children(func() {
-				ui.Icon(c, icon).FontSize(22).TextColor(v.acc.Accent)
+				icons.Icon(c, icon).FontSize(22).TextColor(v.acc.Accent)
 			})
-			mygo.Text(c, title).FontSize(ui.Fonts.LG()).FontWeight(600).TextColor(v.pal.Text)
-			mygo.Text(c, desc).FontSize(ui.Fonts.SM()).TextColor(v.pal.Text3).TextAlign(mygo.Center)
-			mygo.Row(c).Gap(ui.Space3).Justify(mygo.Center).Children(func() {
+			mygo.Text(c, title).FontSize(theme.Fonts.LG()).FontWeight(600).TextColor(v.pal.Text)
+			mygo.Text(c, desc).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3).TextAlign(mygo.Center)
+			mygo.Row(c).Gap(theme.Space3).Justify(mygo.Center).Children(func() {
 				for _, suggestion := range suggestions[v.mode] {
-					btn := mygo.ButtonBase(c).Height(30).Padding(0, ui.Space6).Radius(ui.RadiusCtl).
+					btn := mygo.ButtonBase(c).Height(30).Padding(0, theme.Space6).Radius(theme.RadiusCtl).
 						Background(v.pal.BgPanel).BorderWidth(1).BorderColor(v.pal.Border)
 					if btn.Clicked() {
 						if s.acts != nil && s.acts.Submit != nil {
@@ -213,7 +214,7 @@ func (s *Chat) emptyState(c *mygo.Context, v *viewSide) {
 						btn.Background(v.acc.Soft).BorderColor(v.acc.Line)
 					}
 					btn.Children(func() {
-						mygo.Text(c, suggestion).FontSize(ui.Fonts.Caption()).TextColor(v.pal.Text2)
+						mygo.Text(c, suggestion).FontSize(theme.Fonts.Caption()).TextColor(v.pal.Text2)
 					})
 				}
 			})
@@ -268,7 +269,7 @@ func (s *Chat) messageParts(c *mygo.Context, v *viewSide, m *Message, isUser boo
 				partPlaceholder(c, v, part)
 			}
 			if i < len(m.Parts)-1 {
-				mygo.Box(c).Height(ui.Space5)
+				mygo.Box(c).Height(theme.Space5)
 			}
 		}
 		if len(m.Parts) == 0 && m.Status == StatusStreaming {
@@ -318,15 +319,15 @@ func (s *Chat) userBubble(c *mygo.Context, v *viewSide, m *Message, text string)
 	if text == "" && !hasAttachments(m) {
 		return
 	}
-	bubble := mygo.Column(c).Padding(9, ui.Space6).Radius(12, 12, 4, 12).
+	bubble := mygo.Column(c).Padding(9, theme.Space6).Radius(12, 12, 4, 12).
 		Background(v.acc.Soft)
 	bubble.BorderWidth(1).BorderColor(v.acc.Line)
 	bubble.Children(func() {
 		if text != "" {
-			mygo.Text(c, text).FontSize(ui.Fonts.Base())
+			mygo.Text(c, text).FontSize(theme.Fonts.Base())
 		}
 		if hasAttachments(m) {
-			mygo.Box(c).Height(ui.Space2)
+			mygo.Box(c).Height(theme.Space2)
 			for _, att := range messageAttachments(m) {
 				// 图片附件画缩略图（点击放大），其余画文件 chip。
 				s.attachItem(c, v, att.Path, att.Name)
@@ -408,10 +409,10 @@ func noticeStrip(c *mygo.Context, v *viewSide, text string) {
 		return
 	}
 	mygo.Box(c).FillWidth().Center().Children(func() {
-		mygo.Box(c).Padding(3, ui.Space4).Radius(ui.RadiusBadge).
+		mygo.Box(c).Padding(3, theme.Space4).Radius(theme.RadiusBadge).
 			Background(v.pal.BgHover).
 			Children(func() {
-				mygo.Text(c, text).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text3)
+				mygo.Text(c, text).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 			})
 	})
 }
@@ -419,12 +420,12 @@ func noticeStrip(c *mygo.Context, v *viewSide, text string) {
 // messageFoot 画元信息行：时间常显、生成中 / 待送达标签、悬停浮现的
 // 复制与重新生成（.msg-foot）。
 func (s *Chat) messageFoot(c *mygo.Context, v *viewSide, m *Message, isUser bool, hovered bool) {
-	foot := mygo.Row(c).Gap(ui.Space3).AlignItems(mygo.Center).Height(ui.Space7)
+	foot := mygo.Row(c).Gap(theme.Space3).AlignItems(mygo.Center).Height(theme.Space7)
 	if isUser {
 		foot.Justify(mygo.End)
 	}
 	foot.Children(func() {
-		mygo.Text(c, formatTime(m.CreatedAt)).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text4)
+		mygo.Text(c, formatTime(m.CreatedAt)).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text4)
 		if m.Status == StatusStreaming {
 			msgTag(c, v, "生成中", v.pal.Border)
 		}
@@ -454,24 +455,24 @@ func (s *Chat) messageFoot(c *mygo.Context, v *viewSide, m *Message, isUser bool
 
 // msgTag 画一枚细描边小标签（.msg-tag：11px、3px 圆角、内边距 4）。
 func msgTag(c *mygo.Context, v *viewSide, label string, border mygo.Color) {
-	mygo.Box(c).Height(16).Padding(0, ui.Space2).Radius(3).
+	mygo.Box(c).Height(16).Padding(0, theme.Space2).Radius(3).
 		BorderWidth(1).BorderColor(border).Center().
 		Children(func() {
-			mygo.Text(c, label).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text3)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 		})
 }
 
 // footButton 画元信息行的一个小按钮，返回是否被点击。
 func footButton(c *mygo.Context, v *viewSide, icon, label string) bool {
-	btn := mygo.ButtonBase(c).Height(ui.HeightMiniBtn).Padding(0, ui.Space3).Radius(ui.RadiusBadge)
+	btn := mygo.ButtonBase(c).Height(theme.HeightMiniBtn).Padding(0, theme.Space3).Radius(theme.RadiusBadge)
 	clicked := btn.Clicked()
 	if btn.Hovered() {
 		btn.Background(v.pal.BgHover)
 	}
 	btn.Children(func() {
-		mygo.Row(c).Gap(ui.Space2).Center().Children(func() {
-			ui.Icon(c, icon).FontSize(12).TextColor(v.pal.Text3)
-			mygo.Text(c, label).FontSize(ui.Fonts.XS()).TextColor(v.pal.Text3)
+		mygo.Row(c).Gap(theme.Space2).Center().Children(func() {
+			icons.Icon(c, icon).FontSize(12).TextColor(v.pal.Text3)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
 		})
 	})
 	return clicked

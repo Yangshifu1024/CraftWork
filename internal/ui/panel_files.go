@@ -17,7 +17,9 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
 	cwpanel "github.com/yangshifu1024/craftwork/internal/ui/panel"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // flatHit 是过滤平铺的一条命中：文件名匹配关键字，保留所属文件夹。
@@ -105,7 +107,7 @@ func fileIconName(name string) string {
 // .sheet/.pdf；md 与未识别类型用默认 text-3）。色值收在 theme 色板的
 // File*Icon 字段里，深浅模式差异也由色板承担。dir 为 true 时返回目录
 // 图标色。
-func fileIconColor(pal *Palette, name string, dir bool) mygo.Color {
+func fileIconColor(pal *theme.Palette, name string, dir bool) mygo.Color {
 	if dir {
 		return pal.FileDirIcon
 	}
@@ -125,7 +127,7 @@ func fileIconColor(pal *Palette, name string, dir bool) mygo.Color {
 
 // gitLetterColor 返回 Git 状态字母的颜色（panel.css .tree-git.M/A/D/U；
 // 其余代码继承文字色）。
-func gitLetterColor(pal *Palette, code string) mygo.Color {
+func gitLetterColor(pal *theme.Palette, code string) mygo.Color {
 	if code == "" {
 		return pal.Text3
 	}
@@ -265,7 +267,7 @@ func selectedFilePath(visible []cwpanel.Tab, activeID string) string {
 }
 
 // filesView 画文件树：过滤框 + 元信息行 + 树形结构（或过滤平铺）。
-func (p *Pane) filesView(c *mygo.Context, pal *Palette) {
+func (p *Pane) filesView(c *mygo.Context, pal *theme.Palette) {
 	p.ensureTree()
 	ws := p.deps.Workspace()
 	if ws == nil {
@@ -277,15 +279,15 @@ func (p *Pane) filesView(c *mygo.Context, pal *Palette) {
 
 	mygo.Column(c).Fill().Children(func() {
 		// 工具栏：过滤框 + 刷新按钮。
-		mygo.Row(c).Height(9*2+HeightInput).Padding(0, 9, 0, 9).
+		mygo.Row(c).Height(9*2+theme.HeightInput).Padding(0, 9, 0, 9).
 			Gap(6).AlignItems(mygo.Center).Shrink(0).Children(func() {
-			mygo.Row(c).Grow(1).Height(HeightInput).Padding(0, 8, 0, 8).Gap(6).
+			mygo.Row(c).Grow(1).Height(theme.HeightInput).Padding(0, 8, 0, 8).Gap(6).
 				AlignItems(mygo.Center).
 				Background(pal.BgInput).
-				Radius(RadiusCtl).
+				Radius(theme.RadiusCtl).
 				Border(1, pal.Border).
 				Children(func() {
-					Icon(c, "search").FontSize(13).TextColor(pal.Text3)
+					icons.Icon(c, "search").FontSize(13).TextColor(pal.Text3)
 					mygo.TextInput(c, &p.filter).Grow(1).Placeholder("过滤文件…")
 				})
 			if paneIconButton(c, pal, "refresh", "刷新文件树") {
@@ -299,9 +301,9 @@ func (p *Pane) filesView(c *mygo.Context, pal *Palette) {
 			if flat != nil {
 				label = "匹配 " + strconv.Itoa(len(flat)) + " 个文件"
 			}
-			mygo.Text(c, label).FontSize(Fonts.XS()).TextColor(pal.Text3)
+			mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 			mygo.Spacer(c)
-			mygo.Text(c, strconv.Itoa(len(p.git))+" 个变更").FontSize(Fonts.XS()).TextColor(pal.Text3)
+			mygo.Text(c, strconv.Itoa(len(p.git))+" 个变更").FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 		})
 
 		list := mygo.Scroll(c).Grow(1).Padding(0, 6, 6, 6)
@@ -324,8 +326,8 @@ func (p *Pane) filesView(c *mygo.Context, pal *Palette) {
 						if folder.Primary {
 							icon = "folder-open"
 						}
-						Icon(c, icon).FontSize(tabIconSize).TextColor(pal.Text2)
-						mygo.Text(c, folderBase(folder.Path)).FontSize(Fonts.Base()).FontWeight(500).TextColor(pal.Text)
+						icons.Icon(c, icon).FontSize(tabIconSize).TextColor(pal.Text2)
+						mygo.Text(c, folderBase(folder.Path)).FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(pal.Text)
 						paneBadge(c, pal, "主要", pal.AccentSoft, pal.Accent)
 					})
 				}
@@ -341,17 +343,17 @@ func (p *Pane) filesView(c *mygo.Context, pal *Palette) {
 }
 
 // flatItem 画过滤平铺的一条文件项。
-func (p *Pane) flatItem(c *mygo.Context, pal *Palette, hit flatHit) {
+func (p *Pane) flatItem(c *mygo.Context, pal *theme.Palette, hit flatHit) {
 	el := mygo.ButtonBase(c).FillWidth().MinHeight(fileItemHeight).Padding(7, 8, 7, 8).Gap(7).
-		Radius(RadiusRow).AlignItems(mygo.Center)
+		Radius(theme.RadiusRow).AlignItems(mygo.Center)
 	if el.Hovered() {
 		el.Background(pal.BgHover)
 	}
 	el.Children(func() {
-		Icon(c, fileIconName(hit.node.Name)).FontSize(tabIconSize).TextColor(fileIconColor(pal, hit.node.Name, false))
+		icons.Icon(c, fileIconName(hit.node.Name)).FontSize(tabIconSize).TextColor(fileIconColor(pal, hit.node.Name, false))
 		mygo.Column(c).Grow(1).Children(func() {
-			mygo.Text(c, hit.node.Name).FontSize(Fonts.SM()).TextColor(pal.Text)
-			mygo.Text(c, hit.node.Path).FontSize(Fonts.XS()).TextColor(pal.Text4)
+			mygo.Text(c, hit.node.Name).FontSize(theme.Fonts.SM()).TextColor(pal.Text)
+			mygo.Text(c, hit.node.Path).FontSize(theme.Fonts.XS()).TextColor(pal.Text4)
 		})
 		if code := p.git[hit.node.Path]; code != "" && hit.folderID == "" {
 			paneGitBadge(c, pal, code)
@@ -366,7 +368,7 @@ func (p *Pane) flatItem(c *mygo.Context, pal *Palette, hit flatHit) {
 // 主要目录），path 是当前层目录（"." 表示该段根），depth 用于缩进。
 // 每层只渲染自己的节点，子目录通过再次渲染自身实现递归；目录未展开时
 // 不渲染子节点，减少无用工作量。
-func (p *Pane) treeLevel(c *mygo.Context, pal *Palette, folderID, path string, depth int, selected string, git map[string]string) {
+func (p *Pane) treeLevel(c *mygo.Context, pal *theme.Palette, folderID, path string, depth int, selected string, git map[string]string) {
 	nodes, ok := p.tree[folderKey(folderID, path)]
 	if !ok {
 		// 该目录内容还没加载时（例如根目录尚未读取），本层不渲染任何内容。
@@ -381,7 +383,7 @@ func (p *Pane) treeLevel(c *mygo.Context, pal *Palette, folderID, path string, d
 
 		row := mygo.Row(c.Key(key)).FillWidth().Height(treeRowHeight).
 			Padding(0, 6, 0, 6+float32(depth)*treeIndent).
-			Gap(5).AlignItems(mygo.Center).Radius(RadiusBadge)
+			Gap(5).AlignItems(mygo.Center).Radius(theme.RadiusBadge)
 		if isSelected || row.Hovered() {
 			row.Background(pal.BgHover)
 		}
@@ -389,7 +391,7 @@ func (p *Pane) treeLevel(c *mygo.Context, pal *Palette, folderID, path string, d
 			// 目录行的展开箭头（展开时右转 90°）；文件行是同宽的隐藏占位。
 			if isDir {
 				mygo.Box(c).Width(12).Children(func() {
-					chevron := Icon(c, "chevron-right").FontSize(12).TextColor(pal.Text4)
+					chevron := icons.Icon(c, "chevron-right").FontSize(12).TextColor(pal.Text4)
 					if isOpen {
 						chevron.Rotate(90)
 					}
@@ -404,11 +406,11 @@ func (p *Pane) treeLevel(c *mygo.Context, pal *Palette, folderID, path string, d
 					iconName = "folder-open"
 				}
 			}
-			Icon(c, iconName).FontSize(13).TextColor(fileIconColor(pal, node.Name, isDir))
+			icons.Icon(c, iconName).FontSize(13).TextColor(fileIconColor(pal, node.Name, isDir))
 			if isDir {
-				mygo.Text(c, node.Name).FontSize(Fonts.Base()).FontWeight(500).TextColor(pal.Text)
+				mygo.Text(c, node.Name).FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(pal.Text)
 			} else {
-				mygo.Text(c, node.Name).FontSize(Fonts.Base()).TextColor(pal.Text3)
+				mygo.Text(c, node.Name).FontSize(theme.Fonts.Base()).TextColor(pal.Text3)
 			}
 			if code := git[node.Path]; code != "" {
 				paneGitBadge(c, pal, code)
@@ -518,24 +520,24 @@ func (p *Pane) absPath(folderID, rel string) string {
 }
 
 // paneBadge 画一枚小徽章（tree-section-badge 的通用形态）。
-func paneBadge(c *mygo.Context, pal *Palette, label string, bg, fg mygo.Color) {
-	mygo.Box(c).Padding(1, 5, 1, 5).Radius(RadiusBadge).Background(bg).Children(func() {
-		mygo.Text(c, label).FontSize(Fonts.XS()).TextColor(fg)
+func paneBadge(c *mygo.Context, pal *theme.Palette, label string, bg, fg mygo.Color) {
+	mygo.Box(c).Padding(1, 5, 1, 5).Radius(theme.RadiusBadge).Background(bg).Children(func() {
+		mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(fg)
 	})
 }
 
 // paneGitBadge 画 Git 状态字母。
-func paneGitBadge(c *mygo.Context, pal *Palette, code string) {
+func paneGitBadge(c *mygo.Context, pal *theme.Palette, code string) {
 	mygo.Box(c).Width(12).Center().Children(func() {
-		mygo.Text(c, code).FontSize(Fonts.XS()).TextColor(gitLetterColor(pal, code))
+		mygo.Text(c, code).FontSize(theme.Fonts.XS()).TextColor(gitLetterColor(pal, code))
 	})
 }
 
 // paneEmptyState 画面板空态（panel-empty）。
-func paneEmptyState(c *mygo.Context, pal *Palette, icon, title, hint string) {
+func paneEmptyState(c *mygo.Context, pal *theme.Palette, icon, title, hint string) {
 	mygo.Column(c).Grow(1).Center().Gap(6).Padding(16, 16, 16, 16).Children(func() {
-		Icon(c, icon).FontSize(22).TextColor(pal.Text4)
+		icons.Icon(c, icon).FontSize(22).TextColor(pal.Text4)
 		mygo.Text(c, title).TextColor(pal.Text2)
-		mygo.Text(c, hint).FontSize(Fonts.SM()).TextColor(pal.Text3)
+		mygo.Text(c, hint).FontSize(theme.Fonts.SM()).TextColor(pal.Text3)
 	})
 }

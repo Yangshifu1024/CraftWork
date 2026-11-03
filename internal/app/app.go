@@ -32,6 +32,7 @@ import (
 	cwchat "github.com/yangshifu1024/craftwork/internal/ui/chat"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	cwsidebar "github.com/yangshifu1024/craftwork/internal/ui/sidebar"
+	cwtheme "github.com/yangshifu1024/craftwork/internal/ui/theme"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
@@ -234,7 +235,7 @@ func Run(build version.Info) error {
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))
 	// 外观设置（主题 / 字号）同样在首帧前恢复，显式主题覆盖系统偏好。
-	cwui.SetAppearance(settings.Theme, settings.FontSize)
+	cwtheme.SetAppearance(settings.Theme, settings.FontSize)
 
 	// 第二个实例启动时唤起已有窗口。单实例机制只负责通知，
 	// 不会自动把窗口带到前台。
@@ -248,7 +249,7 @@ func Run(build version.Info) error {
 
 	// 窗口底色跟随主题：显式浅色的用户在首帧前不再看到深色窗口。
 	// dark 与跟随系统仍用深底；首帧之后由外壳 view 按系统实时接管。
-	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
+	windowBackground := cwtheme.WindowBackgroundHex(settings.Theme)
 
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
 	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务，

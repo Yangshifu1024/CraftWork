@@ -16,13 +16,13 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // markdownView 渲染一段正文：运行中的消息用 Stream（词级 reveal、平滑
 // 渐入），完成的消息用 View。mdOpts 与 mdTheme 都在 Chat 状态里，跨帧
 // 保持解析缓存。
-func (s *Chat) markdownView(c *mygo.Context, pal *ui.Palette, text string, streaming bool) {
+func (s *Chat) markdownView(c *mygo.Context, pal *theme.Palette, text string, streaming bool) {
 	opts := s.markdownOptions(c, pal)
 	if streaming {
 		markdown.Stream(c, text, opts)
@@ -34,9 +34,9 @@ func (s *Chat) markdownView(c *mygo.Context, pal *ui.Palette, text string, strea
 // markdownOptions 返回共享的渲染选项，并把主题色同步为当前色板。
 // Options 含解析缓存与图片表，必须整个应用共用一份（官方文档约定），
 // 因此挂在 Chat 状态上；Theme 是值拷贝的目标，每帧覆盖即可跟随换肤。
-func (s *Chat) markdownOptions(c *mygo.Context, pal *ui.Palette) *markdown.Options {
+func (s *Chat) markdownOptions(c *mygo.Context, pal *theme.Palette) *markdown.Options {
 	s.mdTheme = markdown.Theme{
-		FontSize:   ui.BaseFontSize,
+		FontSize:   theme.BaseFontSize,
 		LineHeight: 1.68, // chat.css .md 的行高
 		Muted:      pal.Text3,
 		Link:       pal.Accent,
@@ -55,7 +55,7 @@ func (s *Chat) markdownOptions(c *mygo.Context, pal *ui.Palette) *markdown.Optio
 
 		CodeBlockBackground: pal.CodeBg,
 		CodeBlockBorder:     pal.Border,
-		CodeBlockRadius:     ui.RadiusBtn + 2,
+		CodeBlockRadius:     theme.RadiusBtn + 2,
 
 		TableBorder: pal.Border,
 		TableHeader: pal.BgActive,

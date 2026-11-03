@@ -10,7 +10,6 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
-	"github.com/yangshifu1024/craftwork/internal/ui"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
@@ -19,7 +18,7 @@ import (
 // 滑块/竖条动画播完、点击状态稳定（只 Frame 会与连击检测打架）。
 func settleClick(tt *mygo.Tester) {
 	tt.Frame()
-	tt.Advance(ui.Duration + 20*time.Millisecond)
+	tt.Advance(theme.Duration + 20*time.Millisecond)
 	tt.Frame()
 }
 
@@ -58,7 +57,7 @@ func newSidebarTester(t *testing.T) (*Sidebar, *[]string, *[]string, *[]renamedR
 		DeleteThread: func(id string) { deleted = append(deleted, id) },
 	})
 	view := func(c *mygo.Context) {
-		pal := ui.Apply(c)
+		pal := theme.Apply(c)
 		s.View(c, pal)
 		// 重命名 Prompt 由右键菜单直接发起，浮层画在这里（生产走 RootView）。
 		overlays.View(c)
@@ -163,7 +162,7 @@ func TestSidebarViewEmptyProjectState(t *testing.T) {
 	s.ReplaceWorkspaces([]Workspace{{ID: "conv", Name: "临时会话", Purpose: "conversation"}})
 	s.ReplaceThreads(ModeCode, nil)
 	view := func(c *mygo.Context) {
-		pal := ui.Apply(c)
+		pal := theme.Apply(c)
 		s.View(c, pal)
 	}
 	tt := mygo.NewTester(view, 1440, 900)
@@ -180,7 +179,7 @@ func TestSidebarViewCollapseTempGroup(t *testing.T) {
 		t.Fatalf("找不到临时组头文本")
 	}
 	// 折叠开关是组名左侧的 18×18 小按钮：中心在文本左间距 - 9 处，行内居中。
-	toggleX := head.X - ui.Space3 - 9
+	toggleX := head.X - theme.Space3 - 9
 	toggleY := head.Y + head.H/2
 	tt.ClickAt(toggleX, toggleY)
 	settleClick(tt)

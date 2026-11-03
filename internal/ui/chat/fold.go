@@ -16,7 +16,8 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // formatWorkDuration 把毫秒时长格式化为「最多两段非零单位」的中文写法
@@ -160,12 +161,12 @@ func (s *Chat) drawSegment(c *mygo.Context, v *viewSide, m *Message, seg segment
 		if duration != "" {
 			label += " " + duration
 		}
-		mygo.Text(c, label).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text3)
+		mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 		if tag != "" {
-			mygo.Text(c, "·").FontSize(cwui.Fonts.SM()).TextColor(v.pal.Text4)
-			mygo.Text(c, tag).FontSize(cwui.Fonts.SM()).TextColor(v.pal.Warn)
+			mygo.Text(c, "·").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
+			mygo.Text(c, tag).FontSize(theme.Fonts.SM()).TextColor(v.pal.Warn)
 		}
-		chev := cwui.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
+		chev := icons.Icon(c, "chevron-right").FontSize(12).TextColor(v.pal.Text4)
 		if open {
 			chev.Rotate(90)
 		}

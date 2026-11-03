@@ -25,6 +25,8 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // termSettingsTTL 是终端设置缓存的存活时间（设置项最迟一个 TTL 生效）。
@@ -192,7 +194,7 @@ func (p *Pane) Shutdown() {
 
 // terminalView 画终端 tab：头行（标题跟随 + 会话目录 + 运行状态）、
 // 终端视图（加载 / 错误态）、foot 行（审批边界说明 + 退出提示与重起）。
-func (p *Pane) terminalView(c *mygo.Context, pal *Palette) {
+func (p *Pane) terminalView(c *mygo.Context, pal *theme.Palette) {
 	p.ensureTerminal()
 	_, dir := p.terminalTarget()
 	if dir == "" {
@@ -206,20 +208,20 @@ func (p *Pane) terminalView(c *mygo.Context, pal *Palette) {
 			BorderWidth(0, 0, 1, 0).BorderColor(pal.BorderSoft).
 			Shrink(0).
 			Children(func() {
-				Icon(c, "terminal").FontSize(13).TextColor(pal.Text2)
+				icons.Icon(c, "terminal").FontSize(13).TextColor(pal.Text2)
 				title := p.termTitle
 				if title == "" {
 					title = "zsh"
 				}
-				mygo.Text(c, title).FontSize(Fonts.SM()).TextColor(pal.Text).MaxLines(1).ClipX().Shrink(0)
-				mygo.Text(c, dir).FontSize(Fonts.XS()).TextColor(pal.Text3).
+				mygo.Text(c, title).FontSize(theme.Fonts.SM()).TextColor(pal.Text).MaxLines(1).ClipX().Shrink(0)
+				mygo.Text(c, dir).FontSize(theme.Fonts.XS()).TextColor(pal.Text3).
 					MaxLines(1).Grow(1).ClipX()
 				badgeBg, badgeText, badgeLabel := pal.BgActive, pal.Text2, "未运行"
 				if p.term != nil && !p.termExited {
 					badgeBg, badgeText, badgeLabel = pal.OKSoft, pal.OK, "运行中"
 				}
 				paneBadge(c, pal, badgeLabel, badgeBg, badgeText)
-				mygo.Text(c, "点击终端后直接输入 · Ctrl+L 清屏").FontSize(Fonts.XS()).
+				mygo.Text(c, "点击终端后直接输入 · Ctrl+L 清屏").FontSize(theme.Fonts.XS()).
 					TextColor(pal.Text4).MaxLines(1).Shrink(0)
 			})
 		// 内容：错误 / 加载 / 终端视图。进程退出后插件会在缓冲区里写
@@ -230,9 +232,9 @@ func (p *Pane) terminalView(c *mygo.Context, pal *Palette) {
 		case p.termErr != nil:
 			// 启动失败（如动态库缺失）：给出错误与重试入口。
 			mygo.Column(c).Grow(1).Center().Gap(8).Padding(16, 16, 16, 16).Children(func() {
-				Icon(c, "alert").FontSize(22).TextColor(pal.Text4)
+				icons.Icon(c, "alert").FontSize(22).TextColor(pal.Text4)
 				mygo.Text(c, "终端启动失败").TextColor(pal.Text2)
-				mygo.Text(c, p.termErr.Error()).FontSize(Fonts.SM()).TextColor(pal.Text3)
+				mygo.Text(c, p.termErr.Error()).FontSize(theme.Fonts.SM()).TextColor(pal.Text3)
 				if paneToolButton(c, pal, "refresh", "重试", false) {
 					p.restartTerminal()
 				}
@@ -253,11 +255,11 @@ func (p *Pane) terminalView(c *mygo.Context, pal *Palette) {
 			Shrink(0).
 			Children(func() {
 				mygo.Text(c, "用户终端不经过 Agent 审批；Agent 的 shell_exec 走策略引擎。").
-					FontSize(Fonts.XS()).TextColor(pal.Text3)
+					FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 				mygo.Spacer(c)
 				if p.termExited {
 					mygo.Text(c, fmt.Sprintf("进程已退出 · 退出码 %d", p.termExitCode)).
-						FontSize(Fonts.XS()).TextColor(pal.Warn)
+						FontSize(theme.Fonts.XS()).TextColor(pal.Warn)
 					if paneToolButton(c, pal, "refresh", "重起", false) {
 						p.restartTerminal()
 					}

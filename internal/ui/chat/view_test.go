@@ -12,7 +12,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/events"
-	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // recorded 收集注入动作的调用，供断言。
@@ -46,7 +46,7 @@ func newChatTester(t *testing.T) (*Chat, *recorded, *mygo.Tester) {
 		Copy:            func(text string) { rec.copies = append(rec.copies, text) },
 	})
 	view := func(c *mygo.Context) {
-		pal := cwui.Apply(c)
+		pal := theme.Apply(c)
 		s.View(c, pal)
 	}
 	tt := mygo.NewTester(view, 1200, 800)
@@ -65,7 +65,7 @@ func clickText(t *testing.T, tt *mygo.Tester, label string) {
 // Advance 动效时长，04 号票坑）。
 func settleClick(tt *mygo.Tester) {
 	tt.Frame()
-	tt.Advance(cwui.Duration + 20*time.Millisecond)
+	tt.Advance(theme.Duration + 20*time.Millisecond)
 	tt.Frame()
 }
 

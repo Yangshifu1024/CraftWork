@@ -15,6 +15,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // RootView 返回组合外壳与浮层的根 view 函数。
@@ -26,7 +27,7 @@ import (
 // 所有，退出链天然只处理无模态时的层级。
 func RootView(shell *Shell) func(c *mygo.Context) {
 	return func(c *mygo.Context) {
-		Apply(c)
+		theme.Apply(c)
 		shell.View(c)
 
 		// 窗口级快捷键。⌘K / ⌘, 与浮层体系自身的入口同函数（07 号票）。

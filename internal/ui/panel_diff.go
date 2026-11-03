@@ -94,7 +94,7 @@ func diffLayout(sideView bool) editor.DiffLayout {
 
 // diffView 画差异 tab：概要行（增删统计 + 标题 + 视图切换）、差异视图、
 // foot 行（行数汇总、在编辑器中打开、应用全部）。
-func (p *Pane) diffView(c *mygo.Context, pal *Palette) {
+func (p *Pane) diffView(c *mygo.Context, pal *theme.Palette) {
 	if p.diff == nil {
 		// 只有 tab 没有数据（快捷入口打开 / 重开）：空态提示。
 		paneEmptyState(c, pal, "diff", "还没有差异预览", "在审批卡片中点击「查看完整差异」，或让 Agent 修改文件。")
@@ -115,7 +115,7 @@ func (p *Pane) diffView(c *mygo.Context, pal *Palette) {
 			Children(func() {
 				paneBadge(c, pal, "+"+fmt.Sprint(added), pal.OKSoft, pal.OK)
 				paneBadge(c, pal, "−"+fmt.Sprint(deleted), pal.DangerSoft, pal.Danger)
-				mygo.Text(c, d.title).FontSize(Fonts.SM()).TextColor(pal.Text).Grow(1).ClipX()
+				mygo.Text(c, d.title).FontSize(theme.Fonts.SM()).TextColor(pal.Text).Grow(1).ClipX()
 				mygo.Segmented(c, &p.diffViewIdx, "统一", "并排").Label("差异视图")
 			})
 		// 差异视图：内置件自带折叠分隔、词级高亮与滚动。
@@ -129,7 +129,7 @@ func (p *Pane) diffView(c *mygo.Context, pal *Palette) {
 				if d.appliedAt > 0 {
 					summary += " · 已应用 " + paneSavedTime(d.appliedAt)
 				}
-				mygo.Text(c, summary).FontSize(Fonts.XS()).TextColor(pal.Text3)
+				mygo.Text(c, summary).FontSize(theme.Fonts.XS()).TextColor(pal.Text3)
 				mygo.Spacer(c)
 				if paneToolButton(c, pal, "file-code", "在编辑器中打开", false) {
 					p.OpenFileAt(d.title, 0)
