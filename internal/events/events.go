@@ -60,6 +60,13 @@ const (
 	TypeSettingsUpdated = "settings.updated"
 	// TypeWorkspaceUpdated 表示工作区变化。
 	TypeWorkspaceUpdated = "workspace.updated"
+	// TypeTerminalOutput 是终端输出增量，载荷为 TerminalDelta。Wails 版
+	// 的 TerminalService 已随 native UI 迁移删除（终端由 plugins/terminal
+	// 自管，不再产生这两类事件），类型保留：chat reducer 的事件开关与
+	// 历史事件表仍按契约引用它们。
+	TypeTerminalOutput = "terminal.output"
+	// TypeTerminalExit 表示终端进程退出。
+	TypeTerminalExit = "terminal.exit"
 )
 
 // BatchName 是 Wails 时期的批量事件通道名。native UI 下不再有事件通道，
@@ -100,6 +107,15 @@ type TextDelta struct {
 	PartID string `json:"partId"`
 	// Text 是本批新增的文本。
 	Text string `json:"text"`
+}
+
+// TerminalDelta 是终端输出增量的载荷（同上，契约保留：历史事件表与
+// chat reducer 的事件开关按此形状引用）。
+type TerminalDelta struct {
+	// SessionID 是终端会话标识。
+	SessionID string `json:"sessionId"`
+	// Data 是本批新增的终端输出。
+	Data string `json:"data"`
 }
 
 // Emitter 由调用方提供，把事件派发到界面。native UI 下它是 win.Update 桥：
