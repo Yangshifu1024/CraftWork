@@ -73,5 +73,5 @@
 
 1. 明确变更属于文案调整、节增删还是缓存层调整。
 2. 同步本文件第 2、4 节与 `prompt_test.go` 的契约测试。
-3. 运行 `go test ./internal/agent/...`；涉及块结构时额外在 server 模式（`wails3 task run:server`）做一次真实对话冒烟。
+3. 运行 `go test ./internal/agent/...`；涉及块结构时额外用假端点或真实密钥做一次真实对话冒烟（`CRAFTWORK_HOME` 隔离目录）。
 4. 涉及环境收集或摘要语义时同步 `architecture.md` 第 6.2 节。

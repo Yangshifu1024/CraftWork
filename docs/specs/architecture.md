@@ -1,6 +1,6 @@
 # CraftWork 架构规格
 
-本文件描述系统的架构契约：分层、IPC、Agent 内核、策略、模型接入、存储与安全机制。决策背景见 `docs/adr/`；功能验收见 `features.md`；实现约束与命令见仓库根 `AGENTS.md`。
+本文件描述系统的架构契约：分层、事件流、Agent 内核、策略、模型接入、存储与安全机制。决策背景见 `docs/adr/`（原生 UI 迁移见 ADR-0014 与 `docs/native-ui/spec.md`）；功能验收见 `features.md`；实现约束与命令见仓库根 `AGENTS.md`。
 
 状态标注约定：未特别标注的能力均为当前已实现；「留桩」表示代码占位已建、能力未接入（M4：沙箱、自动更新下载替换、Streamable HTTP MCP、MCP 信任列表）。
 
@@ -8,39 +8,47 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ 前端（React + TypeScript）                                    │
-│  三栏布局 / 聊天 / 面板 / 浮层 / 主题 / 键盘                   │
-│  无系统访问权限，所有能力经绑定与事件访问                       │
+│ 原生界面（internal/ui，mygo 立即模式 view）                    │
+│  shell 三栏外壳 / sidebar / chat / panel / overlays / theme   │
+│  view 每帧直接调用 Go 函数构建界面，GPU 自绘，无 WebView        │
 ├──────────────────────────────────────────────────────────────┤
-│ IPC（Wails3 绑定 + 事件通道）                                  │
-│  命令：类型化方法调用，请求-响应                                │
-│  事件：cw:events 批量推送，33ms 合并                            │
+│ mygo 宿主（v0.7.4）                                           │
+│  窗口 / 单实例 / 事件循环 / 通知 / 对话框 / 剪贴板 / 终端       │
+│  后台结果经 win.Update 回主线程；bus 订阅回调派发界面更新        │
 ├──────────────────────────────────────────────────────────────┤
-│ Wails3 宿主层（Go）                                           │
-│  窗口 / 单实例 / WebView / 资源服务器 / CSP / 生命周期          │
-├──────────────────────────────────────────────────────────────┤
-│ 应用服务层（Go）                                              │
-│  service（绑定层）→ agent / tools / policy / model / mcp       │
-│  workspace / doc / terminal / editor / store / secret          │
+│ 应用领域层（Go）                                              │
+│  service（内部领域包）→ agent / tools / policy / model / mcp  │
+│  → editor / doc / notify / store / secret                    │
 ├──────────────────────────────────────────────────────────────┤
 │ 基础设施                                                      │
-│  SQLite（WAL）/ 文件系统 / PTY / keys.json / 备份目录           │
+│  SQLite（WAL）/ 文件系统 / PTY（libghostty）/ keys.json / 备份 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-依赖方向自上而下。前端不直接访问数据库或文件系统；所有路径校验、命令分级、密钥读取都在 Go 侧完成。
+依赖方向自上而下。**没有 IPC**：界面与领域层在同一进程，view 直调普通 Go 方法（原 Wails 绑定层随迁移降级为内部领域包，`internal/service` 保留参数校验、编排与错误转换职责）。所有路径校验、命令分级、密钥读取都在 Go 侧完成；界面状态是数据库事件的投影。
 
-进程模型：单实例（第二实例启动时回调里显式 `Restore/Show/Focus` 唤起主窗口）；每个会话最多一个 run goroutine；事件总线冲刷协程（33ms 节拍）；每个 PTY 一个读取协程；工具执行、模型请求、终端读取都在独立 goroutine，崩溃隔离到单次 run 或单个终端标签；WebView 崩溃不会带崩 Go 进程。
-
-同一份代码可用 `-tags server` 编译为纯 HTTP 服务（无窗口，浏览器运行完整应用）；窗口、托盘、原生菜单、原生对话框、单实例在 server 模式是空实现，Agent、终端、文件、SQLite 等后端能力完整可用。
+进程模型：单实例（第二实例启动时回调里显式 `Restore/Show/Focus` 唤起主窗口）；每个会话最多一个 run goroutine；事件总线订阅回调把批次投给 `win.Update`（主线程执行并自动合并到下一帧）；终端由 `plugins/terminal`（libghostty）自管 PTY 读取协程；工具执行、模型请求都在独立 goroutine，崩溃隔离到单次 run。
 
 ## 2. 目录与包职责
 
 ```text
-main.go                  入口：embed frontend/dist，交给 internal/app
-internal/app/            窗口、单实例、CSP、服务装配、关闭钩子
-internal/service/        Wails 绑定层（App / Settings / Thread / Chat /
-                         Workspace / Provider / Audit / Terminal / Document）
+main.go                  入口：装配交给 internal/app
+internal/app/            进程装配：窗口、单实例、生命周期、服务装配、
+                         通知与跳会话接线；端到端冒烟测试（app_e2e_test.go）
+internal/ui/             原生界面：theme（token 转发）、shell（三栏外壳与
+                         窗口级快捷键 / Esc 退出链）、panelview / panel_diff /
+                         panel_editor / panel_files / panel_docs / panel_terminal
+internal/ui/theme/       base.css token 的 Go 翻译、深浅主题派生（叶子包）
+internal/ui/icons/       lucide SVG 登记表（go:embed）
+internal/ui/sidebar/     侧栏：模式切换、会话分组列表、工作区卡片
+internal/ui/chat/        聊天列：reducer（事件归约）、composer、部件卡片、
+                         markdown 流式渲染、快照分页
+internal/ui/panel/       面板 tab 状态机（工作区分桶、singleton tab）
+internal/ui/overlays/    浮层体系：命令面板、设置、数据、创建项目、
+                         确认 / 输入 / 自由档位对话框、toast
+internal/service/        内部领域包（原 Wails 绑定层）：App / Settings /
+                         Thread / Chat / Workspace / Provider / Audit /
+                         Document / MCP
 internal/agent/          Run 循环、审批状态机、授权缓存、提示词组装（prompt/）、
                          环境收集（envcontext）、历史重建（history）
 internal/record/         事件写入与广播（落库 + 推送的唯一出口）
@@ -52,54 +60,43 @@ internal/model/catalogdata/  models.dev 目录快照（构建期生成，运行�
 cmd/modelsync/           从 models.dev 同步并生成目录快照
 internal/store/          SQLite、迁移、事件、审计、用量、设置、种子数据
 internal/secret/         keys.json 读写与权限
-internal/editor/         行级 diff（LCS + 上下文分组）
+internal/editor/         行级 diff 与差异视图（LCS + 上下文分组）
 internal/doc/            格式注册表与 OOXML / PDF 适配器
-internal/events/         事件类型与批量总线
-internal/notify/         系统通知（macOS osascript、Linux notify-send）
-internal/terminal/       PTY 会话管理
+internal/events/         事件类型表与内部事件总线（契约保留）
+internal/notify/         系统通知（mygo.NewNotification，点击跳会话）
 internal/update/         更新（版本、渠道、清单校验已实现；下载替换留桩）
-internal/version/        构建信息
-frontend/
-├── bindings/            Wails3 生成的 TypeScript 绑定（提交入库，不手改）
-└── src/
-    ├── app/             AppShell、全局快捷键
-    ├── features/        sidebar / chat / panel / overlays / statusbar
-    ├── components/      Icon、BrandMark、Popover、Toast、Dialog
-    ├── lib/             API、真实宿主绑定、Mock（仅 vite --mode mock）、类型、工具
-    ├── stores/          app / threads / panel / workspace / terminal / ui
-    └── styles/          样式分区 + highlight + app-extra + desktop
+internal/version/        构建信息（版本对齐策略见包注释）
+assets/                  应用图标（appicon.png，mygo.json 的 icon 字段指向这里）
 ```
 
-新增能力优先落到对应领域包，`internal/service` 只做参数校验、编排与错误转换。
+新增能力优先落到对应领域包，`internal/service` 只做参数校验、编排与错误转换；view 不得绕过 service 直接操作 store 或 agent。
 
-## 3. Wails3 宿主
+## 3. mygo 宿主
 
-- 服务注册：App / Settings / Thread / Chat / Workspace / Provider / Audit / Terminal / Document。
-- 窗口：`1440×900`，最小 `960×640`；macOS 隐式标题栏 + 48px 顶行，前端为红绿灯预留 82px；深色背景避免首帧白闪；`EnableFileDrop` 打开。
-- 资源：`//go:embed all:frontend/dist`；`AssetFileServerFS` 附加中间件写入 CSP（生产 `default-src 'self'`，禁内联脚本与远程资源；开发额外放行 Vite 内联与本地 WebSocket）。
-- 窗口 URL 固定为 `/`，禁止绝对 URL；外链唯一出口是 `AppService.OpenExternal`（仅 http/https）。
-- 生产构建禁用 DevTools（`production` build tag）。
-- 生命周期：启动打开数据库 → 清理未完成 run → 读密钥 → 建事件总线 → 装配服务 → 确保内置临时会话目录存在并把未绑定工作区的会话回填到该目录 → 恢复审批档位 → 建窗口。临时目录固定在数据目录 `workspace/default`（默认 `~/.craftwork/workspace/default`），删除后启动自动重建；初始化失败只降级临时会话能力，不阻断启动。活动工作区只是 UI 偏好，不写入任何策略状态。`OnShutdown` 逆序释放。
+- 应用配置：`mygo.json`（name / identifier / version / icon / out）；图标 `assets/appicon.png` 构建期生成 `.icns` 与 DMG。
+- 窗口：`1440×900`，最小 `960×640`；`TitleBarHiddenInset` 隐藏标题栏，界面自画 48px 顶行拖拽区并避让红绿灯；底色按设置主题在首帧前设定，避免白闪；`StateKey` 记忆窗口位置与尺寸。
+- 界面内容：`ui.View(cwui.RootView(shell))` 纯 Go view；窗口没有页面可加载，应用内不出现任何 WebView。
+- 外链唯一出口是 `mygo.Shell.OpenExternal`（仅 http/https，界面先确认域名）；应用不加载任何远程页面。
+- 生命周期：单实例锁 → 数据目录（含 `shell/` 窗口状态子目录）→ 打开数据库 → 清理未完成 run → 读密钥 → 建事件总线 → 装配策略 / 工具 / 服务 → 恢复审批档位与外观 → 确保内置临时会话目录存在并把未绑定工作区的会话回填到该目录 → 建窗口 → 侧栏与聊天列启动首拉。临时目录固定在数据目录 `workspace/default`（默认 `~/.craftwork/workspace/default`），删除后启动自动重建；初始化失败只降级临时会话能力，不阻断启动。活动工作区只是 UI 偏好，不写入任何策略状态。
 - 崩溃恢复：启动时把 `running` 的 run 标记 `interrupted`，挂起审批标记 `canceled`，对应会话标 `error` 并写入可重试的 `error` 事件。
+- 退出：`OnWillQuit` 关闭事件总线；窗口关闭回收面板终端进程（SIGHUP + 2 秒补杀）。
 
-## 4. IPC 契约
+## 4. 事件流契约
 
-命令走绑定方法（前端 → Go）；事件只走 `cw:events` 单一批量通道（Go → 前端，ADR-0007）。
+**没有 IPC 与绑定**：界面读状态走方法调用；领域层到界面的通知走「落库 + bus 发布 + 主线程派发」（ADR-0007 的类型表保留为内部契约）。
 
-### 4.1 批量事件载荷
+```text
+领域层 → record.Recorder（事务落库）→ events.Bus（发布）
+       → app.emitter（win.Update 派发）→ chat reducer（主线程状态写入）
+```
 
-```ts
-interface Batch {
-  v: number;          // 契约版本，当前为 1
-  threadId: string;
-  events: Array<{
-    seq: number;      // 会话内单调递增
-    type: string;
-    threadId?: string;
-    runId?: string;
-    ts: number;       // 毫秒
-    data: any;
-  }>;
+### 4.1 批次载荷
+
+```go
+type Batch struct {
+    V        int
+    ThreadID string
+    Events   []*Envelope // Seq 会话内单调递增
 }
 ```
 
@@ -114,34 +111,34 @@ interface Batch {
 | `approval.requested` | `partId`、`approvalId`、`toolCallId`、`tool`、`risk`、`target`、`facts`、`args`、`allowPermanent` |
 | `approval.resolved` | `partId`、`approvalId`、`status`、`decision`、`scope` |
 | `todo.updated` | `partId`、`items` |
-| `user.message` | `messageId`、`text`、`attachments`、`via`；仅运行中引导广播（普通发送由前端乐观插入显示，不广播避免双份） |
+| `user.message` | `messageId`、`text`、`attachments`、`via`；仅运行中引导广播（普通发送由聊天列乐观插入显示，不广播避免双份） |
 | `error` | `partId`、`code`、`message`、`retryable` |
 | `run.completed` / `run.canceled` / `run.failed` | `status`、可选 `code` / `message` |
 | `thread.updated` | `threadId`、`status`、可选 `thread` |
 | `usage.updated` | `inputTokens`、`outputTokens`、`contextTokens` 等 |
 | `settings.updated` / `workspace.updated` | 变更摘要 |
 | `context_summary` | 摘要与覆盖截止序号；持久化用，不进界面、不广播 |
-| `terminal.output` / `terminal.exit` | `sessionId`、`data` / `exitCode` |
+| `terminal.output` / `terminal.exit` | 契约保留（TerminalService 已随迁移删除；面板终端由 plugins/terminal 自管 PTY，不产生这两类事件） |
 
-### 4.3 合并、背压与取消
+### 4.3 派发、合并与取消
 
-- 文本与推理增量按 33ms 合并（同一 `partId`）；缓冲 32 条立即冲刷；非增量事件立即推送保序。
-- 终端输出独立合并，16KB 即推。
-- 前端按 `seq` 去重；切换会话用快照替换，不重放事件。
-- 大对象（文件内容、差异、终端历史）走命令按需拉取。
-- 取消：`ChatService.Cancel` → `Runner.Cancel` → `context.CancelFunc`；取消等待中的审批与会话状态回收都由 `Runner.Cancel` 负责。运行记录的创建与会话状态切换同样收口在 Runner（`Runner.Run` / `createRunRow`）：服务层只写用户消息并触发，正常发送与接力运行共用同一写入序列。`shell_exec` 取消杀整个进程组（`Setpgid` + `SIGKILL`）；刷新或关窗时审批按 `canceled` 落库。
-- 事件类型与载荷在 `internal/events/events.go` 与 `frontend/src/lib/types.ts` 两处保持一致；改服务方法签名后必须重新生成绑定。
+- 事件写入与广播统一经 `record.Recorder`；部件事件按 Kind 映射类型表发布，生命周期事件 `Emit` 只广播不落库。
+- 后台批次经 `win.Update(func)` 投递：mygo 自动合并到下一帧，界面按帧消费，无需节流。
+- 消费端按 `seq` 去重；切换会话用快照替换，不重放事件；其他会话有变更时联动侧栏刷新。
+- 大对象（文件内容、差异、终端历史）按需调用方法获取，不进事件。
+- 取消：`ChatService.Cancel` → `Runner.Cancel` → `context.CancelFunc`；取消等待中的审批与会话状态回收都由 `Runner.Cancel` 负责。运行记录的创建与会话状态切换同样收口在 Runner（`Runner.Run` / `createRunRow`）：服务层只写用户消息并触发，正常发送与接力运行共用同一写入序列。`shell_exec` 取消杀整个进程组（`Setpgid` + `SIGKILL`）；关窗或退出时审批按 `canceled` 落库。
+- 事件类型以 `internal/events/events.go` 为唯一事实源；聊天列 reducer（`internal/ui/chat/reducer.go`）是契约的消费端，两者一起改。
 
-## 5. 前端架构
+## 5. 原生界面架构
 
-- 运行时：`useExternalStoreRuntime({ messages, convertMessage, isRunning, onNew, onCancel, onReload })`；状态事实源在 Go，前端 store 是派生视图。
-- **发送策略单一入口**：`threads.submit` 拥有完整策略（模型校验 → 图片门控 → 运行中转 steer → 自动建会话 → 发送）；runtime 退化为消息格式转换。新增发送路径（快捷指令、浮层等）必须接它。图片判断单源化为 `utils.isImagePath`，模型匹配抽成 `utils.matchModelInfo`。
-- **激活工作区联动收口**：`stores/workspaceFlow.ts` 是切换 / 重同步 / 新建临时会话的唯一编排点；`FileContent` 携带 `workspaceId`，保存与差异应用显式传回打开时的工作区，不读「当前激活工作区」环境。
-- **部件注册单表**：前端 `partRegistry.tsx` 单表声明「组件 + 折叠归属」，by_name 映射、WORK_KINDS 判断、分组兜底渲染全部派生；Go 侧 `agent.ToolCallPart` 单源定义 tool 部件形状（写入 / 读取共用）。新增部件走「Go 事件 + reducer handler + 注册表」三处。
-- 状态归属：`app`（构建信息、设置、模式、主题、工作区、提供商）、`threads`（会话、消息部件、运行状态、待审批、附件）、`panel`（开关、宽度、全屏、模式标签）、`workspace`（文件树、Git 状态、编辑草稿、差异、文档预览）、`terminal`（会话、标签、输出缓冲）、`ui`（通知、确认、命令面板、设置、数据面板）。
-- assistant-ui 部件映射：`text`/`reasoning` 用原语渲染；自定义部件以 `data-cw-*` 前缀注册到 `components.data.by_name`（`tool`、`approval`、`todo`、`error`、`draft`、`callout`、`notice`）。审批不复用 assistant-ui 的 `approval` 语义；用户消息不带 `status` 字段。
-- 流式更新只修改目标消息的目标部件；重组件（面板、终端、编辑器、设置）用 `lazy()` 拆分；面板状态机为 docked / collapsed（< 1180px）/ overlay / maximized。
-- 宿主判断：`isDesktop` 表示「后端在 Go 进程里」——桌面是 `wails:` / `wails.localhost`，server 模式是 http(s) 且非 mock 构建；只有 `vite --mode mock` 走 Mock。
+- **立即模式**：view 是每帧执行的普通函数，状态放 app 结构体（`Shell` / `Sidebar` / `Chat` / `Pane` / overlays 单例）；没有虚拟 DOM，元素身份靠兄弟位置或 `Key` 保持。
+- **主线程约定**：界面状态只在主线程（view 帧或 `win.Update` 回调）读写，不放锁；后台 goroutine 一律经 `win.Update` 回主线程。
+- **组合根**：`RootView(shell)` 每帧依次画外壳、处理窗口级快捷键（⌘K/⌘N/⌘B/⌘W/⌘,/Esc 退出链）、画浮层。模态（DialogBase）打开时窗口快捷键整体等待，Esc 归浮层。
+- **Esc 退出链**：浮层模态（命令面板 / 设置 / 数据 / 图片预览 / 全局对话框）在上层自消费 Esc；剩余层级由 `Shell.HandleWindowEscape` 统一——面板激活 tab（焦点在面板可编辑区时整链跳过：焦点持有 `FocusWithin` 时根视图不注册 Esc，保证终端 / 编辑器把 Esc 当输入）→ 聊天列两级（运行中双击 Esc 停止，800ms 确认窗；空闲待审批 Esc 拒绝最后一条，范围 once）。IME 组合期按键以 TextComposition 直送焦点控件，不产生 keyDown，天然到不了快捷键。
+- **聊天列**：`reducer.go` 逐事件归约（23 种事件 handler，纯函数可单测）；流式正文 `markdown.Stream`、完成态 `markdown.View`；部件卡片（思考 / 工具 / 审批 / 待办 / 错误）与「已工作」折叠按 work 单表语义切段。
+- **面板**：`Pane` 按「工作区桶 × singleton tab」管理（文件树 / 编辑器 / 差异 / 终端 / 文档）；tab 按「工作区 + 线程」过滤显隐；窄窗（<1100）自动收起，Split 拖拽 320–760、双击恢复默认宽。
+- **浮层体系**：`overlays` 包级单例 + Backend 服务门面 + Hooks 跨视图回调；同类请求同时最多一个，新请求覆盖旧请求（旧回调按取消收尾）。
+- **主题**：`theme.Apply` 每帧套用；深浅色实时跟随系统，显式主题覆盖；动效走 `Animate`/`Transition`（自动跟随系统减少动效偏好），装饰性 Loop 在 `theme.ReduceMotion` 时停用。
 
 ## 6. Agent 内核
 
@@ -166,7 +163,7 @@ interface Batch {
 
 `ChatService.Steer(threadID, text, attachments)` 在会话运行中追加一条用户指令：
 
-1. 与 `Send` 共用消息落库路径（`user_message` 事件，原文先持久化），随后广播 `user.message` 事件让所有窗口立即显示（前端不做乐观插入，按 `messageId` 幂等去重）。
+1. 与 `Send` 共用消息落库路径（`user_message` 事件，原文先持久化），随后广播 `user.message` 事件让所有窗口立即显示（聊天列按 `messageId` 幂等去重）。
 2. 消息挂入 Runner 的每会话内存投递队列（上限 10 条，超出明确拒绝）。入队以在途运行登记为准入条件，并与运行收尾在同一临界区注销：`TrySteer` 返回 false 即会话没有在途 run，服务层回退为普通发送。
 3. 投递点在每轮迭代顶部（上一批工具执行完、下一次模型请求前），按消息 ID 去重后并入模型历史；同一批多个引导按到达顺序逐条并入。
 4. 运行正常结束而队列非空时，Runner 自动创建接力 run 继续执行（同一 goroutine 与取消上下文，自动命名不重复触发，工时独立统计）。引导在 Steer 时已落库，接力 run 的历史重建会原样恢复，投递去重保证不重复发送。
@@ -201,7 +198,7 @@ type Tool interface {
 
 - 风险分级与档位见 ADR-0003；`policy.Engine` 只持有审批档位（真实全局设置），`Action` / `AllowsPermanent` 显式接收 `restricted` 参数，工作区状态来自 `RunEnv` 值传递而非全局副本。自由档位一律 `allow`（优先于只读、严格与受限判断），但 `AllowsPermanent` 仍为 false。
 - 受限工作区：R3 直接拒绝；R1/R2 逐次审批；不提供永久授权，已有授权不生效。
-- 路径解析 `policy.Resolve`：工作区 `EvalSymlinks` → 以工作区为根拼接 → 词法校验越界 → `EvalSymlinks` 后二次校验阻止符号链接逃逸 → 新文件解析父目录。拒绝路径穿越、符号链接逃逸、UNC 路径；前端传入的路径不是可信输入。
+- 路径解析 `policy.Resolve`：工作区 `EvalSymlinks` → 以工作区为根拼接 → 词法校验越界 → `EvalSymlinks` 后二次校验阻止符号链接逃逸 → 新文件解析父目录。拒绝路径穿越、符号链接逃逸、UNC 路径；界面传入的路径不是可信输入。
 - 多根解析 `policy.ResolveAny` / `ResolveExisting`：按根顺序（主要目录优先）逐根做同样的词法与符号链接校验；主要目录不可用时报错，附加目录不可用时跳过；「存在优先」变体在目标真实存在于某个根时命中该根，全部不存在时回落词法判定（新建文件落主要目录）。链接逃逸直接拒绝，不尝试后续根。
 - 命令分类：危险命令 R4；联网命令 R3；普通命令 R2；解析失败默认询问或拒绝。
 - Shell 前缀授权：取前两个片段（第二段是选项时只取第一段）；含管道、重定向、串联或 `sudo` / `bash -c` 包装的命令只允许精确匹配一次。
@@ -218,7 +215,7 @@ type Client interface {
 ```
 
 - 三种协议：`openai`（Chat Completions + SSE）、`anthropic`（Messages + SSE）、`openai-compatible`；自研 HTTP + SSE 客户端。Anthropic 在历史尾部追加缓存断点（合计三个断点，在提供商四断点限额内）。
-- 统一错误码：`auth`、`rate_limit`、`timeout`、`context_overflow`、`provider_unavailable`、`invalid_request`、`canceled`；不向前端抛原始 HTTP 错误。
+- 统一错误码：`auth`、`rate_limit`、`timeout`、`context_overflow`、`provider_unavailable`、`invalid_request`、`canceled`；不向界面抛原始 HTTP 错误。
 - 重试：429、5xx、超时与连接失败在建立流之前最多重试 3 次（指数退避）；失败转移按设置切换一次，仅限上述情形；工具调用过程中不转移，流建立后的错误直接失败并保留已产生内容。
 - 密钥优先级：`keys.json` > 目录给出的环境变量 > 按提供商 ID 推导的环境变量（ADR-0005）。
 
@@ -312,72 +309,72 @@ CREATE TABLE backups (
 
 ## 12. 文档、终端与编辑器
 
-- **文档**（ADR-0010）：`doc.Format` 适配器（`Exts / Read / Replace`）承担格式差异；Word 解析 `word/document.xml`，替换要求完整位于同一格式片段内；Excel 解析工作簿、关系、共享字符串与工作表 XML，写 inlineStr 或数值节点；PDF 只读文本层（FlateDecode 与字面量/十六进制字符串），加密拒绝、无文本层提示不支持 OCR。写入前由工具层备份并走审批；`DocumentService.Preview` 用 `doc.Supported` 判断是否走文档解析。
-- **终端**：`creack/pty` 启动用户 shell，`TerminalService` 管理创建、写入、调整与关闭；输出批量推送，前端 xterm.js 渲染；滚动缓冲 10,000 行；搜索用 `@xterm/addon-search`；用户终端不经审批，`shell_exec` 走策略引擎，两条路径独立；尺寸同步 ResizeObserver → FitAddon → `TerminalService.Resize`。
-- **编辑器**：CodeMirror 6（行号、高亮、搜索、只读/编辑切换、IME），语言按扩展名懒加载；差异在 Go 侧计算（LCS + 3 行上下文，超过 20,000 行或 4,000,000 格子退化为整段替换），前端渲染统一/并排视图；保存前备份；`expectedHash` 阻止外部修改覆盖；二进制与超过 2MB 的截断文件禁止编辑。
+- **文档**（ADR-0010）：`doc.Format` 适配器（`Exts / Read / Replace`）承担格式差异；Word 解析 `word/document.xml`，替换要求完整位于同一格式片段内；Excel 解析工作簿、关系、共享字符串与工作表 XML，写 inlineStr 或数值节点；PDF 只读文本层（FlateDecode 与字面量/十六进制字符串），加密拒绝、无文本层提示不支持 OCR。写入前由工具层备份并走审批；文档预览用 `doc.Supported` 判断是否走文档解析。
+- **终端**：`plugins/terminal`（libghostty）惰性创建，tab 首帧起用户 shell；PTY 网格尺寸随每次 paint 协商（layout → viewResize），视图 `Fill()` 即可；深浅两套主题按窗口外观选择；窗口关闭 / 应用退出回收终端进程（SIGHUP，插件 2 秒后补杀）。用户终端不经审批，`shell_exec` 走策略引擎，两条路径独立。
+- **编辑器**：`ui/editor`（行号、语法高亮、只读/编辑切换、IME）；差异在 Go 侧计算（LCS + 3 行上下文，超过 20,000 行或 4,000,000 格子退化为整段替换），`editor.DiffView` 渲染统一/并排视图与词级高亮；保存前备份；`expectedHash` 阻止外部修改覆盖；二进制与超过 2MB 的截断文件禁止编辑。
 
 ## 13. 平台集成
 
 | 能力 | 实现 |
 | --- | --- |
-| 文件对话框 | Wails3 `app.Dialog`（server 模式空实现） |
-| 系统通知 | `internal/notify`（macOS `osascript`、Linux `notify-send`），窗口失焦时发送；权限被拒静默降级 |
-| 剪贴板 | 前端优先 `navigator.clipboard`，失败回落 Go |
-| 拖放 | 窗口 `EnableFileDrop` + 前端遮罩；附件内容由 Go 读取 |
-| 单实例 | Wails3 SingleInstance + 回调显式唤起 |
-| 窗口状态 | 尺寸、位置、分栏宽度、主题、最后工作区持久化到 settings |
-| 外部链接 | `AppService.OpenExternal`，仅 http/https，前端先确认域名 |
+| 文件对话框 | `mygo.Dialog`（打开 / 保存 / 消息），在后台 goroutine 调用（帧内直调会死锁） |
+| 系统通知 | `internal/notify`（`mygo.NewNotification`），窗口失焦时发送；未打包运行或权限被拒静默降级；点击聚焦窗口并跳会话 |
+| 剪贴板 | `mygo.Clipboard`；经 `win.Update` / goroutine 调用（帧内直调会死锁） |
+| 拖放 | 元素 `DroppedFiles`；附件内容由 Go 读取 |
+| 单实例 | `mygo.App.RequestSingleInstanceLock` + `OnSecondInstance` 回调显式唤起 |
+| 窗口状态 | 位置与尺寸由 `StateKey` 记忆到 `~/.craftwork/shell/`；主题、最后工作区持久化到 settings |
+| 外部链接 | `mygo.Shell.OpenExternal`，仅 http/https，界面先确认域名 |
+| 深浅色 | `ui.Theme` 实时跟随系统；显式主题经 `theme.SetAppearance` 覆盖 |
 
 ## 14. 安全设计汇总
 
 | 面 | 措施 |
 | --- | --- |
-| WebView | 严格 CSP；窗口只加载 `/`；禁绝对 URL；生产禁 DevTools（ADR-0009） |
-| 导航 | 外链只走系统浏览器；应用内不加载第三方页面 |
-| HTML | Markdown 不渲染原始 HTML；图片不加载远程地址；用户内容按文本处理 |
+| 界面 | 无 WebView：不加载任何远程页面；Markdown 不渲染原始 HTML；图片不加载远程地址 |
+| 导航 | 外链只走系统浏览器（`OpenExternal` 唯一出口）；应用内无第三方页面 |
 | 路径 | 词法校验 + 符号链接解析；越界提升 R3 |
 | 命令 | 分类与危险模式；清洗环境变量；进程组清理 |
-| 密钥 | keys.json 0600/0700；只存 Go 进程；前端只拿遮罩与来源（ADR-0005） |
-| 提示注入 | 工具输出、文件、文档、邮件、网页、MCP 描述视为不可信；策略独立于模型（ADR-0003） |
+| 密钥 | keys.json 0600/0700；只存 Go 进程；界面只拿遮罩与来源（ADR-0005） |
+| 提示注入 | 工具输出、文件、文档、邮件、MCP 描述视为不可信；策略独立于模型（ADR-0003） |
 | 文档 | 不执行宏、脚本、外链；写入前备份；每次审批（ADR-0010） |
 | 审计 | 工具、审批、写入、配置变更落库 |
 | 日志 | 脱敏；不记录密钥、令牌、完整对话 |
+| 通知 | 只在窗口失焦时发送；内容为状态短语，不含密钥与对话正文 |
 | 沙箱 | macOS Seatbelt / Windows 受限令牌（留桩）；当前依赖审批与路径校验 |
-| 更新 | 清单签名、SHA-256 校验已实现；下载、原子替换、回滚与内置公钥留桩 |
+| 更新 | 清单签名、SHA-256 校验已实现；下载、原子替换、回滚与内置公钥留桩（需发布服务器与签名密钥） |
 
 ## 15. 性能设计
 
 | 场景 | 手段 |
 | --- | --- |
-| 冷启动 | Go 启动与 WebView 初始化并行；首帧只渲染骨架；编辑器/终端/设置按需加载 |
-| 流式渲染 | Go 33ms 合并；前端只更新目标部件；Markdown 解析可延迟 |
-| 大文本 | CodeMirror 可视区域渲染；8MB 读取上限；二进制只返回元信息 |
+| 冷启动 | Go 直接自绘首帧（无 WebView 初始化）；窗口底色首帧前设定避免白闪 |
+| 流式渲染 | 事件经 `win.Update` 按帧合并；聊天列只更新目标部件；`markdown.Stream` 词级 reveal |
+| 大文本 | `ui/editor` 按需渲染；8MB 读取上限；二进制只返回元信息 |
 | 文件树 | 逐层加载；忽略依赖目录；过滤时扁平化匹配 |
-| 终端 | xterm 渲染 + 16KB 合并；滚动缓冲上限 |
+| 终端 | libghostty GPU 渲染；PTY 网格按视图尺寸协商 |
 | 数据库 | WAL、索引、批量事务、分页 |
-| 内存 | 消息分页（每页 80 条）与 `content-visibility` 离屏隔离；终端输出上限 200KB；图片懒加载 |
-| 首屏体积 | 主包约 267KB gzip；FilesPanel / TerminalPanel / 浮层独立分块 |
+| 动效 | Animate / Transition 只在值变化时画帧；窗口不可见时不画帧 |
+| 列表 | 侧栏分页（每组默认条数 +「显示更多」）；面板长列表用 `ui.List` 虚拟化 |
 
 ## 16. 测试策略
 
 | 层级 | 范围 | 工具 |
 | --- | --- | --- |
-| Go 单元 | 路径逃逸、风险分级、事件合并、diff、SQLite 迁移与快照、提示词契约 | `go test ./...` |
+| Go 单元 | 路径逃逸、风险分级、事件归约（chat reducer）、diff、SQLite 迁移与快照、提示词契约 | `go test ./...` |
+| Go 界面 | `ui.Tester` 无窗口驱动真实 view：审批矩阵、Esc 退出链、tab 状态机、主题切换、拖拽钳制 | `go test ./...` |
+| Go 端到端 | 装配链冒烟（`internal/app/app_e2e_test.go`）：假模型端点 → 发消息 → 工具 → 审批 → 审计 | `go test` |
 | Go 集成 | 假模型 + 临时工作区 + 临时数据库，覆盖审批允许/拒绝、工具不执行、审计 | `go test` |
-| 前端类型 | 绑定与组件类型 | `tsc --noEmit` |
-| 前端单元 | store reducer、事件归约、diff 渲染 | Vitest |
-| 浏览器端到端 | Mock 后端：布局、发送、审批、设置 | Playwright |
-| 桌面 / server 冒烟 | `wails3 build` 后启动；`wails3 task run:server` + `/health` | 手动 / 脚本（建议 `CRAFTWORK_HOME` 隔离） |
-| 视觉回归 | 同视口截图对比（基线按操作系统保存） | `PLAYWRIGHT_CHANNEL=msedge pnpm exec playwright test --grep @screenshot` |
+| 桌面冒烟 | `go tool mygo dev` 隔离目录全链路走查（提供商 → 消息 → 工具 → 审批 → 差异 → 终端 → 重启恢复） | 手动（`CRAFTWORK_HOME` 隔离） |
 | 安全用例 | 路径穿越、符号链接、命令注入、外链拦截、HTML 不执行 | 专项用例 |
 | 性能基准 | 冷启动、流式帧率、10MB 文件、终端输出、数据库查询 | `testing.B`、benchstat |
 
-关键回归用例：审批拒绝后工具不执行；R3/R4 无永久授权；文档写入前备份；取消后无残留进程；导出包不含密钥；Markdown 中的 `<script>` 不执行。
+关键回归用例：审批拒绝后工具不执行；R3/R4 无永久授权；文档写入前备份；取消后无残留进程；导出包不含密钥；Markdown 中的 `<script>` 不执行；焦点在终端时 Esc 不关闭面板 tab。
 
 ## 17. 构建与发布
 
-- 开发：`wails3 dev`（HMR + Go 热重启）；浏览器完整应用：`wails3 task run:server`；纯 UI 走查：`pnpm run dev`（Mock）。
-- 生产：`wails3 build` → `bin/CraftWork`（自动构建前端、生成绑定、`go build -tags production`）。
-- 签名与公证已接入 Wails 工具链（`wails3 tool sign [--notarize]`、`--format dmg`）；需要开发者证书与发布密钥。
-- 更新：`internal/update` 已实现版本、渠道、HTTPS 地址、SHA-256 与 Ed25519 签名校验；下载、原子替换、回滚与内置公钥留桩（需发布服务器与签名密钥）。
+- 开发：`go tool mygo dev`（编译失败保留旧进程）；界面无 HMR，改完即重启。
+- 生产：`go tool mygo build` → `bin/darwin-<arch>/CraftWork.app` + DMG；无 cgo，可交叉编译（macOS 签名与 DMG 仅在 macOS 上执行）。
+- 签名与公证：`mygo build` 内置 Developer ID 签名与公证流程；需要开发者证书与发布密钥（未配置时 adhoc 签名、跳过公证）。
+- 版本：`mygo.json` 的 `version` 是发布产物版本事实源，`internal/version` 默认值与之对齐（规则见包注释）。
+- 更新：`internal/update` 已实现版本、渠道、HTTPS 地址、SHA-256 与 Ed25519 签名校验；下载、原子替换、回滚与内置公钥留桩（需发布服务器与签名密钥；接线目标为 mygo 内置 Updater）。
 - 产物目标与发布准入见 `product.md` 第 6.5 节与第 8 节。

@@ -1,6 +1,6 @@
 # 原生 UI 迁移（native UI）规格
 
-状态：已评审定稿（决策背景见 [ADR-0014](../adr/0014-native-ui-via-mygo.md)；两轮调研结论摘录在文末）。本文是迁移行为规格：范围、架构映射、约束、分阶段验收。
+状态：**已完成**（P0–P3 全部票关闭；P3 收尾见 `issues/10-finish-line.md` 的 Comments。桌面外壳已切换为 mygo 原生 UI，仓库无 WebView / React 残留；现行观感与布局约定以本文为准。决策背景见 [ADR-0014](../adr/0014-native-ui-via-mygo.md)；两轮调研结论摘录在文末。）本文是迁移行为规格：范围、架构映射、约束、分阶段验收。
 
 ## 范围
 

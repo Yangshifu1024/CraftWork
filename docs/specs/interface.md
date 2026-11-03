@@ -1,4 +1,6 @@
-# CraftWork 界面规格
+# CraftWork 界面规格（历史规格）
+
+> **历史规格（10 号票收尾标注）**：本文件是 WebView + CSS 时代（Wails3 + React）的界面视觉与交互基准。桌面外壳已切换为 mygo 原生 UI（ADR-0014），观感与布局的现行约定见 `docs/native-ui/spec.md`；本文件保留作设计参照——token 体系（base.css）、三栏尺寸与交互语义仍是原生 UI 主题翻译（`internal/ui/theme`）的取值来源，但 CSS 实现细节、DOM 结构与组件清单不再随实现更新。
 
 本文件是界面的视觉与交互基准。布局尺寸、token 与交互行为以本文件为准；组件与后端的对应关系见 `architecture.md` 第 5 节。
 
