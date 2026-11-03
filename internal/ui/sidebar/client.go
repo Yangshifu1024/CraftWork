@@ -209,7 +209,11 @@ func (cl *Client) CopyThreadID(id string) {
 }
 
 // createAsync 是新建会话的公共编排：激活工作区 → Create → 刷新列表并
-// 选中新会话。mode 由主线程入口快照传入，goroutine 里不再读状态。
+// 选中新会话，再联动聊天列切换（Actions.SelectThread，app.go 里接
+// chatClient.SelectThread）。旧版行为是创建即切换（threads.ts create
+// 同帧写 activeID 并清空消息区）；此前只写了侧栏选中、聊天列留在旧会话，
+// 走查看起来就是「新建后没切换」（13 号票）。mode 由主线程入口快照传入，
+// goroutine 里不再读状态。
 func (cl *Client) createAsync(mode Mode, workspaceID, title string) {
 	go func() {
 		if cl.workspaces != nil && workspaceID != "" {
@@ -224,6 +228,11 @@ func (cl *Client) createAsync(mode Mode, workspaceID, title string) {
 		}
 		cl.refreshAsync(mode, func() {
 			cl.sb.Select(thread.ID)
+			// 聊天列联动走动作表而非直连 chat 包：单测路径（nil）只落
+			// 侧栏选中，语义与点击会话行的联动一致。
+			if acts := cl.sb.actions; acts != nil && acts.SelectThread != nil {
+				acts.SelectThread(thread.ID)
+			}
 		})
 	}()
 }
