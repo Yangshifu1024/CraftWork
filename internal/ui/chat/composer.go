@@ -36,7 +36,8 @@ const escArmWindow = 800 * time.Millisecond
 // 外框（描边切模式强调色），失焦回中性描边。
 func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
 	wrap := mygo.Column(c).FillWidth().Padding(theme.Space3, 0, 9, 0).
-		AlignItems(mygo.Center).Background(v.pal.ChatBg)
+		AlignItems(mygo.Center).Background(v.pal.ChatBg).
+		Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastWrapW = r.W })
 
 	// 拖放附件：整个聊天列都接收投放（React 版 onDragOver 在 .chat-pane 上）。
 	if paths := wrap.DroppedFiles(); len(paths) > 0 {
@@ -44,15 +45,23 @@ func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
 	}
 
 	wrap.Children(func() {
-		// 输入框容器（.composer：与正文列同宽居中、描边圆角、浮底）。
-		frame := mygo.Box(c).WidthPercent(theme.ChatColumnPercent).
-			MinWidth(theme.ChatColumnMinWidth).Radius(12).
-			Background(v.pal.BgElevated).
+		// 输入壳宽度 = chatColumnWidth 断点公式（与消息列同宽，ZCode
+		// conversationLayout）；聊天列宽用包裹层上一帧实测（首帧窗口宽近似，
+		// 第二帧收敛——不回灌公式输出，避免列宽逐帧发散）。
+		winW, _ := c.Size()
+		chatW := s.lastWrapW
+		if chatW <= 0 {
+			chatW = winW
+		}
+		// 输入框容器（zai 输入壳，03-composer.md）：16px 圆角、0.5px 描边、
+		// bg-input 白底、软阴影；聚焦描边灰加深（zai 聚焦不变色不发光）。
+		frame := mygo.Column(c).Width(chatColumnWidth(winW, chatW)).Radius(16).
+			Background(v.pal.BgInput).
+			Shadow(0, 6, 18, 0, v.pal.ComposerShadow).
 			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastComposerW = r.W })
-		// 聚焦高亮整个外框：焦点在内部任意可编辑区（输入框）即算，
-		// 帧内记录状态供走查断言（ComposerFocused）。
+		// 聚焦态：焦点在内部任意可编辑区（输入框）即算，帧内记录供走查。
 		s.composerFocused = frame.FocusWithin()
-		frame.BorderWidth(1).BorderColor(composerBorder(v.pal, v.acc, s.composerFocused))
+		frame.BorderWidth(0.5).BorderColor(composerBorder(v.pal, s.composerFocused))
 		frame.Children(func() {
 			mygo.Column(c).FillWidth().Children(func() {
 				s.attachStrip(c, v)
@@ -60,17 +69,16 @@ func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
 				s.composerBar(c, v)
 			})
 		})
-		s.composerFoot(c, v)
 	})
 }
 
-// composerBorder 返回 composer 外框的描边色：聚焦态用模式强调色高亮
-// 整个外框（14 号票），失焦回中性强描边。
-func composerBorder(pal *theme.Palette, acc theme.AccentSet, focused bool) mygo.Color {
+// composerBorder 返回 composer 输入壳的描边色：聚焦态灰加深（zai 主题
+// 聚焦不变色不发光，styles.css:557,722），失焦常态描边。
+func composerBorder(pal *theme.Palette, focused bool) mygo.Color {
 	if focused {
-		return acc.Accent
+		return pal.ComposerBorderFocus
 	}
-	return pal.BorderStrong
+	return pal.ComposerBorder
 }
 
 // ComposerFocused 报告 composer 外框是否处于聚焦态（最近一帧的
@@ -106,10 +114,13 @@ func (s *Chat) attachStrip(c *mygo.Context, v *viewSide) {
 	})
 }
 
-// inputRow 画输入框：2→10 行自适应；Enter（含 ⌘/⌃）发送或引导，
-// Shift+Enter 换行；Esc 双击停止；粘贴图片转附件。
+// inputRow 画输入框：单行起步（ZCode min-h-10，LexicalChatInput.tsx:1601
+// 的 1→约 5 行自适应）；Enter（含 ⌘/⌃）发送或引导，Shift+Enter 换行；
+// Esc 双击停止；粘贴图片转附件。底色透明让位输入壳、自带描边关掉
+// （组件 styleFn 每帧只改描边色，构建期宽度置 0 即无框）——zai 输入壳
+// 是一体的白底卡片，聚焦表达在外框描边。
 func (s *Chat) inputRow(c *mygo.Context, v *viewSide) {
-	mygo.Box(c).FillWidth().Padding(10, theme.Space6, 2, theme.Space6).Children(func() {
+	mygo.Box(c).FillWidth().Padding(10, 12, 2, 12).Children(func() {
 		placeholder := "向 CraftWork 描述你的任务…"
 		if v.mode == theme.ModeWork {
 			placeholder = "描述要处理的文档或办公任务…"
@@ -118,11 +129,9 @@ func (s *Chat) inputRow(c *mygo.Context, v *viewSide) {
 			FillWidth().
 			Placeholder(placeholder).
 			PlaceholderColor(v.pal.Text4).
-			Lines(2, 10).
-			// 焦点环交给外框：14 号票的聚焦高亮套在 composer 整个外框上，
-			// TextArea 自带焦点环会叠成双描边（15 号票），组件级环关闭，
-			// 聚焦表达完全交给外框描边（环是绘制层，Tester 断言不到，
-			// 实机走查确认聚焦态只有外框一层描边）。
+			Lines(1, 8).
+			Background(mygo.Transparent).
+			Border(0, v.pal.Border).
 			FocusRing(false).
 			AutoFocus()
 		input.OnTextKey(func(k mygo.TextKey) bool {
@@ -186,34 +195,45 @@ func (s *Chat) paste(text string) bool {
 // submit 走状态壳的提交入口（Actions.Submit；失败由 client 还原草稿）。
 func (s *Chat) submit() { s.Submit() }
 
-// composerBar 画工具条：左侧附件与图片入口，右侧上下文占用、模型名与
-// 发送位（.composer-bar）。
+// composerBar 画工具条（zai 布局，ChatPromptEditor.tsx:452-465：左动作组、
+// 右侧收尾、底对齐）：左侧「+」动作菜单（附件 / 图片）与审批档位、R0–R4
+// 说明入口；右侧上下文占用、模型名与发送位（.composer-bar）。
 func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
-	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space5).
-		Padding(4, 7, 7, 8).Children(func() {
-		// 左侧工具：附件拾取、图片（不支持视觉时禁用）。
-		if clip := s.iconTool(c, v, "paperclip", "添加附件", true); clip.Clicked() {
-			if s.acts != nil && s.acts.PickFiles != nil {
-				s.acts.PickFiles()
-			}
+	mygo.Row(c).FillWidth().AlignItems(mygo.End).Gap(theme.Space3).
+		Padding(4, 12, 10, 12).Children(func() {
+		// 左侧动作组：「+」动作菜单——附件与图片入口收进菜单（ZCode 的
+		// + 菜单同构，ChatPromptEditor.tsx:440-441），面板用 PopoverBase。
+		plus := mygo.ButtonBase(c).Size(28, 28).Radius(theme.RadiusCtl).Center().
+			Label("添加附件或图片")
+		if plus.Hovered() {
+			plus.Background(v.pal.BgHover)
 		}
-		if img := s.iconTool(c, v, "image", s.imageToolTitle(), s.supportsVision()); img.Clicked() {
-			if s.acts != nil && s.acts.PickFiles != nil {
-				s.acts.PickFiles()
-			}
+		plus.Children(func() {
+			icons.Icon(c, "plus").FontSize(15).TextColor(v.pal.Text3)
+		})
+		if plus.Clicked() {
+			s.plusOpen = !s.plusOpen
 		}
-		mygo.Box(c).Width(1).Height(14).Background(v.pal.Border)
+		mygo.PopoverBase(c, plus, &s.plusOpen, func(panel mygo.Element) {
+			panel.Width(180).Radius(10).Background(v.pal.BgFloat).
+				BorderWidth(1).BorderColor(v.pal.Border).Shadow(0, 6, 18, 0, v.pal.ComposerShadow).
+				Padding(theme.Space2).Gap(2).Children(func() {
+				s.plusItem(c, v, "paperclip", "添加附件", true)
+				s.plusItem(c, v, "image", s.imageToolTitle(), s.supportsVision())
+			})
+		})
 		// 审批档位：点击开档位浮层（保存走设置服务同一路径），旁附 R0–R4
 		// 说明入口（11 号票）。浮层是 Popover（15 号票返工）：锚定触发控件、
 		// 点击外部 / Esc 关闭，由 overlays 的 ComposerXxxFlyout 挂载。
 		level := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
-			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换审批档位")
+			Height(28).Radius(theme.RadiusCtl).Padding(0, theme.Space2).Label("切换审批档位")
 		if level.Hovered() {
 			level.Background(v.pal.BgHover)
 		}
 		level.Children(func() {
 			icons.Icon(c, "shield").FontSize(13).TextColor(v.pal.Text3)
 			mygo.Text(c, s.levelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
+			icons.Icon(c, "chevron-down").FontSize(12).TextColor(v.pal.Text4)
 		})
 		if level.Clicked() {
 			overlays.OpenComposerApproval(s.approvalLevelSynced)
@@ -228,7 +248,7 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 		// 右侧：上下文占用（点击开详情浮层）+ 模型名（点击开模型选择）+ 发送位。
 		s.contextHint(c, v)
 		pick := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
-			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换模型")
+			Height(28).Radius(theme.RadiusCtl).Padding(0, theme.Space2).Label("切换模型")
 		if pick.Hovered() {
 			pick.Background(v.pal.BgHover)
 		}
@@ -237,13 +257,14 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			// 时不画强调色圆点、显示灰字占位——「蓝点 + 空文本」的孤点观感
 			// 即由此而来。React 版按可用模型数区分「未配置模型 / 选择模型」，
 			// 原生拿不到该计数，统一用动作语义的「选择模型」（点击本按钮
-			// 打开的选择浮层自带空态指引，composerFoot 也有添加提示）。
+			// 打开的选择浮层自带空态指引）。
 			if name := s.modelLabel(); name != "" {
 				mygo.Box(c).Size(6, 6).Radius(theme.RadiusRound).Background(v.acc.Accent)
 				mygo.Text(c, name).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text2)
 			} else {
 				mygo.Text(c, "选择模型").FontSize(theme.Fonts.SM()).TextColor(v.pal.Text4)
 			}
+			icons.Icon(c, "chevron-down").FontSize(12).TextColor(v.pal.Text4)
 		})
 		if pick.Clicked() {
 			// 勾选态优先当前会话模型；无会话模型时浮层内部退默认模型。
@@ -252,6 +273,30 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 		overlays.ComposerModelsFlyout(c, pick)
 		s.sendCluster(c, v)
 	})
+}
+
+// plusItem 画「+」动作菜单里的一项；禁用项淡化且不可点。两项都走
+// PickFiles（图片入口与附件同一拾取器，粘贴链路单独处理）。
+func (s *Chat) plusItem(c *mygo.Context, v *viewSide, icon, label string, enabled bool) {
+	item := mygo.ButtonBase(c).FillWidth().Height(32).Radius(theme.RadiusRow).
+		Padding(0, theme.Space3).AlignItems(mygo.Center).Gap(theme.Space3).Label(label)
+	if enabled && item.Hovered() {
+		item.Background(v.pal.BgHover)
+	}
+	item.Children(func() {
+		color := v.pal.Text2
+		if !enabled {
+			color = v.pal.Text4
+		}
+		icons.Icon(c, icon).FontSize(14).TextColor(color)
+		mygo.Text(c, label).FontSize(theme.Fonts.SM()).TextColor(color)
+	})
+	if item.Clicked() && enabled {
+		s.plusOpen = false
+		if s.acts != nil && s.acts.PickFiles != nil {
+			s.acts.PickFiles()
+		}
+	}
 }
 
 // imageToolTitle 返回图片按钮的语义（禁用原因在 title 里，对齐 React 版）。
@@ -392,13 +437,15 @@ func contextRing(c *mygo.Context, size, strokeWidth float32, ratio float32, base
 	})
 }
 
-// sendCluster 画发送位：空闲是发送；运行中按输入内容切换——有内容是
-// 「引导」（corner-down-left），空输入保持停止（SendCluster.tsx 同语义）。
+// sendCluster 画发送位（zai 形态：32px 圆形，ChatPromptEditor.tsx:487-495）：
+// 空闲是发送（brand 反色底——亮色黑底白箭头）；运行中按输入内容切换——
+// 有内容是「引导」（corner-down-left），空输入保持停止（SendCluster.tsx
+// 同语义，停止键 ghost 圆形 Square 实心）。
 func (s *Chat) sendCluster(c *mygo.Context, v *viewSide) {
 	if s.Running() {
 		if strings.TrimSpace(s.draft) != "" || len(s.Attachments()) > 0 {
 			// 引导按钮：中性底、悬停变强调色。
-			btn := mygo.ButtonBase(c).Size(28, 28).Radius(theme.RadiusCtl).Center().
+			btn := mygo.ButtonBase(c).Size(32, 32).Radius(theme.RadiusRound).Center().
 				Label("作为引导发送").
 				Background(v.pal.BgActive)
 			if btn.Clicked() {
@@ -413,9 +460,9 @@ func (s *Chat) sendCluster(c *mygo.Context, v *viewSide) {
 			return
 		}
 		// 停止按钮：armed 时强提示（对齐 React is-armed 的视觉暗示）。
-		btn := mygo.ButtonBase(c).Size(28, 28).Radius(theme.RadiusCtl).Center().
+		btn := mygo.ButtonBase(c).Size(32, 32).Radius(theme.RadiusRound).Center().
 			Label("停止生成").
-			Background(v.pal.DangerSoft)
+			Background(v.pal.Brand)
 		if btn.Clicked() {
 			s.DisarmInterrupt()
 			s.SetRunning(false)
@@ -427,73 +474,31 @@ func (s *Chat) sendCluster(c *mygo.Context, v *viewSide) {
 			btn.BorderWidth(1).BorderColor(v.pal.Danger)
 		}
 		btn.Children(func() {
-			icons.Icon(c, "stop").FontSize(14).TextColor(v.pal.Danger)
+			icons.Icon(c, "stop").FontSize(14).TextColor(v.pal.OnBrand)
 		})
 		return
 	}
-	// 发送按钮：模式强调色方块；无模型时禁用（提示文案见 composerFoot）。
-	btn := mygo.ButtonBase(c).Size(28, 28).Radius(theme.RadiusCtl).Center().
-		Label("发送").
-		Background(v.acc.Accent)
+	// 发送按钮：brand 圆形（亮色黑底白箭头）；无模型时禁用（降透明，
+	// 悬停原因见 Label）。
+	btn := mygo.ButtonBase(c).Size(32, 32).Radius(theme.RadiusRound).Center().
+		Label("发送")
 	hasModel := s.modelLabel() != ""
 	if hasModel {
+		btn.Background(v.pal.Brand)
 		if btn.Clicked() {
 			s.submit()
 		}
 	} else {
-		btn.Background(v.pal.BgActive)
+		btn.Label("发送：请先在设置中添加提供商并选择模型")
+		btn.Background(v.pal.Brand.Alpha(0.35))
 	}
 	btn.Children(func() {
-		color := v.acc.On
+		color := v.pal.OnBrand
 		if !hasModel {
 			color = v.pal.Text4
 		}
 		icons.Icon(c, "arrow-up").FontSize(14).TextColor(color)
 	})
-}
-
-// composerFoot 画输入区下方的快捷键提示（.composer-foot，随运行状态变化）。
-func (s *Chat) composerFoot(c *mygo.Context, v *viewSide) {
-	mygo.Row(c).FillWidth().Padding(6, theme.Space4, 0, theme.Space4).Justify(mygo.Center).
-		Gap(theme.Space3).Children(func() {
-		kbd := func(label string) {
-			mygo.Box(c).Height(theme.HeightKbd).Padding(0, theme.Space2).Radius(theme.RadiusBadge).
-				Background(v.pal.BgHover).BorderWidth(1).BorderColor(v.pal.Border).Center().
-				Children(func() {
-					mygo.Text(c, label).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
-				})
-		}
-		hint := func(text string) {
-			mygo.Text(c, text).FontSize(theme.Fonts.XS()).TextColor(v.pal.Text3)
-		}
-		if s.Running() {
-			kbd("↵")
-			hint("引导")
-			sep(c, v)
-			kbd("Esc")
-			kbd("Esc")
-			hint("停止")
-			return
-		}
-		kbd("↵")
-		hint("发送")
-		sep(c, v)
-		kbd("⇧↵")
-		hint("换行")
-		sep(c, v)
-		kbd("Esc")
-		kbd("Esc")
-		hint("停止")
-		if s.modelLabel() == "" {
-			sep(c, v)
-			hint("请先在设置中添加提供商并选择模型")
-		}
-	})
-}
-
-// sep 画提示行的小分隔点。
-func sep(c *mygo.Context, v *viewSide) {
-	mygo.Box(c).Size(3, 3).Radius(theme.RadiusRound).Background(v.pal.Text4)
 }
 
 // ---------------------------------------------------------------------------

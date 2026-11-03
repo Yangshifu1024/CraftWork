@@ -115,10 +115,18 @@ type Chat struct {
 	// lastComposerW 是最近一帧 composer 外框的绘制宽度：外框与消息正文
 	// 列同参数限宽（14 号票），走查据此断言两段对齐。
 	lastComposerW float32
+	// lastRowW / lastWrapW 是消息行与 composer 包裹层上一帧的实测宽（两者
+	// 都铺满聊天列）：列宽断点公式的输入，首帧以窗口宽近似、第二帧收敛。
+	// 用容器宽而非公式输出回灌，避免列宽逐帧发散。
+	lastRowW  float32
+	lastWrapW float32
 	// composerFocused 是 composer 外框的聚焦态（外框 FocusWithin 的帧内
 	// 记录，14 号票聚焦高亮整个外框）：聚焦时描边切模式强调色，失焦回
 	// 中性描边；ComposerFocused 供走查断言。
 	composerFocused bool
+	// plusOpen 是 composer「+」动作菜单（附件 / 图片）的 Popover 开关；
+	// 地址稳定交给 PopoverBase，点外 / Esc 由其写回。
+	plusOpen bool
 
 	// 卡片界面状态（按部件 id 键控；展开语义见各卡片）。
 	toolOpenState  map[string]bool

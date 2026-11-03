@@ -267,6 +267,14 @@ type Palette struct {
 	PurpleSoft mygo.Color // --purple-soft
 	Cyan       mygo.Color // --cyan
 
+	// 品牌与输入壳（对齐 ZCode zai 主题，00-design-tokens.md）：brand 亮色
+	// 纯黑 / 深色纯白，发送键反色；聚焦描边 zai 是灰加深，非彩色。
+	Brand               mygo.Color // --brand
+	OnBrand             mygo.Color // 品牌底上的前景
+	ComposerBorder      mygo.Color // composer 输入壳描边（0.5px）
+	ComposerBorderFocus mygo.Color // composer 输入壳聚焦描边
+	ComposerShadow      mygo.Color // composer 输入壳软阴影（深色为透明=无）
+
 	R0 mygo.Color // --r0 只读
 	R1 mygo.Color // --r1 写工作区
 	R2 mygo.Color // --r2 执行
@@ -351,6 +359,12 @@ func darkPalette() Palette {
 		BgActive:   mygo.Hex("#222834"),
 		BgInput:    mygo.Hex("#0e1116"),
 
+		Brand:               mygo.Hex("#ffffff"),
+		OnBrand:             mygo.Hex("#000000"),
+		ComposerBorder:      mygo.RGBA(255, 255, 255, 0.10),
+		ComposerBorderFocus: mygo.RGBA(255, 255, 255, 0.15),
+		ComposerShadow:      mygo.RGBA(0, 0, 0, 0), // 深色无 composer 阴影（styles.css:77）
+
 		Border:       mygo.Hex("#1d222b"),
 		BorderSoft:   mygo.Hex("#171b22"),
 		BorderStrong: mygo.Hex("#2a313d"),
@@ -426,7 +440,13 @@ func lightPalette() Palette {
 		BgFloat:    mygo.Hex("#ffffff"),
 		BgHover:    mygo.Hex("#f1f4f8"),
 		BgActive:   mygo.Hex("#e7ecf4"),
-		BgInput:    mygo.Hex("#f7f9fc"),
+		BgInput:    mygo.Hex("#ffffff"),
+
+		Brand:               mygo.Hex("#000000"),
+		OnBrand:             mygo.Hex("#ffffff"),
+		ComposerBorder:      mygo.RGBA(13, 13, 13, 0.10),
+		ComposerBorderFocus: mygo.RGBA(13, 13, 13, 0.15),
+		ComposerShadow:      mygo.RGBA(0, 0, 0, 0.04),
 
 		Border:       mygo.Hex("#e0e5ee"),
 		BorderSoft:   mygo.Hex("#ebeff5"),

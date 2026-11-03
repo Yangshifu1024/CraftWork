@@ -226,13 +226,19 @@ func (s *Chat) emptyState(c *mygo.Context, v *viewSide) {
 // 单条消息（.msg：用户右对齐气泡 / 助手全宽 / 部件顺序渲染）
 // ---------------------------------------------------------------------------
 
-// chatColumnWidth 是聊天正文列宽公式：所在列宽的 80%（两侧 margin 各
-// 10%，theme.ChatColumnMarginPercent），不低于保底 theme.ChatColumnMinWidth
-// （Markdown 收缩布局塌零宽的兜底）。消息流与 composer 外框共用这条列宽；
-// 旧版固定 880px 上限（interface.md 聊天区）由这条居中限宽列取代，
-// 超宽窗口不再出现过长行。
-func chatColumnWidth(available float32) float32 {
-	w := available * theme.ChatColumnPercent / 100
+// chatColumnWidth 是聊天正文列宽公式，对齐 ZCode conversationLayout.ts:3-7
+// 的三档断点（viewport = 窗口宽）：≥1280 内容列 min(1152, 聊天列-384)；
+// ≥864 min(896, 聊天列-96)；以下全宽。chatW 是聊天列宽（上一帧实测，首帧
+// 调用方用窗口宽近似，第二帧收敛）；保底 theme.ChatColumnMinWidth（Markdown
+// 收缩布局塌零宽的兜底）。消息流与 composer 外框共用这条列宽。
+func chatColumnWidth(winW, chatW float32) float32 {
+	w := chatW
+	switch {
+	case winW >= 1280:
+		w = min(1152, chatW-384)
+	case winW >= 864:
+		w = min(896, chatW-96)
+	}
 	if w < theme.ChatColumnMinWidth {
 		return theme.ChatColumnMinWidth
 	}
@@ -250,11 +256,18 @@ func (s *Chat) messageRow(c *mygo.Context, v *viewSide, m *Message) {
 	row := mygo.Row(c).FillWidth().Justify(mygo.Center)
 	// 悬停状态取整条消息（元信息按钮的浮现条件，.msg:hover）。
 	hovered := row.Hovered()
+	// 消息行铺满聊天列：实测宽是列宽公式的输入（上一帧值）。
+	row.Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastRowW = r.W })
 	row.Children(func() {
-		// 正文列：宽度 = 所在列的 80% + 保底（与 chatColumnWidth 公式同
-		// 源，布局引擎求解）；Draw 把实际列宽记给走查断言（s.lastColumnW）。
-		column := mygo.Column(c).WidthPercent(theme.ChatColumnPercent).
-			MinWidth(theme.ChatColumnMinWidth).
+		// 正文列：宽度 = chatColumnWidth 断点公式（ZCode conversationLayout）；
+		// 聊天列宽 = 消息行上一帧实测宽（row 铺满聊天列；首帧以窗口宽近似，
+		// 第二帧收敛）。Draw 把实际列宽记给走查断言（s.lastColumnW）。
+		winW, _ := c.Size()
+		chatW := s.lastRowW
+		if chatW <= 0 {
+			chatW = winW
+		}
+		column := mygo.Column(c).Width(chatColumnWidth(winW, chatW)).
 			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastColumnW = r.W })
 		column.Children(func() {
 			inner := mygo.Row(c).FillWidth().AlignItems(mygo.Start)
