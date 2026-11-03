@@ -1,4 +1,4 @@
-package ui
+package icons
 
 // 图标登记表的单测：登记名全覆盖、别名与正名同源、回退图标存在。
 

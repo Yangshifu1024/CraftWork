@@ -821,3 +821,13 @@ func formatBytes(n int64) string {
 func paneSavedTime(ms int64) string {
 	return time.UnixMilli(ms).Format("15:04")
 }
+
+// CloseActiveTab 关闭当前工作区桶的激活 tab（命令面板「关闭面板当前
+// 标签页」用）；没有激活 tab 时无事发生。
+func (p *Pane) CloseActiveTab() {
+	b := p.bucketFor(p.scope().WorkspaceID)
+	if b == nil || b.state.ActiveTabID == "" {
+		return
+	}
+	p.CloseTab(b.state.ActiveTabID)
+}

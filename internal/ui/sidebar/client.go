@@ -20,6 +20,7 @@ import (
 	mygoapp "github.com/egoist/mygo"
 
 	"github.com/yangshifu1024/craftwork/internal/service"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
 
 // Deliver 把一个函数调度到主线程执行（app.go 注入 win.Update 的包装）。
@@ -90,12 +91,19 @@ func (cl *Client) Actions() *Actions {
 		ShowRename:       cl.sb.OpenRename,
 		RenameThread:     cl.RenameThread,
 		DeleteThread:     cl.DeleteThread,
-		Usage:            func() { cl.toast("用量视图" + stubNote) },
-		Audit:            func() { cl.toast("审计视图" + stubNote) },
-		Palette:          func() { cl.toast("命令面板" + stubNote) },
-		Settings:         func() { cl.toast("设置" + stubNote) },
-		Boot:             cl.Boot,
+		// 数据浮层与命令面板归 07 号票的浮层体系，这里直接打开。
+		Usage:    func() { overlays.OpenData(overlays.TabUsage) },
+		Audit:    func() { overlays.OpenData(overlays.TabAudit) },
+		Palette:  func() { overlays.TogglePalette() },
+		Settings: func() { overlays.OpenSettings("") },
+		Boot:     cl.Boot,
 	}
+}
+
+// Refresh 重新拉取当前模式列表与计数（05 号票聊天列的 refreshNeeded
+// 联动：运行收尾与其他会话变更后，侧栏排序与状态跟上数据库）。
+func (cl *Client) Refresh() {
+	cl.refreshAsync(cl.sb.Mode, nil)
 }
 
 // Boot 启动首拉：恢复上次模式、工作区清单、当前模式列表与底部计数。
@@ -356,3 +364,9 @@ func (cl *Client) loadCounts() (Counts, error) {
 
 // mygoClipboard 写剪贴板文本（仅主线程调用点使用）。
 func mygoClipboard(text string) { mygoapp.Clipboard.WriteText(text) }
+
+// CreateThreadInActive 在当前活动工作区新建会话（命令面板「新建会话」用）：
+// 无活动工作区时落内置临时目录，与侧栏「新建会话」的编排一致。
+func (cl *Client) CreateThreadInActive() {
+	cl.createAsync(cl.sb.Mode, cl.sb.ActiveWorkspace(), "")
+}

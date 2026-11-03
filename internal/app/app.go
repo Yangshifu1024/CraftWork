@@ -28,6 +28,8 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	cwchat "github.com/yangshifu1024/craftwork/internal/ui/chat"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	cwsidebar "github.com/yangshifu1024/craftwork/internal/ui/sidebar"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
@@ -44,26 +46,38 @@ const (
 // 事件总线在装配早期就需要一个派发函数，而窗口要到 WhenReady 里才创建，
 // 因此这里用一层可延迟绑定的包装，读路径加读锁保证并发安全。
 type emitter struct {
-	// mu 保护 win 指针，允许绑定与派发并发进行。
+	// mu 保护 win 与 batchHandler 指针，允许绑定与派发并发进行。
 	mu sync.RWMutex
 	// win 是主窗口，未绑定时为 nil。
 	win *mygo.Window
+	// onBatch 是界面侧的批次处理入口（05 号票聊天列的 reducer 派发），
+	// 装配聊天列后设置；为空时事件进主线程即止。
+	onBatch func(batch events.Batch)
 }
 
 // emit 把一批事件转交给主线程；窗口尚未绑定时直接丢弃——与 Wails 时期
 // 「应用未创建前事件丢弃」的语义一致。win.Update 保证回调在主线程执行，
-// 界面在下一帧统一消费；界面状态装配完成前（后续 UI 票接线）回调为空，
-// 事件进主线程即止。
+// 界面在下一帧统一消费。
 func (e *emitter) emit(batch events.Batch) {
 	e.mu.RLock()
 	current := e.win
+	handler := e.onBatch
 	e.mu.RUnlock()
 	if current == nil {
 		return
 	}
 	current.Update(func() {
-		// 界面状态装配（后续 UI 票）会在这里把 batch 写进界面状态。
+		if handler != nil {
+			handler(batch)
+		}
 	})
+}
+
+// setBatchHandler 在装配聊天列后登记批次处理入口（主线程状态写入）。
+func (e *emitter) setBatchHandler(fn func(batch events.Batch)) {
+	e.mu.Lock()
+	e.onBatch = fn
+	e.mu.Unlock()
 }
 
 // bind 在主窗口创建完成后记录实例，后续事件即可正常进主线程。
@@ -188,12 +202,19 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：workspace / document（08 面板）、
-	// thread / audit（04 侧栏）已接线；其余仍由后续 UI 票持有并分组暴露。
-	_ = []any{
-		appService, chatService,
-		providerService, mcpService,
-	}
+	// native UI 的 view 直调服务方法：浮层（设置中心、数据面板、命令面板）
+	// 的后端门面在这里装配；thread / audit（04 侧栏）、chat / app（05 聊天
+	// 列，下文的聊天接线消费）、workspace / document（08 面板）由下文的
+	// 侧栏、聊天与面板接线消费。
+	overlays.Bind(&overlays.Backend{
+		Settings:  settingsService,
+		Providers: providerService,
+		Audit:     auditService,
+		MCP:       mcpService,
+		Workspace: workspaceService,
+		Threads:   threadService,
+		App:       appService,
+	})
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
 	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
@@ -211,6 +232,8 @@ func Run(build version.Info) error {
 	// 每个会话在运行开始时从自己绑定的工作区解析执行环境。
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))
+	// 外观设置（主题 / 字号）同样在首帧前恢复，显式主题覆盖系统偏好。
+	cwui.SetAppearance(settings.Theme, settings.FontSize)
 
 	// 第二个实例启动时唤起已有窗口。单实例机制只负责通知，
 	// 不会自动把窗口带到前台。
@@ -243,7 +266,49 @@ func Run(build version.Info) error {
 		func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
 		confirmDeleteDialog(),
 	)
-	sidebarState.SetActions(sidebarClient.Actions())
+
+	// 聊天列（05 号票）：状态壳 + 服务接线。事件总线经 emitter 桥进主线程
+	// 后交给 reducer 派发；需要刷新会话列表时联动侧栏 Refresh。
+	chatState := cwchat.NewChat()
+	shell.ChatView = chatState.View
+	// 面板 tab 按「工作区 + 线程」过滤：把当前会话 Id 给到面板（08 号票
+	// 留的接缝）；path:line 引用经面板 OpenFileAt 打开（正式入口）。
+	shell.ThreadID = chatState.ActiveThreadID
+	cwchat.SetAppService(appService)
+	chatClient := cwchat.NewClient(
+		chatState, chatService, threadService, workspaceService,
+		emitter.update,
+		sidebarClient.Refresh,
+		func(id string) { sidebarState.Select(id) },
+		func(mode string) string { return sidebarState.ActiveInMode(cwsidebar.Mode(mode)) },
+	)
+	emitter.setBatchHandler(func(batch events.Batch) {
+		if chatClient.ApplyBatch(batch) {
+			// 其他会话有变更或一次运行收尾：侧栏列表的排序与状态跟上数据库。
+			sidebarClient.Refresh()
+		}
+	})
+
+	// 侧栏动作接缝（04 号票留下的接线位）：选中会话 → 聊天列加载快照；
+	// 模式切换 → 聊天列同步兜底模式并加载该模式的选中 / 第一条会话。
+	acts := sidebarClient.Actions()
+	acts.SelectThread = chatClient.SelectThread
+	// path:line 引用（markdown.OnLink → craftwork://）→ 面板打开文件定位行。
+	chatActions := chatClient.Actions()
+	chatActions.OpenFile = shell.OpenFileAt
+	chatState.SetActions(chatActions)
+	switchMode := acts.SwitchMode
+	acts.SwitchMode = func(m cwsidebar.Mode) {
+		chatState.SetFallbackMode(cwchat.ModeFromSidebar(string(m)))
+		switchMode(m)
+		chatClient.SelectThreadOrFirst(sidebarState.ActiveInMode(m), string(m))
+	}
+	sidebarState.SetActions(acts)
+
+	// 浮层触达其他视图状态的回调在这里接线：面板展开 / 收起是外壳状态；
+	// 会话 / 模式 / 项目动作委托侧栏编排；文件打开走面板的 OpenFileAt。
+	// 传 05 号票包装过的 acts，浮层切模式与侧栏走同一条聊天联动路径。
+	wireOverlayHooks(shell, sidebarClient, acts)
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -257,14 +322,16 @@ func Run(build version.Info) error {
 			StateKey: windowStateKey,
 			// 隐藏标题栏：界面顶部自画拖拽区并避让红绿灯。
 			TitleBarStyle: mygo.TitleBarHiddenInset,
-			// 三栏外壳：顶部拖拽区 + 侧栏 / 对话 / 面板；主题在 view 内
-			// 每帧套用并跟随系统。窗口没有页面可加载，应用内不出现任何
-			// WebView。
-			Content: ui.View(shell.View),
+			// 三栏外壳 + 浮层体系：顶部拖拽区、侧栏 / 对话 / 面板，浮层压在
+			// 外壳之上。主题在 view 内每帧套用并跟随系统。窗口没有页面可
+			// 加载，应用内不出现任何 WebView。
+			Content: ui.View(cwui.RootView(shell)),
 		})
 		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台
 		// IO（文件树、读写、保存）结果也经这里回主线程。
 		emitter.bind(win)
+		// 浮层后台结果（连接测试、MCP 连接）经窗口投回主线程。
+		overlays.BindWindow(win)
 		// 面板的后台 IO（文件树、读写、保存）结果经窗口回主线程。
 		shell.BindWindow(win)
 		// 窗口关闭 / 应用退出回收面板的终端进程（插件挂断 PTY，不留
@@ -272,6 +339,10 @@ func Run(build version.Info) error {
 		win.OnClosed(func() { shell.Shutdown() })
 		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
 		sidebarClient.Boot()
+		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
+		chatClient.Boot(settingsService.Get().Mode)
+		// 审批档位的中文短标签（Composer 只读展示；浮层归 07 号票）。
+		chatState.SetApprovalLevel(levelLabel(settingsService.Get().ApprovalLevel))
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
@@ -291,29 +362,50 @@ func Run(build version.Info) error {
 	return mygo.App.Run()
 }
 
-// confirmDeleteDialog 返回侧栏删除确认的原生实现（04 号票的简易路径）：
-// Dialog.Message 会阻塞调用 goroutine 直到用户作答，因此整体放后台，
-// 结果经 onDone（内部再经 win.Update）回主线程。
-// TODO(07): 换成统一浮层体系的确认对话框（危险按钮样式、应用内呈现）。
+// levelLabel 返回审批档位的中文短标签（Composer.tsx levelLabel 同表）。
+func levelLabel(level string) string {
+	switch level {
+	case "strict":
+		return "严格"
+	case "readonly":
+		return "只读"
+	case "free":
+		return "自由"
+	default:
+		return "分级"
+	}
+}
+
+// wireOverlayHooks 把浮层体系的跨视图钩子接到侧栏编排与外壳 / 面板状态：
+// 面板展开 / 收起、关闭当前 tab、打开文件归外壳与面板；新建会话、临时
+// 会话、切模式、创建项目后续动作委托侧栏编排（acts 已含 05 号票的聊天
+// 联动包装，切模式会同步聊天列兜底模式并加载选中会话）。
+func wireOverlayHooks(shell *cwui.Shell, sidebarClient *cwsidebar.Client, acts *cwsidebar.Actions) {
+	hooks := overlays.Hooks{
+		TogglePanel: func() { shell.TogglePanel() },
+		PanelOpen:   func() bool { return shell.PanelOpen() },
+	}
+	hooks.ClosePanelTab = func() { shell.ClosePanelActiveTab() }
+	hooks.OpenFile = func(path string, line int) { shell.OpenFileAt(path, line) }
+	hooks.NewThread = sidebarClient.CreateThreadInActive
+	hooks.NewTempThread = acts.CreateTempThread
+	hooks.SetMode = func(mode string) { acts.SwitchMode(cwsidebar.NormalizeMode(mode)) }
+	hooks.ProjectCreated = func(workspaceID string) { sidebarClient.CreateThreadIn(workspaceID) }
+	overlays.BindHooks(hooks)
+}
+
+// confirmDeleteDialog 返回侧栏删除确认（07 号票浮层体系）：应用内危险
+// 样式确认框替代 04 号票的原生 Dialog.Message；回调已在主线程执行，
+// 与侧栏 deliver 的线程约定一致。
 func confirmDeleteDialog() cwsidebar.ConfirmFn {
 	return func(title, message, detail string, onDone func(ok bool)) {
-		go func() {
-			result, err := mygo.Dialog.Message(mygo.MessageOptions{
-				Type:               mygo.MessageWarning,
-				Title:              title,
-				Message:            message,
-				Detail:             detail,
-				Buttons:            []string{"取消", "删除"},
-				DefaultButton:      0,
-				CancelButton:       0,
-				DestructiveButtons: []int{1},
-			})
-			if err != nil {
-				slog.Warn("弹出删除确认失败", "err", err)
-				return
-			}
-			onDone(result.Button == 1)
-		}()
+		overlays.Confirm(nil, overlays.ConfirmOpts{
+			Title:       title,
+			Description: message,
+			Detail:      detail,
+			ConfirmText: "删除",
+			Danger:      true,
+		}, onDone)
 	}
 }
 
