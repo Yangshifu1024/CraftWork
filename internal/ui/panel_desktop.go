@@ -64,3 +64,28 @@ var paneConfirmReload = func(path string) bool {
 	}
 	return result.Button == 0
 }
+
+// paneConfirmApplyAll 弹「应用全部修改」确认框：返回是否应用。语义对齐
+// React 版 applyDiff 的 askConfirm（danger 确认、默认取消）。
+//
+// 调用方在后台 goroutine 里调（Dialog.Message 阻塞到用户作答为止，
+// view 帧内直调会死锁——04 号票已知坑），结果经 Update 回主线程。
+//
+// TODO(07): 浮层体系合入后替换为 askConfirm 浮层（danger 样式的确认框）。
+var paneConfirmApplyAll = func(path string) bool {
+	result, err := cwmygo.Dialog.Message(cwmygo.MessageOptions{
+		Type:    cwmygo.MessageWarning,
+		Title:   "应用全部修改？",
+		Message: "将把差异中的新内容写入文件。写入前会备份原文件。",
+		Detail:  path,
+		Buttons: []string{"取消", "应用修改"},
+		// 默认落在安全侧（取消）；「应用修改」标记为破坏性动作。
+		DefaultButton:      0,
+		CancelButton:       0,
+		DestructiveButtons: []int{1},
+	})
+	if err != nil {
+		return false
+	}
+	return result.Button == 1
+}
