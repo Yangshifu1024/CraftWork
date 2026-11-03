@@ -1,6 +1,6 @@
 # 04. 侧栏：会话分组列表与模式切换
 
-Status: ready-for-agent
+Status: resolved
 
 ## 背景
 
