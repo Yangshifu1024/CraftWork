@@ -302,6 +302,10 @@ func (s *Store) drawComposerApproval(c *mygo.Context, st *composerState) {
 			// 保存并回调，本帧渲染到此为止（浮层已收）。
 			if opt.level == "free" && st.level != "free" {
 				st.open = false
+				// 回调捕获的 c 是本帧上下文，实际在用户点击确认的那一帧经
+				// resolveFree 执行。延迟到旧帧上下文上是安全的：applyComposerLevel
+				// → Store.save 不使用该参数，保存失败的提示走 Notify 排队、
+				// 由通知层在下一帧消费（toast.go 的迟到上下文设计）。
 				FreeConfirm(c, func(ok bool) {
 					if ok {
 						s.applyComposerLevel(c, st, "free")
