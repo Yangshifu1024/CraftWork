@@ -173,11 +173,12 @@ func (s *Shell) OpenDiff(title, oldText, newText string) {
 
 // activeWorkspace 返回当前活动工作区（短 TTL 缓存）；没有时返回 nil。
 func (s *Shell) activeWorkspace() *service.WorkspaceView {
-	if s.workspaceSvc == nil {
-		return nil
-	}
+	// 缓存优先（含测试注入的场景）：命中 TTL 直接返回，不依赖服务。
 	if s.wsCache != nil && time.Since(s.wsCacheAt) < wsCacheTTL {
 		return s.wsCache
+	}
+	if s.workspaceSvc == nil {
+		return nil
 	}
 	ws, err := s.workspaceSvc.Active()
 	if err != nil || ws == nil {
@@ -210,10 +211,18 @@ func panelWidthFromChat(splitW, chatW float32) float32 {
 	return clampPanel(splitW - theme.DividerWidth - chatW)
 }
 
-// panelShown 判断面板停靠栏是否显示：用户偏好展开，且窗口不窄于
-// NarrowWindowWidth（窄窗收起是浮层形态的骨架替代，浮层归 08 号票）。
-func panelShown(windowW float32, open bool) bool {
-	return open && windowW >= theme.NarrowWindowWidth
+// panelShown 判断面板停靠栏是否显示的纯条件：用户偏好展开、窗口不窄于
+// NarrowWindowWidth（窄窗收起是浮层形态的骨架替代，浮层归 08 号票）、
+// 且有活动工作区——pane 是工作区上下文（文件 / 差异 / 终端），没有活动
+// 工作区时空占一格只显示「没有活动工作区」，对齐 ZCode 的侧 pane 自适应
+// 收起（WorkspaceShellLayout.tsx 的 CONVERSATION_AUTO_COLLAPSE）。
+func panelShown(windowW float32, open, hasWorkspace bool) bool {
+	return open && windowW >= theme.NarrowWindowWidth && hasWorkspace
+}
+
+// panelShownFor 按外壳当前状态判断面板显隐（工作区经短 TTL 缓存查询）。
+func (s *Shell) panelShownFor(windowW float32) bool {
+	return panelShown(windowW, s.panelOpen, s.activeWorkspace() != nil)
 }
 
 // View 画整窗外壳。root view 每帧从这里开始：先套主题（跟随系统）；
@@ -238,7 +247,7 @@ func (s *Shell) View(c *mygo.Context) {
 // 面板宽度折算并钳制；窄窗时面板整体不建，对话列占满。
 func (s *Shell) body(c *mygo.Context, pal *theme.Palette, windowW float32) {
 	splitW := windowW - theme.SidebarWidth
-	shown := panelShown(windowW, s.panelOpen)
+	shown := s.panelShownFor(windowW)
 	switch {
 	case !shown:
 		// 面板收起时对话列占满；同步 chatWidth，面板的宽度记忆保持

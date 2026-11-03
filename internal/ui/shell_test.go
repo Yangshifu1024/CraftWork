@@ -8,6 +8,7 @@ import (
 
 	mygo "github.com/egoist/mygo/ui"
 
+	"github.com/yangshifu1024/craftwork/internal/service"
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
@@ -47,17 +48,20 @@ func TestChatPanelWidthRoundTrip(t *testing.T) {
 }
 
 func TestPanelShown(t *testing.T) {
-	if !panelShown(1440, true) {
-		t.Errorf("宽窗且展开时应显示")
+	if !panelShown(1440, true, true) {
+		t.Errorf("宽窗、展开且有活动工作区时应显示")
 	}
-	if panelShown(theme.NarrowWindowWidth-1, true) {
+	if panelShown(theme.NarrowWindowWidth-1, true, true) {
 		t.Errorf("窄窗应自动收起")
 	}
-	if !panelShown(theme.NarrowWindowWidth, true) {
+	if !panelShown(theme.NarrowWindowWidth, true, true) {
 		t.Errorf("阈值宽度应视为宽窗（>= 判定）")
 	}
-	if panelShown(1440, false) {
+	if panelShown(1440, false, true) {
 		t.Errorf("用户收起后不应显示")
+	}
+	if panelShown(1440, true, false) {
+		t.Errorf("无活动工作区时空 pane 不应显示（对齐 ZCode 侧 pane 自适应收起）")
 	}
 }
 
@@ -79,16 +83,36 @@ func TestNewShellDefaults(t *testing.T) {
 func newShellTester(t *testing.T) (*Shell, *mygo.Tester) {
 	t.Helper()
 	s := NewShell()
+	// 测试进程没有装配工作区服务：直接注活动工作区缓存（activeWorkspace
+	// 的 TTL 优先路径），面板按「有工作区」显示；无工作区场景见
+	// TestShellViewHidesPanelWithoutWorkspace。
+	s.wsCache = &service.WorkspaceView{}
+	s.wsCacheAt = time.Now()
 	tt := mygo.NewTester(s.View, 1440, 900)
 	return s, tt
+}
+
+// TestShellViewHidesPanelWithoutWorkspace 无活动工作区时面板整体不建：
+// pane 是工作区上下文，空 pane 只显示「没有活动工作区」白白占宽（对齐
+// ZCode 侧 pane 自适应收起）；聊天列占满。
+func TestShellViewHidesPanelWithoutWorkspace(t *testing.T) {
+	s := NewShell()
+	tt := mygo.NewTester(s.View, 1440, 900)
+	tt.Frame()
+	if tt.HasText(textPanel) {
+		t.Error("无活动工作区时面板应整体不显示")
+	}
+	if !tt.HasText(textChat) || !tt.HasText(textSidebar) {
+		t.Errorf("侧栏与对话列应保留: %v", tt.Texts())
+	}
 }
 
 const (
 	textSidebar = "侧栏 · 04 号票接入"
 	textChat    = "对话 · 05 号票接入"
-	// textPanel 是面板空态的标题文案（08 号票接入后面板显示文件树，
-	// 测试进程没有装配工作区服务，落在这里的空态上）。
-	textPanel = "没有活动工作区"
+	// textPanel 是面板的标题文案（测试进程没有装配工作区服务，面板内容
+	// 落在「无文件树数据」的空清单形态；工作区可见性由 wsCache 注入）。
+	textPanel = "工作区文件"
 )
 
 func TestShellViewShowsThreePanes(t *testing.T) {
