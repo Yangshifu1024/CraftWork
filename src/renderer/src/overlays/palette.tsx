@@ -1,0 +1,115 @@
+// 命令面板（⌘K）：命令搜索与会话跳转。
+import { useEffect, useMemo, useState } from "react";
+import { Command } from "cmdk";
+import { useApp } from "../store/app";
+import { useOverlays } from "../store/overlays";
+
+export function CommandPalette(): React.JSX.Element {
+  const close = useOverlays((s) => s.close);
+  const open = useOverlays((s) => s.open);
+  const mode = useApp((s) => s.mode);
+  const threads = useApp((s) => s.threads[mode]);
+  const selectThread = useApp((s) => s.selectThread);
+  const createThread = useApp((s) => s.createThread);
+  const setMode = useApp((s) => s.setMode);
+  const toggleSidebar = useApp((s) => s.toggleSidebar);
+  const settings = useApp((s) => s.settings);
+  const saveSettings = useApp((s) => s.saveSettings);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  const run = (fn: () => void): void => {
+    close();
+    fn();
+  };
+
+  const theme = useMemo(() => {
+    if (settings.theme === "dark") return "深色";
+    if (settings.theme === "light") return "浅色";
+    return "跟随系统";
+  }, [settings.theme]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60" onClick={close}>
+      <div className="mx-auto mt-[16vh] w-full max-w-[640px]" onClick={(e) => e.stopPropagation()}>
+        <Command label="命令面板" className="overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md">
+          <div className="flex h-12 items-center gap-2 border-b border-border px-4">
+            <Command.Input
+              autoFocus
+              value={query}
+              onValueChange={setQuery}
+              placeholder="搜索命令与会话…"
+              className="h-full w-full bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
+            />
+            <kbd className="rounded border border-border px-1.5 py-0.5 text-ui-xs text-foreground-subtlest">Esc</kbd>
+          </div>
+          <Command.List className="max-h-[420px] overflow-y-auto p-1.5">
+            <Command.Empty className="py-8 text-center text-ui-sm text-foreground-subtlest">没有匹配结果</Command.Empty>
+            <Command.Group heading="会话" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-ui-xs [&_[cmdk-group-heading]]:text-foreground-subtlest">
+              {threads.slice(0, 8).map((t) => (
+                <Item key={t.id} onSelect={() => run(() => void selectThread(t.id))}>
+                  {t.title}
+                </Item>
+              ))}
+            </Command.Group>
+            <Command.Group heading="命令" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-ui-xs [&_[cmdk-group-heading]]:text-foreground-subtlest">
+              <Item shortcut="⌘N" onSelect={() => run(() => void createThread())}>
+                新建对话
+              </Item>
+              <Item shortcut="⌘," onSelect={() => run(() => open("settings"))}>
+                打开设置
+              </Item>
+              <Item shortcut="⌘B" onSelect={() => run(toggleSidebar)}>
+                展开 / 收起侧栏
+              </Item>
+              <Item
+                onSelect={() =>
+                  run(() => {
+                    const next =
+                      settings.theme === "dark" || settings.theme === "system"
+                        ? "zai-light"
+                        : "zai-dark";
+                    void saveSettings({ theme: next as "dark" | "light" | "system" });
+                    document.documentElement.classList.remove("theme-zai-light", "theme-zai-dark");
+                    document.documentElement.classList.add(next);
+                    localStorage.setItem("craftwork-theme", next);
+                  })
+                }
+              >
+                切换主题（当前：{theme}）
+              </Item>
+              <Item onSelect={() => run(() => setMode(mode === "code" ? "work" : "code"))}>
+                切换到 {mode === "code" ? "Work" : "Code"} 模式
+              </Item>
+              <Item shortcut="⌘D" onSelect={() => run(() => open("data"))}>
+                用量 / 审计 / 备份
+              </Item>
+            </Command.Group>
+          </Command.List>
+        </Command>
+      </div>
+    </div>
+  );
+}
+
+function Item({ children, shortcut, onSelect }: { children: React.ReactNode; shortcut?: string; onSelect(): void }): React.JSX.Element {
+  return (
+    <Command.Item
+      onSelect={onSelect}
+      className="flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-xl px-2.5 text-ui-base text-foreground data-[selected=true]:bg-menu-hover"
+    >
+      <span className="truncate">{children}</span>
+      {shortcut && <span className="shrink-0 text-ui-xs text-foreground-subtlest">{shortcut}</span>}
+    </Command.Item>
+  );
+}

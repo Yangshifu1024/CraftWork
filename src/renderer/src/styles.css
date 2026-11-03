@@ -1,0 +1,420 @@
+/* 主题系统：Tailwind v4 @theme + 浅/深两套语义变量（zai-light / zai-dark）。
+   变量名即组件层消费的类名来源（bg-background、text-foreground 等）。 */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "Noto Sans CJK SC", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+
+  --ui-font-size: 14px;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-settings-title: calc(var(--ui-font-size) + 10px);
+}
+
+/* 语义色 token：@theme inline 让工具类直接引用主题变量，深浅切换即时生效。 */
+@theme inline {
+  --color-background: var(--zai-background);
+  --color-background-win-alt: var(--zai-background-win-alt);
+  --color-sidebar: var(--zai-sidebar);
+  --color-panel: var(--zai-panel);
+  --color-header: var(--zai-header);
+  --color-surface: var(--zai-surface);
+  --color-surface-hover: var(--zai-surface-hover);
+  --color-hover: var(--zai-hover);
+  --color-selected: var(--zai-selected);
+  --color-user-message-bubble: var(--zai-user-message-bubble);
+  --color-card: var(--zai-card);
+  --color-input: var(--zai-input);
+  --color-input-focused: var(--zai-input-focused);
+  --color-input-border: var(--zai-input-border);
+  --color-input-border-hover: var(--zai-input-border-hover);
+  --color-input-border-focused: var(--zai-input-border-focused);
+  --color-popover: var(--zai-popover);
+  --color-popover-header: var(--zai-popover-header);
+  --color-popover-border: var(--zai-popover-border);
+  --color-menu: var(--zai-menu);
+  --color-menu-hover: var(--zai-menu-hover);
+  --color-tab: var(--zai-tab);
+  --color-tab-active: var(--zai-tab-active);
+  --color-tag: var(--zai-tag);
+  --color-foreground: var(--zai-foreground);
+  --color-foreground-subtle: var(--zai-foreground-subtle);
+  --color-foreground-subtlest: var(--zai-foreground-subtlest);
+  --color-foreground-inverse: var(--zai-foreground-inverse);
+  --color-primary: var(--zai-primary);
+  --color-primary-foreground: var(--zai-primary-foreground);
+  --color-secondary: var(--zai-secondary);
+  --color-brand: var(--zai-brand);
+  --color-border: var(--zai-border);
+  --color-border-hover: var(--zai-border-hover);
+  --color-ring: var(--zai-ring);
+  --color-success: var(--zai-success);
+  --color-success-surface: var(--zai-success-surface);
+  --color-success-surface-foreground: var(--zai-success-surface-foreground);
+  --color-warning: var(--zai-warning);
+  --color-warning-surface: var(--zai-warning-surface);
+  --color-warning-surface-foreground: var(--zai-warning-surface-foreground);
+  --color-destructive: var(--zai-destructive);
+  --color-destructive-surface: var(--zai-destructive-surface);
+  --color-destructive-surface-foreground: var(--zai-destructive-surface-foreground);
+  --color-icon-blue: var(--zai-icon-blue);
+  --color-diff-added: var(--zai-diff-added);
+  --color-diff-removed: var(--zai-diff-removed);
+  --color-git-modified: var(--zai-git-modified);
+  --color-git-added: var(--zai-git-added);
+  --color-git-deleted: var(--zai-git-deleted);
+  --color-git-renamed: var(--zai-git-renamed);
+  --color-terminal-bg: var(--zai-terminal-bg);
+  --color-terminal-fg: var(--zai-terminal-fg);
+  --color-terminal-selection: var(--zai-terminal-selection);
+  --color-terminal-cursor: var(--zai-terminal-cursor);
+  --color-terminal-black: var(--zai-terminal-black);
+  --color-terminal-red: var(--zai-terminal-red);
+  --color-terminal-green: var(--zai-terminal-green);
+  --color-terminal-yellow: var(--zai-terminal-yellow);
+  --color-terminal-blue: var(--zai-terminal-blue);
+  --color-terminal-magenta: var(--zai-terminal-magenta);
+  --color-terminal-cyan: var(--zai-terminal-cyan);
+  --color-terminal-white: var(--zai-terminal-white);
+  --color-terminal-bright-black: var(--zai-terminal-bright-black);
+  --color-terminal-bright-red: var(--zai-terminal-bright-red);
+  --color-terminal-bright-green: var(--zai-terminal-bright-green);
+  --color-terminal-bright-yellow: var(--zai-terminal-bright-yellow);
+  --color-terminal-bright-blue: var(--zai-terminal-bright-blue);
+  --color-terminal-bright-magenta: var(--zai-terminal-bright-magenta);
+  --color-terminal-bright-cyan: var(--zai-terminal-bright-cyan);
+  --color-terminal-bright-white: var(--zai-terminal-bright-white);
+  --color-toast: var(--zai-toast);
+  --color-tooltip: var(--zai-tooltip);
+}
+
+
+/* ---------- 默认浅色（fallback） ---------- */
+:root {
+  --color-background: #f8f8f8;
+  --color-foreground: #262626;
+  --color-sidebar: #f0f0f0;
+  --color-panel: #ffffff;
+  --color-header: #ffffff;
+  --color-card: #ffffff;
+  --color-input: #ffffff;
+  --color-popover: #ffffff;
+  --color-menu: #ffffff;
+  --color-primary: #171717;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e6e6e6;
+  --color-border: rgba(13, 13, 13, 0.1);
+  --color-ring: rgba(11, 127, 255, 0.5);
+}
+
+/* ---------- zai 浅色 ---------- */
+.theme-zai-light {
+  --zai-background: #f8f8f8;
+  --zai-background-win-alt: #ececee;
+  --zai-sidebar: #f0f0f0;
+  --zai-panel: #ffffff;
+  --zai-header: #ffffff;
+  --zai-surface: rgba(13, 13, 13, 0.03);
+  --zai-surface-hover: rgba(13, 13, 13, 0.05);
+  --zai-hover: rgba(13, 13, 13, 0.05);
+  --zai-selected: rgba(13, 13, 13, 0.05);
+  --zai-user-message-bubble: rgba(13, 13, 13, 0.05);
+  --zai-card: #ffffff;
+  --zai-input: #ffffff;
+  --zai-input-focused: #ffffff;
+  --zai-input-border: rgba(13, 13, 13, 0.1);
+  --zai-input-border-hover: rgba(13, 13, 13, 0.15);
+  --zai-input-border-focused: rgba(13, 13, 13, 0.15);
+  --zai-popover: #ffffff;
+  --zai-popover-header: #f8f8f8;
+  --zai-popover-border: rgba(13, 13, 13, 0.1);
+  --zai-menu: #ffffff;
+  --zai-menu-hover: #f0f0f0;
+  --zai-tab: #f0f0f0;
+  --zai-tab-active: #ffffff;
+  --zai-tag: #e6e6e6;
+
+  --zai-foreground: #262626;
+  --zai-foreground-subtle: rgba(13, 13, 13, 0.6);
+  --zai-foreground-subtlest: rgba(13, 13, 13, 0.4);
+  --zai-foreground-inverse: #ffffff;
+  --zai-primary: #000000;
+  --zai-primary-foreground: #ffffff;
+  --zai-secondary: #e6e6e6;
+  --zai-brand: #000000;
+
+  --zai-border: rgba(13, 13, 13, 0.1);
+  --zai-border-hover: rgba(13, 13, 13, 0.15);
+
+  --zai-success: #1e8a3e;
+  --zai-success-surface: #eaf7ee;
+  --zai-success-surface-foreground: #166b32;
+  --zai-warning: #e07b00;
+  --zai-warning-surface: rgba(224, 123, 0, 0.12);
+  --zai-warning-surface-foreground: #914e00;
+  --zai-destructive: #e03131;
+  --zai-destructive-surface: rgba(224, 49, 49, 0.1);
+  --zai-destructive-surface-foreground: #b42020;
+  --zai-icon-blue: #0066dd;
+
+  --zai-diff-added: #1e8a3e;
+  --zai-diff-removed: #e03131;
+  --zai-git-modified: #e07b00;
+  --zai-git-added: #1e8a3e;
+  --zai-git-deleted: #e03131;
+  --zai-git-renamed: #0b7fff;
+
+  --zai-terminal-bg: #f8f8f8;
+  --zai-terminal-fg: #0d0d0d;
+  --zai-toast: #ffffff;
+  --zai-tooltip: #f0f0f0;
+
+  --shadow-composer-soft: 0 1px 3px rgb(0 0 0 / 4%), 0 6px 18px rgb(0 0 0 / 4%);
+}
+
+/* ---------- zai 深色（产品默认） ---------- */
+.theme-zai-dark {
+  --zai-background: #161616;
+  --zai-background-win-alt: #2b2b2b;
+  --zai-sidebar: #161616;
+  --zai-panel: #202020;
+  --zai-header: #202020;
+  --zai-surface: rgba(255, 255, 255, 0.05);
+  --zai-surface-hover: rgba(255, 255, 255, 0.1);
+  --zai-hover: rgba(255, 255, 255, 0.05);
+  --zai-selected: rgba(255, 255, 255, 0.1);
+  --zai-user-message-bubble: rgba(255, 255, 255, 0.08);
+  --zai-card: #2b2b2b;
+  --zai-input: #2b2b2b;
+  --zai-input-focused: #2b2b2b;
+  --zai-input-border: rgba(255, 255, 255, 0.1);
+  --zai-input-border-hover: rgba(255, 255, 255, 0.15);
+  --zai-input-border-focused: rgba(255, 255, 255, 0.15);
+  --zai-popover: #2b2b2b;
+  --zai-popover-header: #202020;
+  --zai-popover-border: rgba(255, 255, 255, 0.1);
+  --zai-menu: #2b2b2b;
+  --zai-menu-hover: #363636;
+  --zai-tab: #202020;
+  --zai-tab-active: #161616;
+  --zai-tag: #363636;
+
+  --zai-foreground: #d4d4d4;
+  --zai-foreground-subtle: rgba(255, 255, 255, 0.6);
+  --zai-foreground-subtlest: rgba(255, 255, 255, 0.3);
+  --zai-foreground-inverse: #000000;
+  --zai-primary: #ffffff;
+  --zai-primary-foreground: #000000;
+  --zai-secondary: #363636;
+  --zai-brand: #ffffff;
+
+  --zai-border: rgba(255, 255, 255, 0.1);
+  --zai-border-hover: rgba(255, 255, 255, 0.15);
+
+  --zai-success: #46bf72;
+  --zai-success-surface: rgba(70, 191, 114, 0.16);
+  --zai-success-surface-foreground: #87d9a4;
+  --zai-warning: #ff8a30;
+  --zai-warning-surface: rgba(255, 138, 48, 0.16);
+  --zai-warning-surface-foreground: #ffa159;
+  --zai-destructive: #ff5c5c;
+  --zai-destructive-surface: rgba(255, 92, 92, 0.16);
+  --zai-destructive-surface-foreground: #ff8585;
+  --zai-icon-blue: #80beff;
+
+  --zai-diff-added: #46bf72;
+  --zai-diff-removed: #ff5c5c;
+  --zai-git-modified: #ff8a30;
+  --zai-git-added: #46bf72;
+  --zai-git-deleted: #ff5c5c;
+  --zai-git-renamed: #4099ff;
+
+  --zai-terminal-bg: #161616;
+  --zai-terminal-fg: #f8f8f8;
+  --zai-toast: #2b2b2b;
+  --zai-tooltip: #2b2b2b;
+
+  --shadow-composer-soft: 0 0 #0000;
+}
+
+/* 终端 ANSI（两套） */
+.theme-zai-light {
+  --zai-terminal-black: #5c5c5c;
+  --zai-terminal-red: #e03131;
+  --zai-terminal-green: #1e8a3e;
+  --zai-terminal-yellow: #e07b00;
+  --zai-terminal-blue: #0b7fff;
+  --zai-terminal-magenta: #9e77ed;
+  --zai-terminal-cyan: #0aa7a7;
+  --zai-terminal-white: #adadad;
+  --zai-terminal-bright-black: #888888;
+  --zai-terminal-bright-red: #ff6666;
+  --zai-terminal-bright-green: #33c35b;
+  --zai-terminal-bright-yellow: #ff9946;
+  --zai-terminal-bright-blue: #0066dd;
+  --zai-terminal-bright-magenta: #b478f2;
+  --zai-terminal-bright-cyan: #0cc2c2;
+  --zai-terminal-bright-white: #0d0d0d;
+  --zai-terminal-selection: rgba(11, 127, 255, 0.22);
+  --zai-terminal-cursor: #0d0d0d;
+}
+.theme-zai-dark {
+  --zai-terminal-black: #363636;
+  --zai-terminal-red: #ff5c5c;
+  --zai-terminal-green: #46bf72;
+  --zai-terminal-yellow: #ff8a30;
+  --zai-terminal-blue: #4099ff;
+  --zai-terminal-magenta: #7b5ce5;
+  --zai-terminal-cyan: #42c8c8;
+  --zai-terminal-white: #adadad;
+  --zai-terminal-bright-black: #747474;
+  --zai-terminal-bright-red: #ff9999;
+  --zai-terminal-bright-green: #87d9a4;
+  --zai-terminal-bright-yellow: #ffb26b;
+  --zai-terminal-bright-blue: #80beff;
+  --zai-terminal-bright-magenta: #c2a2ff;
+  --zai-terminal-bright-cyan: #8ee5e5;
+  --zai-terminal-bright-white: #f8f8f8;
+  --zai-terminal-selection: rgba(64, 153, 255, 0.28);
+  --zai-terminal-cursor: #f8f8f8;
+}
+
+/* ---------- 全局基础 ---------- */
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-ui-base);
+    color: var(--color-foreground);
+    background: var(--color-background);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 焦点反馈交给组件内 ring/hover，不用浏览器默认轮廓 */
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* 全局滚动条：14px 透明轨道 + 圆角 thumb（3px 透明边制造视觉留白） */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  min-width: 32px;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: var(--color-border);
+  background-clip: padding-box;
+}
+
+/* Electron 拖拽区标注（配合 -webkit-app-region） */
+.app-region-drag {
+  -webkit-app-region: drag;
+}
+.app-region-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 运行态扫光文字（统一语言：不旋转图标，用文字扫光） */
+@keyframes animated-gradient {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.animated-gradient-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-foreground-subtlest) 0%,
+    var(--color-foreground) 40%,
+    var(--color-foreground-subtlest) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: animated-gradient 4s linear infinite;
+}
+
+/* 流式内容逐块淡入 */
+@keyframes stream-text-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.stream-fade-in {
+  animation: stream-text-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 思考折叠收起动画 */
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+/* 工具运行中细进度扫光 */
+@keyframes tool-call-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.tool-call-progress-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 33%;
+  border-radius: 9999px;
+  background: var(--color-border-hover);
+  animation: tool-call-progress 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-gradient-text,
+  .stream-fade-in,
+  .tool-call-progress-indeterminate::after {
+    animation: none;
+  }
+}

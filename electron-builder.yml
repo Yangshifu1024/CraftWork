@@ -1,0 +1,28 @@
+# Electron 打包配置（electron-builder）。
+# 版本事实源：package.json 的 version（与 internal/version 语义一致的单一事实源）。
+appId: com.craftwork.app
+productName: CraftWork
+directories:
+  output: dist
+  buildResources: build
+asar: true
+# 原生模块不能打进 asar（node-pty 的 prebuild 按平台加载）
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+  - "**/node_modules/@xterm/**"
+files:
+  - out/**
+  - "package.json"
+  - "!**/*.map"
+mac:
+  category: public.app-category.developer-tools
+  icon: assets/appicon.png
+  identity: null
+  target:
+    - target: dir
+      arch:
+        - arm64
+  hardenedRuntime: false
+  gatekeeperAssess: false
+dmg:
+  writeUpdateInfo: false

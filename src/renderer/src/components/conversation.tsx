@@ -1,0 +1,567 @@
+// 对话区：顶栏 + 消息流 + 输入区。
+import { useEffect, useRef, useState } from "react";
+import { useStickToBottom } from "use-stick-to-bottom";
+import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square } from "lucide-react";
+import { useApp } from "../store/app";
+import { useToasts } from "../store/toast";
+import { api } from "../lib/api";
+import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
+import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
+import { Markdown } from "./markdown";
+import { TodoCard } from "./cards";
+
+export function Conversation(): React.JSX.Element {
+  const mode = useApp((s) => s.mode);
+  const activeId = useApp((s) => s.activeThreadId[mode]);
+  const chat = useApp((s) => s.chats[activeId]);
+  const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
+
+  return (
+    <div id="content" className="flex min-w-[320px] flex-1 flex-col app-region-no-drag">
+      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-[0.5px] border-border/50 bg-background shadow-xs">
+        <WorkspaceHeader title={thread?.title ?? "新对话"} status={thread?.status ?? "idle"} mode={mode} />
+        <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
+        <Composer activeId={activeId} chat={chat ? { running: chat.running } : { running: false }} />
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceHeader({ title, status, mode }: { title: string; status: string; mode: string }): React.JSX.Element {
+  return (
+    <div className="relative flex w-full shrink-0 border-b border-border/50 app-region-drag">
+      <div className="flex h-12 min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden p-2">
+        <div className="flex min-w-0 items-center gap-2 pl-1">
+          <span className="truncate text-ui-base font-medium text-foreground app-region-no-drag">{title}</span>
+          <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-ui-xs text-foreground-subtle">
+            {mode === "work" ? "Work" : "Code"}
+          </span>
+          {status === "running" && <span className="animated-gradient-text shrink-0 text-ui-xs">运行中</span>}
+          {status === "awaiting" && <span className="shrink-0 text-ui-xs text-warning">等待审批</span>}
+          {status === "error" && <span className="shrink-0 text-ui-xs text-destructive">出错</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 消息流 ----------
+
+function Timeline({ activeId, chat }: { activeId: string; chat?: { messages: MessageSnapshot[]; running: boolean } }): React.JSX.Element {
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom();
+  const messages = chat?.messages ?? [];
+
+  useEffect(() => {
+    // 切换会话时贴底
+    scrollToBottom();
+  }, [activeId, scrollToBottom]);
+
+  return (
+    <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
+      <div ref={contentRef} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 pb-8 pt-6">
+        {messages.length === 0 && (
+          <div className="flex flex-1 items-center justify-center py-24 text-ui-sm text-foreground-subtlest">
+            开始你的第一条消息
+          </div>
+        )}
+        {messages.map((message) => (
+          <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} />
+        ))}
+        <div />
+      </div>
+      {!isAtBottom && (
+        <button
+          className="sticky bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-md hover:bg-menu-hover"
+          onClick={() => scrollToBottom()}
+        >
+          <ChevronDown className="inline size-3.5" /> 回到底部
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MessageRow({
+  message,
+  chatRunning,
+}: {
+  message: MessageSnapshot;
+  chatRunning: boolean;
+}): React.JSX.Element {
+  const activeId = useApp((s) => s.activeThreadId[s.mode]);
+  const [hovered, setHovered] = useState(false);
+
+  if (message.role === "user") {
+    return (
+      <div
+        className="group flex w-full flex-col items-end gap-1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-user-message-bubble px-4 py-3 text-ui-base text-foreground sm:max-w-xl">
+          {message.parts
+            .filter((p) => p.kind === "text")
+            .map((part) => (
+              <div key={part.id} className="whitespace-pre-wrap break-words">
+                {String(part.payload["text"] ?? "")}
+              </div>
+            ))}
+        </div>
+        {hovered && (
+          <button
+            className="mr-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+            onClick={() => {
+              const text = message.parts
+                .filter((p) => p.kind === "text")
+                .map((p) => String(p.payload["text"] ?? ""))
+                .join("\n");
+              void api.clipboardWrite(text);
+            }}
+          >
+            <Copy className="size-3" /> 复制
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // 助手消息：按「过程分组」切段渲染（工具/推理/审批收进折叠，最终正文在外）
+  return (
+    <div className="group flex w-full flex-col gap-2" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      <TurnBody message={message} chatRunning={chatRunning} />
+      {hovered && (
+        <div className="flex items-center gap-1">
+          <button
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+            onClick={() => {
+              const text = message.parts
+                .filter((p) => p.kind === "text")
+                .map((p) => String(p.payload["text"] ?? ""))
+                .join("\n");
+              void api.clipboardWrite(text);
+            }}
+          >
+            <Copy className="size-3" /> 复制
+          </button>
+          {!chatRunning && (
+            <button
+              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+              onClick={() => void api.chatRegenerate(activeId)}
+            >
+              <RefreshCw className="size-3" /> 重新生成
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 单条助手消息的渲染：工作部件折叠 + 最终正文。 */
+function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunning: boolean }): React.JSX.Element {
+  const threadId = useActiveThreadId();
+  const parts = message.parts;
+  // 最终正文 = 最后一个非空 text 部件
+  let finalTextIdx = -1;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]!;
+    if (p.kind === "text" && String(p.payload["text"] ?? "").length > 0) {
+      finalTextIdx = i;
+      break;
+    }
+  }
+  const hasWork = parts.some((p, i) => i !== finalTextIdx && p.kind !== "text");
+  const isStreaming = message.status === "streaming";
+
+  return (
+    <div className="flex w-full flex-col gap-2">
+      {hasWork && <WorkFold parts={parts} finalTextIdx={finalTextIdx} streaming={isStreaming} status={message.status} threadId={threadId} />}
+      {parts.map((part, idx) => {
+        if (idx === finalTextIdx) {
+          const text = String(part.payload["text"] ?? "");
+          return (
+            <div key={part.id} className="text-ui-base text-foreground">
+              <Markdown text={text} streaming={isStreaming} />
+              {isStreaming && <StreamCaret />}
+            </div>
+          );
+        }
+        if (part.kind === "error") {
+          return <ErrorCard key={part.id} part={part} threadId={threadId} />;
+        }
+        if (part.kind === "notice") {
+          return (
+            <div key={part.id} className="rounded-lg bg-surface px-3 py-2 text-ui-sm text-foreground-subtle">
+              {String(part.payload["text"] ?? "")}
+            </div>
+          );
+        }
+        return null;
+      })}
+      {isStreaming && finalTextIdx < 0 && chatRunning && (
+        <div className="text-ui-sm">
+          <span className="animated-gradient-text">思考中</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function useActiveThreadId(): string {
+  return useApp((s) => s.activeThreadId[s.mode]);
+}
+
+/** 工作过程折叠块（推理 / 工具 / 审批 / todo）。 */
+function WorkFold({
+  parts,
+  finalTextIdx,
+  streaming,
+  status,
+  threadId,
+}: {
+  parts: PartSnapshot[];
+  finalTextIdx: number;
+  streaming: boolean;
+  status: MessageSnapshot["status"];
+  threadId: string;
+}): React.JSX.Element {
+  const work = parts.filter((p, i) => i !== finalTextIdx && p.kind !== "text");
+  const hasRunning = work.some(
+    (p) => (p.kind === "tool" && (p.payload as unknown as ToolCallPart).status === "running") || p.kind === "approval" && (p.payload as unknown as ApprovalPart).status === "waiting",
+  );
+  const [open, setOpen] = useState(false);
+  const done = !streaming && status !== "streaming";
+
+  const duration = done ? "" : "";
+  return (
+    <div className="flex w-full flex-col">
+      <button
+        className="group/reasoning inline-flex min-w-0 max-w-full items-center gap-2 self-start rounded-md px-1 py-0.5 text-ui-base text-foreground-subtlest hover:text-foreground-subtle"
+        onClick={() => setOpen(!open)}
+      >
+        {done ? <Brain className="size-4 shrink-0" /> : <Brain className="size-4 shrink-0" />}
+        <span className="shrink-0 whitespace-nowrap">
+          {hasRunning ? <span className="animated-gradient-text">工作中</span> : done ? "已工作" : "正在思考"}
+        </span>
+        {duration && <span className="shrink-0 text-foreground-subtlest">{duration}</span>}
+        <ChevronRight className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="ml-2 max-h-72 space-y-2 overflow-y-auto border-border border-l pl-3.5 pt-2">
+          {work.map((part) => (
+            <WorkPart key={part.id} part={part} threadId={threadId} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkPart({ part, threadId }: { part: PartSnapshot; threadId: string }): React.JSX.Element | null {
+  switch (part.kind) {
+    case "reasoning":
+      return (
+        <div className="whitespace-pre-wrap break-words text-ui-base text-foreground-subtlest">
+          {String(part.payload["text"] ?? "")}
+        </div>
+      );
+    case "tool":
+      return <ToolCard part={part.payload as unknown as ToolCallPart} />;
+    case "approval":
+      return <ApprovalCard part={part.payload as unknown as ApprovalPart} threadId={threadId} />;
+    case "todo":
+      return <TodoCard items={(part.payload["items"] as never) ?? []} />;
+    default:
+      return null;
+  }
+}
+
+// ---------- 卡片 ----------
+
+export function ToolCard({ part }: { part: ToolCallPart }): React.JSX.Element {
+  const [open, setOpen] = useState(part.status === "error");
+  const running = part.status === "running";
+  return (
+    <div className="w-full">
+      <button
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-hover"
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`h-4 w-0.5 rounded-full ${part.status === "error" ? "bg-destructive" : running ? "bg-icon-blue" : "bg-border"}`} />
+        <span className={`shrink-0 font-mono text-ui-sm ${running ? "animated-gradient-text" : "text-foreground"}`}>
+          {part.name}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-ui-sm text-foreground-subtlest">{part.summary}</span>
+        {part.durationMs ? <span className="shrink-0 font-mono text-ui-xs text-foreground-subtlest">{part.durationMs}ms</span> : null}
+        <span className={`shrink-0 text-ui-xs ${part.status === "error" ? "text-destructive" : "text-foreground-subtlest"}`}>
+          {running ? "运行中" : part.status === "error" ? "失败" : "完成"}
+        </span>
+        <ChevronRight className={`size-3.5 shrink-0 text-foreground-subtlest transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="pt-1.5">
+          {part.output ? (
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface px-3 py-2 font-mono text-ui-sm text-foreground-subtle">
+              {part.output}
+            </pre>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RISK_LABELS: Record<string, string> = {
+  R0: "只读",
+  R1: "写入",
+  R2: "执行",
+  R3: "网络/越界",
+  R4: "破坏性",
+};
+
+export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId: string }): React.JSX.Element {
+  const waiting = part.status === "waiting";
+  const [busy, setBusy] = useState(false);
+
+  const decide = async (allow: boolean, scope: "once" | "session" | "workspace"): Promise<void> => {
+    setBusy(true);
+    try {
+      await api.chatDecideApproval(part.approvalId, allow, scope);
+    } catch (err) {
+      // 决定失败保持卡片可重试
+      console.warn(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const permanentVisible = part.allowPermanent && (part.risk === "R1" || part.risk === "R2");
+
+  return (
+    <div
+      className={`w-full overflow-hidden rounded-2xl border bg-popover shadow-xs ${
+        waiting ? "border-warning/40" : part.status === "approved" ? "border-success/40" : "border-border opacity-90"
+      }`}
+    >
+      <div className="flex flex-col gap-3 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-ui-base font-medium text-foreground-subtle">需要你的批准</span>
+          <span className="rounded-md bg-warning-surface px-1.5 py-0.5 font-mono text-ui-xs text-warning-surface-foreground">
+            {part.risk} {RISK_LABELS[part.risk] ?? ""}
+          </span>
+          <span className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtle">{part.tool}</span>
+          <span className="ml-auto shrink-0 text-ui-sm">
+            {waiting ? (
+              <span className="animated-gradient-text">等待决定</span>
+            ) : part.status === "approved" ? (
+              <span className="text-success">已允许{part.scope && part.scope !== "once" ? `（${part.scope === "session" ? "本会话" : "本工作区"}）` : "一次"}</span>
+            ) : part.status === "denied" ? (
+              <span className="text-destructive">已拒绝</span>
+            ) : (
+              <span className="text-foreground-subtlest">已取消</span>
+            )}
+          </span>
+        </div>
+        {part.detail && <p className="text-ui-base leading-5 text-foreground">{part.detail}</p>}
+        {part.target && (
+          <div className="truncate rounded-lg bg-surface px-2.5 py-1.5 font-mono text-ui-sm text-foreground-subtle">{part.target}</div>
+        )}
+        {part.facts.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {part.facts.map((f, i) => (
+              <span key={i} className="rounded-md bg-surface px-2 py-0.5 text-ui-xs text-foreground-subtle">
+                {f.label}：{f.value}
+              </span>
+            ))}
+          </div>
+        )}
+        {waiting && (
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              disabled={busy}
+              className="h-8 rounded-lg border border-destructive/50 px-3 text-ui-sm text-destructive hover:bg-destructive-surface disabled:opacity-50"
+              onClick={() => void decide(false, "once")}
+            >
+              拒绝
+            </button>
+            <div className="flex-1" />
+            <button
+              disabled={busy}
+              className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+              onClick={() => void decide(true, "once")}
+            >
+              允许一次
+            </button>
+            <button
+              disabled={busy}
+              className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+              onClick={() => void decide(true, "session")}
+            >
+              本会话允许
+            </button>
+            {permanentVisible && (
+              <button
+                disabled={busy}
+                className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+                onClick={() => void decide(true, "workspace")}
+              >
+                本工作区始终允许
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <span className="hidden">{threadId}</span>
+    </div>
+  );
+}
+
+function ErrorCard({ part, threadId }: { part: PartSnapshot; threadId: string }): React.JSX.Element {
+  const code = String(part.payload["code"] ?? "");
+  const message = String(part.payload["message"] ?? "");
+  const hints: Record<string, string> = {
+    auth: "请检查提供商密钥是否有效（设置 → 模型与提供商）。",
+    rate_limit: "请求过于频繁或额度不足，稍后重试。",
+    timeout: "模型响应超时，可重试。",
+    context_overflow: "会话内容超出模型上下文窗口，请新建会话或切换更大窗口的模型。",
+    provider_unavailable: "服务暂时不可用，请检查端点与网络。",
+    invalid_request: "请求参数不被接受，请检查模型配置。",
+    interrupted: "上次运行被中断，可重试。",
+    canceled: "已取消。",
+    max_iterations: "已达本轮最大调用次数。",
+    workspace_missing: "会话绑定的工作区不存在，请重新选择工作区。",
+  };
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive-surface px-3 py-2.5">
+      <div className="flex items-center gap-2 pb-1">
+        <AlertCircle className="size-4 shrink-0 text-destructive" />
+        <span className="text-ui-sm font-medium text-destructive">执行出错</span>
+        <span className="rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtle">{code}</span>
+        <div className="flex-1" />
+        <button
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtle hover:bg-surface-hover"
+          onClick={() => void api.chatRegenerate(threadId)}
+        >
+          <RefreshCw className="size-3" /> 重试
+        </button>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-ui-sm text-foreground">{message}</p>
+      {hints[code] && <p className="pt-1 text-ui-xs text-foreground-subtlest">{hints[code]}</p>}
+    </div>
+  );
+}
+
+function StreamCaret(): React.JSX.Element {
+  return <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-foreground" />;
+}
+
+// ---------- 输入区 ----------
+
+/** 清洗 IPC 错误：剥掉「Error invoking remote method ...: Error: 」前缀，只留可读文案。 */
+function cleanErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const marker = "Error:";
+  const idx = raw.lastIndexOf(marker);
+  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
+}
+
+function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
+  const [text, setText] = useState("");
+  const pushToast = useToasts((s) => s.push);
+  const running = chat?.running ?? false;
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const armedRef = useRef<number>(0);
+
+  // 自适应高度（1→8 行）
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 8 * 24)}px`;
+  }, [text]);
+
+  const submit = (): void => {
+    const clean = text.trim();
+    if (!clean || !activeId) return;
+    setText("");
+    const restore = (): void => setText(clean); // 失败还原草稿
+    if (running) {
+      void api
+        .chatSteer(activeId, clean, [])
+        .catch((err) => {
+          restore();
+          pushToast("danger", "引导失败", cleanErrorMessage(err));
+        });
+    } else {
+      void api
+        .chatSend(activeId, clean, [])
+        .catch((err) => {
+          restore();
+          pushToast("danger", "发送失败", cleanErrorMessage(err));
+        });
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
+
+  return (
+    <div className="shrink-0 px-4 pb-4">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2">
+        {running && (
+          <div className="flex justify-end">
+            <button
+              className="flex items-center gap-1.5 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-xs hover:bg-menu-hover"
+              onClick={() => {
+                if (Date.now() - armedRef.current < 800) {
+                  void api.chatCancel(activeId);
+                  armedRef.current = 0;
+                } else {
+                  armedRef.current = Date.now();
+                  setTimeout(() => (armedRef.current = 0), 800);
+                }
+              }}
+            >
+              <Square className="size-3" /> 停止（双击确认）
+            </button>
+          </div>
+        )}
+        <div
+          className="relative flex flex-col gap-3 overflow-hidden rounded-2xl border-[0.5px] border-input-border bg-input p-3 shadow-(--shadow-composer-soft) transition-colors focus-within:border-input-border-focused"
+          data-composer-layout="conversation"
+        >
+          <textarea
+            ref={taRef}
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
+            className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
+          />
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1" />
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!text.trim()}
+                className="flex size-8 items-center justify-center gap-1 rounded-full bg-brand text-foreground-inverse transition-opacity disabled:opacity-30"
+                title="发送（Enter）"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="px-1 text-center text-ui-xs text-foreground-subtlest">
+          Enter 发送 · Shift+Enter 换行 · 运行中输入为引导指令 · ⌘K 命令面板 · ⌘, 设置
+        </div>
+      </div>
+    </div>
+  );
+}

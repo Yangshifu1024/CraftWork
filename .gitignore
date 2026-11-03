@@ -1,9 +1,19 @@
 .DS_Store
 .zcode
-*.exe
-# 构建产物（go tool mygo build 的输出目录与任务运行缓存）
-.task
-bin
+
+# Node / 构建产物
+node_modules/
+out/
+dist/
 *.log
+coverage/
+*.tsbuildinfo
+
+# Electron 打包与本地杂项
 output/
-.mygo
+bin/
+*.exe
+
+# 本地环境
+.env
+.env.*
