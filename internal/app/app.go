@@ -175,11 +175,12 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：服务实例由界面装配（后续 UI 票）
-	// 持有并分组暴露。在那之前保持构造，验证装配顺序不被迁移破坏。
+	// native UI 的 view 直调服务方法：面板（08 号票）已接工作区与文档
+	// 预览服务；其余服务实例仍由后续 UI 票持有并分组暴露。在那之前保持
+	// 构造，验证装配顺序不被迁移破坏。
 	_ = []any{
-		appService, threadService, chatService, workspaceService,
-		providerService, auditService, documentService, mcpService,
+		appService, threadService, chatService,
+		providerService, auditService, mcpService,
 	}
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
@@ -214,8 +215,9 @@ func Run(build version.Info) error {
 	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
 
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
-	// 由后续 UI 票接线写入。
+	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务。
 	shell := cwui.NewShell()
+	shell.SetPanelServices(workspaceService, documentService)
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -234,8 +236,10 @@ func Run(build version.Info) error {
 			// WebView。
 			Content: ui.View(shell.View),
 		})
-		// 绑定之后，事件总线产生的事件才会真正进主线程。
+		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台
+		// IO（文件树、读写、保存）结果也经这里回主线程。
 		emitter.bind(win)
+		shell.BindWindow(win)
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。

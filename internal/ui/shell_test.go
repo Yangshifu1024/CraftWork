@@ -84,7 +84,9 @@ func newShellTester(t *testing.T) (*Shell, *mygo.Tester) {
 const (
 	textSidebar = "侧栏 · 04 号票接入"
 	textChat    = "对话 · 05 号票接入"
-	textPanel   = "面板 · 08 号票接入"
+	// textPanel 是面板空态的标题文案（08 号票接入后面板显示文件树，
+	// 测试进程没有装配工作区服务，落在这里的空态上）。
+	textPanel = "没有活动工作区"
 )
 
 func TestShellViewShowsThreePanes(t *testing.T) {

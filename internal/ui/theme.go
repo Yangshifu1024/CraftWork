@@ -194,6 +194,10 @@ type Palette struct {
 	// WorkMode 是 Work 模式的琥珀强调色组（Code 模式用 Accent 系字段）。
 	WorkMode AccentSet
 
+	// Dark 标记这套色板是否为深色外观：个别视觉细节（如文件树目录图标的
+	// 着色）在深浅两模式下取不同值。
+	Dark bool
+
 	ShadowSm  ShadowSpec // --shadow-sm
 	ShadowMd  ShadowSpec // --shadow-md
 	ShadowLg  ShadowSpec // --shadow-lg
@@ -282,6 +286,8 @@ func darkPalette() Palette {
 			On:     mygo.Hex("#1d1405"),
 		},
 
+		Dark: true,
+
 		ShadowSm:  ShadowSpec{Y: 1, Blur: 2, Color: mygo.RGBA(0, 0, 0, 0.35)},
 		ShadowMd:  ShadowSpec{Y: 10, Blur: 30, Color: mygo.RGBA(0, 0, 0, 0.4)},
 		ShadowLg:  ShadowSpec{Y: 24, Blur: 70, Color: mygo.RGBA(0, 0, 0, 0.55)},
@@ -346,6 +352,8 @@ func lightPalette() Palette {
 			Line:   mygo.RGBA(176, 111, 12, 0.28),
 			On:     mygo.Hex("#ffffff"),
 		},
+
+		Dark: false,
 
 		ShadowSm:  ShadowSpec{Y: 1, Blur: 2, Color: mygo.RGBA(16, 24, 40, 0.06)},
 		ShadowMd:  ShadowSpec{Y: 10, Blur: 28, Color: mygo.RGBA(16, 24, 40, 0.1)},
