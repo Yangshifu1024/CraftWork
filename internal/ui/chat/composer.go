@@ -192,21 +192,20 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space5).
 		Padding(4, 7, 7, 8).Children(func() {
 		// 左侧工具：附件拾取、图片（不支持视觉时禁用）。
-		if clicked, _ := s.iconTool(c, v, "paperclip", "添加附件", true); clicked {
+		if clip := s.iconTool(c, v, "paperclip", "添加附件", true); clip.Clicked() {
 			if s.acts != nil && s.acts.PickFiles != nil {
 				s.acts.PickFiles()
 			}
 		}
-		if clicked, _ := s.iconTool(c, v, "image", s.imageToolTitle(), s.supportsVision()); clicked {
+		if img := s.iconTool(c, v, "image", s.imageToolTitle(), s.supportsVision()); img.Clicked() {
 			if s.acts != nil && s.acts.PickFiles != nil {
 				s.acts.PickFiles()
 			}
 		}
 		mygo.Box(c).Width(1).Height(14).Background(v.pal.Border)
 		// 审批档位：点击开档位浮层（保存走设置服务同一路径），旁附 R0–R4
-		// 说明入口（11 号票）。打开瞬间把触发控件 Bounds 传给浮层做锚定
-		//（15 号票：面板贴控件上方弹出；Bounds 是上一帧的窗口坐标，触发
-		// 控件位置帧间稳定）。
+		// 说明入口（11 号票）。浮层是 Popover（15 号票返工）：锚定触发控件、
+		// 点击外部 / Esc 关闭，由 overlays 的 ComposerXxxFlyout 挂载。
 		level := mygo.ButtonBase(c).Gap(theme.Space2).AlignItems(mygo.Center).
 			Radius(theme.RadiusCtl).Padding(2, theme.Space2).Label("切换审批档位")
 		if level.Hovered() {
@@ -217,11 +216,14 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 			mygo.Text(c, s.levelLabel()).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3)
 		})
 		if level.Clicked() {
-			overlays.OpenComposerApproval(s.approvalLevelSynced, level.Bounds())
+			overlays.OpenComposerApproval(s.approvalLevelSynced)
 		}
-		if clicked, bounds := s.iconTool(c, v, "info", "风险等级说明", true); clicked {
-			overlays.OpenComposerRisk(bounds)
+		overlays.ComposerApprovalFlyout(c, level)
+		infoBtn := s.iconTool(c, v, "info", "风险等级说明", true)
+		if infoBtn.Clicked() {
+			overlays.OpenComposerRisk()
 		}
+		overlays.ComposerRiskFlyout(c, infoBtn)
 		mygo.Spacer(c)
 		// 右侧：上下文占用（点击开详情浮层）+ 模型名（点击开模型选择）+ 发送位。
 		s.contextHint(c, v)
@@ -245,8 +247,9 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 		})
 		if pick.Clicked() {
 			// 勾选态优先当前会话模型；无会话模型时浮层内部退默认模型。
-			overlays.OpenComposerModels(s.Thread().ModelID, pick.Bounds())
+			overlays.OpenComposerModels(s.Thread().ModelID)
 		}
+		overlays.ComposerModelsFlyout(c, pick)
 		s.sendCluster(c, v)
 	})
 }
@@ -259,14 +262,12 @@ func (s *Chat) imageToolTitle() string {
 	return "当前模型不支持图片输入"
 }
 
-// iconTool 画一枚 24px 图标工具按钮，返回是否被点击与按钮的 Bounds
-// （点击打开锚定浮层时作锚点用；不需要的调用方弃收即可）；enabled 为
-// false 时不注册点击、淡化显示（禁用态）。
-func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enabled bool) (bool, mygo.Rect) {
+// iconTool 画一枚 24px 图标工具按钮，返回按钮元素（调用方用 Clicked()
+// 判点击；要挂锚定浮层时元素作 Popover 锚点）。enabled 为 false 时不注册
+// 点击、淡化显示（禁用态）。
+func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enabled bool) mygo.Element {
 	btn := mygo.ButtonBase(c).Size(24, 24).Radius(theme.RadiusCtl).Center().Label(title)
-	clicked := false
 	if enabled {
-		clicked = btn.Clicked()
 		if btn.Hovered() {
 			btn.Background(v.pal.BgHover)
 		}
@@ -278,7 +279,7 @@ func (s *Chat) iconTool(c *mygo.Context, v *viewSide, icon, title string, enable
 		}
 		icons.Icon(c, icon).FontSize(14).TextColor(color)
 	})
-	return clicked, btn.Bounds()
+	return btn
 }
 
 // contextHint 画上下文占用：圆环 + 百分比文本 + 速度（<50% 灰、50–80% 黄、
@@ -327,8 +328,9 @@ func (s *Chat) contextHint(c *mygo.Context, v *viewSide) {
 		}
 	})
 	if hint.Clicked() {
-		overlays.OpenComposerContext(s.contextDetail(used, max, shown), hint.Bounds())
+		overlays.OpenComposerContext(s.contextDetail(used, max, shown))
 	}
+	overlays.ComposerContextFlyout(c, hint)
 }
 
 // liveSpeed 返回运行中流式输出的实时速度估算；没有流式正文时归零。

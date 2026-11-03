@@ -1,7 +1,9 @@
-// 输入区三浮层（模型选择 / 审批档位 / 上下文详情）与 R0–R4 说明的
-// ui.Tester 走查。浮层状态在包级单例上，用例开始前重置；涉服务保存的
-// 用例注入落在临时目录的真实服务（SettingsService + ProviderService），
-// 保存、归一化与审计都走生产路径。
+// 输入区四浮层（模型选择 / 审批档位 / 上下文详情）与 R0–R4 说明的
+// ui.Tester 走查（15 号票返工后为 Popover 形态）。浮层状态在包级单例上，
+// 用例开始前重置；涉服务保存的用例注入落在临时目录的真实服务
+//（SettingsService + ProviderService），保存、归一化与审计都走生产路径。
+// 锚定与翻转由 mygo PopoverBase 内置，这里断言「浮层出现在触发控件上方」
+// 验证挂载链路；内容语义与服务路径是本文件主体。
 
 package overlays
 
@@ -18,6 +20,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/secret"
 	"github.com/yangshifu1024/craftwork/internal/service"
 	cwstore "github.com/yangshifu1024/craftwork/internal/store"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
 // composerServices 是注入浮层的真实服务集合。
@@ -28,8 +31,9 @@ type composerServices struct {
 	db        *cwstore.DB
 }
 
-// newComposerTester 起一个只画浮层的测试 view，注入临时目录的真实服务
-// 并预置一个带两个模型的提供商；服务未预置时由用例自行覆盖。
+// newComposerTester 起一个测试 view：触发按钮垫在窗口底部（composer 工具
+// 条的常态），四个浮层 Popover 挂在它上面，其后是浮层体系 View（确认门等
+// 模态）。注入临时目录的真实服务。
 func newComposerTester(t *testing.T) (*mygo.Tester, *composerServices) {
 	t.Helper()
 	store = &Store{}
@@ -49,7 +53,29 @@ func newComposerTester(t *testing.T) (*mygo.Tester, *composerServices) {
 	Bind(&Backend{Settings: settings, Providers: providers, Audit: audit})
 
 	svcs := &composerServices{settings: settings, providers: providers, audit: audit, db: db}
-	return mygo.NewTester(func(c *mygo.Context) { View(c) }, 1280, 800), svcs
+	view := func(c *mygo.Context) {
+		// 触发按钮垫到窗口底部：热区 800 高里 y≈700（composer 工具条常态），
+		// PopoverBase 下方无空间会翻到上方。
+		mygo.Column(c).Fill().Children(func() {
+			mygo.Box(c).FillWidth().Height(700)
+			trigger := mygo.ButtonBase(c).Size(120, 28).Label("触发")
+			openTrigger(c, trigger)
+		})
+		View(c)
+	}
+	return mygo.NewTester(view, 1280, 800), svcs
+}
+
+// openTrigger 把四个浮层 Popover 挂到测试触发按钮上（chat 的 composerBar
+// 在生产里做同样的事）。
+func openTrigger(c *mygo.Context, trigger mygo.Element) {
+	if trigger.Clicked() {
+		OpenComposerRisk()
+	}
+	ComposerModelsFlyout(c, trigger)
+	ComposerApprovalFlyout(c, trigger)
+	ComposerRiskFlyout(c, trigger)
+	ComposerContextFlyout(c, trigger)
 }
 
 // seedProvider 预置一个自定义提供商与模型清单。必须走 SaveProvider 生产
@@ -70,46 +96,22 @@ func seedProvider(t *testing.T, svcs *composerServices) {
 	}
 }
 
-// TestComposerModelPickerEmptyState 报告没有可用模型时的空态。
-func TestComposerModelPickerEmptyState(t *testing.T) {
-	tt, _ := newComposerTester(t)
-	OpenComposerModels("", mygo.Rect{X: 600, Y: 700, W: 120, H: 28})
-	tt.Frame()
-	if !tt.HasText("选择模型") {
-		t.Fatalf("模型浮层未出现: %v", tt.Texts())
-	}
-	if !tt.HasText("没有可用模型，请先在设置中添加提供商并配置密钥。") {
-		t.Errorf("空态提示缺失: %v", tt.Texts())
-	}
-	// Esc 关闭（DialogBase 的退出语义，不另起第二套）。
-	tt.Key(0, mygo.KeyEscape)
-	tt.Frame()
-	if tt.HasText("没有可用模型") {
-		t.Errorf("Esc 后浮层应关闭")
-	}
-}
-
-// TestComposerFlyoutAnchorsAbove 锚定落位集成走查（15 号票）：锚点在窗口
-// 底部（composer 工具条的常态），浮层出现在锚点上方——浮层内文本的矩形
-// 不越过锚点上缘（面板底边钉在 anchor.Y - gap，文本距面板底还有下内边
-// 距）；面板实测高在第二帧收敛，位置帧间稳定。
+// TestComposerFlyoutAnchorsAbove 浮层挂载与锚定链路：底部触发的浮层出现
+// 在触发控件上方（PopoverBase 翻转），不在窗口其他位置。
 func TestComposerFlyoutAnchorsAbove(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
-	anchor := mygo.Rect{X: 600, Y: 700, W: 120, H: 28}
-	OpenComposerModels("", anchor)
+	OpenComposerModels("")
 	tt.Frame()
 	text, ok := tt.Find("模型 A")
 	if !ok {
 		t.Fatalf("模型清单未出现: %v", tt.Texts())
 	}
-	if text.Y+text.H > anchor.Y+0.5 {
-		t.Fatalf("浮层应整体在锚点上方: 文本底 %v > 锚点上缘 %v", text.Y+text.H, anchor.Y)
+	// 触发控件顶在 y≈700：浮层应整体在其上方（PopoverBase 翻转语义）。
+	if text.Y+text.H > 700-theme.ComposerFlyoutGap {
+		t.Fatalf("浮层应在触发控件上方: 文本底 %v", text.Y+text.H)
 	}
-	if ComposerFlyoutFlipped() {
-		t.Fatal("底部触发不应翻转")
-	}
-	// 第二帧位置稳定（面板实测高收敛后不跳动）。
+	// 第二帧位置稳定。
 	tt.Frame()
 	again, ok := tt.Find("模型 A")
 	if !ok || again != text {
@@ -117,28 +119,22 @@ func TestComposerFlyoutAnchorsAbove(t *testing.T) {
 	}
 }
 
-// TestComposerFlyoutFlipsBelow 锚点贴近窗口顶部时浮层翻到下方：翻转由
-// placeAnchored 决策（纯函数单测覆盖判定），这里验证决策经
-// placePanelAnchored 真正落成「面板顶边在锚点下方」的布局。
-func TestComposerFlyoutFlipsBelow(t *testing.T) {
+// TestComposerModelPickerEmptyState 报告没有可用模型时的空态。
+func TestComposerModelPickerEmptyState(t *testing.T) {
 	tt, _ := newComposerTester(t)
-	OpenComposerRisk(mygo.Rect{X: 600, Y: 40, W: 28, H: 28})
+	OpenComposerModels("")
 	tt.Frame()
-	if !ComposerFlyoutFlipped() {
-		t.Fatal("顶部触发时浮层应翻到下方")
+	if !tt.HasText("选择模型") {
+		t.Fatalf("模型浮层未出现: %v", tt.Texts())
 	}
-	text, ok := tt.Find("实际处置随审批档位变化：只读只放行 R0，严格逐次询问，自由全部放行。")
-	if !ok {
-		t.Fatalf("风险浮层未打开: %v", tt.Texts())
+	if !tt.HasText("没有可用模型，请先在设置中添加提供商并配置密钥。") {
+		t.Errorf("空态提示缺失: %v", tt.Texts())
 	}
-	if text.Y < 68 { // 锚点下缘 68 = 40 + 28，备注行在其下
-		t.Fatalf("翻转后面板应从锚点下方展开: 文本上缘 %v < 68", text.Y)
-	}
-	// Esc 关闭不回退。
+	// Esc 关闭（Popover 退出语义）。
 	tt.Key(0, mygo.KeyEscape)
 	tt.Frame()
-	if tt.HasText("风险等级") {
-		t.Error("Esc 后浮层应关闭")
+	if tt.HasText("没有可用模型") {
+		t.Errorf("Esc 后浮层应关闭")
 	}
 }
 
@@ -146,7 +142,7 @@ func TestComposerFlyoutFlipsBelow(t *testing.T) {
 func TestComposerModelPickerListSearchPick(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
-	OpenComposerModels("", mygo.Rect{X: 600, Y: 700, W: 120, H: 28})
+	OpenComposerModels("")
 	tt.Frame()
 
 	// 清单展示两个模型：名称 + 提供商 + 上下文 + 能力。
@@ -193,7 +189,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	seedProvider(t, svcs)
 
 	// 无会话模型、无默认模型：勾选引用为空。
-	OpenComposerModels("", mygo.Rect{X: 600, Y: 700, W: 120, H: 28})
+	OpenComposerModels("")
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "" {
 		t.Fatalf("无会话模型且无默认模型时勾选引用应为空: %q", got)
@@ -205,7 +201,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	if _, err := svcs.settings.Save(service.Settings{DefaultModel: "test/model-b"}); err != nil {
 		t.Fatal(err)
 	}
-	OpenComposerModels("", mygo.Rect{X: 600, Y: 700, W: 120, H: 28})
+	OpenComposerModels("")
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "test/model-b" {
 		t.Fatalf("无会话模型时应退默认模型: %q", got)
@@ -214,7 +210,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	tt.Frame()
 
 	// 有会话模型：优先会话模型，不落到默认模型。
-	OpenComposerModels("test/model-a", mygo.Rect{X: 600, Y: 700, W: 120, H: 28})
+	OpenComposerModels("test/model-a")
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "test/model-a" {
 		t.Fatalf("有会话模型时应优先会话模型: %q", got)
@@ -227,7 +223,7 @@ func TestComposerApprovalLevelSwitch(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
 	var changed []string
-	OpenComposerApproval(func(level string) { changed = append(changed, level) }, mygo.Rect{X: 300, Y: 700, W: 120, H: 28})
+	OpenComposerApproval(func(level string) { changed = append(changed, level) })
 	tt.Frame()
 	if !tt.HasText("审批档位") {
 		t.Fatalf("档位浮层未出现: %v", tt.Texts())
@@ -260,7 +256,7 @@ func TestComposerApprovalLevelSwitch(t *testing.T) {
 		t.Fatalf("档位切换未写审计: %+v", entries)
 	}
 	// 打开浮层时勾选态跟随最新档位。
-	OpenComposerApproval(func(string) {}, mygo.Rect{X: 300, Y: 700, W: 120, H: 28})
+	OpenComposerApproval(func(string) {})
 	tt.Frame()
 	if !tt.HasText("写入与执行逐次询问，不提供永久允许") {
 		t.Errorf("档位描述缺失: %v", tt.Texts())
@@ -273,7 +269,7 @@ func TestComposerApprovalLevelSwitch(t *testing.T) {
 func TestComposerApprovalFreeGate(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	var changed []string
-	OpenComposerApproval(func(level string) { changed = append(changed, level) }, mygo.Rect{X: 300, Y: 700, W: 120, H: 28})
+	OpenComposerApproval(func(level string) { changed = append(changed, level) })
 	tt.Frame()
 	if err := tt.Click("自由"); err != nil {
 		t.Fatalf("点击自由档失败: %v", err)
@@ -298,7 +294,7 @@ func TestComposerApprovalFreeGate(t *testing.T) {
 		t.Fatalf("取消后档位不应变化: %q", got)
 	}
 	// 再走一次：勾选并确认，保存生效且回调触发。
-	OpenComposerApproval(func(level string) { changed = append(changed, level) }, mygo.Rect{X: 300, Y: 700, W: 120, H: 28})
+	OpenComposerApproval(func(level string) { changed = append(changed, level) })
 	tt.Frame()
 	if err := tt.Click("自由"); err != nil {
 		t.Fatalf("再次点击自由档失败: %v", err)
@@ -322,7 +318,7 @@ func TestComposerApprovalFreeGate(t *testing.T) {
 // TestComposerRiskRows 走查 R0–R4 说明浮层（与设置中心 riskRows 同源）。
 func TestComposerRiskRows(t *testing.T) {
 	tt, _ := newComposerTester(t)
-	OpenComposerRisk(mygo.Rect{X: 340, Y: 700, W: 28, H: 28})
+	OpenComposerRisk()
 	tt.Frame()
 	if !tt.HasText("风险等级") {
 		t.Fatalf("风险浮层未出现: %v", tt.Texts())
@@ -352,7 +348,7 @@ func TestComposerContextDetail(t *testing.T) {
 		Tokens:      12500,
 		CacheTokens: 2100,
 		Speed:       42.4,
-	}, mygo.Rect{X: 900, Y: 700, W: 120, H: 28})
+	})
 	tt.Frame()
 	if !tt.HasText("上下文") {
 		t.Fatalf("上下文浮层未出现: %v", tt.Texts())
@@ -368,7 +364,7 @@ func TestComposerContextDetail(t *testing.T) {
 		}
 	}
 	// 缓存与速度的空值口径：占位符「—」。
-	OpenComposerContext(ContextDetail{Used: 100, WindowK: 32, Percent: 1, Tokens: 5}, mygo.Rect{X: 900, Y: 700, W: 120, H: 28})
+	OpenComposerContext(ContextDetail{Used: 100, WindowK: 32, Percent: 1, Tokens: 5})
 	tt.Frame()
 	if fmt.Sprint(tt.Texts()) == "" {
 		t.Fatal("浮层未绘制")

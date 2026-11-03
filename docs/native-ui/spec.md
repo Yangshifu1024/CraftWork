@@ -92,16 +92,15 @@
   - 会话头部行（chatHead）：整行可拖拽；行内无交互控件，无需 no-drag 划分。
 - 浮层打开时拖拽让位语义不变（模态由 mygo 的 DialogBase 接管，窗口级快捷键等待）。
 
-### composer 浮层锚定与空态（15 号票）
+### composer 浮层锚定与空态（15 号票，返工为原生 Popover）
 
 composer 的四个浮层（模型选择 / 审批档位 / 上下文详情 / R0–R4 说明）对齐 React 版的 Popover 形态，不再是「中央模态 + 全屏压暗」：
 
-- **锚定落位**：面板贴触发控件就近弹出——触发控件在输入区工具条（窗口底部），面板出现在其**上方**（面板底边与触发控件上缘之间留 `theme.ComposerFlyoutGap` 间距），水平方向与触发控件中心对齐；上方空间不足时翻到下方，上下都放不下时钳制在窗口边缘（留 `theme.ComposerFlyoutEdgeMargin` 边距）。落位计算抽纯函数 `placeAnchored`（锚点矩形 + 面板尺寸 + 窗口尺寸 → 面板原点），单测覆盖翻转与钳制。
-- **落位机制沿用 DialogBase 遮罩层**：面板仍由 `DialogBase` 承载（Esc / 点击外部关闭语义不变），落位通过 backdrop 的主轴对齐加面板边距表达——贴上方时用底边距把面板底边钉在锚点上方，面板高度自适应不参与计算，首帧即精确贴附。锚点取触发控件 `Bounds()`（窗口 DIP 坐标，上一帧值；触发控件位置帧间稳定）。锚点无效（零值，仅测试路径）回退原 fraction 居中落位。
-- **backdrop 透明**：composer 四浮层不压暗窗口（`styleBackdrop` 的半透明黑只属于中央模态），点击 backdrop 关闭语义保留。面板本体观感不变（`stylePanel`：`bg-float` 底 + 强描边 + 大阴影）。
+- **承载用 mygo 原生 `PopoverBase`**：面板锚定触发控件元素、下方无空间自动翻到锚点上方、点击外部 / Esc 关闭（按压穿透到下层，与 web popover 一致）。调用形态是「触发点双动作」：按钮构建后调 `ComposerXxxFlyout(c, btn)` 挂 Popover，`Clicked()` 时调 `OpenComposerXxx(...)` 切换开关并快照数据；四浮层同一时间只开一个。首版基于 `DialogBase` 的手工锚定（`placeAnchored` 纯函数 + backdrop 边距落位）已整体移除——其 justify + 底边距落位在真实窗口布局不符导致浮层贴错位置，返工教训见票 Comments。
+- **面板观感与间距**：面板本体 `stylePanel`（`bg-float` 底 + 强描边 + 大阴影），宽度按浮层种类取 `theme.ComposerXxxWidth`；与触发控件的间距用 `theme.ComposerFlyoutGap` 的上边距（PopoverBase 官方推荐方式），不压暗窗口。
 - **空态收口**（口径对照 React 版 `Composer.tsx`）：无会话模型时模型名按钮不画强调色圆点、显示灰字「选择模型」占位（React 版同位显示占位文案，原生拿不到用户可用模型数，不区分「未配置模型」分支），上下文占用整块不渲染（React 版 `currentModel ? <ctx-hint> : null` 同口径）；从未产生速度（shown ≤ 0）时不画速度占位「—」（对 React「—」占位的有意收窄：工具条上孤立的「—」只构成噪音，详情浮层内的「—」键值对齐行保留）。
 - **输入区单描边**：`ui.TextArea` 自带焦点环关闭（`FocusRing(false)`），聚焦表达完全交给 composer 外框描边（上一小节），聚焦态只有一层描边。焦点环属绘制层，`ui.Tester` 无法断言，由实机走查确认。
-- Flyout（mygo 独立锚定窗口，`Anchor` + `Placement` 自动翻转）是后续可选升级：跨窗状态同步与 Tester 多窗口支持确认后可整体替换本节的锚定落位，替换面只在 `drawComposer` 一处。
+- Flyout（mygo 独立锚定窗口，`Anchor` + `Placement` 自动翻转）仍是后续可选升级；PopoverBase 已覆盖本节全部观感需求，仅在需要「跟随窗口滚动 / 跨窗显示」时再评估。
 
 ### 窗口材质（毛玻璃）
 
