@@ -481,8 +481,8 @@ func (cl *Client) LoadEarlier() {
 }
 
 // OpenFile 打开 path:line 引用（md.OnLink → craftwork:// 链接）。
-// TODO(08): 面板 tab 系统合入后改为在工作区面板打开文件并定位行；
-// 目前以 toast 提示占位，不假装已打开。
+// 生产装配把本动作覆盖为 shell.OpenFileAt（08 号票的正式入口：
+// Pane.OpenFileAt）；这里的 toast 是装配缺失时（Tester / 兜底）的行为。
 func (cl *Client) OpenFile(path string, line int) {
 	locate := ""
 	if line > 0 {

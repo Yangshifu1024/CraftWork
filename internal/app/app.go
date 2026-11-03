@@ -201,9 +201,10 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：provider / document / mcp 仍由
-	// 后续 UI 票按槽位接入；侧栏（04 号票）与聊天列（05 号票）已经接线。
-	_ = []any{providerService, documentService, mcpService}
+	// native UI 的 view 直调服务方法：thread / audit（04 侧栏）、chat /
+	// app（05 聊天列）、workspace / document（08 面板）已接线；provider /
+	// mcp 仍由后续 UI 票持有并分组暴露。
+	_ = []any{providerService, mcpService}
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
 	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
@@ -237,8 +238,9 @@ func Run(build version.Info) error {
 	windowBackground := cwui.WindowBackgroundHex(settings.Theme)
 
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
-	// 由后续 UI 票接线写入。
+	// 由后续 UI 票接线写入。面板（08 号票）在装配期拿到它直调的服务。
 	shell := cwui.NewShell()
+	shell.SetPanelServices(workspaceService, documentService)
 
 	// 侧栏（04 号票）：状态壳 + 服务接线。异步动作在 goroutine 里调服务，
 	// 结果经 emitter.update（win.Update）回主线程写状态。
@@ -255,6 +257,9 @@ func Run(build version.Info) error {
 	// 后交给 reducer 派发；需要刷新会话列表时联动侧栏 Refresh。
 	chatState := cwchat.NewChat()
 	shell.ChatView = chatState.View
+	// 面板 tab 按「工作区 + 线程」过滤：把当前会话 Id 给到面板（08 号票
+	// 留的接缝）；path:line 引用经面板 OpenFileAt 打开（正式入口）。
+	shell.ThreadID = chatState.ActiveThreadID
 	cwchat.SetAppService(appService)
 	chatClient := cwchat.NewClient(
 		chatState, chatService, threadService, workspaceService,
@@ -274,6 +279,10 @@ func Run(build version.Info) error {
 	// 模式切换 → 聊天列同步兜底模式并加载该模式的选中 / 第一条会话。
 	acts := sidebarClient.Actions()
 	acts.SelectThread = chatClient.SelectThread
+	// path:line 引用（markdown.OnLink → craftwork://）→ 面板打开文件定位行。
+	chatActions := chatClient.Actions()
+	chatActions.OpenFile = shell.OpenFileAt
+	chatState.SetActions(chatActions)
 	switchMode := acts.SwitchMode
 	acts.SwitchMode = func(m cwsidebar.Mode) {
 		chatState.SetFallbackMode(cwchat.ModeFromSidebar(string(m)))
@@ -299,8 +308,11 @@ func Run(build version.Info) error {
 			// WebView。
 			Content: ui.View(shell.View),
 		})
-		// 绑定之后，事件总线产生的事件才会真正进主线程。
+		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台
+		// IO（文件树、读写、保存）结果也经这里回主线程。
 		emitter.bind(win)
+		// 面板的后台 IO（文件树、读写、保存）结果经窗口回主线程。
+		shell.BindWindow(win)
 		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
 		sidebarClient.Boot()
 		// 聊天列启动首拉：按恢复的模式选中会话并加载最近一页快照。
