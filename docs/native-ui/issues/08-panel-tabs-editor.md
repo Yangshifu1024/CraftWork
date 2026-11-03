@@ -32,3 +32,7 @@ Status: resolved
 - 顺带修复 `service.Add` 不落 workspace_folders 记录导致每次 GetWorkspace 合成新 folder ID 的问题（定位后重读会报「源文件夹不存在」）。
 - 验收：`go test ./...` 20 包全绿（tabs 27 用例 + 编排 8 用例）、`go vet`、`golangci-lint run` 0 issues、`go tool mygo build` 产出 .app+DMG。GUI 冒烟（CRAFTWORK_HOME=/tmp/cw-08-smoke，临时 X/Y+AlwaysOnTop+脚本驱动补丁已还原）：文件树开两个文件→编辑→保存（备份落在数据目录 backups/、回读刷新回只读）→外部改文件再保存触发「文件已被外部修改」确认框（重新加载/保留草稿，安全侧默认），深浅色各截图确认。环境无辅助访问权限，无法合成真实鼠标点击（与 03 号票一致），交互经面板正式入口（OpenFileAt/数据槽/saveSlot）编程驱动 + ui.Tester 用例覆盖。
 - 验收项「审批卡查看完整差异/聊天 path:line 打开正确 tab」：入口 `Pane.OpenFileAt(path, line)` 已就绪（短路径经 LocateFile 唯一匹配），05/06 号票接线时直接调用。
+
+## Comments
+
+- 2026-11-03 实现者留档（对兄弟票关键）：`service.WorkspaceService.Add` 曾只建目录不落 `workspace_folders` 记录，导致每次 `GetWorkspace` 合成新 folder ID、定位后重读报「源文件夹不存在」（`3cfb24e` 修复）——这是行为修复，05/07 号票若复刻工作区列表逻辑需依赖落库后的稳定 folder ID，不要按旧行为合成 ID。另：面板打开文件的正式入口是 `Pane.OpenFileAt(path, line)`（短路径经 LocateFile 唯一匹配），05/06 号票接聊天 `path:line` 与审批卡「查看完整差异」时直接调用，不要自行开 tab。
