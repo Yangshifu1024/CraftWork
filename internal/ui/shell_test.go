@@ -93,10 +93,26 @@ const (
 
 func TestShellViewShowsThreePanes(t *testing.T) {
 	_, tt := newShellTester(t)
-	for _, text := range []string{"CraftWork", textSidebar, textChat, textPanel} {
+	// 14 号票：无独立标题条，品牌名不再出现在窗口顶（内容直接从窗口顶
+	// 开始，红绿灯叠加在侧栏拖拽行上）。
+	for _, text := range []string{textSidebar, textChat, textPanel} {
 		if !tt.HasText(text) {
 			t.Errorf("外壳缺文本 %q，实有 %v", text, tt.Texts())
 		}
+	}
+	if tt.HasText("CraftWork") {
+		t.Errorf("不应再有独立标题条的品牌名 %q", "CraftWork")
+	}
+}
+
+// TestShellViewSidebarTopDragRow 验证侧栏顶部的拖拽标题行（14 号票）：
+// 高度 = SidebarTopbarHeight（容纳 {x:22,y:23} 的红绿灯且不遮下方内容），
+// 帧内记录供断言。
+func TestShellViewSidebarTopDragRow(t *testing.T) {
+	s, tt := newShellTester(t)
+	tt.Frame()
+	if s.topDragH != theme.SidebarTopbarHeight {
+		t.Fatalf("侧栏顶部拖拽行高 = %v, want %v", s.topDragH, theme.SidebarTopbarHeight)
 	}
 }
 
@@ -248,5 +264,52 @@ func TestShellViewShortcuts(t *testing.T) {
 	tt.Frame()
 	if chatEsc != 1 {
 		t.Fatalf("无层级时 Esc 应落到聊天列两级，实际 %d 次", chatEsc)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 14 号票：窗口材质（under-window 毛玻璃）下的底色分派（色板派生的纯函数
+// 断言在 theme 包 TestMaterialPalette）
+// ---------------------------------------------------------------------------
+
+// TestShellViewVibrancy 验证底色随材质开关分派：材质开时侧栏像素半透明
+// （透出 under-window 材质）、对话区保持实底；材质关时全部实底（Tester
+// 与无材质平台的回退形态）。像素经 Tester 帧图像取样。
+func TestShellViewVibrancy(t *testing.T) {
+	_, tt := newShellTester(t)
+	tt.Frame()
+
+	sidebarPx := func() int {
+		_, _, _, a := tt.Image().RGBAAt(100, 500).RGBA()
+		return int(a >> 8)
+	}
+	chatPx := func() int {
+		_, _, _, a := tt.Image().RGBAAt(800, 500).RGBA()
+		return int(a >> 8)
+	}
+
+	// 无材质：侧栏与对话区都实底。
+	if a := sidebarPx(); a != 255 {
+		t.Fatalf("无材质时侧栏应实底，alpha = %d", a)
+	}
+	if a := chatPx(); a != 255 {
+		t.Fatalf("无材质时对话区应实底，alpha = %d", a)
+	}
+
+	// 材质开：侧栏半透明透材质，对话区保持实底。
+	tt.SetVibrancy(true)
+	tt.Frame()
+	if a := sidebarPx(); a >= 255 {
+		t.Fatalf("材质开启时侧栏应半透明透材质，alpha = %d", a)
+	}
+	if a := chatPx(); a != 255 {
+		t.Fatalf("材质开启时对话区应保持实底，alpha = %d", a)
+	}
+
+	// 材质关（Tester 模拟无材质环境）：回到全部实底。
+	tt.SetVibrancy(false)
+	tt.Frame()
+	if a := sidebarPx(); a != 255 {
+		t.Fatalf("材质关闭后侧栏应回到实底，alpha = %d", a)
 	}
 }
