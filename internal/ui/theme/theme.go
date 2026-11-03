@@ -274,6 +274,7 @@ type Palette struct {
 	ComposerBorder      mygo.Color // composer 输入壳描边（0.5px）
 	ComposerBorderFocus mygo.Color // composer 输入壳聚焦描边
 	ComposerShadow      mygo.Color // composer 输入壳软阴影（深色为透明=无）
+	UserBubble          mygo.Color // 用户消息气泡底（ConversationUserInputBubble bg-surface）
 
 	R0 mygo.Color // --r0 只读
 	R1 mygo.Color // --r1 写工作区
@@ -364,6 +365,7 @@ func darkPalette() Palette {
 		ComposerBorder:      mygo.RGBA(255, 255, 255, 0.10),
 		ComposerBorderFocus: mygo.RGBA(255, 255, 255, 0.15),
 		ComposerShadow:      mygo.RGBA(0, 0, 0, 0), // 深色无 composer 阴影（styles.css:77）
+		UserBubble:          mygo.RGBA(255, 255, 255, 0.08),
 
 		Border:       mygo.Hex("#1d222b"),
 		BorderSoft:   mygo.Hex("#171b22"),
@@ -447,6 +449,7 @@ func lightPalette() Palette {
 		ComposerBorder:      mygo.RGBA(13, 13, 13, 0.10),
 		ComposerBorderFocus: mygo.RGBA(13, 13, 13, 0.15),
 		ComposerShadow:      mygo.RGBA(0, 0, 0, 0.04),
+		UserBubble:          mygo.RGBA(13, 13, 13, 0.05),
 
 		Border:       mygo.Hex("#e0e5ee"),
 		BorderSoft:   mygo.Hex("#ebeff5"),
@@ -643,8 +646,7 @@ func withAlpha(c mygo.Color, a float32) mygo.Color {
 // 材质（under-window 毛玻璃）模式下侧栏各色的不透明度：底 72% 保留一层
 // 侧栏色调、悬停行 60% 更透（对照 ZCode 侧栏不画实底、悬停用半透明淡色）。
 const (
-	materialSidebarAlpha      = float32(0.72)
-	materialSidebarHoverAlpha = float32(0.6)
+	materialSidebarAlpha = float32(0.72)
 )
 
 // MaterialPalette 返回窗口材质模式下的色板副本：侧栏底与侧栏悬停行改为
@@ -655,6 +657,8 @@ const (
 func MaterialPalette(p *Palette) *Palette {
 	q := *p
 	q.SidebarBg = withAlpha(p.SidebarBg, materialSidebarAlpha)
-	q.SidebarHover = withAlpha(p.SidebarHover, materialSidebarHoverAlpha)
+	// SidebarHover 在 zai 色板里本就是半透明（亮黑 5% / 深白 5%），材质下
+	// 原样透出即可；再叠 withAlpha 会把 alpha 抬高反而更实。
+	q.SidebarHover = p.SidebarHover
 	return &q
 }

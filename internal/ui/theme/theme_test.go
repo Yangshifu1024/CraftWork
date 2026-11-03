@@ -204,8 +204,10 @@ func TestMaterialPalette(t *testing.T) {
 		if mat.SidebarBg.A >= base.SidebarBg.A {
 			t.Errorf("材质侧栏底应半透明: alpha %d >= %d", mat.SidebarBg.A, base.SidebarBg.A)
 		}
-		if mat.SidebarHover.A >= base.SidebarHover.A {
-			t.Errorf("材质侧栏悬停行应半透明: alpha %d >= %d", mat.SidebarHover.A, base.SidebarHover.A)
+		// 悬停行：zai 色板本就半透明（黑/白 5%），材质版原样保留——只要求
+		// 不比基础版更实（相等即正确）。
+		if mat.SidebarHover.A > base.SidebarHover.A {
+			t.Errorf("材质侧栏悬停行不得比基础版更实: alpha %d > %d", mat.SidebarHover.A, base.SidebarHover.A)
 		}
 		if mat.ChatBg != base.ChatBg || mat.BgPanel != base.BgPanel || mat.Text != base.Text {
 			t.Error("对话区、面板与文字色在材质模式下应保持原值（实底对照 ZCode workspace）")

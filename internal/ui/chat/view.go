@@ -133,8 +133,8 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 	wrapper.Children(func() {
 		lst := mygo.List(c, &s.list, len(messages), func(i int) {
 			s.messageRow(c, v, messages[i])
-		}).Grow(1).Gap(22).Justify(mygo.End).
-			Padding(theme.Space7, 0, 26, 0) // chat-stream: 22px 顶 26px 底
+		}).Grow(1).Gap(20).Justify(mygo.End). // 消息组间 gap-5（20px）
+							Padding(theme.Space7, 0, 26, 0) // chat-stream: 22px 顶 26px 底
 		// 空会话引导：标题、说明与按模式区分的快捷提示句（List 无行时的
 		// 附加内容，官方文档的空态模式）。
 		lst.Children(func() {
@@ -270,7 +270,9 @@ func (s *Chat) messageRow(c *mygo.Context, v *viewSide, m *Message) {
 			inner.Children(func() {
 				body := mygo.Column(c)
 				if isUser {
-					body.MaxWidthPercent(78) // msg.user .msg-body: max-width 78%（相对正文列）
+					// msg.user .msg-body：气泡自身已有 max-w-xl(576) 上限，
+					// 外层不再叠加百分比（ZCode 双层都是 max 语义）。
+					body.MaxWidth(576)
 				} else {
 					// 助手消息铺满正文列。
 					body.FillWidth()
@@ -351,9 +353,13 @@ func (s *Chat) userBubble(c *mygo.Context, v *viewSide, m *Message, text string)
 	if text == "" && !hasAttachments(m) {
 		return
 	}
-	bubble := mygo.Column(c).Padding(9, theme.Space6).Radius(12, 12, 4, 12).
-		Background(v.acc.Soft)
-	bubble.BorderWidth(1).BorderColor(v.acc.Line)
+	// 用户气泡（ConversationUserInputBubble.tsx:27）：中性 surface 底 +
+	// 常规描边（zai 不用模式色），12px 圆角收右上角（方向暗示），px-4 py-3；
+	// 最大宽 576（max-w-xl，≥624 容器断点）。
+	bubble := mygo.Column(c).Padding(12, 16).Radius(12, 4, 12, 12).
+		Background(v.pal.UserBubble).
+		MaxWidth(576)
+	bubble.BorderWidth(1).BorderColor(v.pal.Border)
 	bubble.Children(func() {
 		if text != "" {
 			mygo.Text(c, text).FontSize(theme.Fonts.Base())
