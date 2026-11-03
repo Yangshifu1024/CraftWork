@@ -28,6 +28,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
@@ -175,12 +176,19 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：服务实例由界面装配（后续 UI 票）
-	// 持有并分组暴露。在那之前保持构造，验证装配顺序不被迁移破坏。
-	_ = []any{
-		appService, threadService, chatService, workspaceService,
-		providerService, auditService, documentService, mcpService,
-	}
+	// native UI 的 view 直调服务方法：浮层（设置中心、数据面板、命令面板）
+	// 与后续视图票需要的后端门面在这里装配。chatService / documentService
+	// 属 05 / 08 号票的门面，等各自票接入后传入；先构造保持装配顺序校验。
+	_, _ = chatService, documentService
+	overlays.Bind(&overlays.Backend{
+		Settings:  settingsService,
+		Providers: providerService,
+		Audit:     auditService,
+		MCP:       mcpService,
+		Workspace: workspaceService,
+		Threads:   threadService,
+		App:       appService,
+	})
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
 	// 工作区即可开聊；目录被用户删除后也会在这里自动重建。
@@ -198,6 +206,8 @@ func Run(build version.Info) error {
 	// 每个会话在运行开始时从自己绑定的工作区解析执行环境。
 	settings := settingsService.Get()
 	engine.SetLevel(policy.ParseLevel(settings.ApprovalLevel))
+	// 外观设置（主题 / 字号）同样在首帧前恢复，显式主题覆盖系统偏好。
+	cwui.SetAppearance(settings.Theme, settings.FontSize)
 
 	// 第二个实例启动时唤起已有窗口。单实例机制只负责通知，
 	// 不会自动把窗口带到前台。
@@ -216,6 +226,8 @@ func Run(build version.Info) error {
 	// 三栏外壳的界面状态只在主线程访问；后台事件经 emitter 进主线程后
 	// 由后续 UI 票接线写入。
 	shell := cwui.NewShell()
+	// 浮层触达外壳状态的回调（面板展开 / 收起）在这里接线。
+	cwui.BindOverlayHooks(shell)
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -229,13 +241,15 @@ func Run(build version.Info) error {
 			StateKey: windowStateKey,
 			// 隐藏标题栏：界面顶部自画拖拽区并避让红绿灯。
 			TitleBarStyle: mygo.TitleBarHiddenInset,
-			// 三栏外壳：顶部拖拽区 + 侧栏 / 对话 / 面板；主题在 view 内
-			// 每帧套用并跟随系统。窗口没有页面可加载，应用内不出现任何
-			// WebView。
-			Content: ui.View(shell.View),
+			// 三栏外壳 + 浮层体系：顶部拖拽区、侧栏 / 对话 / 面板，浮层压在
+			// 外壳之上。主题在 view 内每帧套用并跟随系统。窗口没有页面可
+			// 加载，应用内不出现任何 WebView。
+			Content: ui.View(cwui.RootView(shell)),
 		})
 		// 绑定之后，事件总线产生的事件才会真正进主线程。
 		emitter.bind(win)
+		// 浮层后台结果（连接测试、MCP 连接）经窗口投回主线程。
+		overlays.BindWindow(win)
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。

@@ -1,427 +1,103 @@
-// Package ui 是 CraftWork 的原生界面（mygo 立即模式 view）。
+// 本文件是 package ui 对 theme / icons 两个叶子包的转出口。
 //
-// 本文件把 frontend/src/styles/base.css 的 token 体系机械翻译为 Go 常量与
-// 结构：色板（bg 8 级 / border 3 / text 4 / 状态 5 色 / R0–R4 / 双模式强调色）、
-// 字号 7 档派生（15px 基准）、间距 / 圆角 / 控件高度档、阴影 4 档与缓动常量。
-// 深浅两套 mygo 主题由色板派生，经 Apply 在每帧套到窗口上，跟随系统实时切换。
-//
-// 值的唯一来源是 base.css 与 docs/specs/interface.md；改动观感先改那边。
+// 主题 token 与图标登记表下沉为叶子包（internal/ui/theme、internal/ui/icons），
+// 让设置中心、浮层（internal/ui/overlays）以及侧栏 / 聊天 / 面板等平级视图包
+// 可以直接引用同一套 token，而不经过本包（本包的外壳要 import 这些视图包，
+// 反向依赖会成环）。这里用类型别名与常量转发保持既有引用（shell、并行票的
+// 视图包）不受迁移影响；新代码建议直接 import 叶子包。
 package ui
 
 import (
-	"time"
-
 	mygo "github.com/egoist/mygo/ui"
 
-	"github.com/yangshifu1024/craftwork/internal/policy"
+	"github.com/yangshifu1024/craftwork/internal/ui/icons"
+	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
-// ---------------------------------------------------------------------------
-// 布局与尺寸档（base.css :root 与 docs/specs/interface.md）
-// ---------------------------------------------------------------------------
-
-// 顶行、侧栏与面板的布局尺寸（interface.md：侧栏 268 固定、聊天自适应、
-// 面板 320–760、顶行 48px、状态条 27px）。
+// 布局尺寸（interface.md：顶行 48、状态条 27、侧栏 268 固定、面板 320–760）。
 const (
-	TopbarHeight = float32(48)
-	SidebarWidth = float32(268)
-	StatusHeight = float32(27)
+	TopbarHeight = theme.TopbarHeight
+	SidebarWidth = theme.SidebarWidth
+	StatusHeight = theme.StatusHeight
 
-	PanelMinWidth  = float32(320)
-	PanelMaxWidth  = float32(760)
-	PanelDefWidth  = PanelMinWidth // 面板默认取最小宽度，把空间留给对话区
-	DividerWidth   = float32(1)    // ui.Split 分隔线 1 DIP
-	DefWindowWidth = float32(1440)
+	PanelMinWidth  = theme.PanelMinWidth
+	PanelMaxWidth  = theme.PanelMaxWidth
+	PanelDefWidth  = theme.PanelDefWidth
+	DividerWidth   = theme.DividerWidth
+	DefWindowWidth = theme.DefWindowWidth
+
+	NarrowWindowWidth = theme.NarrowWindowWidth
 )
 
-// NarrowWindowWidth 是窄窗判定阈值：窗口内容宽度低于它时面板停靠栏自动收起
-// （对照规格的窄视口 1100×800）。浮层形态由 08 号票（sidePane 移植）接管。
-const NarrowWindowWidth = float32(1100)
-
-// 圆角档：按 base.css 里的用途命名（控件默认 8，与 ui.Theme.Radius 一致）。
+// 圆角档：按 base.css 里的用途命名。
 const (
-	RadiusBadge = float32(4) // 徽章、kbd、风险徽章、计数
-	RadiusChip  = float32(5) // 徽章、迷你按钮、组头加号
-	RadiusRow   = float32(6) // 侧栏链接、会话行内元素
-	RadiusCtl   = float32(7) // 紧凑按钮、输入框、会话项
-	RadiusBtn   = float32(8) // 常规按钮与 icon 按钮（ui.Theme.Radius 同值）
-	RadiusCard  = float32(9) // 工作区卡片
-	RadiusPill  = float32(10)
-	RadiusRound = float32(999) // 圆形（头像、圆点）
+	RadiusBadge = theme.RadiusBadge
+	RadiusChip  = theme.RadiusChip
+	RadiusRow   = theme.RadiusRow
+	RadiusCtl   = theme.RadiusCtl
+	RadiusBtn   = theme.RadiusBtn
+	RadiusCard  = theme.RadiusCard
+	RadiusPill  = theme.RadiusPill
+	RadiusRound = theme.RadiusRound
 )
 
 // 控件高度档（base.css 各控件声明的高度）。
 const (
-	HeightKbd        = float32(19)
-	HeightBadge      = float32(20)
-	HeightMiniBtn    = float32(22)
-	HeightRunPill    = float32(24)
-	HeightBtnSmall   = float32(26)
-	HeightSideLink   = float32(28)
-	HeightBtn        = float32(30)
-	HeightInput      = float32(32)
-	HeightModeSwitch = float32(40)
+	HeightKbd        = theme.HeightKbd
+	HeightBadge      = theme.HeightBadge
+	HeightMiniBtn    = theme.HeightMiniBtn
+	HeightRunPill    = theme.HeightRunPill
+	HeightBtnSmall   = theme.HeightBtnSmall
+	HeightSideLink   = theme.HeightSideLink
+	HeightBtn        = theme.HeightBtn
+	HeightInput      = theme.HeightInput
+	HeightModeSwitch = theme.HeightModeSwitch
 )
 
 // 间距档：base.css 中出现的水平 / 垂直间距值。
 const (
-	Space1 float32 = 2
-	Space2 float32 = 4
-	Space3 float32 = 6
-	Space4 float32 = 8
-	Space5 float32 = 10
-	Space6 float32 = 12
-	Space7 float32 = 16
-	Space8 float32 = 24
+	Space1 = theme.Space1
+	Space2 = theme.Space2
+	Space3 = theme.Space3
+	Space4 = theme.Space4
+	Space5 = theme.Space5
+	Space6 = theme.Space6
+	Space7 = theme.Space7
+	Space8 = theme.Space8
 )
 
-// 动效常量：--dur 与 --ease（cubic-bezier(0.22, 0.61, 0.36, 1)）。
+// 动效常量：--dur 与 --ease。
 var (
-	Duration = 160 * time.Millisecond
-	Ease     = mygo.CubicBezier(0.22, 0.61, 0.36, 1)
+	Duration = theme.Duration
+	Ease     = theme.Ease
 )
 
-// ---------------------------------------------------------------------------
-// 字号 7 档（派生公式语义保留：设置改基准字号后全档跟随）
-// ---------------------------------------------------------------------------
+// 类型别名：Palette 的方法（Risk、ModeAccent）随别名一起可用。
+type (
+	Palette    = theme.Palette
+	ShadowSpec = theme.ShadowSpec
+	AccentSet  = theme.AccentSet
+	Mode       = theme.Mode
+	FontLadder = theme.FontLadder
+)
 
-// BaseFontSize 是界面基准字号（base.css 的 --ui-font-size 默认值）。
-const BaseFontSize = float32(15)
-
-// FontLadder 按派生公式从基准字号算出 7 档 UI 字号；
-// 档位与 ZCode 对齐（正文 15、次要 13、最小 11）。
-type FontLadder struct{ Size float32 }
-
-// Title 是设置中心页标题（+10 → 25px）。
-func (l FontLadder) Title() float32 { return l.Size + 10 }
-
-// XL 是设置分区标题与 md h1（+4 → 19px）。
-func (l FontLadder) XL() float32 { return l.Size + 4 }
-
-// LG 是 md h2 与空态标题（+2 → 17px）。
-func (l FontLadder) LG() float32 { return l.Size + 2 }
-
-// Base 是正文、按钮、输入、菜单与 tab（±0 → 15px）。
-func (l FontLadder) Base() float32 { return l.Size }
-
-// Caption 是紧凑辅助文案与空态建议按钮（-1 → 14px）。
-func (l FontLadder) Caption() float32 { return l.Size - 1 }
-
-// SM 是次要信息、时间戳与帮助（-2 → 13px）。
-func (l FontLadder) SM() float32 { return l.Size - 2 }
-
-// XS 是徽章、kbd 与弱元数据（-4 → 11px）。
-func (l FontLadder) XS() float32 { return l.Size - 4 }
-
-// Fonts 是当前字号档，按 base.css 默认基准派生。
-var Fonts = FontLadder{Size: BaseFontSize}
-
-// ---------------------------------------------------------------------------
-// 色板：base.css 的深浅两套 token
-// ---------------------------------------------------------------------------
-
-// ShadowSpec 是一条 box-shadow（mygo Shadow 的参数化，CSS 值原样保留）。
-type ShadowSpec struct {
-	X, Y, Blur, Spread float32
-	Color              mygo.Color
-}
-
-// AccentSet 是一套模式强调色：主色、软底、描边与其上的文字色。
-type AccentSet struct {
-	Accent, Soft, Line, On mygo.Color
-}
-
-// Mode 是界面模式（base.css 的 data-mode）。
-type Mode int
-
+// 模式与基准字号常量。
 const (
-	// ModeCode 是 Code 模式，强调色随主题 accent。
-	ModeCode Mode = iota
-	// ModeWork 是 Work 模式，强调色为琥珀（与 Code 蓝形成区分）。
-	ModeWork
+	ModeCode     = theme.ModeCode
+	ModeWork     = theme.ModeWork
+	BaseFontSize = theme.BaseFontSize
 )
 
-// Palette 是一套外观（深或浅）下的全部 base.css token。
-// 字段名与 CSS 变量一一对应，便于对照检查。
-type Palette struct {
-	Bg         mygo.Color // --bg
-	BgSunken   mygo.Color // --bg-sunken
-	BgPanel    mygo.Color // --bg-panel
-	BgElevated mygo.Color // --bg-elevated
-	BgFloat    mygo.Color // --bg-float
-	BgHover    mygo.Color // --bg-hover
-	BgActive   mygo.Color // --bg-active
-	BgInput    mygo.Color // --bg-input
+// Apply 把窗口主题切换为与当前外观（系统偏好或用户显式设置）匹配的
+// CraftWork 主题，并返回其色板。
+func Apply(c *mygo.Context) *Palette { return theme.Apply(c) }
 
-	Border       mygo.Color // --border
-	BorderSoft   mygo.Color // --border-soft
-	BorderStrong mygo.Color // --border-strong
-
-	Text  mygo.Color // --text
-	Text2 mygo.Color // --text-2
-	Text3 mygo.Color // --text-3
-	Text4 mygo.Color // --text-4
-
-	Accent       mygo.Color // --accent
-	AccentStrong mygo.Color // --accent-strong
-	AccentSoft   mygo.Color // --accent-soft
-	AccentLine   mygo.Color // --accent-line
-	OnAccent     mygo.Color // --on-accent
-
-	OK         mygo.Color // --ok
-	OKSoft     mygo.Color // --ok-soft
-	Warn       mygo.Color // --warn
-	WarnSoft   mygo.Color // --warn-soft
-	Danger     mygo.Color // --danger
-	DangerSoft mygo.Color // --danger-soft
-	Purple     mygo.Color // --purple
-	PurpleSoft mygo.Color // --purple-soft
-	Cyan       mygo.Color // --cyan
-
-	R0 mygo.Color // --r0 只读
-	R1 mygo.Color // --r1 写工作区
-	R2 mygo.Color // --r2 执行
-	R3 mygo.Color // --r3 网络或越界
-	R4 mygo.Color // --r4 破坏性
-
-	CodeBg      mygo.Color // --code-bg
-	ScrollThumb mygo.Color // --scroll-thumb
-
-	SidebarBg    mygo.Color // --sidebar-bg
-	SidebarHover mygo.Color // --sidebar-hover
-	ChatBg       mygo.Color // --chat-bg
-
-	// WorkMode 是 Work 模式的琥珀强调色组（Code 模式用 Accent 系字段）。
-	WorkMode AccentSet
-
-	ShadowSm  ShadowSpec // --shadow-sm
-	ShadowMd  ShadowSpec // --shadow-md
-	ShadowLg  ShadowSpec // --shadow-lg
-	ShadowPop ShadowSpec // --shadow-pop 的主投影；pop 还带一圈 1px 描边，见 PopRing
-	PopRing   ShadowSpec // --shadow-pop 的 0 0 0 1px 描边圈
-}
-
-// Risk 把工具风险等级映射到风险徽章色（.risk-R0..R4）；越界回退 R0 中性色。
-func (p *Palette) Risk(level policy.Risk) mygo.Color {
-	switch level {
-	case policy.R1:
-		return p.R1
-	case policy.R2:
-		return p.R2
-	case policy.R3:
-		return p.R3
-	case policy.R4:
-		return p.R4
-	default:
-		return p.R0
-	}
-}
-
-// ModeAccent 返回模式的强调色组：Work 用琥珀，Code（含未知值）用主题 accent。
-func (p *Palette) ModeAccent(mode Mode) AccentSet {
-	if mode == ModeWork {
-		return p.WorkMode
-	}
-	return AccentSet{Accent: p.Accent, Soft: p.AccentSoft, Line: p.AccentLine, On: p.OnAccent}
-}
-
-// darkPalette 返回深色色板（base.css :root 默认值）。
-func darkPalette() Palette {
-	return Palette{
-		Bg:         mygo.Hex("#0b0d11"),
-		BgSunken:   mygo.Hex("#08090c"),
-		BgPanel:    mygo.Hex("#101318"),
-		BgElevated: mygo.Hex("#151920"),
-		BgFloat:    mygo.Hex("#171b23"),
-		BgHover:    mygo.Hex("#1a1f28"),
-		BgActive:   mygo.Hex("#222834"),
-		BgInput:    mygo.Hex("#0e1116"),
-
-		Border:       mygo.Hex("#1d222b"),
-		BorderSoft:   mygo.Hex("#171b22"),
-		BorderStrong: mygo.Hex("#2a313d"),
-
-		Text:  mygo.Hex("#e8ebf1"),
-		Text2: mygo.Hex("#a2abba"),
-		Text3: mygo.Hex("#6d7686"),
-		Text4: mygo.Hex("#4d5563"),
-
-		Accent:       mygo.Hex("#5b9dff"),
-		AccentStrong: mygo.Hex("#7cb2ff"),
-		AccentSoft:   mygo.RGBA(91, 157, 255, 0.13),
-		AccentLine:   mygo.RGBA(91, 157, 255, 0.32),
-		OnAccent:     mygo.Hex("#06101f"),
-
-		OK:         mygo.Hex("#43c08d"),
-		OKSoft:     mygo.RGBA(67, 192, 141, 0.13),
-		Warn:       mygo.Hex("#e8b04a"),
-		WarnSoft:   mygo.RGBA(232, 176, 74, 0.14),
-		Danger:     mygo.Hex("#ef7070"),
-		DangerSoft: mygo.RGBA(239, 112, 112, 0.13),
-		Purple:     mygo.Hex("#a78bfa"),
-		PurpleSoft: mygo.RGBA(167, 139, 250, 0.13),
-		Cyan:       mygo.Hex("#4ec9d4"),
-
-		R0: mygo.Hex("#7c8798"),
-		R1: mygo.Hex("#e8b04a"),
-		R2: mygo.Hex("#ec9350"),
-		R3: mygo.Hex("#ee7070"),
-		R4: mygo.Hex("#e0475f"),
-
-		CodeBg:      mygo.Hex("#0c0f14"),
-		ScrollThumb: mygo.Hex("#2b323e"),
-
-		SidebarBg:    mygo.Hex("#101318"),
-		SidebarHover: mygo.Hex("#1a1f28"),
-		ChatBg:       mygo.Hex("#0b0d11"),
-
-		WorkMode: AccentSet{
-			Accent: mygo.Hex("#f0b354"),
-			Soft:   mygo.RGBA(240, 179, 84, 0.14),
-			Line:   mygo.RGBA(240, 179, 84, 0.34),
-			On:     mygo.Hex("#1d1405"),
-		},
-
-		ShadowSm:  ShadowSpec{Y: 1, Blur: 2, Color: mygo.RGBA(0, 0, 0, 0.35)},
-		ShadowMd:  ShadowSpec{Y: 10, Blur: 30, Color: mygo.RGBA(0, 0, 0, 0.4)},
-		ShadowLg:  ShadowSpec{Y: 24, Blur: 70, Color: mygo.RGBA(0, 0, 0, 0.55)},
-		ShadowPop: ShadowSpec{Y: 16, Blur: 44, Color: mygo.RGBA(0, 0, 0, 0.5)},
-		PopRing:   ShadowSpec{Blur: 0, Spread: 1, Color: mygo.Hex("#2a313d")},
-	}
-}
-
-// lightPalette 返回浅色色板（base.css html[data-theme="light"]）。
-func lightPalette() Palette {
-	return Palette{
-		Bg:         mygo.Hex("#eef0f4"),
-		BgSunken:   mygo.Hex("#e7eaf0"),
-		BgPanel:    mygo.Hex("#ffffff"),
-		BgElevated: mygo.Hex("#ffffff"),
-		BgFloat:    mygo.Hex("#ffffff"),
-		BgHover:    mygo.Hex("#f1f4f8"),
-		BgActive:   mygo.Hex("#e7ecf4"),
-		BgInput:    mygo.Hex("#f7f9fc"),
-
-		Border:       mygo.Hex("#e0e5ee"),
-		BorderSoft:   mygo.Hex("#ebeff5"),
-		BorderStrong: mygo.Hex("#c9d2e0"),
-
-		Text:  mygo.Hex("#10141b"),
-		Text2: mygo.Hex("#525d6d"),
-		Text3: mygo.Hex("#7d8798"),
-		Text4: mygo.Hex("#a2abba"),
-
-		Accent:       mygo.Hex("#2563eb"),
-		AccentStrong: mygo.Hex("#1d4ed8"),
-		AccentSoft:   mygo.RGBA(37, 99, 235, 0.09),
-		AccentLine:   mygo.RGBA(37, 99, 235, 0.28),
-		OnAccent:     mygo.Hex("#ffffff"),
-
-		OK:         mygo.Hex("#0f9d6e"),
-		OKSoft:     mygo.RGBA(15, 157, 110, 0.1),
-		Warn:       mygo.Hex("#b7791f"),
-		WarnSoft:   mygo.RGBA(183, 121, 31, 0.11),
-		Danger:     mygo.Hex("#d64545"),
-		DangerSoft: mygo.RGBA(214, 69, 69, 0.09),
-		Purple:     mygo.Hex("#7c5cf0"),
-		PurpleSoft: mygo.RGBA(124, 92, 240, 0.09),
-		Cyan:       mygo.Hex("#0d8f9c"),
-
-		R0: mygo.Hex("#69748a"),
-		R1: mygo.Hex("#b7791f"),
-		R2: mygo.Hex("#c2610f"),
-		R3: mygo.Hex("#c53c3c"),
-		R4: mygo.Hex("#b3122f"),
-
-		CodeBg:      mygo.Hex("#f7f9fc"),
-		ScrollThumb: mygo.Hex("#c3ccdb"),
-
-		SidebarBg:    mygo.Hex("#f3f3f2"),
-		SidebarHover: mygo.Hex("#e8e8e8"),
-		ChatBg:       mygo.Hex("#f8f8f8"),
-
-		WorkMode: AccentSet{
-			Accent: mygo.Hex("#b06f0c"),
-			Soft:   mygo.RGBA(176, 111, 12, 0.1),
-			Line:   mygo.RGBA(176, 111, 12, 0.28),
-			On:     mygo.Hex("#ffffff"),
-		},
-
-		ShadowSm:  ShadowSpec{Y: 1, Blur: 2, Color: mygo.RGBA(16, 24, 40, 0.06)},
-		ShadowMd:  ShadowSpec{Y: 10, Blur: 28, Color: mygo.RGBA(16, 24, 40, 0.1)},
-		ShadowLg:  ShadowSpec{Y: 24, Blur: 64, Color: mygo.RGBA(16, 24, 40, 0.18)},
-		ShadowPop: ShadowSpec{Y: 14, Blur: 40, Color: mygo.RGBA(16, 24, 40, 0.14)},
-		PopRing:   ShadowSpec{Blur: 0, Spread: 1, Color: mygo.Hex("#e0e5ee")},
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ui.Theme 派生与跟随系统
-// ---------------------------------------------------------------------------
-
-// uiTheme 把 CraftWork 色板映射进 mygo 的语义主题字段，让内置控件与自绘元素
-// 同源同色。语义映射：Surface=BgElevated（控件面）、TextMuted=Text2（次要文字）、
-// AccentHover/Pressed=AccentStrong（深浅两模式里 strong 都是更强调的一档）、
-// Selection=AccentSoft（::selection 用 accent-soft）、Focus=Accent
-// （:focus-visible 描边 accent）。
-//
-// 已知取舍：mygo 默认主题会跟随桌面偏好（系统强调色、高对比、文字缩放），
-// CraftWork 观感以 base.css 为准，accent 与字号固定，不随桌面偏好变化。
-func uiTheme(p Palette, dark bool) *mygo.Theme {
-	t := &mygo.Theme{Dark: dark}
-	t.Background = p.Bg
-	t.Surface = p.BgElevated
-	t.SurfaceHover = p.BgHover
-	t.SurfacePressed = p.BgActive
-	t.Border = p.Border
-	t.Text = p.Text
-	t.TextMuted = p.Text2
-	t.Accent = p.Accent
-	t.AccentHover = p.AccentStrong
-	t.AccentPressed = p.AccentStrong
-	t.AccentText = p.OnAccent
-	t.Danger = p.Danger
-	t.Warning = p.Warn
-	t.Success = p.OK
-	t.Selection = p.AccentSoft
-	t.Focus = p.Accent
-	t.Scrollbar = p.ScrollThumb
-	t.ScrollbarWidth = 6 // base.css 细滚动条：10px 槽内 4px 可见拇指，取近似
-	t.Radius = RadiusBtn
-	t.FontSize = BaseFontSize
-	// Inverse/InverseText 留零：工具提示与 toast 由 mygo 自动取主题反色。
-	// Font 留空：跟随系统界面字体（--font-ui 的系统栈）。
-	return t
-}
-
-// 主题单例：登记表色板各构建一次，Apply 以指针身份区分深浅。
-var (
-	darkPaletteUI  = uiTheme(darkPalette(), true)
-	lightPaletteUI = uiTheme(lightPalette(), false)
-	darkPal        = darkPalette()
-	lightPal       = lightPalette()
-)
-
-// Apply 把窗口主题切换为与当前系统外观匹配的 CraftWork 主题，并返回其色板。
-//
-// 在根 view 每帧开头调用：mygo 每帧把 c.Theme() 重置为跟随系统的默认主题，
-// 据其 Dark 标志选边；系统切换外观时引擎重画一帧，这里即随之实时切换。
-// SetTheme 同时把主题背景铺到窗口根上（首帧即有着色，不留白屏）。
-func Apply(c *mygo.Context) *Palette {
-	if c.Theme().Dark {
-		c.SetTheme(darkPaletteUI)
-		return &darkPal
-	}
-	c.SetTheme(lightPaletteUI)
-	return &lightPal
-}
+// SetAppearance 应用设置里的外观（system/dark/light）与界面基准字号，
+// 下一帧生效。设置保存路径在主线程调用。
+func SetAppearance(themeSetting string, fontSize int) { theme.SetAppearance(themeSetting, fontSize) }
 
 // WindowBackgroundHex 返回窗口创建参数用的底色（首帧前的窗口表面）。
-// themeSetting 是设置里的界面主题（system/dark/light）：跟随系统与深色仍用
-// 深底，浅色用户浅底，避免首帧闪色；首帧之后由 Apply 按系统实时接管。
-func WindowBackgroundHex(themeSetting string) string {
-	if themeSetting == "light" {
-		return "#eef0f4"
-	}
-	return "#0b0d11"
-}
+func WindowBackgroundHex(themeSetting string) string { return theme.WindowBackgroundHex(themeSetting) }
+
+// Icon 按登记名画一个 lucide 图标（详见 icons 包）。
+func Icon(c *mygo.Context, name string) mygo.Element { return icons.Icon(c, name) }

@@ -10,7 +10,7 @@
 //
 // 新增图标：把 lucide-static 同名 SVG 放进 icons/svg/ 并在此登记，不要在
 // 业务 view 里手写 SVG 路径。
-package ui
+package icons
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ import (
 	mygo "github.com/egoist/mygo/ui"
 )
 
-//go:embed icons/svg/*.svg
+//go:embed svg/*.svg
 var iconFS embed.FS
 
 // iconFiles 是登记名到 SVG 文件名的映射（不带 .svg 后缀）。
@@ -126,7 +126,7 @@ var (
 
 // mustIconSVG 读取并解析一个登记 SVG；缺文件是编程错误，直接 panic 暴露。
 func mustIconSVG(file string) *mygo.SVG {
-	data, err := iconFS.ReadFile("icons/svg/" + file + ".svg")
+	data, err := iconFS.ReadFile("svg/" + file + ".svg")
 	if err != nil {
 		panic("ui: 图标资产缺失 " + file + ".svg: " + err.Error())
 	}

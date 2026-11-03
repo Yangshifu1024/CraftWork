@@ -1,4 +1,4 @@
-package ui
+package theme
 
 // 主题派生函数的单测：字号档、色板 → ui.Theme 的语义映射、R0–R4 与模式
 // 强调色映射、窗口底色。映射走 ui.Tester 真实 view 帧验证（含深浅实时切换）。
