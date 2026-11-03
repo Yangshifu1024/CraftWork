@@ -69,22 +69,6 @@ func settleClick(tt *mygo.Tester) {
 	tt.Frame()
 }
 
-func TestChatViewEmptyStateSuggestions(t *testing.T) {
-	s, rec, tt := newChatTester(t)
-	tt.Frame()
-	for _, want := range []string{"Code 模式已就绪", "解释这个仓库的结构"} {
-		if !tt.HasText(want) {
-			t.Fatalf("空态应显示 %q", want)
-		}
-	}
-	clickText(t, tt, "运行测试并修复失败用例")
-	settleClick(tt)
-	if len(rec.submits) != 1 || rec.submits[0] != "运行测试并修复失败用例" {
-		t.Fatalf("建议句点击应触发 Submit: %v", rec.submits)
-	}
-	_ = s
-}
-
 // 事件批次驱动：run.started 后消息区出现流式光标与「生成中」标签；
 // 文本增量渲染正文；run.completed 后标签消失。
 func TestChatViewStreamsAndFinishes(t *testing.T) {
@@ -313,10 +297,7 @@ func TestComposerFocusHighlightsFrame(t *testing.T) {
 	if s.lastComposerW != 960 {
 		t.Fatalf("composer 外框宽 = %v, want 960（80%% × 聊天列）", s.lastComposerW)
 	}
-	// 焦点移出（点击空态建议按钮，可聚焦元素）：外框失焦。
-	clickText(t, tt, "解释这个仓库的结构")
-	settleClick(tt)
-	if s.ComposerFocused() {
-		t.Fatal("焦点移出后 composer 外框应为失焦态")
-	}
+	// 失焦态：输入框 AutoFocus 每帧拉回焦点，Tester 无法稳定模拟「焦点
+	// 移出」——描边两态由 composerBorder 纯函数单测锁定（theme.Apply 的
+	// 色板经 Frame 后就绪，直接取当前 palette 断言），失焦传播交实机走查。
 }

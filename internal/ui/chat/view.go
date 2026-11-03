@@ -23,12 +23,6 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/ui/theme"
 )
 
-// suggestions 是空会话时按模式展示的快捷提示句（ChatPane.tsx 同文案）。
-var suggestions = map[theme.Mode][]string{
-	theme.ModeCode: {"解释这个仓库的结构", "运行测试并修复失败用例", "为当前分支写一份变更摘要"},
-	theme.ModeWork: {"总结这份文档的要点", "把会议纪要整理成待办表", "草拟一封回复邮件"},
-}
-
 // viewSide 是 view 帧内的一次性派生：色板、模式强调色与动作入口。
 type viewSide struct {
 	pal  *theme.Palette
@@ -131,17 +125,10 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 
 	wrapper := mygo.Box(c).Grow(1).FillWidth().Clip()
 	wrapper.Children(func() {
-		lst := mygo.List(c, &s.list, len(messages), func(i int) {
+		mygo.List(c, &s.list, len(messages), func(i int) {
 			s.messageRow(c, v, messages[i])
 		}).Grow(1).Gap(20).Justify(mygo.End). // 消息组间 gap-5（20px）
 							Padding(theme.Space7, 0, 26, 0) // chat-stream: 22px 顶 26px 底
-		// 空会话引导：标题、说明与按模式区分的快捷提示句（List 无行时的
-		// 附加内容，官方文档的空态模式）。
-		lst.Children(func() {
-			if len(messages) == 0 {
-				s.emptyState(c, v)
-			}
-		})
 		// 靠近顶部自动向前翻页（Visible 返回当前可视行区间）。
 		if first, _ := s.list.Visible(); first < 5 && s.hasEarlier && !s.loadingEarlier && len(messages) > 0 {
 			if s.acts != nil && s.acts.LoadEarlier != nil {
@@ -173,52 +160,6 @@ func (s *Chat) streamArea(c *mygo.Context, v *viewSide) {
 				})
 			})
 		}
-	})
-}
-
-// emptyState 画空会话引导（.chat-empty：模式图标、标题、说明、建议句）。
-func (s *Chat) emptyState(c *mygo.Context, v *viewSide) {
-	temp := s.tempWorkspace
-	title, desc := "Code 模式已就绪", "在当前工作区里读代码、改文件、跑命令、看差异。所有写操作与命令执行都会先经过审批。"
-	icon := "code"
-	if temp {
-		title = "临时会话已就绪"
-		desc = "无需选择工作区，直接提问即可；产生的文件会保存在内置临时目录，随时可在侧栏切回工作区会话。"
-	} else if v.mode == theme.ModeWork {
-		title = "Work 模式已就绪"
-		desc = "读取文档、修改 Word 与 Excel、汇总邮件与日历。所有文档写入都会在审批后执行并自动备份。"
-		icon = "briefcase"
-	}
-
-	mygo.Box(c).Grow(1).FillWidth().Center().Padding(40, 20).Children(func() {
-		mygo.Column(c).Gap(theme.Space5).AlignItems(mygo.Center).MaxWidth(380).Children(func() {
-			// 模式图标：46px 圆角方块，模式色软底（.empty-mark）。
-			mark := mygo.Box(c).Size(46, 46).Radius(13).
-				Background(v.acc.Soft).Center()
-			mark.BorderWidth(1).BorderColor(v.acc.Line)
-			mark.Children(func() {
-				icons.Icon(c, icon).FontSize(22).TextColor(v.acc.Accent)
-			})
-			mygo.Text(c, title).FontSize(theme.Fonts.LG()).FontWeight(600).TextColor(v.pal.Text)
-			mygo.Text(c, desc).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3).TextAlign(mygo.Center)
-			mygo.Row(c).Gap(theme.Space3).Justify(mygo.Center).Children(func() {
-				for _, suggestion := range suggestions[v.mode] {
-					btn := mygo.ButtonBase(c).Height(30).Padding(0, theme.Space6).Radius(theme.RadiusCtl).
-						Background(v.pal.BgPanel).BorderWidth(1).BorderColor(v.pal.Border)
-					if btn.Clicked() {
-						if s.acts != nil && s.acts.Submit != nil {
-							s.acts.Submit(suggestion, nil)
-						}
-					}
-					if btn.Hovered() {
-						btn.Background(v.acc.Soft).BorderColor(v.acc.Line)
-					}
-					btn.Children(func() {
-						mygo.Text(c, suggestion).FontSize(theme.Fonts.Caption()).TextColor(v.pal.Text2)
-					})
-				}
-			})
-		})
 	})
 }
 
