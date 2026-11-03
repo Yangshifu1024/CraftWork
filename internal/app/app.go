@@ -28,6 +28,7 @@ import (
 	"github.com/yangshifu1024/craftwork/internal/store"
 	"github.com/yangshifu1024/craftwork/internal/tools"
 	cwui "github.com/yangshifu1024/craftwork/internal/ui"
+	cwsidebar "github.com/yangshifu1024/craftwork/internal/ui/sidebar"
 	"github.com/yangshifu1024/craftwork/internal/version"
 )
 
@@ -70,6 +71,18 @@ func (e *emitter) bind(win *mygo.Window) {
 	e.mu.Lock()
 	e.win = win
 	e.mu.Unlock()
+}
+
+// update 把一个函数调度进主线程（win.Update 的空安全包装）；窗口尚未
+// 绑定时丢弃。侧栏等服务接线的异步回调用它把结果写进界面状态。
+func (e *emitter) update(fn func()) {
+	e.mu.RLock()
+	current := e.win
+	e.mu.RUnlock()
+	if current == nil {
+		return
+	}
+	current.Update(fn)
 }
 
 // Run 启动桌面应用，阻塞直到应用退出。
@@ -175,12 +188,11 @@ func Run(build version.Info) error {
 	documentService := service.NewDocumentService(db)
 	mcpService := service.NewMCPService(db, registry)
 
-	// native UI 的 view 直调服务方法：面板（08 号票）已接工作区与文档
-	// 预览服务；其余服务实例仍由后续 UI 票持有并分组暴露。在那之前保持
-	// 构造，验证装配顺序不被迁移破坏。
+	// native UI 的 view 直调服务方法：workspace / document（08 面板）、
+	// thread / audit（04 侧栏）已接线；其余仍由后续 UI 票持有并分组暴露。
 	_ = []any{
-		appService, threadService, chatService,
-		providerService, auditService, mcpService,
+		appService, chatService,
+		providerService, mcpService,
 	}
 
 	// 确保内置临时会话目录存在：临时会话绑定它运行，首次启动无需先添加
@@ -219,6 +231,18 @@ func Run(build version.Info) error {
 	shell := cwui.NewShell()
 	shell.SetPanelServices(workspaceService, documentService)
 
+	// 侧栏（04 号票）：状态壳 + 服务接线。异步动作在 goroutine 里调服务，
+	// 结果经 emitter.update（win.Update）回主线程写状态。
+	sidebarState := cwsidebar.NewSidebar()
+	shell.SidebarView = sidebarState.View
+	sidebarClient := cwsidebar.NewClient(
+		sidebarState, threadService, workspaceService, settingsService, auditService,
+		emitter.update,
+		func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
+		confirmDeleteDialog(),
+	)
+	sidebarState.SetActions(sidebarClient.Actions())
+
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           appName,
@@ -239,7 +263,10 @@ func Run(build version.Info) error {
 		// 绑定之后，事件总线产生的事件才会真正进主线程；面板的后台
 		// IO（文件树、读写、保存）结果也经这里回主线程。
 		emitter.bind(win)
+		// 面板的后台 IO（文件树、读写、保存）结果经窗口回主线程。
 		shell.BindWindow(win)
+		// 侧栏启动首拉：恢复模式、工作区清单、当前模式列表与计数。
+		sidebarClient.Boot()
 	})
 
 	// 窗口聚焦时不打扰用户；系统通知失败不会影响运行。
@@ -257,6 +284,32 @@ func Run(build version.Info) error {
 	go mcpService.Restore()
 
 	return mygo.App.Run()
+}
+
+// confirmDeleteDialog 返回侧栏删除确认的原生实现（04 号票的简易路径）：
+// Dialog.Message 会阻塞调用 goroutine 直到用户作答，因此整体放后台，
+// 结果经 onDone（内部再经 win.Update）回主线程。
+// TODO(07): 换成统一浮层体系的确认对话框（危险按钮样式、应用内呈现）。
+func confirmDeleteDialog() cwsidebar.ConfirmFn {
+	return func(title, message, detail string, onDone func(ok bool)) {
+		go func() {
+			result, err := mygo.Dialog.Message(mygo.MessageOptions{
+				Type:               mygo.MessageWarning,
+				Title:              title,
+				Message:            message,
+				Detail:             detail,
+				Buttons:            []string{"取消", "删除"},
+				DefaultButton:      0,
+				CancelButton:       0,
+				DestructiveButtons: []int{1},
+			})
+			if err != nil {
+				slog.Warn("弹出删除确认失败", "err", err)
+				return
+			}
+			onDone(result.Button == 1)
+		}()
+	}
 }
 
 // resolveDataDir 返回本地数据目录，默认 ~/.craftwork。
