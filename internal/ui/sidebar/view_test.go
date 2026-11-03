@@ -256,3 +256,61 @@ func TestSidebarViewToastQueue(t *testing.T) {
 		t.Errorf("取走后应清空")
 	}
 }
+
+// TestSidebarViewGroupHeadSpacing 校验全折叠时的组头垂直节奏（13 号票）：
+// 相邻两个组头（「项目会话」区头 → 项目组头）之间的文本 Y 差应等于
+// 区头底边距 + 组头顶边距 + 一行行高的居中偏移，即 25 + groupHeadPad.t。
+// 组头顶边距在 base.css 是 12px，此前误算成 22px，全折叠时组间距因此多出 10。
+func TestSidebarViewGroupHeadSpacing(t *testing.T) {
+	s, _, _, _, tt := newSidebarTester(t)
+	// 折叠临时组与全部项目组：列表只剩三个组头。
+	s.ToggleTemp()
+	s.ToggleAllProjects()
+	tt.Frame()
+	head, ok := tt.Find("项目会话")
+	if !ok {
+		t.Fatalf("找不到「项目会话」区头: %v", tt.Texts())
+	}
+	group, ok := tt.Find("项目 A")
+	if !ok {
+		t.Fatalf("折叠后应仍见「项目 A」组头: %v", tt.Texts())
+	}
+	// 区头与组头都 AlignItems 居中，两行文本的 Y 差 = 一行内容高（20，
+	// 组头最高子元素是 20×20 的 + 按钮）拆开后的 25 + 组头顶边距。
+	delta := group.Y - head.Y
+	want := float32(25) + theme.Space6 // 12：base.css .thread-group-head 顶边距
+	if delta < want-2 || delta > want+2 {
+		t.Errorf("全折叠时区头到项目组的文本间距 = %.1f, want %.0f±2（组头顶边距应为 12）", delta, want)
+	}
+}
+
+// TestSidebarViewTempEmptyRowHeight 校验空分组空态行的行高（13 号票）：
+// 空态文案顶部与组头文本的距离应等于组头剩余高度 + 空态顶边距 26
+//（base.css .thread-empty 的 padding 26px 16px）。此前顶边距误算成 36、
+// 组头顶边距误算成 22，空态行整体下坠。
+func TestSidebarViewTempEmptyRowHeight(t *testing.T) {
+	s := NewSidebar()
+	s.ReplaceWorkspaces([]Workspace{{ID: "conv", Name: "临时会话", Purpose: "conversation"}})
+	s.ReplaceThreads(ModeCode, nil)
+	view := func(c *mygo.Context) {
+		pal := theme.Apply(c)
+		s.View(c, pal)
+	}
+	tt := mygo.NewTester(view, 1440, 900)
+	tt.Frame()
+	head, ok := tt.Find("临时会话")
+	if !ok {
+		t.Fatalf("找不到临时组头: %v", tt.Texts())
+	}
+	empty, ok := tt.Find("还没有临时会话，点上方 + 新建")
+	if !ok {
+		t.Fatalf("找不到临时组空态文案: %v", tt.Texts())
+	}
+	// 组头行高拆分：组头底边到组名顶 ≈ 25 - 组名半行居中偏移 ≈ 22.65，
+	// 再接空态顶边距 26（base.css .thread-empty 的 26px）。
+	delta := empty.Y - head.Y
+	want := 22.65 + theme.Space7 + theme.Space4 + theme.Space1
+	if delta < want-3 || delta > want+3 {
+		t.Errorf("临时组头到空态文案的间距 = %.1f, want %.1f±3（空态顶边距应为 26）", delta, want)
+	}
+}

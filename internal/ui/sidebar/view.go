@@ -112,11 +112,12 @@ func (s *Sidebar) modeSwitch(c *mygo.Context, v *viewSide) {
 	})
 }
 
-// modeButton 画一个模式按钮（.mode-btn）：图标 15 + 文字；选中项反白
-// 加粗（600），未选中次要色、悬停提亮。
+// modeButton 画一个模式按钮（.mode-btn）：图标 15 + 文字，间距 6
+//（.mode-btn 的 gap: 6px；13 号票：此前漏了 gap，图标与文字贴在一起）；
+// 选中项反白加粗（600），未选中次要色、悬停提亮。
 func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, label string) {
 	selected := s.Mode == mode
-	btn := mygo.ButtonBase(c).Grow(1).Radius(theme.RadiusCtl)
+	btn := mygo.ButtonBase(c).Grow(1).Gap(theme.Space3).Radius(theme.RadiusCtl)
 	if btn.Clicked() {
 		// 本地先切（列表立即按该模式渲染）；服务同步由注入的动作做
 		//（持久化到设置 + 拉新列表），未注入时（单测路径）也保持可用。
@@ -166,8 +167,9 @@ func findGroup(groups []Group, kind GroupKind) Group {
 	return Group{Kind: kind}
 }
 
-// groupHeadPad 是组头内边距（.thread-group-head：12 6 5）。
-var groupHeadPad = pad{t: theme.Space6 + theme.Space4 + theme.Space1, r: theme.Space3, b: theme.Space1 + 3}
+// groupHeadPad 是组头内边距（.thread-group-head：12 6 5）。顶边距 12 是
+// 全折叠时组间节奏的主要来源（13 号票：此前误算成 22，组间距整体多 10）。
+var groupHeadPad = pad{t: theme.Space6, r: theme.Space3, b: theme.Space1 + 3}
 
 // projectGroups 只取项目组。
 func projectGroups(groups []Group) []Group {
@@ -386,9 +388,11 @@ func countBadge(c *mygo.Context, v *viewSide, n int) {
 }
 
 // listEmpty 画空态文案（.thread-empty：26 16 内边距、居中、次要色）。
+// 顶边距 26 让单行空态与列表行的呼吸节奏一致（13 号票：此前误算成 36/30，
+// 空态行高比旧版明显更高）。
 func listEmpty(c *mygo.Context, v *viewSide, text string) {
 	mygo.Box(c).Fill().Center().
-		Padding(theme.Space6+theme.Space7+theme.Space4, theme.Space6+theme.Space7+theme.Space1). // 26 16
+		Padding(theme.Space7+theme.Space4+theme.Space1, theme.Space7). // 26 16
 		Children(func() {
 			mygo.Text(c, text).FontSize(theme.Fonts.SM()).TextColor(v.pal.Text3).
 				TextAlign(mygo.Center)
