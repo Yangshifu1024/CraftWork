@@ -261,12 +261,15 @@ func Run(build version.Info) error {
 	// 结果经 emitter.update（win.Update）回主线程写状态。
 	sidebarState := cwsidebar.NewSidebar()
 	shell.SidebarView = sidebarState.View
-	sidebarClient := cwsidebar.NewClient(
-		sidebarState, threadService, workspaceService, settingsService, auditService,
-		emitter.update,
-		func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
-		confirmDeleteDialog(),
-	)
+	sidebarClient := cwsidebar.NewClient(sidebarState, cwsidebar.ClientDeps{
+		Threads:       threadService,
+		Workspaces:    workspaceService,
+		Settings:      settingsService,
+		Audit:         auditService,
+		Deliver:       emitter.update,
+		Toast:         func(message string) { emitter.update(func() { sidebarState.QueueToast(message) }) },
+		ConfirmDelete: confirmDeleteDialog(),
+	})
 
 	// 聊天列（05 号票）：状态壳 + 服务接线。事件总线经 emitter 桥进主线程
 	// 后交给 reducer 派发；需要刷新会话列表时联动侧栏 Refresh。

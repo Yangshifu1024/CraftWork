@@ -33,6 +33,26 @@ type Toast func(message string)
 // goroutine + mygo.Dialog.Message 实现。
 type ConfirmFn func(title, message, detail string, onDone func(ok bool))
 
+// ClientDeps 是侧栏服务接线的依赖集合。收成结构体而非八个位置参数
+// （Data Clumps）：四个服务引用与三个反馈出口按字段名对号入座，新增
+// 依赖不再波及调用点。
+type ClientDeps struct {
+	// Threads 是会话服务（列表 / 新建 / 重命名 / 删除）。
+	Threads *service.ThreadService
+	// Workspaces 是工作区服务（清单与激活）。
+	Workspaces *service.WorkspaceService
+	// Settings 是设置服务（模式与活动工作区持久化）。
+	Settings *service.SettingsService
+	// Audit 是审计服务（今日用量与条数计数）。
+	Audit *service.AuditService
+	// Deliver 把状态写入调度回主线程（app.go 注入 win.Update 的包装）。
+	Deliver Deliver
+	// Toast 在主线程弹提示（异步动作完成后的用户反馈）。
+	Toast Toast
+	// ConfirmDelete 弹危险确认框；为空时删除不做确认（仅 Tester 路径）。
+	ConfirmDelete ConfirmFn
+}
+
 // Client 是侧栏的服务接线：持有服务引用与投递通道，实现 Actions 里的
 // 各个动作。经 internal/app 装配注入。
 type Client struct {
@@ -55,25 +75,16 @@ type Client struct {
 }
 
 // NewClient 创建侧栏服务接线。
-func NewClient(
-	sb *Sidebar,
-	threads *service.ThreadService,
-	workspaces *service.WorkspaceService,
-	settings *service.SettingsService,
-	audit *service.AuditService,
-	deliver Deliver,
-	toast Toast,
-	confirmDelete ConfirmFn,
-) *Client {
+func NewClient(sb *Sidebar, deps ClientDeps) *Client {
 	return &Client{
 		sb:            sb,
-		threads:       threads,
-		workspaces:    workspaces,
-		settings:      settings,
-		audit:         audit,
-		deliver:       deliver,
-		toast:         toast,
-		confirmDelete: confirmDelete,
+		threads:       deps.Threads,
+		workspaces:    deps.Workspaces,
+		settings:      deps.Settings,
+		audit:         deps.Audit,
+		deliver:       deps.Deliver,
+		toast:         deps.Toast,
+		confirmDelete: deps.ConfirmDelete,
 	}
 }
 
