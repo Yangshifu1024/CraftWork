@@ -116,8 +116,8 @@ type Chat struct {
 	// 列同参数限宽（14 号票），走查据此断言两段对齐。
 	lastComposerW float32
 	// lastRowW / lastWrapW 是消息行与 composer 包裹层上一帧的实测宽（两者
-	// 都铺满聊天列）：列宽断点公式的输入，首帧以窗口宽近似、第二帧收敛。
-	// 用容器宽而非公式输出回灌，避免列宽逐帧发散。
+	// 都铺满聊天列）：列宽公式的输入（80% 相对聊天列）。用容器实测宽而非
+	// 公式输出回灌保证收敛；首帧以窗口宽近似、第二帧精确。
 	lastRowW  float32
 	lastWrapW float32
 	// composerFocused 是 composer 外框的聚焦态（外框 FocusWithin 的帧内

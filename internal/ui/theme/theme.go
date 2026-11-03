@@ -64,9 +64,6 @@ const (
 	// 锚定落位（15 号票：四浮层贴触发控件弹出，观感约定见
 	// docs/native-ui/spec.md 的 composer 浮层小节）。
 	ComposerFlyoutGap = float32(8) // 面板与触发控件上缘的间距
-	// ComposerMaxWidth 是 composer 输入壳的固定最大宽（max-w-2xl，
-	// ConversationComposer.tsx:2728；窄聊天列全宽-32）。
-	ComposerMaxWidth = float32(672)
 	// ComposerFlyoutEdgeMargin 是落位钳制的窗口边缘留白：面板不会贴到
 	// 窗口边框上，上下左右统一留它。
 	ComposerFlyoutEdgeMargin = float32(8)

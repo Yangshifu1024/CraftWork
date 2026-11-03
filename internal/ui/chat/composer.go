@@ -45,20 +45,17 @@ func (s *Chat) composerArea(c *mygo.Context, v *viewSide) {
 	}
 
 	wrap.Children(func() {
-		// 输入壳宽度：固定 max-w-2xl 672px 居中（ConversationComposer.tsx:2728
-		// 的草稿列宽——实机对照 1442 宽窗口卡片 ≈705px 与 2xl 吻合，不随窗口
-		// 三档断点，断点只属于消息列）；窄聊天列下全宽减去两侧呼吸边距。
+		// 输入框容器（zai 输入壳，03-composer.md）：恒定 80% 居中（与消息
+		// 列同参数，用户给定观感约定）、16px 圆角、0.5px 描边、bg-input 白底、
+		// 软阴影；聚焦描边灰加深（zai 聚焦不变色不发光）。宽度显式计算
+		//（包裹层上一帧实测，首帧窗口宽近似）——mygo 的 WidthPercent 首帧
+		// 求解对构建时序敏感，显式宽度绕开。
+		winW, _ := c.Size()
 		chatW := s.lastWrapW
-		composerW := theme.ComposerMaxWidth
-		if chatW > 0 && composerW > chatW-32 {
-			composerW = chatW - 32 // 窄列呼吸边距各 16
+		if chatW <= 0 {
+			chatW = winW
 		}
-		if composerW < theme.ChatColumnMinWidth {
-			composerW = theme.ChatColumnMinWidth
-		}
-		// 输入框容器（zai 输入壳，03-composer.md）：16px 圆角、0.5px 描边、
-		// bg-input 白底、软阴影；聚焦描边灰加深（zai 聚焦不变色不发光）。
-		frame := mygo.Column(c).Width(composerW).Radius(16).
+		frame := mygo.Box(c).Width(chatColumnWidth(chatW)).Radius(16).
 			Background(v.pal.BgInput).
 			Shadow(0, 6, 18, 0, v.pal.ComposerShadow).
 			Draw(func(_ *mygo.Painter, r mygo.Rect) { s.lastComposerW = r.W })
