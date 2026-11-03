@@ -22,6 +22,8 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 - **本地优先**：会话、密钥、文件与日志保存在本机，不收集遥测。
 - **可审计、可撤销**：写文件、执行命令、修改文档都先经过审批，并留下审计记录与备份。
 
+> **正在切换桌面外壳**：我们已决定用 mygo 原生 UI（Go GPU 自绘，应用内不再有任何 WebView 与 React）替换 Wails3 + React 前端，Go 内核保持不变。决策与分阶段计划见 [ADR-0014](docs/adr/0014-native-ui-via-mygo.md) 与[原生 UI 迁移规格](docs/native-ui/spec.md)。迁移期间 main 分支保持现有架构，本文以下按现状描述。
+
 ## 核心特性
 
 ### 工作区会话与临时会话
@@ -221,6 +223,7 @@ CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂�
 | M2 Code 闭环 | 已完成 | 命令前缀授权、补丁预演、Git 工具、终端搜索 |
 | M3 Work 模式 | 已完成（文本级） | Word / Excel / PDF 文本级读写、文档差异与备份 |
 | M4 安全与发布 | 部分完成 | MCP stdio 与更新清单校验已实现；沙箱、更新下载/替换、签名凭证与公证待完成 |
+| M5 原生 UI | 进行中 | 桌面外壳切换 mygo 原生 UI（弃用 WebView 与 React 前端），P0 尖刺已通过；计划见 [docs/native-ui](docs/native-ui/spec.md) |
 
 ## 文档
 
@@ -230,6 +233,7 @@ CI 会运行 Go 测试与静态检查、前端类型检查与构建、绑定漂�
 - [界面规格](docs/specs/interface.md)：布局、组件、交互与视觉 token
 - [系统提示词契约](docs/specs/prompt-contract.md)：提示词分节与缓存分层
 - [决策记录（ADR）](docs/adr/)：架构与选型决策的背景与取舍
+- [原生 UI 迁移](docs/native-ui/spec.md)：ADR-0014 的迁移规格、分阶段 issue 与验收
 - [术语表](GLOSSARY.md)：仓库领域词汇基准
 - [贡献指南](CONTRIBUTING.md)
 - [开发与协作约定](AGENTS.md)

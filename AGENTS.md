@@ -33,6 +33,17 @@ CraftWork 是一个本地优先、可审计的桌面 Agent。**M0–M3 已完成
 
 M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界面标注。M3 的文本级限制见第 10 节。
 
+### 1.2 原生 UI 迁移进行中（feature/native-ui 分支）
+
+桌面外壳已决定从 Wails3 + WebView + React 切换为 **mygo v0.7.4 原生 UI**（`package ui`，GPU 自绘，应用内不再有任何 WebView）。决策见 `docs/adr/0014-native-ui-via-mygo.md`，迁移规格与分阶段 issue 见 `docs/native-ui/`。双轨期规则：
+
+- **main 保持 Wails 架构可构建、可发布**；迁移只在 `feature/native-ui` 分支进行，收尾票（`docs/native-ui/issues/10`）完成前不切换入口、不删 `frontend/`、不动 server 模式代码。
+- **后端内核对两条 UI 路线共用**：`internal/agent`、`internal/tools`、`internal/policy`、`internal/store`、`internal/secret`、`internal/model`、`internal/editor`、`internal/events` 的改动照常在 main 评审，迁移分支及时合并。
+- **mygo 版本精确锁定 v0.7.4**，CLI 统一走 `go tool mygo`（go.mod 的 tool 指令），不要升级或换装；API 未到 1.0，升级前先读 mygo 仓库 `docs/ui/migration.md` 并显式提出。
+- 迁移分支的日常命令：`go tool mygo dev`（开发）、`go tool mygo build`（打包）；运行必须用 `CRAFTWORK_HOME=/tmp/...` 隔离数据目录，避免与 Wails 版共写同一个库。
+- libghostty 分发机制：`mygo build`/`mygo dev` 会把 dylib 打进 .app 并随应用签名，**打包应用运行时永不下载**；只有裸 `go run`/`go test` 首次运行会下载到 `~/Library/Caches/mygo/natives/`（SHA-256 校验，全项目共用缓存）。
+- P0 尖刺已通过（结论在 `docs/native-ui/issues/01-`）：窗口壳、Split + 中文流式 Markdown、编辑器三项验证通过；**终端 PTY 网格尺寸协商在本机（Retina 双屏）失效**，属已知风险，由 09 票处理，不阻断迁移。
+
 ### 1.1 技术栈
 
 | 层 | 选型 |
@@ -51,6 +62,7 @@ M4（MCP、沙箱、自动更新）目前是留桩，代码中已有占位与界
 | Go | 1.27.3+ | 以 `go.mod` 的 `go` 指令为准 |
 | Node.js | 24.22.2+ | 以 Vite / `package.json` 要求为准 |
 | Wails3 CLI | v3.0.0 | 需在 PATH 中；用 `wails3 doctor` 检查环境 |
+| mygo CLI | v0.7.4 | 仅原生 UI 迁移分支使用（见 1.2 节）；项目内统一 `go tool mygo` 按锁定版本执行，不要另行升级 |
 | golangci-lint | v2.15.0 | Go lint 与格式化；配置见 `.golangci.yml`；安装 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` |
 | pnpm | 12.16.1 | 前端包管理器；安装 `npm install -g pnpm`；版本锁定在 `frontend/package.json` 的 `packageManager` 字段，Taskfile 与 wails3 构建链统一走 pnpm |
 | 前端依赖 | — | `cd frontend && pnpm install` |
@@ -100,6 +112,8 @@ Wails3 支持用 `-tags server` 把同一个应用编译成纯 HTTP 服务：不
 | 纯 UI 走查（Mock 后端，无 Go） | `cd frontend && pnpm run dev` → `http://127.0.0.1:9245/` |
 | 生产构建 | `wails3 build` → `bin/CraftWork` |
 | macOS 打包 | `wails3 package` → `bin/CraftWork.app` |
+| 原生 UI 开发（迁移分支） | `go tool mygo dev` |
+| 原生 UI 打包（迁移分支） | `go tool mygo build` |
 | Go 测试 | `go test ./...` |
 | Go 静态检查 | `go vet ./...` |
 | Go lint / 格式化 | `golangci-lint run`（检查）；`golangci-lint fmt`（格式化）；`golangci-lint fmt --diff`（只检查格式） |
@@ -261,6 +275,13 @@ docs/                    adr（决策记录）、specs（行为规格）、agent
 - Mock 的定位是「伪造数据，不复刻行为规则」：分页切片、事件编排（simulateRun）、diff 呈现与搜索命中是**已知且有意的近似**，e2e 跑在 Mock 上，失败时先区分是产品 bug 还是 Mock 演砸。行为规则以 Go 为唯一事实源；新增后端校验/规则时不要在 mock.ts 里复刻一遍（空消息校验、标题提取等此前都复刻过，已删）。端口类型由 `desktopApi` 推导（81531bb 的既定决策），不要改成手写第二份接口签名。
 - `scrollbar-gutter: stable` 的预留宽度在两个内核不一致：Chromium 按自定义 `::-webkit-scrollbar` 宽度预留且与滚动条本体不叠加；WKWebView 按系统滚动条宽度（约 11px）预留并与滚动条叠加。本项目桌面（WKWebView）与 server 浏览器（Chromium）会因此出现约 11px 的内容宽度差，**不要在布局里依赖 `scrollbar-gutter`**；滚动条占位以 `::-webkit-scrollbar` 自定义宽度为准（见 `.thread-list`）。
 
+mygo 原生 UI（迁移分支，P0 实测）：
+
+- `ui.Split` 的宽度指针初值必须非零（如 280），0 会让左栏直接不可见。
+- `WindowOptions.StateKey`（窗口状态记忆）与显式 `X/Y` 并存时，显式坐标被记忆值覆盖；两者二选一。
+- `plugins/terminal` 的 PTY 网格在 `terminal.New` 后 0.5 秒内由视图尺寸协商，错过则卡在 80×24；本机实测即使协商也会失效（Retina 双屏），处理方案见 `docs/native-ui/issues/01-`。
+- mygo 立即模式下，后台 goroutine 改 UI 状态必须经 `win.Update(func(){...})`，在 view 外直接改状态不会触发重绘或引发数据竞争。
+
 ## 8. 验证清单
 
 提交前至少执行：
@@ -307,6 +328,7 @@ CI（`.github/workflows/ci.yml`）在 Ubuntu 上执行 `go test`、`go vet`、`g
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
 | 开发约定、命令、陷阱 | 本文件 |
+| 原生 UI 迁移的进度与决策 | 票的 `Status:` 与 `## Comments`（`docs/native-ui/issues/`）；影响范围的决策更新 `docs/adr/0014` |
 
 ## 10. 当前留桩
 
