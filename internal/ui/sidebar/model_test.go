@@ -224,24 +224,19 @@ func TestStatusOf(t *testing.T) {
 	}
 }
 
-// timeFixedZone 构造固定时区，让时间格式化用例不随机器时区漂移。
-func timeFixedZone() *time.Location {
-	return time.FixedZone("test", 8*3600)
-}
-
-// timeInZone 构造指定时区下的本地时刻。
-func timeInZone(year int, month time.Month, day, hour, minute int, loc *time.Location) time.Time {
-	return time.Date(year, month, day, hour, minute, 0, 0, loc)
+// localTime 用本地时区构造时刻：FormatTime 按 time.UnixMilli 的本地时区
+// 格式化，输入与断言必须在同一时区，用例才不随 CI 机器时区漂移。
+func localTime(year int, month time.Month, day, hour, minute int) time.Time {
+	return time.Date(year, month, day, hour, minute, 0, 0, time.Local)
 }
 
 func TestFormatTime(t *testing.T) {
-	loc := timeFixedZone()
-	now := timeInZone(2026, 11, 3, 21, 5, loc).UnixMilli()
-	sameDay := timeInZone(2026, 11, 3, 9, 41, loc).UnixMilli()
+	now := localTime(2026, 11, 3, 21, 5).UnixMilli()
+	sameDay := localTime(2026, 11, 3, 9, 41).UnixMilli()
 	if got := FormatTime(sameDay, now); got != "09:41" {
 		t.Errorf("当天时间 = %q, want 09:41", got)
 	}
-	otherDay := timeInZone(2026, 10, 26, 8, 7, loc).UnixMilli()
+	otherDay := localTime(2026, 10, 26, 8, 7).UnixMilli()
 	if got := FormatTime(otherDay, now); got != "10/26 08:07" {
 		t.Errorf("跨天时间 = %q, want 10/26 08:07", got)
 	}
