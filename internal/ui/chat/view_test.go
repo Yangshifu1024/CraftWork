@@ -301,3 +301,15 @@ func TestComposerFocusHighlightsFrame(t *testing.T) {
 	// 移出」——描边两态由 composerBorder 纯函数单测锁定（theme.Apply 的
 	// 色板经 Frame 后就绪，直接取当前 palette 断言），失焦传播交实机走查。
 }
+
+// TestChatViewEmptySessionBlank 空会话不再渲染引导区域（用户指定移除
+// 「模式已就绪」图标、说明与建议句）。
+func TestChatViewEmptySessionBlank(t *testing.T) {
+	_, _, tt := newChatTester(t)
+	tt.Frame()
+	for _, gone := range []string{"Code 模式已就绪", "Work 模式已就绪", "解释这个仓库的结构"} {
+		if tt.HasText(gone) {
+			t.Fatalf("空会话不应出现引导文案 %q", gone)
+		}
+	}
+}
