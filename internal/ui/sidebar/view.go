@@ -27,6 +27,10 @@ import (
 // stubNote 是 07 号票前占位入口的统一提示尾巴。
 const stubNote = "待 07 号票（浮层与入口）接入"
 
+// projectSectionKey 是「项目会话」区空态的折叠键（空区折叠的是空态
+// 文案本身；有组时的折叠走各组 key）。
+const projectSectionKey = "project-section"
+
 // viewSide 是 view 帧内的一次性派生：色板 + 模式强调色 + 动作入口。
 type viewSide struct {
 	pal    *theme.Palette
@@ -223,7 +227,11 @@ func (s *Sidebar) tempGroup(c *mygo.Context, v *viewSide, g Group) {
 func tempGroupHead(c *mygo.Context, v *viewSide, items []Thread, open bool, onToggle func(), onCreate func()) {
 	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).Padding(groupHeadPad.t, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
-			groupToggle(c, v, open, "临时会话", "chevron-down", "chevron-right", onToggle)
+			toggleName := "展开临时会话"
+			if open {
+				toggleName = "折叠临时会话"
+			}
+			groupToggle(c, v, open, toggleName, "chevron-down", "chevron-right", onToggle)
 			mygo.Text(c, "临时会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, len(items))
 			mygo.Spacer(c)
@@ -242,19 +250,32 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 		}
 	}
 
-	// 区头（.thread-group-head.is-section，margin-top 6）：批量折叠开关
-	//（恒显，无项目组时保留按钮保持与临时组头对齐）+ 标题 + 总数 + 创建
-	// 项目占位入口。
+	// 区头（.thread-group-head.is-section，margin-top 6）：折叠开关恒显。
+	// 折叠语义随内容切换：有可折叠组（项目 / 孤儿）时批量折叠它们；空区
+	// 折叠空态文案本身——此前空区点击走 ToggleAllProjects 零反馈，用户
+	// 感知「点不动」。
+	emptySection := len(projects) == 0 && !hasOrphan
 	mygo.Row(c).FillWidth().AlignItems(mygo.Center).Gap(theme.Space3).
 		Padding(groupHeadPad.t+theme.Space3, groupHeadPad.r, groupHeadPad.b).
 		Children(func() {
-			allCollapsed := s.coll.AllProjectsCollapsed(groups)
-			// 折叠态显示 chevron-right（「展开所有项目」），否则 chevron-down。
-			onToggle := func() { s.ToggleAllProjects() }
-			if allCollapsed {
-				groupToggle(c, v, false, "展开所有项目", "chevron-down", "chevron-right", onToggle)
+			if emptySection {
+				open := !s.coll.IsCollapsed(projectSectionKey)
+				toggleName := "展开项目会话"
+				if open {
+					toggleName = "折叠项目会话"
+				}
+				groupToggle(c, v, open, toggleName, "chevron-down", "chevron-right", func() {
+					s.coll.Collapsed = s.coll.Toggle(projectSectionKey)
+				})
 			} else {
-				groupToggle(c, v, true, "折叠所有项目", "chevron-down", "chevron-right", onToggle)
+				allCollapsed := s.coll.AllProjectsCollapsed(groups)
+				// 折叠态显示 chevron-right（「展开所有项目」），否则 chevron-down。
+				onToggle := func() { s.ToggleAllProjects() }
+				if allCollapsed {
+					groupToggle(c, v, false, "展开所有项目", "chevron-down", "chevron-right", onToggle)
+				} else {
+					groupToggle(c, v, true, "折叠所有项目", "chevron-down", "chevron-right", onToggle)
+				}
 			}
 			mygo.Text(c, "项目会话").FontSize(theme.Fonts.Base()).FontWeight(500).TextColor(v.pal.Text4).SingleLine()
 			countBadge(c, v, ProjectThreadCount(groups))
@@ -266,7 +287,10 @@ func (s *Sidebar) projectSection(c *mygo.Context, v *viewSide, groups []Group) {
 			})
 		})
 
-	if len(projects) == 0 && !hasOrphan {
+	if emptySection {
+		if s.coll.IsCollapsed(projectSectionKey) {
+			return
+		}
 		listEmpty(c, v, "还没有项目\n点上方 + 创建项目")
 		return
 	}
@@ -317,7 +341,7 @@ func (s *Sidebar) projectGroup(c *mygo.Context, v *viewSide, g Group) {
 				name = "展开项目会话"
 			}
 			foldBtn := mygo.ButtonBase(c).Size(18, 18).Center().
-				Radius(theme.RadiusBadge).Tooltip(name)
+				Radius(theme.RadiusBadge).Tooltip(name).Label(name)
 			if foldBtn.Clicked() {
 				s.ToggleProject(g.Key)
 			}
@@ -358,7 +382,7 @@ func (s *Sidebar) orphanGroup(c *mygo.Context, v *viewSide, g Group) {
 // 在 down / right 两个登记名间切换；点击调 onToggle。
 func groupToggle(c *mygo.Context, v *viewSide, open bool, title, openIcon, closedIcon string, onToggle func()) {
 	btn := mygo.ButtonBase(c).Size(18, 18).Center().
-		Radius(theme.RadiusBadge).Tooltip(title)
+		Radius(theme.RadiusBadge).Tooltip(title).Label(title)
 	if btn.Clicked() && onToggle != nil {
 		onToggle()
 	}
