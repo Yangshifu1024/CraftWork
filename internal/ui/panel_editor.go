@@ -310,7 +310,8 @@ func (p *Pane) editorToolbar(c *mygo.Context, pal *Palette, tab cwpanel.Tab, slo
 			mygo.Spacer(c)
 			if paneToolButton(c, pal, "copy", "复制", false) {
 				// 复制的是已加载到内存的文本内容（超限文件可能已被截断）。
-				paneClipboardWrite(content.Content)
+				// 尽力而为：写剪贴板失败不打断操作流。
+				service.ClipboardWriteText(content.Content)
 			}
 			if slot.editorMode == modeEdit {
 				// 只在编辑态显示保存；保存会先备份原文件，并校验外部修改。

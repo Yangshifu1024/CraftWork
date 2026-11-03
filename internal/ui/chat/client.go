@@ -553,11 +553,12 @@ func (cl *Client) ConfirmExternal(url string) {
 	}()
 }
 
-// Copy 把文本写入剪贴板。剪贴板要经主循环，从 deliver（win.Update）的
-// 回调里直写是安全的（04 号票的既定做法）。
+// Copy 把文本写入剪贴板（service.ClipboardWriteText 统一出口）。剪贴板
+// 要经主循环，从 deliver（win.Update）的回调里直写是安全的（04 号票的
+// 既定做法）。
 func (cl *Client) Copy(text string) {
 	cl.deliver(func() {
-		mygoapp.Clipboard.WriteText(text)
+		service.ClipboardWriteText(text)
 		cl.chat.QueueToast("已复制")
 	})
 }

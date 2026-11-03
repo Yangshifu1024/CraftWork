@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	mygoapp "github.com/egoist/mygo"
-
 	"github.com/yangshifu1024/craftwork/internal/service"
 	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
@@ -190,12 +188,11 @@ func (cl *Client) CreateThreadIn(workspaceID string) {
 }
 
 // CopyThreadID 把会话 Id 写入剪贴板并提示（sessionActions.copySessionID）。
-// mygo 剪贴板要经主循环（onMain），view 帧内直调会死锁：这里经
-// deliver（win.Update）排到本帧之后执行，提示走排队 toast。
+// 剪贴板写入统一走 service.ClipboardWriteText；这里经 deliver（win.Update）
+// 排到帧回调里执行，与侧栏其他异步收尾同一条线程纪律，提示走排队 toast。
 func (cl *Client) CopyThreadID(id string) {
 	cl.deliver(func() {
-		// 已在主线程帧回调里（win.Update 执行点），剪贴板可直写。
-		mygoClipboard(id)
+		service.ClipboardWriteText(id)
 		cl.sb.QueueToast("已复制会话 Id " + id)
 	})
 }
@@ -361,9 +358,6 @@ func (cl *Client) loadCounts() (Counts, error) {
 	counts.AuditItems = len(entries)
 	return counts, nil
 }
-
-// mygoClipboard 写剪贴板文本（仅主线程调用点使用）。
-func mygoClipboard(text string) { mygoapp.Clipboard.WriteText(text) }
 
 // CreateThreadInActive 在当前活动工作区新建会话（命令面板「新建会话」用）：
 // 无活动工作区时落内置临时目录，与侧栏「新建会话」的编排一致。

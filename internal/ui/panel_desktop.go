@@ -1,8 +1,9 @@
 package ui
 
-// 面板用的 mygo 桌面模块薄封装：剪贴板、文件管理器与废纸篓。错误提示与
-// 确认框已并入浮层体系（07 号票）：错误走 overlays.Notify（panelview.go
-// reportError），确认走 overlays.Confirm（panel_diff.go / panel_editor.go）。
+// 面板用的 mygo 桌面模块薄封装：文件管理器与废纸篓。剪贴板写入统一走
+// service.ClipboardWriteText；错误提示与确认框已并入浮层体系（07 号票）：
+// 错误走 overlays.Notify（panelview.go reportError），确认走
+// overlays.Confirm（panel_diff.go / panel_editor.go）。
 
 import (
 	"time"
@@ -15,12 +16,6 @@ import (
 // panelClock 返回当前毫秒时间戳（保存时间戳等界面反馈用）。
 func panelClock() int64 {
 	return time.Now().UnixMilli()
-}
-
-// paneClipboardWrite 把文本放进系统剪贴板；失败静默（复制是尽力而为的
-// 辅助操作，不为此打断操作流）。
-func paneClipboardWrite(text string) {
-	cwmygo.Clipboard.WriteText(text)
 }
 
 // paneShowInFolder 在系统文件管理器里显示文件。

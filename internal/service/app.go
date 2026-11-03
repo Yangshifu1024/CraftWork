@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/transfer"
 
 	"github.com/yangshifu1024/craftwork/internal/id"
 	"github.com/yangshifu1024/craftwork/internal/policy"
@@ -295,13 +296,21 @@ func sanitizeAttachmentName(name string) string {
 	return result
 }
 
-// WriteClipboard 写入系统剪贴板，返回是否成功。
-func (s *AppService) WriteClipboard(text string) bool {
+// ClipboardWriteText 把文本写进系统剪贴板，返回是否成功。应用未就绪时
+// 返回 false。这是全部剪贴板写入的唯一出口：面板复制路径、侧栏复制
+// 会话 Id、聊天列复制消息与 AppService.WriteClipboard 都走这里——
+// mygo 的 WriteText 把错误吞掉（永远「成功」），这里改走 Write 并把
+// error 映射为布尔，契约才与签名相符。
+func ClipboardWriteText(text string) bool {
 	if !mygo.App.IsReady() {
 		return false
 	}
-	mygo.Clipboard.WriteText(text)
-	return true
+	return mygo.Clipboard.Write(transfer.TextData(text)) == nil
+}
+
+// WriteClipboard 写入系统剪贴板，返回是否成功。
+func (s *AppService) WriteClipboard(text string) bool {
+	return ClipboardWriteText(text)
 }
 
 // ReadClipboard 读取系统剪贴板文本。

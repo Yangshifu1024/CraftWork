@@ -471,10 +471,10 @@ func (p *Pane) openWorkspaceFile(folderID, path string) {
 	p.OpenFileTab(folderID, path, baseName(path))
 }
 
-// copyPath 复制文件的绝对路径到剪贴板。
+// copyPath 复制文件的绝对路径到剪贴板；失败静默（尽力而为的辅助操作）。
 func (p *Pane) copyPath(folderID, rel string) {
 	if abs := p.absPath(folderID, rel); abs != "" {
-		paneClipboardWrite(abs)
+		service.ClipboardWriteText(abs)
 	}
 }
 
