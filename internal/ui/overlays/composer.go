@@ -80,21 +80,24 @@ type composerState struct {
 	// onLevel 是档位保存成功后的回调（原始档位字符串），聊天列用它同步
 	// 输入区只读展示；nil 表示无人订阅。
 	onLevel func(level string)
+	// onPicked 是模型点选后的回调（模型引用），聊天列用它切换当前会话
+	// 模型；nil 表示无人订阅。
+	onPicked func(ref string)
 	// detail 是上下文详情浮层的展示数据。
 	detail ContextDetail
 }
 
 // OpenComposerModels 切换模型选择浮层（已开则关，触发点重复点击语义）：
 // 快照可用模型清单与当前模型引用。current 是会话模型引用，空则退设置里
-// 的默认模型——「当前模型勾选态」跟会话走，「选择写入默认模型」是保存
-// 语义，两句并存互不冲突。
-func OpenComposerModels(current string) {
+// 的默认模型；onPicked 在点选模型后触发（调用方切换当前会话模型）。
+func OpenComposerModels(current string, onPicked func(ref string)) {
 	s := &store.composer
 	if !s.turn(composerModel) {
 		return
 	}
 	s.query = ""
 	s.models = store.composerModels()
+	s.onPicked = onPicked
 	if current == "" {
 		current = store.settingsSnapshot().DefaultModel
 	}
@@ -202,20 +205,21 @@ func composerFlyout(c *mygo.Context, anchor mygo.Element, k composerKind, width 
 	})
 }
 
-// drawComposerModels 画模型选择浮层：搜索框 + 虚拟化清单 + 备注。
+// drawComposerModels 画模型选择浮层（zai 菜单形态）：搜索置顶（占位符
+// 自说明，无 Field 标题）、紧凑双行清单、激活行勾选、无底部备注——
+// 选择语义 = 写默认模型（与设置中心同一保存路径）+ 回调切换当前会话
+// 模型（onPicked，双写一致不再有「点了没反应」的感知）。
 func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 	p := pal(c)
-	mygo.Text(c, "选择模型").Bold()
 	if len(st.models) == 0 {
-		mutedText(c, "没有可用模型，请先在设置中添加提供商并配置密钥。")
+		mygo.Text(c, "没有可用模型，请先在设置中添加提供商并配置密钥。").
+			FontSize(theme.Fonts.SM()).TextColor(p.Text3)
 		return
 	}
 	// 搜索框：按名称 / 模型 ID / 提供商名过滤（React 版同口径）。
-	mygo.Field(c, "模型搜索", func() {
-		mygo.TextInput(c, &st.query).Fill().Height(theme.HeightInput).
-			Background(p.BgInput).Border(1, p.Border).Radius(theme.RadiusBtn).
-			Placeholder("搜索模型或提供商")
-	}).Fill()
+	mygo.TextInput(c, &st.query).Fill().Height(theme.HeightInput).
+		Background(p.BgInput).Border(1, p.Border).Radius(theme.RadiusBtn).
+		Placeholder("搜索模型").Label("搜索模型").FocusRing(false)
 
 	query := strings.ToLower(strings.TrimSpace(st.query))
 	visible := make([]service.ModelView, 0, len(st.models))
@@ -229,7 +233,7 @@ func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 		visible = append(visible, m)
 	}
 	if len(visible) == 0 {
-		mutedText(c, "没有匹配的模型。")
+		mygo.Text(c, "没有匹配的模型").FontSize(theme.Fonts.SM()).TextColor(p.Text3)
 	}
 	// 清单虚拟化（07 号票的坑：Scroll 内逐个 ButtonBase 在真实窗口不绘制），
 	// 固定高度限制浮层尺寸，行身份按位置保持（搜索过滤后整表重建）。
@@ -238,18 +242,12 @@ func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 		active := m.Ref == st.current
 		item := mygo.ButtonBase(c)
 		item.Fill().Height(theme.ComposerModelRowHeight).Radius(theme.RadiusRow).
-			Padding(0, theme.Space4).AlignItems(mygo.Center).Gap(theme.Space4).
+			Padding(0, theme.Space3).AlignItems(mygo.Center).Gap(theme.Space3).
 			Label("选择 " + m.Name)
 		if item.Hovered() {
 			item.Background(p.BgHover)
 		}
 		item.Children(func() {
-			dot := mygo.Box(c).Size(8, 8).Radius(theme.RadiusRound)
-			if active {
-				dot.Background(p.Accent)
-			} else {
-				dot.Background(p.Border)
-			}
 			mygo.Column(c).Grow(1).Gap(1).Children(func() {
 				mygo.Text(c, m.Name).SingleLine()
 				mygo.Text(c, modelItemDesc(m)).FontSize(theme.Fonts.XS()).
@@ -260,14 +258,15 @@ func (s *Store) drawComposerModels(c *mygo.Context, st *composerState) {
 			}
 		})
 		if item.Clicked() {
-			// 与设置中心的默认模型下拉同一保存路径：服务归一化为 model.Ref、
-			// 校验可用性，保存后广播设置变更（双向同步的另一半在设置中心
-			// 每次打开时的快照里）。选择后关闭浮层。
+			// 选择语义双写：默认模型（与设置中心同一保存路径）+ 当前会话
+			// 模型（onPicked 回调，chat 侧走 services.SetModel 广播快照）。
 			s.save(c, func(x *service.Settings) { x.DefaultModel = m.Ref })
 			st.opens[composerModel] = false
+			if cb := st.onPicked; cb != nil {
+				cb(m.Ref)
+			}
 		}
 	}).Height(theme.ComposerListHeight).Justify(mygo.Start)
-	mutedText(c, "所选模型将设为默认，新建会话使用；与设置中心「模型与提供商」双向同步。")
 }
 
 // modelItemDesc 拼模型行的说明：提供商 · 上下文 · 能力（已支持项）。
@@ -349,7 +348,6 @@ func (s *Store) drawComposerApproval(c *mygo.Context, st *composerState) {
 			return
 		}
 	}
-	mutedText(c, "档位与设置 · 工具与权限双向同步。")
 }
 
 // drawComposerRisk 画风险等级说明浮层：R0–R4 对照表（设置中心 riskRows

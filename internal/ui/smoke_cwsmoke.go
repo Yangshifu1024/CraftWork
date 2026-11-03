@@ -23,6 +23,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/yangshifu1024/craftwork/internal/ui/overlays"
 )
 
 func init() {
@@ -43,7 +45,11 @@ func init() {
 		switch mode {
 		case "terminal":
 			s.pane.OpenTerminalTab()
-		case "editor":
+		case "composer-model":
+		// 模型选择浮层自动打开（15 号票返工的形态走查；正式数据目录跑
+		// 可见真实模型清单）。
+		overlays.OpenComposerModels("", nil)
+	case "editor":
 			if ws := s.activeWorkspace(); ws != nil && target != "" {
 				s.pane.OpenFileTab("", target, baseName(target))
 			}

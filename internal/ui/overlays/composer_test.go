@@ -101,7 +101,7 @@ func seedProvider(t *testing.T, svcs *composerServices) {
 func TestComposerFlyoutAnchorsAbove(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
-	OpenComposerModels("")
+	OpenComposerModels("", nil)
 	tt.Frame()
 	text, ok := tt.Find("模型 A")
 	if !ok {
@@ -122,11 +122,8 @@ func TestComposerFlyoutAnchorsAbove(t *testing.T) {
 // TestComposerModelPickerEmptyState 报告没有可用模型时的空态。
 func TestComposerModelPickerEmptyState(t *testing.T) {
 	tt, _ := newComposerTester(t)
-	OpenComposerModels("")
+	OpenComposerModels("", nil)
 	tt.Frame()
-	if !tt.HasText("选择模型") {
-		t.Fatalf("模型浮层未出现: %v", tt.Texts())
-	}
 	if !tt.HasText("没有可用模型，请先在设置中添加提供商并配置密钥。") {
 		t.Errorf("空态提示缺失: %v", tt.Texts())
 	}
@@ -142,7 +139,7 @@ func TestComposerModelPickerEmptyState(t *testing.T) {
 func TestComposerModelPickerListSearchPick(t *testing.T) {
 	tt, svcs := newComposerTester(t)
 	seedProvider(t, svcs)
-	OpenComposerModels("")
+	OpenComposerModels("", nil)
 	tt.Frame()
 
 	// 清单展示两个模型：名称 + 提供商 + 上下文 + 能力。
@@ -153,7 +150,7 @@ func TestComposerModelPickerListSearchPick(t *testing.T) {
 		t.Errorf("模型行说明不符: %v", tt.Texts())
 	}
 	// 搜索过滤：按名称命中一个。
-	if err := tt.Click("模型搜索"); err != nil {
+	if err := tt.Click("搜索模型"); err != nil {
 		t.Fatalf("点击搜索框失败: %v", err)
 	}
 	tt.Type("模型 B")
@@ -169,7 +166,7 @@ func TestComposerModelPickerListSearchPick(t *testing.T) {
 		t.Fatalf("点击模型 B 失败: %v", err)
 	}
 	tt.Frame()
-	if tt.HasText("选择模型") && tt.HasText("模型搜索") {
+	if tt.HasText("搜索模型") {
 		t.Errorf("选择后浮层应关闭")
 	}
 	if got := svcs.settings.Get().DefaultModel; got != "test/model-b" {
@@ -189,7 +186,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	seedProvider(t, svcs)
 
 	// 无会话模型、无默认模型：勾选引用为空。
-	OpenComposerModels("")
+	OpenComposerModels("", nil)
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "" {
 		t.Fatalf("无会话模型且无默认模型时勾选引用应为空: %q", got)
@@ -201,7 +198,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	if _, err := svcs.settings.Save(service.Settings{DefaultModel: "test/model-b"}); err != nil {
 		t.Fatal(err)
 	}
-	OpenComposerModels("")
+	OpenComposerModels("", nil)
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "test/model-b" {
 		t.Fatalf("无会话模型时应退默认模型: %q", got)
@@ -210,7 +207,7 @@ func TestComposerModelPickerCurrentSource(t *testing.T) {
 	tt.Frame()
 
 	// 有会话模型：优先会话模型，不落到默认模型。
-	OpenComposerModels("test/model-a")
+	OpenComposerModels("test/model-a", nil)
 	tt.Frame()
 	if got := ComposerModelsCurrent(); got != "test/model-a" {
 		t.Fatalf("有会话模型时应优先会话模型: %q", got)
@@ -233,9 +230,6 @@ func TestComposerApprovalLevelSwitch(t *testing.T) {
 		if !tt.HasText(want) {
 			t.Fatalf("档位 %s 缺失: %v", want, tt.Texts())
 		}
-	}
-	if !tt.HasText("档位与设置 · 工具与权限双向同步。") {
-		t.Errorf("浮层备注缺失: %v", tt.Texts())
 	}
 	// 点「严格」：浮层关闭、保存生效、回调收到原始档位、审计有记录。
 	if err := tt.Click("严格"); err != nil {

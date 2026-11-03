@@ -267,7 +267,12 @@ func (s *Chat) composerBar(c *mygo.Context, v *viewSide) {
 		})
 		if pick.Clicked() {
 			// 勾选态优先当前会话模型；无会话模型时浮层内部退默认模型。
-			overlays.OpenComposerModels(s.Thread().ModelID)
+			// 点选后双写：默认模型（浮层内 save）+ 当前会话模型（回调）。
+			overlays.OpenComposerModels(s.Thread().ModelID, func(ref string) {
+				if s.acts != nil && s.acts.SetThreadModel != nil {
+					s.acts.SetThreadModel(s.Thread().ID, ref)
+				}
+			})
 		}
 		overlays.ComposerModelsFlyout(c, pick)
 		s.sendCluster(c, v)

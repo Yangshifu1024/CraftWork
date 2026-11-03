@@ -128,7 +128,21 @@ func (cl *Client) Actions() *Actions {
 		Copy:            cl.Copy,
 		OpenDiff:        cl.OpenDiff,
 		ReadAttachment:  cl.ReadAttachment,
+		SetThreadModel:  cl.SetThreadModel,
 	}
+}
+
+// SetThreadModel 切换当前会话使用的模型：服务写库并广播快照刷新
+// （composer 的模型选择与档位切换同一反馈路径——失败 toast）。
+func (cl *Client) SetThreadModel(threadID, modelID string) {
+	go func() {
+		if err := cl.threads.SetModel(threadID, modelID); err != nil {
+			slog.Warn("切换会话模型失败", "err", err)
+			cl.deliver(func() { cl.chat.QueueToast("切换模型失败：" + err.Error()) })
+			return
+		}
+		cl.loadSnapshot(threadID)
+	}()
 }
 
 // Boot 启动首拉：按当前模式恢复选中会话并加载快照。在窗口创建后由

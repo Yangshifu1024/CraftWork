@@ -54,6 +54,8 @@ type Actions struct {
 	PasteImage func()
 	// LoadEarlier 向前翻页加载更早的消息。
 	LoadEarlier func()
+	// SetThreadModel 切换当前会话使用的模型（模型选择浮层点选后调用）。
+	SetThreadModel func(threadID, modelID string)
 	// OpenFile 打开 path:line 引用指向的文件（面板 tab 系统归 08 号票，
 	// 装配暂接 toast 占位）。
 	OpenFile func(path string, line int)

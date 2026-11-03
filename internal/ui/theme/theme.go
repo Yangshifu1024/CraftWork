@@ -269,6 +269,7 @@ type Palette struct {
 
 	// 品牌与输入壳（对齐 ZCode zai 主题，00-design-tokens.md）：brand 亮色
 	// 纯黑 / 深色纯白，发送键反色；聚焦描边 zai 是灰加深，非彩色。
+	AccentMuted         mygo.Color // mygo 内置控件聚焦/勾选的中性加深灰（zai 聚焦不变色）
 	Brand               mygo.Color // --brand
 	OnBrand             mygo.Color // 品牌底上的前景
 	ComposerBorder      mygo.Color // composer 输入壳描边（0.5px）
@@ -360,6 +361,7 @@ func darkPalette() Palette {
 		BgActive:   mygo.Hex("#222834"),
 		BgInput:    mygo.Hex("#0e1116"),
 
+		AccentMuted:         mygo.Hex("#a1a1aa"),
 		Brand:               mygo.Hex("#ffffff"),
 		OnBrand:             mygo.Hex("#000000"),
 		ComposerBorder:      mygo.RGBA(255, 255, 255, 0.10),
@@ -444,6 +446,7 @@ func lightPalette() Palette {
 		BgActive:   mygo.Hex("#e7ecf4"),
 		BgInput:    mygo.Hex("#ffffff"),
 
+		AccentMuted:         mygo.Hex("#52525b"),
 		Brand:               mygo.Hex("#000000"),
 		OnBrand:             mygo.Hex("#ffffff"),
 		ComposerBorder:      mygo.RGBA(13, 13, 13, 0.10),
@@ -536,9 +539,11 @@ func uiTheme(p Palette, dark bool) *mygo.Theme {
 	t.Border = p.Border
 	t.Text = p.Text
 	t.TextMuted = p.Text2
-	t.Accent = p.Accent
-	t.AccentHover = p.AccentStrong
-	t.AccentPressed = p.AccentStrong
+	// Accent 中性化（zai 聚焦语义「只加深不变色」）：mygo 内置控件的聚焦
+	// 描边 / 勾选取 Accent——用中性灰而非品牌蓝，彩色仅保留在自绘语义色。
+	t.Accent = p.AccentMuted
+	t.AccentHover = p.Accent
+	t.AccentPressed = p.Accent
 	t.AccentText = p.OnAccent
 	t.Danger = p.Danger
 	t.Warning = p.Warn
