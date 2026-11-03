@@ -28,26 +28,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # internal/app 会编译 Wails 的 Linux 后端，缺少 GTK4 / WebKitGTK 头文件会直接编译失败。
-      - name: 安装 Wails 所需的系统库
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev
-
-      # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而该目录不入库；
-      # 编译根包时必须至少有一个文件，否则报 "no matching files found"。
-      # 测试与静态检查不读取嵌入内容，放一个占位文件即可。
-      - name: 准备前端嵌入占位
-        run: |
-          mkdir -p frontend/dist
-          printf '<!doctype html>\n' > frontend/dist/index.html
-
       - name: 单元测试
         run: go test ./...
 
       - name: 静态检查
         run: go vet ./...
+
+      - name: 安装 golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+
+      - name: golangci-lint
+        run: golangci-lint run
 
       - name: 安装 govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -55,84 +46,9 @@ jobs:
       - name: 检查 Go 依赖漏洞
         run: govulncheck ./...
 
-  frontend:
-    name: 前端类型检查与构建
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
-
-      # 仓库根目录没有 package.json，版本锁定在 frontend/package.json 的
-      # packageManager 字段；不指定该文件时 action 找不到版本会直接报错。
-      - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          package_json_file: frontend/package.json
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.22.2
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
-
-      - name: 类型检查
-        run: pnpm run typecheck
-
-      - name: 单元测试
-        run: pnpm run test
-
-      - name: 生产构建
-        run: pnpm run build
-
-      - name: 检查前端依赖漏洞
-        run: pnpm audit --audit-level=high
-
-  e2e:
-    name: 浏览器端到端测试
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
-
-      # 仓库根目录没有 package.json，版本锁定在 frontend/package.json 的
-      # packageManager 字段；不指定该文件时 action 找不到版本会直接报错。
-      - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          package_json_file: frontend/package.json
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.22.2
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
-
-      - name: 安装 Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      # 截图基线按操作系统保存；CI 只跑功能用例，截图回归在本地执行。
-      # pnpm run 的 -- 透传在 pnpm 12 下不可靠（AGENTS.md 已知坑），
-      # 过滤参数必须用 pnpm exec 直连 playwright，否则截图用例全跑且 linux 无基线必挂。
-      - name: 端到端测试
-        run: pnpm exec playwright test --grep-invert @screenshot
-
-  bindings:
-    name: 绑定漂移检查
-    runs-on: ubuntu-latest
+  build:
+    name: 桌面构建冒烟（mygo）
+    runs-on: macos-latest
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -143,26 +59,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # 生成绑定需要加载 Go 包；安装系统库可以避免 cgo 包解析失败。
-      - name: 安装 Wails 所需的系统库
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev
+      # mygo 是 go.mod 的 tool 依赖，`go tool mygo build` 直接可用；
+      # macOS runner 上产出 .app 与 DMG（无 Developer ID 时以可用身份
+      # 签名，未配置公证时自动跳过该步）。
+      - name: mygo 构建
+        run: go tool mygo build
 
-      - name: 安装 Wails3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
-
-      - name: 重新生成绑定
-        run: wails3 generate bindings -clean=true -ts -i
-
-      - name: 校验绑定无漂移
-        run: |
-          if [ -n "$(git status --porcelain --untracked-files=all -- frontend/bindings)" ]; then
-            echo "frontend/bindings 与 Go 服务不一致。"
-            echo "请在本地运行 wails3 generate bindings -clean=true -ts -i 并提交生成结果。"
-            git status --porcelain --untracked-files=all -- frontend/bindings
-            git diff -- frontend/bindings
-            exit 1
-          fi
-          echo "frontend/bindings 与 Go 服务一致。"
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: CraftWork-macos
+          path: bin/
+          retention-days: 3
+          if-no-files-found: error

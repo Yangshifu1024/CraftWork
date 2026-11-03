@@ -113,7 +113,7 @@ type manifest struct {
 func main() {
 	if err := run(); err != nil {
 		if errors.Is(err, errOutdated) {
-			fmt.Fprintln(os.Stderr, "模型目录与上游不一致，请运行 wails3 task models:sync")
+			fmt.Fprintln(os.Stderr, "模型目录与上游不一致，请运行 go run ./cmd/modelsync")
 			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "同步模型目录失败:", err)

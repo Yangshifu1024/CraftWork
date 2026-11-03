@@ -374,8 +374,9 @@ func (s *WorkspaceService) Active() (*WorkspaceView, error) {
 // workspace/default（默认 ~/.craftwork/workspace/default），随
 // CRAFTWORK_HOME 一起隔离；被用户删除后下次启动会自动重建。
 // 幂等：记录已存在时直接沿用，不刷新最近打开时间。
-// 它只在启动期由 app 装配调用，特意实现为包级函数而不是服务方法，
-// 避免被 Wails 绑定成前端 API。
+// 它只在启动期由 app 装配调用，特意实现为包级函数而不是服务方法：
+// 一次性引导逻辑不进服务面（native UI 迁移前是避免被 Wails 绑定成
+// 前端 API，迁移后维持这一边界）。
 func EnsureConversationWorkspace(db *store.DB, dataDir string) (*store.Workspace, error) {
 	dir := filepath.Join(dataDir, "workspace", "default")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

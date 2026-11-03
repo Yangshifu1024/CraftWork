@@ -1,107 +1,31 @@
 version: '3'
 
-vars:
-  APP_NAME: "CraftWork"
-  BIN_DIR: "bin"
-  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
-  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
-  # Target OS for build/package/run. Defaults to the host OS, and is overridden
-  # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
-  # tasks below dispatch to the matching platform Taskfile via this variable.
-  GOOS: '{{.GOOS | default OS}}'
-
-includes:
-  common: ./build/Taskfile.yml
-  windows: ./build/windows/Taskfile.yml
-  darwin: ./build/darwin/Taskfile.yml
-  linux: ./build/linux/Taskfile.yml
+# 常用 Go 任务的快捷入口（需另装 go-task；等价命令可直接执行）。
+# 桌面应用构建走 `go tool mygo build`（mygo 是 go.mod 的 tool 依赖，
+# 不需要单独安装 CLI）。
 
 tasks:
   build:
-    summary: Builds the application
+    summary: 构建桌面应用（.app + DMG，输出 bin/）
     cmds:
-      - task: "{{.GOOS}}:build"
-
-  package:
-    summary: Packages a production build of the application
-    cmds:
-      - task: "{{.GOOS}}:package"
-
-  package:dmg:
-    summary: Packages the application into a styled `.dmg` (macOS only)
-    cmds:
-      - task: "darwin:package:dmg"
-
-  run:
-    summary: Runs the application
-    cmds:
-      - task: "{{.GOOS}}:run"
-
-  dev:
-    summary: Runs the application in development mode
-    cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
-
-  dev:web:
-    summary: Runs the frontend in a browser with the mock backend
-    dir: frontend
-    cmds:
-      - pnpm run dev -- --port {{.VITE_PORT}}
-
-  bindings:
-    summary: Regenerates the TypeScript bindings from Go services
-    cmds:
-      - wails3 generate bindings -clean=true -ts -i
+      - go tool mygo build
 
   models:sync:
-    summary: Syncs the embedded model catalog from models.dev
+    summary: 从 models.dev 同步并生成目录快照（internal/model/catalogdata）
     cmds:
       - go run ./cmd/modelsync
 
   models:check:
-    summary: Checks whether the embedded model catalog matches models.dev
+    summary: 检查目录快照是否与 models.dev 漂移
     cmds:
       - go run ./cmd/modelsync -check
 
   test:
-    summary: Runs Go tests and the frontend tests and type check
+    summary: Go 单元测试
     cmds:
       - go test ./...
-      - cd frontend && pnpm run test
-      - cd frontend && pnpm run typecheck
 
   check:
-    summary: Runs Go vet and the frontend type check
+    summary: Go 静态检查
     cmds:
       - go vet ./...
-      - cd frontend && pnpm run typecheck
-
-  install:msix:tools:
-    summary: Installs tools required for Windows MSIX packaging
-    cmds:
-      - task: windows:install:msix:tools
-
-  setup:docker:
-    summary: Builds Docker image for cross-compilation (~800MB download)
-    cmds:
-      - task: common:setup:docker
-
-  build:server:
-    summary: Builds the application in server mode (no GUI, HTTP server only)
-    cmds:
-      - task: common:build:server
-
-  run:server:
-    summary: Runs the application in server mode
-    cmds:
-      - task: common:run:server
-
-  build:docker:
-    summary: Builds a Docker image for server mode deployment
-    cmds:
-      - task: common:build:docker
-
-  run:docker:
-    summary: Builds and runs the Docker image
-    cmds:
-      - task: common:run:docker
