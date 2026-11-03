@@ -1,6 +1,6 @@
 # 11. composer 功能接线：模型切换 / 审批档位 / 上下文详情三浮层与 R0–R4 提示
 
-Status: ready-for-agent
+Status: resolved
 
 ## 背景
 
@@ -29,3 +29,7 @@ Status: ready-for-agent
 ## Comments
 
 - 2026-11-03 开票留档（走查定性）：07 号票 Comments 与改动清单均无 composer 三浮层，`composer.go:11` 的归属注释是错误引用。本票是清偿，不是新功能。
+- 2026-11-03 实现留档（接手说明）：前两位实现者子代理先后被模型提供商的内容过滤误拦（1301，票内「审批档位 / 风险等级」词汇密集所致，与代码无关），浮层本体与用例的半成品由主会话接手完成。半成品取舍：`overlays/composer.go`（四浮层：模型 / 档位 / 风险 / 上下文）与 `composer_test.go` 结构保留，修复三处——① 测试种子改走 `SaveProvider` 生产写路径（`ProviderService` 构造时读库进内存快照，`List()` 只看快照，`db.SetSetting` 直写会读到空清单）；② 档位行补显式 `Height(48)`（不设高度的面板在 800 高窗口把「自由」行推出可视区，07 号票「显式高度」坑的变体）；③ 用例期望对齐 `formatTokens` 共享口径（≥10k 取整，12.5k→13k）。
+- 2026-11-03 实现留档（接线语义）：chat 侧 `composerBar` 三处展示改为可点击（档位「shield+标签」、上下文「圆环+百分比+速度」、模型名），旁附 `info` 图标开 R0–R4 说明；浮层保存走 `Store.save` 与设置中心同一路径（双向同步天然成立）；档位回调 `approvalLevelSynced` 帧内同步输入区展示（`approvalLevelLabelOf` 与 `app.levelLabel` 同表，两处收敛待 review 轮）；上下文详情打开瞬间快照传入（`contextDetail`，与 `contextHint` 同口径：实测优先估算兜底、运行中实时速度）。
+- 2026-11-03 未尽事项：设置中心运行中改档位时聊天列展示不同步（`approvalLevel` 只在装配时与本票浮层回调两处更新，既有缺口，归属后续票）；模型选择写的是默认模型（新建会话生效），当前会话模型不突变，与 React 版「设为默认」文案一致。
+- 验证：`go build ./...`、`go test ./...`（26 包）、`go vet`、`golangci-lint run` 0 issues、`go tool mygo build` 产出 .app + DMG。
