@@ -145,12 +145,22 @@ func (s *Sidebar) modeButton(c *mygo.Context, v *viewSide, mode Mode, icon, labe
 // 会话列表
 // ---------------------------------------------------------------------------
 
+// 会话列表与行共用的布局常量（.thread-list 左右 12、.thread-item 左 11 /
+// 右 5）。threadTitleWidth（marquee.go）按同一组常量推导标题列可用宽，
+// 与行绘制参数同源——review 修复轮：此前 marquee 自带一份复算、把行左右
+// 都按右值 5 算，与真实布局漂移 6px。
+const (
+	threadListPadX = theme.Space4 + 4 // 列表容器左右内边距（12）
+	threadItemPadL = theme.Space5 + 1 // 会话行左内边距（11）
+	threadItemPadR = theme.Space1 + 3 // 会话行右内边距（5）
+)
+
 // threadList 画滚动列表区（.thread-list，内边距 2 8 8）：临时组置顶、
 // 「项目会话」区、项目分组、孤儿「其他」组与空态。
 func (s *Sidebar) threadList(c *mygo.Context, v *viewSide) {
 	groups := s.Groups()
 	mygo.Scroll(c).Grow(1).
-		Padding(theme.Space1, theme.Space4+4, theme.Space4+4).
+		Padding(theme.Space1, threadListPadX, threadListPadX).
 		Children(func() {
 			s.tempGroup(c, v, findGroup(groups, GroupTemp))
 			s.projectSection(c, v, groups)
@@ -413,7 +423,7 @@ func listEmpty(c *mygo.Context, v *viewSide, text string) {
 func (s *Sidebar) threadItem(c *mygo.Context, v *viewSide, t Thread) {
 	active := t.ID == s.ActiveID()
 	btn := mygo.ButtonBase(c).Fill().AlignItems(mygo.Stretch).Key(t.ID).
-		Padding(theme.Space4, theme.Space1+3, theme.Space4, theme.Space5+1). // 8 5 8 11
+		Padding(theme.Space4, threadItemPadR, theme.Space4, threadItemPadL). // 8 5 8 11
 		Radius(theme.RadiusCtl).
 		Margin(0, 0, 1, 0). // 行间距 1（.thread-item margin-bottom）
 		Transition(mygo.ElementTransition{

@@ -64,10 +64,13 @@ func marqueePeriod(overflow float32) time.Duration {
 }
 
 // threadTitleWidth 是会话行标题列的可用宽度：侧栏 268 - 列表左右 12×2 -
-// 行左右 5×2 - 行描边 2。标题列占满行内容宽（13 号票放宽截断：此前标题
-// 与时间行被 ButtonBase 的 Row 语义排成一行，只能拿时间行之外的剩余宽）。
+// 行左内边距 11 - 行右内边距 5 - 行描边 2。全部取 threadList / threadItem
+// 的同一组布局常量（view.go），不再自带一份复算（review 修复轮：此前行
+// 左右按右值 5×2 算，比真实可用宽 6px，跑马灯触发偏晚）。标题列占满行
+// 内容宽（13 号票放宽截断：此前标题与时间行被 ButtonBase 的 Row 语义排
+// 成一行，只能拿时间行之外的剩余宽）。
 func threadTitleWidth() float32 {
-	return theme.SidebarWidth - 2*(theme.Space4+4) - 2*(theme.Space1+3) - 2
+	return theme.SidebarWidth - 2*threadListPadX - threadItemPadL - threadItemPadR - 2
 }
 
 // threadTitle 画会话行标题（.thread-title）：单行截断；悬停且超宽时以
