@@ -97,6 +97,13 @@ function createWindow(preloadPath: string): BrowserWindow {
 
 async function bootstrap(): Promise<void> {
   // 单实例锁：在任何数据打开之前（第二个实例连数据库都不该碰）
+  // CRAFTWORK_HOME 隔离必须先于单实例锁：userData（含 localStorage）与锁目录一并指向隔离目录，
+  // 否则多个 dev/冒烟实例共享同一份浏览器存储，草稿槽等本地状态互相污染。
+  const homeOverride = process.env["CRAFTWORK_HOME"]?.trim();
+  if (homeOverride) {
+    mkdirSync(homeOverride, { recursive: true, mode: 0o700 });
+    app.setPath("userData", homeOverride);
+  }
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
