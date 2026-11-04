@@ -185,7 +185,9 @@ Electron 与工具链：
 - preload 产物是 ESM（`index.mjs`），窗口里引用路径必须写对。
 - 打包后 renderer 经 `file://` 加载，`electron.vite.config.ts` 的 renderer `base` 必须是 `"./"`，否则白屏。
 - Tailwind v4 的语义色必须经 `@theme inline` 映射（token 值用 `var(--zai-*)`），直接在普通选择器里定义 `--color-*` 不会生成工具类。
-- pnpm 12 的原生模块构建许可在 `pnpm-workspace.yaml`（`onlyBuiltDependencies`），不在 package.json。
+- `-webkit-app-region` 的可拖区域合成是扁平矩形减法：`no-drag` 祖先的矩形会从可拖形状里整体减掉，其后代再用 `drag` 声明也无法覆盖回来（macOS 实测）。所以可拖区域不能嵌在 `no-drag` 容器里「翻身」；正确模式是 app-region 默认值为 `no-drag`，只在顶层条上声明 `drag`，再对其内部不可拖的控件（标题文字、按钮）声明 `no-drag` 挖洞。
+- pnpm 12 的原生模块构建许可在 `pnpm-workspace.yaml`（`allowBuilds` 映射），不在 package.json；package.json 里的 `pnpm` 字段整块不再被读取。
+- electron 45 起不再声明 postinstall 脚本，二进制改为「首次使用时懒下载」；electron-vite 只认 `node_modules/electron/path.txt`，读不到就抛 `Electron uninstall`。根项目 `prepare` 脚本已接入官方 `install-electron` 命令补齐二进制（幂等），删除 `node_modules` 重装后无需手动处理；个别环境需要手动补跑时执行 `node node_modules/electron/install.js`。
 - pnpm 供应链策略会拒绝发布不满最短时间的包版本；遇到时退回上一个稳定小版本。
 - Electron 的单实例锁按 userData 目录；dev 与打包产物同时运行会互踢，测试前先杀干净残留进程。
 - `node-pty` 在 renderer 不可用；只能在主进程经 `createRequire` 引入。
