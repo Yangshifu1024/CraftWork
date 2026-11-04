@@ -18,7 +18,7 @@ export function Conversation(): React.JSX.Element {
   const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
 
   return (
-    <div id="content" className="flex min-w-[320px] flex-1 flex-col app-region-no-drag">
+    <div id="content" className="flex min-h-0 min-w-[320px] flex-1 flex-col app-region-no-drag">
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xs">
         <WorkspaceHeader title={thread?.title ?? "新对话"} status={thread?.status ?? "idle"} mode={mode} />
         <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
