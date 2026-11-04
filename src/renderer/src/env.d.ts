@@ -3,8 +3,6 @@ import type { CraftworkApi } from "../../shared/channels";
 
 export interface CraftworkPush {
   onEvents(callback: (batch: unknown) => void): () => void;
-  onTerminalData(callback: (payload: unknown) => void): () => void;
-  onTerminalExit(callback: (payload: unknown) => void): () => void;
   onToast(callback: (payload: unknown) => void): () => void;
 }
 

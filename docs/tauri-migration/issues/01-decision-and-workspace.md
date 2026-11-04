@@ -1,7 +1,7 @@
 # 01 决策定案与 workspace 脚手架（P0）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 无（本 feature 起点）
 
 ## 任务

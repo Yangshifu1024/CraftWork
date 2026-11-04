@@ -57,7 +57,7 @@ export function SettingsOverlay(): React.JSX.Element {
         className="fixed inset-0 z-50 flex flex-col bg-background outline-none"
       >
       {/* 全宽顶部拖拽留白：交通灯区，对齐主窗口侧栏 h-12 顶条 */}
-      <div className="h-12 shrink-0 app-region-drag" />
+      <div className="h-12 shrink-0 app-region-drag" data-tauri-drag-region />
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-60 shrink-0 flex-col border-r border-border/50 p-3">
           <button
@@ -193,16 +193,6 @@ function AppearanceSection(): React.JSX.Element {
             void save({ fontSize: size });
             document.documentElement.style.setProperty("--ui-font-size", `${size}px`);
           }}
-          className="w-40"
-        />
-      </Row>
-      <Row title="终端字号" desc={`${settings.terminalFontSize}px（10–20）`}>
-        <input
-          type="range"
-          min={10}
-          max={20}
-          value={settings.terminalFontSize}
-          onChange={(e) => void save({ terminalFontSize: Number(e.target.value) })}
           className="w-40"
         />
       </Row>

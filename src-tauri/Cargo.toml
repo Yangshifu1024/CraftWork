@@ -1,13 +1,22 @@
 # Tauri 应用壳：入口、窗口、托盘、IPC 接线、capabilities。唯一的 Tauri API 使用方；
 # 领域逻辑一律放在 crates/craft-* 中保持可独立测试（分层依据 docs/tauri-migration/plan.md §1.2）。
-# P0 阶段为占位，P1（docs/tauri-migration/issues/02）起接入 Tauri。
 [package]
 name = "craftwork"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "craftwork_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 craft-agent = { path = "../crates/craft-agent" }
 craft-core = { path = "../crates/craft-core" }
 craft-doc = { path = "../crates/craft-doc" }

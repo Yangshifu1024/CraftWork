@@ -332,7 +332,7 @@ export function Sidebar(): React.JSX.Element {
       }`}
     >
       <aside className="flex h-full min-h-0 select-none flex-col overflow-hidden">
-        <div className="h-12 shrink-0 app-region-drag" />
+        <div className="h-12 shrink-0 app-region-drag" data-tauri-drag-region />
         <div className="relative min-h-0 flex-1 overflow-clip">
           <div className="absolute inset-0 flex min-h-0 flex-col">
             {/* 导航区 */}

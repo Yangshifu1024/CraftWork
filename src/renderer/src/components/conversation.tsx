@@ -39,7 +39,7 @@ export function Conversation(): React.JSX.Element {
 
 function WorkspaceHeader({ title, status, mode }: { title: string; status: string; mode: string }): React.JSX.Element {
   return (
-    <div className="relative flex w-full shrink-0 border-b border-border/50 app-region-drag">
+    <div className="relative flex w-full shrink-0 border-b border-border/50 app-region-drag" data-tauri-drag-region>
       <div className="flex h-12 min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden p-2">
         <div className="flex min-w-0 items-center gap-2 pl-1">
           <span className="truncate text-ui-base font-medium text-foreground app-region-no-drag">{title}</span>

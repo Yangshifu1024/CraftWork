@@ -1,17 +1,15 @@
-// 右侧面板：终端（xterm + PTY）/ 文件树 / 文档预览 三个视图。
-// 终端是用户终端：不经过 Agent 审批；Agent 的命令执行走策略引擎。
-import { useEffect, useRef, useState } from "react";
+// 右侧面板：文件树 / 文档预览 两个视图。
+import { useEffect, useState } from "react";
 import { Tabs } from "radix-ui";
-import { TerminalSquare, FolderOpen, FileText } from "lucide-react";
-import { createTerminal } from "../lib/xterm";
-import { api, onTerminalData, onTerminalExit } from "../lib/api";
+import { FolderOpen, FileText } from "lucide-react";
+import { api } from "../lib/api";
 import { useApp } from "../store/app";
 import type { FileNode, ThreadView, WorkspaceView } from "../../../shared/types";
 
-export type PanelTab = "terminal" | "files" | "doc";
+export type PanelTab = "files" | "doc";
 
 /** 当前面板生效的工作区 id：活动会话的工作区 → 草稿态取草稿槽归属（draftWsId 非空时，发送前即可浏览项目）
- *  → 回落内置临时目录（conversation 工作区）。归属查不到（如项目已删）同样回落。终端与文件树共用同一推导。 */
+ *  → 回落内置临时目录（conversation 工作区）。归属查不到（如项目已删）同样回落。 */
 function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads: ThreadView[], workspaces: WorkspaceView[]): string {
   const direct = activeThreadId
     ? (threads.find((t) => t.id === activeThreadId)?.workspaceId ?? "")
@@ -21,15 +19,12 @@ function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads
 }
 
 export function SidePane(): React.JSX.Element {
-  const [tab, setTab] = useState<PanelTab>("terminal");
+  const [tab, setTab] = useState<PanelTab>("files");
   const [open, setOpen] = useState(false);
 
   if (!open) {
     return (
       <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-l border-border/40 py-2">
-        <PaneButton label="终端" active={false} onClick={() => { setOpen(true); setTab("terminal"); }}>
-          <TerminalSquare className="size-4" />
-        </PaneButton>
         <PaneButton label="文件" active={false} onClick={() => { setOpen(true); setTab("files"); }}>
           <FolderOpen className="size-4" />
         </PaneButton>
@@ -49,7 +44,6 @@ export function SidePane(): React.JSX.Element {
       <Tabs.List className="flex h-10 shrink-0 items-center gap-1 border-b border-border/40 px-2">
         {(
           [
-            ["terminal", "终端"],
             ["files", "文件"],
             ["doc", "文档"],
           ] as const
@@ -67,10 +61,7 @@ export function SidePane(): React.JSX.Element {
           ×
         </button>
       </Tabs.List>
-      {/* 条件卸载语义与迁移前一致：非活动视图卸载（终端切走即释放 PTY） */}
-      <Tabs.Content value="terminal" className="flex min-h-0 flex-1 flex-col outline-none">
-        <TerminalView />
-      </Tabs.Content>
+      {/* 条件卸载语义与迁移前一致：非活动视图卸载 */}
       <Tabs.Content value="files" className="flex min-h-0 flex-1 flex-col outline-none">
         <FilesView />
       </Tabs.Content>
@@ -90,75 +81,6 @@ function PaneButton({ label, active, onClick, children }: { label: string; activ
     >
       {children}
     </button>
-  );
-}
-
-// ---------- 终端 ----------
-
-let terminalSeq = 0;
-
-function TerminalView(): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<import("../lib/xterm").XtermHandle | null>(null);
-  const settings = useApp((s) => s.settings);
-  const workspaces = useApp((s) => s.workspaces);
-  const mode = useApp((s) => s.mode);
-  const activeThreadId = useApp((s) => s.activeThreadId[mode]);
-  const draftWsId = useApp((s) => s.draftWsId[mode]);
-  const threads = useApp((s) => s.threads[mode]);
-  const [exitCode, setExitCode] = useState<number | null>(null);
-
-  // 生效工作区：活动会话的工作区 → 草稿态按草稿槽归属（发送前即可浏览项目）→ 回落内置临时目录。
-  const wsId = effectiveWorkspaceId(activeThreadId, draftWsId, threads, workspaces);
-  const activeWorkspace = workspaces.find((w) => w.id === wsId);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const created = createTerminal(containerRef.current, settings.terminalFontSize);
-    termRef.current = created;
-    const sessionId = `pty_${Date.now()}_${terminalSeq++}`;
-    const offData = onTerminalData((id, data) => {
-      if (id === sessionId) created.term.write(data);
-    });
-    const offExit = onTerminalExit((id, code) => {
-      if (id === sessionId) setExitCode(code);
-    });
-    // 惰性创建：等首次布局测量后再 spawn
-    const timer = setTimeout(() => {
-      created.fit();
-      const cwd = activeWorkspace?.path ?? "";
-      void api.terminalCreate(sessionId, cwd, created.term.rows, created.term.cols);
-    }, 60);
-    const resizeObserver = new ResizeObserver(() => {
-      created.fit();
-      void api.terminalResize(sessionId, created.term.rows, created.term.cols);
-    });
-    resizeObserver.observe(containerRef.current);
-    created.term.onData((data) => void api.terminalWrite(sessionId, data));
-    return () => {
-      clearTimeout(timer);
-      resizeObserver.disconnect();
-      offData();
-      offExit();
-      void api.terminalDispose(sessionId);
-      created.term.dispose();
-      termRef.current = null;
-    };
-    // 工作区切换时重起终端（目录冻结语义）
-  }, [activeWorkspace?.id, settings.terminalFontSize]);
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-border/30 px-3 py-1 text-ui-xs text-foreground-subtlest">
-        {activeWorkspace?.path ?? "（无工作区）"} · 用户终端不经过 Agent 审批
-      </div>
-      <div ref={containerRef} className="min-h-0 flex-1 p-1" />
-      {exitCode !== null && (
-        <div className="shrink-0 border-t border-border/30 px-3 py-1 text-ui-xs text-foreground-subtle">
-          进程已退出 · 退出码 {exitCode}
-        </div>
-      )}
-    </div>
   );
 }
 

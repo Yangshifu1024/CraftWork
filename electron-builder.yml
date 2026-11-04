@@ -6,10 +6,6 @@ directories:
   output: dist
   buildResources: build
 asar: true
-# 原生模块不能打进 asar（node-pty 的 prebuild 按平台加载）
-asarUnpack:
-  - "**/node_modules/node-pty/**"
-  - "**/node_modules/@xterm/**"
 files:
   - out/**
   - "package.json"

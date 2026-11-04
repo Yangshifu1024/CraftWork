@@ -98,7 +98,6 @@ export const useApp = create<AppState>((set, get) => ({
     language: "zh-CN",
     fontSize: 15,
     codeTheme: "dark",
-    terminalFontSize: 12,
     autoUpdate: true,
     notifications: true,
     updateChannel: "stable",

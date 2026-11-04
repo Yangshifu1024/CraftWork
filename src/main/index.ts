@@ -30,7 +30,6 @@ import { ProviderService } from "./services/providers";
 import { AuditService } from "./services/audit";
 import { AppService } from "./services/app";
 import { MCPService } from "./services/mcp";
-import { TerminalService } from "./services/terminal";
 import { registerIpc, type Services } from "./ipc";
 import { parseLevel } from "./policy/engine";
 
@@ -43,7 +42,6 @@ const WINDOW_DEFAULT_WIDTH = 1440;
 const WINDOW_DEFAULT_HEIGHT = 900;
 
 let mainWindow: BrowserWindow | null = null;
-let terminalService: TerminalService | null = null;
 
 /** 数据目录：CRAFTWORK_HOME（测试/开发隔离）优先，否则 ~/.craftwork。 */
 function resolveDataDir(): string {
@@ -202,7 +200,6 @@ async function bootstrap(): Promise<void> {
   const audit = new AuditService(db);
   const appService = new AppService(APP_VERSION, dataDir);
   const mcp = new MCPService(db);
-  terminalService = new TerminalService(() => mainWindow);
 
   // 内置临时会话目录（首启保证可聊）+ 历史无工作区会话归入临时目录
   try {
@@ -216,7 +213,7 @@ async function bootstrap(): Promise<void> {
   engine.setLevel(parseLevel(settings.get().approvalLevel));
 
   // IPC
-  const services: Services = { app: appService, threads, chat, settings, providers, workspaces, audit, mcp, terminal: terminalService };
+  const services: Services = { app: appService, threads, chat, settings, providers, workspaces, audit, mcp };
   registerIpc(services);
 
   // 窗口
@@ -263,7 +260,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
-  terminalService?.disposeAll();
   busRef?.close();
   try {
     dbRef?.close();

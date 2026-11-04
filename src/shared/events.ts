@@ -23,8 +23,6 @@ export const EventType = {
   UsageUpdated: "usage.updated",
   SettingsUpdated: "settings.updated",
   WorkspaceUpdated: "workspace.updated",
-  TerminalOutput: "terminal.output",
-  TerminalExit: "terminal.exit",
 } as const;
 
 export type EventType = (typeof EventType)[keyof typeof EventType];
@@ -188,11 +186,6 @@ export interface WorkspaceUpdatedData {
   trust?: string;
   active?: boolean;
   removed?: boolean;
-}
-
-export interface TerminalDelta {
-  sessionId: string;
-  data: string;
 }
 
 // ---------- 存储事件（DB events 表）的 kind 与载荷 ----------

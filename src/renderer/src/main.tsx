@@ -3,7 +3,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { applyTheme, loadThemePref } from "./lib/theme";
+import { installTauriBridge } from "./lib/tauri-bridge";
 import "./styles.css";
+
+// Tauri 环境下提供与 preload 同名的 window.craftwork / craftworkPush（Electron 环境为空操作）。
+installTauriBridge();
 
 applyTheme(loadThemePref());
 

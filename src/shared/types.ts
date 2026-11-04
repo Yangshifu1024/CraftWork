@@ -145,7 +145,6 @@ export interface Settings {
   language: string;
   fontSize: number;
   codeTheme: string;
-  terminalFontSize: number;
   autoUpdate: boolean;
   notifications: boolean;
   updateChannel: string;

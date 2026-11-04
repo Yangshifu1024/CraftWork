@@ -32,24 +32,9 @@ import type {
 export const PushChannels = {
   /** 会话事件批量推送（Envelope[]） */
   Events: "craftwork:events",
-  /** 终端输出 */
-  TerminalData: "craftwork:terminal-data",
-  /** 终端退出 */
-  TerminalExit: "craftwork:terminal-exit",
   /** 全局 toast 提示（main 主动，如密钥文件损坏警告） */
   Toast: "craftwork:toast",
 } as const;
-
-/** 终端数据载荷 */
-export interface TerminalDataPayload {
-  sessionId: string;
-  data: string;
-}
-
-export interface TerminalExitPayload {
-  sessionId: string;
-  exitCode: number;
-}
 
 export interface ToastPayload {
   tone: "info" | "ok" | "warn" | "danger";
@@ -162,12 +147,6 @@ export interface CraftworkApi {
   mcpRemove(serverId: string): Promise<void>;
   mcpConnect(serverId: string): Promise<MCPServerView>;
   mcpDisconnect(serverId: string): Promise<void>;
-
-  // ---------- 终端 ----------
-  terminalCreate(sessionId: string, cwd: string, rows: number, cols: number): Promise<void>;
-  terminalWrite(sessionId: string, data: string): Promise<void>;
-  terminalResize(sessionId: string, rows: number, cols: number): Promise<void>;
-  terminalDispose(sessionId: string): Promise<void>;
 }
 
 /** CraftworkApi 的通道名映射：方法名 → "craftwork:<camel>"，供 preload/main 共用。 */

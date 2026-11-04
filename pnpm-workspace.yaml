@@ -2,7 +2,6 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
-  node-pty: true
 # 单包项目；此文件承载 pnpm 配置（pnpm 10+ 的构建脚本许可已从 package.json 迁移到这里）。
 minimumReleaseAgeExclude:
   - lucide-react@1.67.0

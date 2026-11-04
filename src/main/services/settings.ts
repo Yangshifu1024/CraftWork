@@ -21,7 +21,6 @@ export function defaultSettings(): Settings {
     language: "zh-CN",
     fontSize: 15,
     codeTheme: "dark",
-    terminalFontSize: 12,
     autoUpdate: true,
     notifications: true,
     updateChannel: "stable",
@@ -63,7 +62,6 @@ export class SettingsService {
     merged.approvalLevel = parseLevel(next.approvalLevel);
     merged.panelWidth = Math.min(760, Math.max(320, Math.trunc(next.panelWidth) || 320));
     merged.fontSize = next.fontSize >= 11 && next.fontSize <= 18 ? Math.trunc(next.fontSize) : 15;
-    merged.terminalFontSize = next.terminalFontSize >= 10 && next.terminalFontSize <= 20 ? Math.trunc(next.terminalFontSize) : 12;
     merged.language = next.language || current.language;
     merged.codeTheme = next.codeTheme || current.codeTheme;
     merged.autoUpdate = next.autoUpdate;

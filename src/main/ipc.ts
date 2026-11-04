@@ -8,7 +8,6 @@ import type { ChatService } from "./services/chat";
 import type { MCPService } from "./services/mcp";
 import type { ProviderService } from "./services/providers";
 import type { SettingsService } from "./services/settings";
-import type { TerminalService } from "./services/terminal";
 import type { ThreadService } from "./services/threads";
 import type { WorkspaceService } from "./services/workspaces";
 
@@ -21,7 +20,6 @@ export interface Services {
   workspaces: WorkspaceService;
   audit: AuditService;
   mcp: MCPService;
-  terminal: TerminalService;
 }
 
 /** 统一包装：领域异常 → 拒绝（渲染层拿到 message 展示）；同步实现自动 Promise 化。 */
@@ -164,16 +162,6 @@ export function registerIpc(services: Services): void {
   handle("mcpRemove", (serverId) => services.mcp.remove(String(serverId)));
   handle("mcpConnect", (serverId) => services.mcp.connect(String(serverId)));
   handle("mcpDisconnect", (serverId) => services.mcp.disconnect(String(serverId)));
-
-  // ---------- 终端 ----------
-  handle("terminalCreate", (sessionId, cwd, rows, cols) =>
-    services.terminal.create(String(sessionId), String(cwd ?? ""), Number(rows) || 24, Number(cols) || 80),
-  );
-  handle("terminalWrite", (sessionId, data) => services.terminal.write(String(sessionId), String(data ?? "")));
-  handle("terminalResize", (sessionId, rows, cols) =>
-    services.terminal.resize(String(sessionId), Number(rows) || 24, Number(cols) || 80),
-  );
-  handle("terminalDispose", (sessionId) => services.terminal.dispose(String(sessionId)));
 }
 
 export type { BrowserWindow };

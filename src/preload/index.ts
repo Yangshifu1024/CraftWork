@@ -80,10 +80,6 @@ function bridge(): CraftworkApi {
     "mcpRemove",
     "mcpConnect",
     "mcpDisconnect",
-    "terminalCreate",
-    "terminalWrite",
-    "terminalResize",
-    "terminalDispose",
   ];
   for (const method of methods) {
     api[method] = (...args: unknown[]) => ipcRenderer.invoke(channelOf(method), ...args);
@@ -99,16 +95,6 @@ contextBridge.exposeInMainWorld("craftworkPush", {
     const handler = (_e: unknown, payload: unknown): void => callback(payload);
     ipcRenderer.on(PushChannels.Events, handler);
     return () => ipcRenderer.removeListener(PushChannels.Events, handler);
-  },
-  onTerminalData: (callback: (payload: unknown) => void): (() => void) => {
-    const handler = (_e: unknown, payload: unknown): void => callback(payload);
-    ipcRenderer.on(PushChannels.TerminalData, handler);
-    return () => ipcRenderer.removeListener(PushChannels.TerminalData, handler);
-  },
-  onTerminalExit: (callback: (payload: unknown) => void): (() => void) => {
-    const handler = (_e: unknown, payload: unknown): void => callback(payload);
-    ipcRenderer.on(PushChannels.TerminalExit, handler);
-    return () => ipcRenderer.removeListener(PushChannels.TerminalExit, handler);
   },
   onToast: (callback: (payload: unknown) => void): (() => void) => {
     const handler = (_e: unknown, payload: unknown): void => callback(payload);
