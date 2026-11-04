@@ -32,6 +32,8 @@ export function loadDrafts(): DraftTable {
         out[mode][wsId] = {
           text: typeof record["text"] === "string" ? record["text"] : "",
           attachments: attachments.filter((a): a is string => typeof a === "string"),
+          // 旧版本槽无此字段：缺失/非字符串回落空串（空 = 首发用全局默认模型）
+          modelRef: typeof record["modelRef"] === "string" ? record["modelRef"] : "",
         };
       }
     }

@@ -1,5 +1,6 @@
 // 模型选择浮层：cmdk 搜索 + 按提供商分组的模型清单，Popover 锚定在触发按钮旁弹出。
-// 选中即双写：设置默认模型；当前有会话时同步设置会话模型。
+// 选中即落库：有活动会话时双写（会话模型 + 全局默认）；草稿态只写当前草稿槽的模型引用，
+// 不调 threadSetModel / saveSettings——草稿态选择模型不产生任何写请求，首发时随槽传入。
 // 底部「管理模型」直达设置·模型与提供商；关闭后焦点回 composer 输入框（对齐 ZCode）。
 import { useEffect, useState } from "react";
 import { Popover } from "radix-ui";
@@ -22,6 +23,8 @@ export function ModelPicker({
   const mode = useApp((s) => s.mode);
   const activeThreadId = useApp((s) => s.activeThreadId[mode]);
   const settings = useApp((s) => s.settings);
+  const draftModelRef = useApp((s) => s.drafts[s.mode][s.draftWsId[s.mode]]?.modelRef ?? "");
+  const setDraft = useApp((s) => s.setDraft);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const openSettings = useOverlays((s) => s.open);
   const [providers, setProviders] = useState<ProviderView[]>([]);
@@ -36,7 +39,7 @@ export function ModelPicker({
 
   const current = activeThreadId
     ? (useApp.getState().threads[mode].find((t) => t.id === activeThreadId)?.modelId || settings.defaultModel)
-    : settings.defaultModel;
+    : (draftModelRef || settings.defaultModel);
 
   const pick = async (ref: string): Promise<void> => {
     if (activeThreadId) {
@@ -46,8 +49,11 @@ export function ModelPicker({
       } catch (err) {
         console.warn(err);
       }
+      await useApp.getState().saveSettings({ defaultModel: ref });
+    } else {
+      // 草稿态：模型引用只写入当前草稿槽（纯渲染层状态，随槽持久化），零写请求。
+      setDraft(mode, { modelRef: ref });
     }
-    await useApp.getState().saveSettings({ defaultModel: ref });
     onOpenChange(false);
   };
 

@@ -46,12 +46,10 @@ export function useShortcuts(): void {
         if (overlay === "none") cycleApprovalLevel();
         return;
       }
-      // ⌘M：开/关模型菜单（composer picker 排他态在 overlays store）；草稿态模型选择禁用。
+      // ⌘M：开/关模型菜单（composer picker 排他态在 overlays store）；草稿态同样可用（写入草稿槽）。
       if (meta && e.key.toLowerCase() === "m") {
         e.preventDefault();
         if (overlay !== "none") return;
-        const app = useApp.getState();
-        if (app.activeThreadId[app.mode] === "") return;
         const { picker, openPicker, closePicker } = useOverlays.getState();
         if (picker === "model") closePicker();
         else openPicker("model");

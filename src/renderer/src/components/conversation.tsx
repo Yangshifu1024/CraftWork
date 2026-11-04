@@ -20,11 +20,16 @@ export function Conversation(): React.JSX.Element {
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const chat = useApp((s) => s.chats[activeId]);
   const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
+  const draftWsId = useApp((s) => s.draftWsId[mode]);
+  const workspaces = useApp((s) => s.workspaces);
+  // 草稿态（活动会话为空）标题显示槽归属：项目槽显示该工作区名（查不到回落「新对话」），临时槽显示「新对话」。
+  const draftWs = activeId === "" && draftWsId ? workspaces.find((w) => w.id === draftWsId) : undefined;
+  const title = activeId === "" ? (draftWs?.name ?? "新对话") : (thread?.title ?? "新对话");
 
   return (
     <div id="content" className="flex min-h-0 min-w-[320px] flex-1 flex-col app-region-no-drag">
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xs">
-        <WorkspaceHeader title={thread?.title ?? "新对话"} status={thread?.status ?? "idle"} mode={mode} />
+        <WorkspaceHeader title={title} status={thread?.status ?? "idle"} mode={mode} />
         <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
         <Composer activeId={activeId} chat={chat ? { running: chat.running } : { running: false }} />
       </div>
@@ -463,17 +468,17 @@ function cleanErrorMessage(err: unknown): string {
   return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
-/** 模型 chip：显示会话模型（缺省用全局默认），点击在按钮上方弹出选择浮层。对齐 ZCode：模型名 + ChevronDown，未选时占位文案。
- *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。
- *  草稿态（活动会话为空）禁点：首发将使用显示的默认模型，切换能力在草稿槽接通后开放。 */
+/** 模型 chip：显示会话模型（草稿态显示当前草稿槽的模型引用，缺省回落全局默认），点击在按钮上方弹出选择浮层。
+ *  对齐 ZCode：模型名 + ChevronDown，未选时占位文案。
+ *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。 */
 function ModelChip({ className, disabled, ...props }: React.ComponentProps<"button">): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const settings = useApp((s) => s.settings);
+  const draftModelRef = useApp((s) => s.drafts[s.mode][s.draftWsId[s.mode]]?.modelRef ?? "");
   const thread = threads.find((t) => t.id === activeId);
-  const modelId = thread?.modelId || settings.defaultModel;
-  const draftLocked = activeId === "";
+  const modelId = activeId === "" ? (draftModelRef || settings.defaultModel) : (thread?.modelId || settings.defaultModel);
   const label = modelId
     ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
       ? thread.modelName
@@ -482,12 +487,12 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   return (
     <button
       type="button"
-      disabled={disabled || draftLocked}
+      disabled={disabled}
       {...props}
       className={`flex h-7 shrink-0 items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover disabled:hover:bg-transparent disabled:cursor-default disabled:opacity-50 ${
         modelId ? "text-foreground" : "text-foreground-subtle hover:text-foreground-subtle"
       } ${className ?? ""}`}
-      title={draftLocked ? "首发后将使用该模型，草稿态暂不可切换" : (modelId || "先在设置中添加提供商并选择模型")}
+      title={modelId || "先在设置中添加提供商并选择模型"}
     >
       <span className="max-w-40 truncate">{label}</span>
       <ChevronDown className="size-3.5 shrink-0 text-foreground-subtlest" />
@@ -588,7 +593,7 @@ function LevelChip(): React.JSX.Element {
 }
 
 /** 稳定空槽：无草稿内容时回落（引用稳定，避免 zustand selector 每次返回新对象）。 */
-const EMPTY_DRAFT: DraftState = { text: "", attachments: [] };
+const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "" };
 
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
   // 文本与附件受控于 store 的草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽）：
@@ -657,7 +662,9 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
     if (activeId === "") {
       // 草稿首发：创建并首发原子路径。创建前失败（如未配置模型）还原草稿；
       // 创建成功即视为发送成功——会话立即入栏并选中，Run 启动失败经 run.failed 在时间线展示，不还原草稿。
-      const modelRef = useApp.getState().settings.defaultModel;
+      // 模型取当前草稿槽引用（草稿态选择过），取不到回落全局默认。
+      const state = useApp.getState();
+      const modelRef = state.drafts[mode][state.draftWsId[mode]]?.modelRef || state.settings.defaultModel;
       void api
         .chatCreateAndStart(mode, "", clean, sendAttachments, modelRef)
         .then(async ({ threadId }) => {
@@ -740,7 +747,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
               </button>
               <ModeSwitch />
               <ModelPicker
-                open={picker === "model" && activeId !== ""}
+                open={picker === "model"}
                 onOpenChange={(o) => (o ? openPicker("model") : closePicker())}
                 trigger={<ModelChip />}
               />

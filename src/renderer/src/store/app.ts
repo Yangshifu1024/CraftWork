@@ -24,14 +24,15 @@ export interface ChatState {
   lastSeq: number;
 }
 
-/** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容。 */
+/** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容；modelRef 为草稿态选定的模型引用（空 = 用全局默认）。 */
 export interface DraftState {
   text: string;
   attachments: string[];
+  modelRef: string;
 }
 
 function emptyDraft(): DraftState {
-  return { text: "", attachments: [] };
+  return { text: "", attachments: [], modelRef: "" };
 }
 
 interface AppState {

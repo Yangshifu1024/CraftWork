@@ -5,9 +5,16 @@ import { TerminalSquare, FolderOpen, FileText } from "lucide-react";
 import { createTerminal } from "../lib/xterm";
 import { api, onTerminalData, onTerminalExit } from "../lib/api";
 import { useApp } from "../store/app";
-import type { FileNode } from "../../../shared/types";
+import type { FileNode, ThreadView } from "../../../shared/types";
 
 export type PanelTab = "terminal" | "files" | "doc";
+
+/** 当前面板生效的工作区 id：活动会话优先取其工作区；草稿态（活动会话为空）取草稿槽归属
+ *  （空串 = 临时槽）。查不到由调用方走各自回落（终端回落内置临时目录，文件树回落首个工作区）。 */
+function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads: ThreadView[]): string {
+  if (activeThreadId) return threads.find((t) => t.id === activeThreadId)?.workspaceId ?? "";
+  return draftWsId;
+}
 
 export function SidePane(): React.JSX.Element {
   const [tab, setTab] = useState<PanelTab>("terminal");
@@ -82,11 +89,14 @@ function TerminalView(): React.JSX.Element {
   const workspaces = useApp((s) => s.workspaces);
   const mode = useApp((s) => s.mode);
   const activeThreadId = useApp((s) => s.activeThreadId[mode]);
+  const draftWsId = useApp((s) => s.draftWsId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const [exitCode, setExitCode] = useState<number | null>(null);
 
+  // 生效工作区：活动会话的工作区 → 草稿态按草稿槽归属（发送前即可浏览项目）→ 回落内置临时目录。
+  const wsId = effectiveWorkspaceId(activeThreadId, draftWsId, threads);
   const activeWorkspace =
-    workspaces.find((w) => w.id === threads.find((t) => t.id === activeThreadId)?.workspaceId) ?? workspaces.find((w) => w.purpose === "conversation");
+    workspaces.find((w) => w.id === wsId) ?? workspaces.find((w) => w.purpose === "conversation");
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -142,14 +152,20 @@ function TerminalView(): React.JSX.Element {
 
 function FilesView(): React.JSX.Element {
   const workspaces = useApp((s) => s.workspaces);
-  const [workspaceId, setWorkspaceId] = useState("");
-  const ws = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
+  const mode = useApp((s) => s.mode);
+  const activeThreadId = useApp((s) => s.activeThreadId[mode]);
+  const draftWsId = useApp((s) => s.draftWsId[mode]);
+  const threads = useApp((s) => s.threads[mode]);
+  const [pickedId, setPickedId] = useState("");
+  // 默认选中跟随当前归属（活动会话 / 草稿槽），用户下拉选择后尊重手动选择。
+  const wsId = pickedId || effectiveWorkspaceId(activeThreadId, draftWsId, threads);
+  const ws = workspaces.find((w) => w.id === wsId) ?? workspaces[0];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <select
         value={ws?.id ?? ""}
-        onChange={(e) => setWorkspaceId(e.target.value)}
+        onChange={(e) => setPickedId(e.target.value)}
         className="mx-2 my-1.5 h-7 rounded-md border border-border bg-input px-2 text-ui-xs"
       >
         {workspaces.map((w) => (

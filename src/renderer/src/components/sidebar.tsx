@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderPlus,
+  Plus,
 } from "lucide-react";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
@@ -159,17 +160,19 @@ function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.
   );
 }
 
-/** 项目分组头：h-8、文件夹图标随开合切换、组内任务缩进 pl-2 pt-1。 */
+/** 项目分组头：h-8、文件夹图标随开合切换、组内任务缩进 pl-2 pt-1；hover 显示「+」在该项目下新建会话。 */
 function ProjectGroup({
   name,
   isOpen,
   onToggle,
+  onNewDraft,
   children,
   hasUnread,
 }: {
   name: string;
   isOpen: boolean;
   onToggle(): void;
+  onNewDraft(): void;
   children: React.ReactNode;
   hasUnread?: boolean;
 }): React.JSX.Element {
@@ -189,6 +192,14 @@ function ProjectGroup({
           <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-foreground-subtlest opacity-0 transition-opacity duration-150 group-hover/project-row:opacity-100">
             <Pin className="size-3.5" />
           </span>
+        </button>
+        {/* 「在该项目下新建会话」：hover 才显示，避免布局跳动；在折叠按钮外，点击不触发开合 */}
+        <button
+          className="mr-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-foreground group-hover/project-row:opacity-100"
+          title="在该项目下新建会话"
+          onClick={onNewDraft}
+        >
+          <Plus className="size-3.5" />
         </button>
       </div>
       {isOpen && <div className="pl-2 pt-1">{children}</div>}
@@ -232,14 +243,14 @@ export function Sidebar(): React.JSX.Element {
     });
   };
 
-  /** 新建项目：选目录 → 创建项目工作区（restricted 保守信任）→ 进入草稿态（项目槽归属后续接通）。 */
+  /** 新建项目：选目录 → 创建项目工作区（restricted 保守信任）→ 进入该项目草稿态（新建流程收尾落在项目槽）。 */
   const createProject = async (): Promise<void> => {
     try {
       const folder = await api.pickFolder();
       if (!folder) return; // 用户取消
-      await api.workspaceAddProject("", [folder], "restricted");
+      const ws = await api.workspaceAddProject("", [folder], "restricted");
       await refreshWorkspaces();
-      newDraft();
+      newDraft(ws.id);
     } catch (err) {
       pushToast("danger", "新建项目失败", err instanceof Error ? err.message : String(err));
     }
@@ -389,6 +400,7 @@ export function Sidebar(): React.JSX.Element {
                         name={group.name}
                         isOpen={isOpen}
                         onToggle={() => toggleGroup(key)}
+                        onNewDraft={() => newDraft(key)}
                       >
                         <ul className="space-y-0.5">
                           {visible.map((t) => (
