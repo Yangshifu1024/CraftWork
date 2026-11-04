@@ -10,9 +10,13 @@ export function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const meta = e.metaKey || e.ctrlKey;
-      const overlay = useOverlays.getState().overlay;
+      const state = useOverlays.getState();
+      const overlay = state.overlay;
+      // 确认框 / 输入框（独立叠加层）打开时，窗口级浮层快捷键让位，避免静默丢弃未决的确认操作。
+      const dialogOpen = state.confirm !== null || state.prompt !== null;
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        if (dialogOpen) return;
         if (overlay === "palette") useOverlays.getState().close();
         else if (overlay === "none") useOverlays.getState().open("palette");
         return;
@@ -29,6 +33,7 @@ export function useShortcuts(): void {
       }
       if (meta && e.key === ",") {
         e.preventDefault();
+        if (dialogOpen) return;
         if (overlay === "settings") useOverlays.getState().close();
         else useOverlays.getState().open("settings");
         return;
@@ -36,6 +41,7 @@ export function useShortcuts(): void {
       if (meta && e.key.toLowerCase() === "d") {
         e.preventDefault();
         // 用量/审计/备份已拆为设置页独立分区，⌘D 直达用量分区。
+        if (dialogOpen) return;
         if (overlay === "settings") useOverlays.getState().close();
         else useOverlays.getState().open("settings", "usage");
         return;
@@ -43,13 +49,13 @@ export function useShortcuts(): void {
       // ⌘⇧M：循环审批档位（对齐 ZCode cycleSessionMode；切入「自由」走危险确认）。
       if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
-        if (overlay === "none") cycleApprovalLevel();
+        if (overlay === "none" && !dialogOpen) cycleApprovalLevel();
         return;
       }
       // ⌘M：开/关模型菜单（composer picker 排他态在 overlays store）；草稿态同样可用（写入草稿槽）。
       if (meta && e.key.toLowerCase() === "m") {
         e.preventDefault();
-        if (overlay !== "none") return;
+        if (overlay !== "none" || dialogOpen) return;
         const { picker, openPicker, closePicker } = useOverlays.getState();
         if (picker === "model") closePicker();
         else openPicker("model");

@@ -1,6 +1,7 @@
 // 右侧面板：终端（xterm + PTY）/ 文件树 / 文档预览 三个视图。
 // 终端是用户终端：不经过 Agent 审批；Agent 的命令执行走策略引擎。
 import { useEffect, useRef, useState } from "react";
+import { Tabs } from "radix-ui";
 import { TerminalSquare, FolderOpen, FileText } from "lucide-react";
 import { createTerminal } from "../lib/xterm";
 import { api, onTerminalData, onTerminalExit } from "../lib/api";
@@ -40,8 +41,12 @@ export function SidePane(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[380px] min-w-[280px] shrink-0 flex-col border-l border-border/40 bg-panel">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/40 px-2">
+    <Tabs.Root
+      value={tab}
+      onValueChange={(v) => setTab(v as PanelTab)}
+      className="flex w-[380px] min-w-[280px] shrink-0 flex-col border-l border-border/40 bg-panel"
+    >
+      <Tabs.List className="flex h-10 shrink-0 items-center gap-1 border-b border-border/40 px-2">
         {(
           [
             ["terminal", "终端"],
@@ -49,23 +54,30 @@ export function SidePane(): React.JSX.Element {
             ["doc", "文档"],
           ] as const
         ).map(([id, label]) => (
-          <button
+          <Tabs.Trigger
             key={id}
-            className={`rounded-md px-2.5 py-1 text-ui-sm ${tab === id ? "bg-selected text-foreground" : "text-foreground-subtle hover:bg-surface-hover"}`}
-            onClick={() => setTab(id)}
+            value={id}
+            className="rounded-md px-2.5 py-1 text-ui-sm outline-none data-[state=active]:bg-selected data-[state=active]:text-foreground data-[state=inactive]:text-foreground-subtle hover:bg-surface-hover"
           >
             {label}
-          </button>
+          </Tabs.Trigger>
         ))}
         <div className="flex-1" />
         <button className="rounded-md p-1 text-foreground-subtlest hover:bg-surface-hover" onClick={() => setOpen(false)} title="收起面板">
           ×
         </button>
-      </div>
-      {tab === "terminal" && <TerminalView />}
-      {tab === "files" && <FilesView />}
-      {tab === "doc" && <DocView />}
-    </div>
+      </Tabs.List>
+      {/* 条件卸载语义与迁移前一致：非活动视图卸载（终端切走即释放 PTY） */}
+      <Tabs.Content value="terminal" className="flex min-h-0 flex-1 flex-col outline-none">
+        <TerminalView />
+      </Tabs.Content>
+      <Tabs.Content value="files" className="flex min-h-0 flex-1 flex-col outline-none">
+        <FilesView />
+      </Tabs.Content>
+      <Tabs.Content value="doc" className="flex min-h-0 flex-1 flex-col outline-none">
+        <DocView />
+      </Tabs.Content>
+    </Tabs.Root>
   );
 }
 

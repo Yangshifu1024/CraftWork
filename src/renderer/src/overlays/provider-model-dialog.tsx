@@ -1,8 +1,9 @@
 // 模型增改共用弹窗（票 4 / spec §7）：模型 ID（catalog 来源只读）/ 显示名 / 上下文窗口 K /
 // 最大输出 tokens / 能力勾选。保存成功才关窗、失败服务端错误内联红字、保存中锁定正文。
-// 受控 fixed 覆盖层（本仓 overlay 体系是全屏浮层，此弹窗为设置页内局部覆盖）；
+// 设置页内局部覆盖层：遮罩 / Esc / 焦点圈定由 radix Dialog 承担；
 // Esc 关闭过 IME composing 守卫（spec §10），保存中不可关。
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Dialog } from "radix-ui";
 import { api } from "../lib/api";
 import { cleanErrorMessage } from "../lib/errors";
 import {
@@ -46,18 +47,6 @@ export function ProviderModelDialog({
   const [errors, setErrors] = useState<ModelFormErrors>({});
   const [serverError, setServerError] = useState("");
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      // IME 组合中的 Esc（取消候选）与保存中的 Esc 都不关窗（spec §10）
-      if (e.key !== "Escape" || e.isComposing || saving) return;
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose, saving]);
 
   const submit = (): void => {
     if (saving) return;
@@ -113,22 +102,25 @@ export function ProviderModelDialog({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-[55] flex items-center justify-center bg-black/60"
-      onClick={() => {
-        if (!saving) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-label={editing ? "编辑模型" : "添加模型"}
-        className="w-[460px] max-w-[calc(100vw-40px)] rounded-2xl border border-popover-border bg-popover p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-ui-lg font-semibold text-foreground">
+    <Dialog.Root open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[55] bg-black/60" />
+        <Dialog.Content
+          aria-label={editing ? "编辑模型" : "添加模型"}
+          aria-describedby={undefined}
+          onEscapeKeyDown={(e) => {
+            // IME 组合中的 Esc（取消候选）与保存中的 Esc 都不关窗（spec §10）；事件为原生 KeyboardEvent
+            if (saving || e.isComposing) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            if (saving) e.preventDefault();
+          }}
+          className="fixed left-1/2 top-1/2 z-[55] w-[460px] max-w-[calc(100vw-40px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-popover-border bg-popover p-5 shadow-2xl outline-none"
+        >
+        <Dialog.Title className="text-ui-lg font-semibold text-foreground">
           {editing ? "编辑模型" : "添加模型"}
           <span className="ml-2 text-ui-sm font-normal text-foreground-subtlest">{providerName}</span>
-        </h3>
+        </Dialog.Title>
         <div className="flex flex-col gap-3 pt-4">
           <div className="grid grid-cols-2 gap-3">
             {field(
@@ -235,7 +227,8 @@ export function ProviderModelDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

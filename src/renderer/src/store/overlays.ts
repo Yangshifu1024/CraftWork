@@ -1,7 +1,8 @@
-// 浮层状态：命令面板 / 设置 / 数据面板（互斥开关 + Esc 层级）+ composer 配置 picker（排他）。
+// 浮层状态：命令面板 / 设置（互斥全屏浮层）+ 确认框 / 输入框（独立可叠加层，
+// 出现在设置页等全屏浮层之上，不顶掉底层浮层）+ composer 配置 picker（排他）。
 import { create } from "zustand";
 
-export type OverlayKind = "none" | "palette" | "settings" | "confirm" | "prompt";
+export type OverlayKind = "none" | "palette" | "settings";
 export type PickerKind = "model" | "level";
 export type SettingsSection = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
@@ -11,12 +12,14 @@ interface OverlaysState {
   picker: PickerKind | null;
   /** 打开设置时要定位的分区（一次性意图，读取后由设置页消费）。 */
   settingsSection: SettingsSection | null;
-  /** 确认框参数（danger 变体等） */
+  /** 确认框参数（danger 变体等）；独立于全屏浮层，可叠加在其上。 */
   confirm: { title: string; message: string; danger?: boolean; onOk(): void } | null;
-  /** 输入框参数（重命名等） */
+  /** 输入框参数（重命名等）；独立于全屏浮层，可叠加在其上。 */
   prompt: { title: string; message: string; value: string; onOk(value: string): void } | null;
   open(kind: OverlayKind, section?: SettingsSection): void;
   close(): void;
+  closeConfirm(): void;
+  closePrompt(): void;
   openConfirm(opts: { title: string; message: string; danger?: boolean; onOk(): void }): void;
   openPrompt(opts: { title: string; message: string; value: string; onOk(value: string): void }): void;
   openPicker(kind: PickerKind): void;
@@ -36,11 +39,19 @@ export const useOverlays = create<OverlaysState>((set) => ({
   close() {
     set({ overlay: "none", confirm: null, prompt: null, picker: null, settingsSection: null });
   },
+  // 确认框 / 输入框为独立层，只清自身；全局单例：新请求覆盖旧请求并清掉另一类未决状态
+  // （旧回调按丢弃收尾，与既有语义一致）。
+  closeConfirm() {
+    set({ confirm: null });
+  },
+  closePrompt() {
+    set({ prompt: null });
+  },
   openConfirm(opts) {
-    set({ confirm: opts, overlay: "confirm", picker: null });
+    set({ confirm: opts, prompt: null, picker: null });
   },
   openPrompt(opts) {
-    set({ prompt: opts, overlay: "prompt", picker: null });
+    set({ prompt: opts, confirm: null, picker: null });
   },
   openPicker(kind) {
     set({ picker: kind });

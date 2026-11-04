@@ -1,4 +1,5 @@
-// 应用内 toast 队列（右下角堆叠，4.2s 自动消失，悬停暂停由组件层处理）。
+// 应用内 toast 队列（右下角堆叠，最多 3 条）。自动消失计时由视图层 radix Toast 管理，
+// 超时 / 右滑 / 手动关闭统一走 dismiss 清数据。
 import { create } from "zustand";
 
 export interface ToastItem {
@@ -22,9 +23,6 @@ export const useToasts = create<ToastState>((set) => ({
   push(tone, title, message) {
     const item: ToastItem = { id: nextId++, tone, title, message, createdAt: Date.now() };
     set((state) => ({ items: [...state.items.slice(-2), item] }));
-    setTimeout(() => {
-      set((state) => ({ items: state.items.filter((t) => t.id !== item.id) }));
-    }, 4200);
   },
   dismiss(id) {
     set((state) => ({ items: state.items.filter((t) => t.id !== id) }));

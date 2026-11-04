@@ -1,6 +1,7 @@
-// 命令面板（⌘K）：命令搜索与会话跳转。
-import { useEffect, useMemo, useState } from "react";
+// 命令面板（⌘K）：命令搜索与会话跳转。遮罩 / Esc / 焦点圈定由 radix Dialog 承担。
+import { useMemo, useState } from "react";
 import { Command } from "cmdk";
+import { Dialog } from "radix-ui";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { applyTheme, resolveTheme, saveThemePref } from "../lib/theme";
@@ -18,17 +19,6 @@ export function CommandPalette(): React.JSX.Element {
   const saveSettings = useApp((s) => s.saveSettings);
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
-
   const run = (fn: () => void): void => {
     close();
     fn();
@@ -41,9 +31,14 @@ export function CommandPalette(): React.JSX.Element {
   }, [settings.theme]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60" onClick={close}>
-      <div className="mx-auto mt-[16vh] w-full max-w-[640px]" onClick={(e) => e.stopPropagation()}>
-        <Command label="命令面板" className="overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md">
+    <Dialog.Root open onOpenChange={(o) => { if (!o) close(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60" />
+        <Dialog.Content
+          aria-label="命令面板"
+          className="fixed left-1/2 top-[16vh] z-50 w-full max-w-[640px] -translate-x-1/2 outline-none"
+        >
+          <Command label="命令面板" className="overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md">
           <div className="flex h-12 items-center gap-2 border-b border-border px-4">
             <Command.Input
               autoFocus
@@ -58,7 +53,7 @@ export function CommandPalette(): React.JSX.Element {
             <Command.Empty className="py-8 text-center text-ui-sm text-foreground-subtlest">没有匹配结果</Command.Empty>
             <Command.Group heading="会话" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-ui-xs [&_[cmdk-group-heading]]:text-foreground-subtlest">
               {threads.slice(0, 8).map((t) => (
-                <Item key={t.id} onSelect={() => run(() => void selectThread(t.id))}>
+                <Item key={t.id} value={t.id} keywords={[t.title]} onSelect={() => run(() => void selectThread(t.id))}>
                   {t.title}
                 </Item>
               ))}
@@ -95,14 +90,18 @@ export function CommandPalette(): React.JSX.Element {
             </Command.Group>
           </Command.List>
         </Command>
-      </div>
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
-function Item({ children, shortcut, onSelect }: { children: React.ReactNode; shortcut?: string; onSelect(): void }): React.JSX.Element {
+// value 是唯一标识（cmdk 按它判定选中态，重名条目必须各自唯一）；keywords 参与搜索匹配。
+function Item({ children, shortcut, value, keywords, onSelect }: { children: React.ReactNode; shortcut?: string; value?: string; keywords?: string[]; onSelect(): void }): React.JSX.Element {
   return (
     <Command.Item
+      value={value}
+      keywords={keywords}
       onSelect={onSelect}
       className="flex min-h-9 cursor-pointer items-center justify-between gap-2 rounded-xl px-2.5 text-ui-base text-foreground data-[selected=true]:bg-menu-hover"
     >

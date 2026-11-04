@@ -5,23 +5,24 @@ import { useMemo, useState } from "react";
 import {
   MessageCirclePlus,
   Search,
-  Pin,
   Pencil,
   Trash2,
   LoaderCircle,
-  Database,
   Settings,
   User,
-  CalendarClock,
+  ChartColumn,
+  Folder,
+  FolderOpen,
+  FolderPlus,
   ChevronDown,
   ChevronRight,
-  FolderPlus,
   Plus,
 } from "lucide-react";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
+import { OverflowTitle } from "./overflow-title";
 
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -37,33 +38,6 @@ function relativeTime(ts: number): string {
 }
 
 /** 导航按钮（ghost lg 变体）：h-8 rounded-lg px-2.5 justify-start gap-2。 */
-function NavButton({
-  icon,
-  label,
-  active,
-  onClick,
-  trailing,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-  onClick(): void;
-  trailing?: string;
-}): React.JSX.Element {
-  return (
-    <button
-      className={`inline-flex h-8 w-full shrink-0 cursor-pointer select-none items-center justify-start gap-2 whitespace-nowrap rounded-lg px-2.5 text-ui-base transition-colors ${
-        active ? "bg-selected text-foreground" : "text-foreground hover:bg-hover"
-      }`}
-      onClick={onClick}
-    >
-      <span className="shrink-0 [&_svg]:size-4">{icon}</span>
-      <span className="truncate">{label}</span>
-      {trailing && <span className="ml-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">{trailing}</span>}
-    </button>
-  );
-}
-
 interface ThreadRowProps {
   thread: ReturnType<typeof useApp.getState>["threads"]["code"][number];
   active: boolean;
@@ -103,7 +77,7 @@ function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
             <div className="relative flex h-6 min-w-0 flex-1 flex-wrap items-center gap-1.5">
-              <span className="truncate text-ui-base text-foreground">{thread.title}</span>
+              <OverflowTitle text={thread.title} className="min-w-0 flex-1 text-ui-base text-foreground" />
             </div>
             <span className="mr-0.5 flex shrink-0 items-center gap-1 text-ui-sm text-foreground-subtle">
               {relativeTime(thread.updatedAt)}
@@ -160,9 +134,11 @@ function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.
   );
 }
 
-/** 项目分组头：h-8、文件夹图标随开合切换、组内任务缩进 pl-2 pt-1；hover 显示「+」在该项目下新建会话。 */
+/** 项目分组头：文件夹图标随开合切换、组内任务缩进 pl-2 pt-1；hover 显示「+」在该项目下新建会话；右键重命名 / 删除。 */
 function ProjectGroup({
   name,
+  workspaceId,
+  threadCount,
   isOpen,
   onToggle,
   onNewDraft,
@@ -170,28 +146,51 @@ function ProjectGroup({
   hasUnread,
 }: {
   name: string;
+  workspaceId: string;
+  threadCount: number;
   isOpen: boolean;
   onToggle(): void;
   onNewDraft(): void;
   children: React.ReactNode;
   hasUnread?: boolean;
 }): React.JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const openPrompt = useOverlays((s) => s.openPrompt);
+  const openConfirm = useOverlays((s) => s.openConfirm);
+  const refreshWorkspaces = useApp((s) => s.refreshWorkspaces);
+  const refreshThreads = useApp((s) => s.refreshThreads);
+  const pushToast = useToasts((s) => s.push);
+
+  const rename = (value: string): void => {
+    api.workspaceRename(workspaceId, value)
+      .then(() => refreshWorkspaces())
+      .catch((err) => pushToast("danger", "重命名项目失败", err instanceof Error ? err.message : String(err)));
+  };
+
+  const remove = (): void => {
+    // 级联删除其下会话：两个模式的会话列表都要刷新，避免内存残留已删会话
+    api.workspaceRemove(workspaceId)
+      .then(() => Promise.all([refreshWorkspaces(), refreshThreads("code"), refreshThreads("work")]))
+      .catch((err) => pushToast("danger", "删除项目失败", err instanceof Error ? err.message : String(err)));
+  };
+
   return (
     <div>
-      <div className="group/project-row ml-2 flex h-8 min-w-0 items-center gap-1 rounded-lg pr-1 hover:bg-surface-hover">
+      <div className="group/project-row ml-2 flex h-7 min-w-0 items-center gap-1 rounded-lg pr-1 hover:bg-surface-hover">
         <button
-          className="flex h-8 min-w-0 flex-1 cursor-pointer justify-start gap-2 rounded-lg pl-2.5 pr-1 text-left"
+          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-start gap-2 rounded-lg pl-2.5 pr-1 text-left"
           onClick={onToggle}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu({ x: e.clientX, y: e.clientY });
+          }}
         >
-          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
-            {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          {/* 名称起点与「任务列表」标题对齐（pl-2.5 = 18px 左对齐线）；行首槽是文件夹图标，开合切开盖/合盖，折叠靠整行点击 */}
+          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtle">
+            {isOpen ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
           </span>
-          <span className="min-w-0 flex-1 truncate text-ui-base text-foreground-subtle">{name}</span>
-          {!isOpen && hasUnread ? <span className="mx-1 size-1.5 shrink-0 rounded-full bg-icon-blue" /> : null}
-          {/* 置顶槽常驻占位：hover 才显示，避免布局跳动 */}
-          <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-foreground-subtlest opacity-0 transition-opacity duration-150 group-hover/project-row:opacity-100">
-            <Pin className="size-3.5" />
-          </span>
+          <OverflowTitle text={name} className="min-w-0 text-ui-base text-foreground-subtle" />
+          {!isOpen && hasUnread ? <span className="size-1.5 shrink-0 rounded-full bg-icon-blue" /> : null}
         </button>
         {/* 「在该项目下新建会话」：hover 才显示，避免布局跳动；在折叠按钮外，点击不触发开合 */}
         <button
@@ -202,6 +201,54 @@ function ProjectGroup({
           <Plus className="size-3.5" />
         </button>
       </div>
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-[59]"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div
+            className="fixed z-[60] flex min-w-32 flex-col gap-0.5 overflow-hidden rounded-lg border border-popover-border bg-menu p-1 shadow-md"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <button
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-ui-base hover:bg-menu-hover"
+              onClick={() => {
+                setMenu(null);
+                openPrompt({
+                  title: "重命名项目",
+                  message: "新名称会立即保存。",
+                  value: name,
+                  onOk: rename,
+                });
+              }}
+            >
+              <Pencil className="size-3.5" /> 重命名
+            </button>
+            <button
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-ui-base text-destructive hover:bg-menu-hover"
+              onClick={() => {
+                setMenu(null);
+                openConfirm({
+                  title: "删除项目",
+                  message:
+                    threadCount > 0
+                      ? `将删除项目「${name}」及其下 ${threadCount} 条会话（含全部消息与审批记录），无法恢复。`
+                      : `将删除项目「${name}」，无法恢复。`,
+                  danger: true,
+                  onOk: remove,
+                });
+              }}
+            >
+              <Trash2 className="size-3.5" /> 删除
+            </button>
+          </div>
+        </>
+      )}
       {isOpen && <div className="pl-2 pt-1">{children}</div>}
     </div>
   );
@@ -300,8 +347,6 @@ export function Sidebar(): React.JSX.Element {
                   <span className="ml-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">⌘N</span>
                 </div>
               </div>
-              <NavButton icon={<CalendarClock />} label="任务与提醒" onClick={() => open("settings", "usage")} />
-              <NavButton icon={<Database />} label="用量与数据" onClick={() => open("settings", "usage")} />
             </div>
             {/* 列表区 */}
             <div className="flex min-h-0 flex-1 flex-col border-t border-border/50 pt-3">
@@ -309,13 +354,6 @@ export function Sidebar(): React.JSX.Element {
                 <span className="min-w-0 flex-1 truncate px-2.5 text-ui-base font-medium text-foreground-subtle">
                   任务列表
                 </span>
-                <button
-                  className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle hover:bg-hover hover:text-foreground"
-                  title="新建项目（选择一个目录作为项目工作区）"
-                  onClick={() => void createProject()}
-                >
-                  <FolderPlus className="size-3.5" />
-                </button>
                 <button
                   className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle hover:bg-hover hover:text-foreground"
                   title="搜索（⌘K）"
@@ -328,28 +366,28 @@ export function Sidebar(): React.JSX.Element {
                 <div className="flex flex-col gap-3 pb-3">
                   {/* 临时会话在顶部，项目分组在后；每组超 5 条折叠为「显示更多」 */}
                   {groups.temp.length > 0 && (
-                    <section className="px-2">
-                      {/* 分组头：与项目分组一致可折叠 */}
-                      <div className="group/temp-row ml-2 flex h-8 min-w-0 items-center rounded-lg hover:bg-surface-hover">
+                    <section>
+                      {/* 分组头：与项目分组一致可折叠；文字对齐 18px 左线，箭头跟随右侧 */}
+                      <div className="group/temp-row ml-2 flex h-7 min-w-0 items-center rounded-lg hover:bg-surface-hover">
                         <button
-                          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2 pr-1 text-left"
+                          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2.5 pr-1 text-left"
                           onClick={() => toggleGroup(groups.conversationWs?.id ?? "temp")}
                         >
-                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
+                          <span className="min-w-0 truncate text-ui-base font-medium text-foreground-subtlest">
+                            临时会话
+                          </span>
+                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest opacity-0 transition-opacity duration-150 group-hover/temp-row:opacity-100">
                             {collapsed.has(groups.conversationWs?.id ?? "temp") ? (
                               <ChevronRight className="size-3.5" />
                             ) : (
                               <ChevronDown className="size-3.5" />
                             )}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-ui-base font-medium text-foreground-subtlest">
-                            临时会话
-                          </span>
                         </button>
                       </div>
                       {!collapsed.has(groups.conversationWs?.id ?? "temp") && (
                         <>
-                          <ul className="space-y-0.5 pt-1">
+                          <ul className="ml-2 space-y-0.5 pt-1">
                             {(showAll.has("temp") ? groups.temp : groups.temp.slice(0, VISIBLE_LIMIT)).map((t) => (
                               <ThreadRowItem
                                 key={t.id}
@@ -361,7 +399,7 @@ export function Sidebar(): React.JSX.Element {
                           </ul>
                           {groups.temp.length > VISIBLE_LIMIT && (
                             <button
-                              className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-3 text-left text-ui-sm text-foreground-subtlest hover:text-foreground-subtle"
+                              className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-8.5 text-left text-ui-sm text-foreground-subtle hover:text-foreground"
                               onClick={() => toggleShowAll("temp")}
                             >
                               {showAll.has("temp") ? "收起" : "显示更多"}
@@ -371,28 +409,40 @@ export function Sidebar(): React.JSX.Element {
                       )}
                     </section>
                   )}
-                  {/* 「项目」分组：与临时会话同级同款（可折叠头），折叠即收起其下全部项目 */}
-                  {groups.projectGroups.length > 0 && (
-                    <section className="px-2">
-                      <div className="group/proj-sec ml-2 flex h-8 min-w-0 items-center rounded-lg hover:bg-surface-hover">
+                  {/* 「项目」分组：常显（空态也能从分组头新建项目），可折叠头，折叠即收起其下全部项目 */}
+                  {
+                    <section>
+                      <div className="group/proj-sec ml-2 flex h-7 min-w-0 items-center rounded-lg hover:bg-surface-hover">
                         <button
-                          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2 pr-1 text-left"
+                          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2.5 pr-1 text-left"
                           onClick={() => toggleGroup("projects")}
                         >
-                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
+                          {/* 名称起点对齐 18px 左线，折叠箭头跟随文字右侧（hover 显示） */}
+                          <span className="min-w-0 truncate text-ui-base font-medium text-foreground-subtlest">
+                            项目
+                          </span>
+                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest opacity-0 transition-opacity duration-150 group-hover/proj-sec:opacity-100">
                             {collapsed.has("projects") ? (
                               <ChevronRight className="size-3.5" />
                             ) : (
                               <ChevronDown className="size-3.5" />
                             )}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-ui-base font-medium text-foreground-subtlest">
-                            项目
-                          </span>
+                        </button>
+                        {/* 新建项目入口：hover 分组头才显示（从「任务列表」区头移入使用场景附近） */}
+                        <button
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-foreground group-hover/proj-sec:opacity-100"
+                          title="新建项目（选择一个目录作为项目工作区）"
+                          onClick={() => void createProject()}
+                        >
+                          <FolderPlus className="size-3.5" />
                         </button>
                       </div>
                       {!collapsed.has("projects") && (
                         <div className="flex flex-col gap-3 pt-1">
+                          {groups.projectGroups.length === 0 && (
+                            <div className="px-8.5 py-2 text-ui-base text-foreground-subtlest">暂无项目</div>
+                          )}
                           {groups.projectGroups.map((group) => {
                     const key = group.workspaceId;
                     const isOpen = !collapsed.has(key);
@@ -401,6 +451,8 @@ export function Sidebar(): React.JSX.Element {
                       <ProjectGroup
                         key={key}
                         name={group.name}
+                        workspaceId={key}
+                        threadCount={group.threads.length}
                         isOpen={isOpen}
                         onToggle={() => toggleGroup(key)}
                         onNewDraft={() => newDraft(key)}
@@ -415,9 +467,12 @@ export function Sidebar(): React.JSX.Element {
                             />
                           ))}
                         </ul>
+                        {group.threads.length === 0 && (
+                          <div className="px-8.5 py-2 text-ui-base text-foreground-subtlest">暂无任务</div>
+                        )}
                         {group.threads.length > VISIBLE_LIMIT && (
                           <button
-                            className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-4.5 text-left text-ui-sm text-foreground-subtlest hover:text-foreground-subtle"
+                            className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-8.5 text-left text-ui-sm text-foreground-subtle hover:text-foreground"
                             onClick={() => toggleShowAll(key)}
                           >
                             {showAll.has(key) ? "收起" : "显示更多"}
@@ -429,7 +484,7 @@ export function Sidebar(): React.JSX.Element {
                         </div>
                       )}
                     </section>
-                  )}
+                  }
                   {threads.length === 0 && (
                     <div className="px-8.5 py-2 text-ui-base text-foreground-subtlest">还没有会话</div>
                   )}
@@ -451,6 +506,15 @@ export function Sidebar(): React.JSX.Element {
                   </span>
                 </button>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    className={`flex size-8 items-center justify-center rounded-lg text-foreground hover:bg-hover ${
+                      overlay === "settings" ? "bg-selected" : ""
+                    }`}
+                    title="用量与数据"
+                    onClick={() => open("settings", "usage")}
+                  >
+                    <ChartColumn className="size-4" />
+                  </button>
                   <button
                     className={`flex size-8 items-center justify-center rounded-lg text-foreground hover:bg-hover ${
                       overlay === "settings" ? "bg-selected" : ""

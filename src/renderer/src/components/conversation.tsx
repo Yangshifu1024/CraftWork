@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
-import { Popover } from "radix-ui";
+import { Popover, ToggleGroup } from "radix-ui";
 import { ModelPicker } from "./model-picker";
 import { useApp, draftSlot, effectiveModelRef, EMPTY_DRAFT } from "../store/app";
 import { useOverlays } from "../store/overlays";
@@ -27,7 +27,7 @@ export function Conversation(): React.JSX.Element {
   const title = activeId === "" ? (draftWs?.name ?? "新对话") : (thread?.title ?? "新对话");
 
   return (
-    <div id="content" className="flex min-h-0 min-w-[320px] flex-1 flex-col app-region-no-drag">
+    <div className="flex min-h-0 min-w-[320px] flex-1 flex-col">
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xs">
         <WorkspaceHeader title={title} status={thread?.status ?? "idle"} mode={mode} />
         <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
@@ -103,7 +103,7 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="group/msg flex w-full flex-col items-end gap-1">
-        <div className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-user-message-bubble px-4 py-3 text-ui-base text-foreground sm:max-w-xl">
+        <div className="select-text flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-user-message-bubble px-4 py-3 text-ui-base text-foreground sm:max-w-xl">
           {message.parts
             .filter((p) => p.kind === "text")
             .map((part) => (
@@ -178,7 +178,16 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
 
   return (
     <div className="flex w-full flex-col gap-2">
-      {hasWork && <WorkFold parts={parts} finalTextIdx={finalTextIdx} streaming={isStreaming} status={message.status} threadId={threadId} />}
+      {hasWork && (
+        <WorkFold
+          parts={parts}
+          finalTextIdx={finalTextIdx}
+          streaming={isStreaming}
+          status={message.status}
+          threadId={threadId}
+          durationMs={message.workDurationMs}
+        />
+      )}
       {parts.map((part, idx) => {
         if (idx === finalTextIdx) {
           const text = String(part.payload["text"] ?? "");
@@ -194,7 +203,7 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
         }
         if (part.kind === "notice") {
           return (
-            <div key={part.id} className="rounded-lg bg-surface px-3 py-2 text-ui-sm text-foreground-subtle">
+            <div key={part.id} className="select-text rounded-lg bg-surface px-3 py-2 text-ui-sm text-foreground-subtle">
               {String(part.payload["text"] ?? "")}
             </div>
           );
@@ -214,19 +223,21 @@ function useActiveThreadId(): string {
   return useApp((s) => s.activeThreadId[s.mode]);
 }
 
-/** 工作过程折叠块（推理 / 工具 / 审批 / todo）。 */
+/** 工作过程折叠块（推理 / 工具 / 审批 / todo）。已完成时显示该轮工作的耗时。 */
 function WorkFold({
   parts,
   finalTextIdx,
   streaming,
   status,
   threadId,
+  durationMs,
 }: {
   parts: PartSnapshot[];
   finalTextIdx: number;
   streaming: boolean;
   status: MessageSnapshot["status"];
   threadId: string;
+  durationMs?: number;
 }): React.JSX.Element {
   const work = parts.filter((p, i) => i !== finalTextIdx && p.kind !== "text");
   const hasRunning = work.some(
@@ -235,18 +246,19 @@ function WorkFold({
   const [open, setOpen] = useState(false);
   const done = !streaming && status !== "streaming";
 
-  const duration = done ? "" : "";
+  // 完成态显示秒数（向上取整，与侧栏「思考过程 · 持续了 N 秒」口径一致）
+  const duration = done && durationMs && durationMs > 0 ? `持续 ${Math.ceil(durationMs / 1000)} 秒` : "";
   return (
     <div className="flex w-full flex-col">
       <button
         className="group/reasoning inline-flex min-w-0 max-w-full items-center gap-2 self-start rounded-md px-1 py-0.5 text-ui-base text-foreground-subtlest hover:text-foreground-subtle"
         onClick={() => setOpen(!open)}
       >
-        {done ? <Brain className="size-4 shrink-0" /> : <Brain className="size-4 shrink-0" />}
-        <span className="shrink-0 whitespace-nowrap">
-          {hasRunning ? <span className="animated-gradient-text">工作中</span> : done ? "已工作" : "正在思考"}
+        <Brain className="size-4 shrink-0" />
+        <span className={`shrink-0 whitespace-nowrap ${hasRunning ? "animated-gradient-text" : ""}`}>
+          {hasRunning ? "工作中" : done ? "已工作" : "正在思考"}
         </span>
-        {duration && <span className="shrink-0 text-foreground-subtlest">{duration}</span>}
+        {duration && <span className="shrink-0 whitespace-nowrap text-foreground-subtlest">{duration}</span>}
         <ChevronRight className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
       {open && (
@@ -264,7 +276,7 @@ function WorkPart({ part, threadId }: { part: PartSnapshot; threadId: string }):
   switch (part.kind) {
     case "reasoning":
       return (
-        <div className="whitespace-pre-wrap break-words text-ui-base text-foreground-subtlest">
+        <div className="select-text whitespace-pre-wrap break-words text-ui-base text-foreground-subtlest">
           {String(part.payload["text"] ?? "")}
         </div>
       );
@@ -304,7 +316,7 @@ export function ToolCard({ part }: { part: ToolCallPart }): React.JSX.Element {
       {open && (
         <div className="pt-1.5">
           {part.output ? (
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface px-3 py-2 font-mono text-ui-sm text-foreground-subtle">
+            <pre className="select-text max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface px-3 py-2 font-mono text-ui-sm text-foreground-subtle">
               {part.output}
             </pre>
           ) : null}
@@ -448,7 +460,7 @@ function ErrorCard({ part, threadId }: { part: PartSnapshot; threadId: string })
           <RefreshCw className="size-3" /> 重试
         </button>
       </div>
-      <p className="whitespace-pre-wrap break-words text-ui-sm text-foreground">{message}</p>
+      <p className="select-text whitespace-pre-wrap break-words text-ui-sm text-foreground">{message}</p>
       {hints[code] && <p className="pt-1 text-ui-xs text-foreground-subtlest">{hints[code]}</p>}
     </div>
   );
@@ -492,24 +504,27 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   );
 }
 
-/** 模式切换：Code / Work 两段 pill。 */
+/** 模式切换：Code / Work 两段 pill（radix ToggleGroup，方向键切换；single 模式防取消选中）。 */
 function ModeSwitch(): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const setMode = useApp((s) => s.setMode);
   return (
-    <div className="flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-surface p-0.5">
+    <ToggleGroup.Root
+      type="single"
+      value={mode}
+      onValueChange={(v) => { if (v) setMode(v as "code" | "work"); }}
+      className="flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-surface p-0.5"
+    >
       {(["code", "work"] as const).map((m) => (
-        <button
+        <ToggleGroup.Item
           key={m}
-          className={`h-6 rounded-md px-2 text-ui-xs transition-colors ${
-            mode === m ? "bg-card text-foreground shadow-xs" : "text-foreground-subtlest hover:text-foreground-subtle"
-          }`}
-          onClick={() => setMode(m)}
+          value={m}
+          className="h-6 rounded-md px-2 text-ui-xs transition-colors outline-none data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-xs data-[state=off]:text-foreground-subtlest hover:text-foreground-subtle"
         >
           {m === "code" ? "Code" : "Work"}
-        </button>
+        </ToggleGroup.Item>
       ))}
-    </div>
+    </ToggleGroup.Root>
   );
 }
 

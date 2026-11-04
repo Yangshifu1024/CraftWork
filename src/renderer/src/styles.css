@@ -306,6 +306,13 @@
     color: var(--zai-foreground);
     background: var(--zai-background);
     -webkit-font-smoothing: antialiased;
+    /* 桌面应用惯例：UI 默认不可选，只有内容区（消息正文 / 代码输出）显式放开 */
+    user-select: none;
+  }
+
+  /* 内容可选择工具类：消息正文、代码输出、错误详情等可复制区域使用 */
+  .select-text {
+    user-select: text;
   }
   /* 焦点反馈交给组件内 ring/hover，不用浏览器默认轮廓 */
   *:focus,
@@ -416,5 +423,27 @@
   .stream-fade-in,
   .tool-call-progress-indeterminate::after {
     animation: none;
+  }
+}
+
+/* 侧栏长标题走马灯（配合 OverflowTitle 的右侧渐隐 mask）：去 → 尾端停顿 → 返回 */
+@keyframes overflow-title-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  46%,
+  58% {
+    transform: translateX(var(--marquee-distance));
+  }
+  92%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .overflow-title-track.is-scrolling {
+    animation: overflow-title-marquee var(--marquee-duration) linear infinite;
   }
 }

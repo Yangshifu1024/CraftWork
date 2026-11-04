@@ -4,7 +4,7 @@ import { Streamdown } from "streamdown";
 
 export function Markdown({ text, streaming }: { text: string; streaming: boolean }): React.JSX.Element {
   return (
-    <div className={`break-words ${streaming ? "stream-fade-in" : ""}`}>
+    <div className={`select-text break-words ${streaming ? "stream-fade-in" : ""}`}>
       <Streamdown>{text}</Streamdown>
     </div>
   );

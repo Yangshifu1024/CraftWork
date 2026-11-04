@@ -2,7 +2,7 @@
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
 import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, type LucideIcon } from "lucide-react";
-import { DropdownMenu } from "radix-ui";
+import { Dialog, DropdownMenu, Popover, Switch as RadixSwitch } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { useOverlays } from "../store/overlays";
@@ -49,19 +49,13 @@ export function SettingsOverlay(): React.JSX.Element {
   // 支持外部入口指定初始分区（如模型菜单「管理模型」直达「模型与提供商」）。
   const [section, setSection] = useState<Section>(() => useOverlays.getState().settingsSection ?? "general");
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close]);
-
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    // 全屏不透明浮层：Esc / 焦点圈定由 radix Dialog 承担；顶部 h-12 拖拽条保留在 Content 首行。
+    <Dialog.Root open onOpenChange={(o) => { if (!o && useOverlays.getState().overlay === "settings") close(); }}>
+      <Dialog.Content
+        aria-describedby={undefined}
+        className="fixed inset-0 z-50 flex flex-col bg-background outline-none"
+      >
       {/* 全宽顶部拖拽留白：交通灯区，对齐主窗口侧栏 h-12 顶条 */}
       <div className="h-12 shrink-0 app-region-drag" />
       <div className="flex min-h-0 flex-1">
@@ -109,7 +103,8 @@ export function SettingsOverlay(): React.JSX.Element {
           </div>
         </section>
       </div>
-    </div>
+      </Dialog.Content>
+    </Dialog.Root>
   );
 }
 
@@ -551,17 +546,11 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
   };
 
   const confirmRemoveModel = (model: ModelView): void => {
-    openConfirm({
-      title: "删除模型",
-      message: `将从「${provider.name}」删除模型「${model.name}」，引用它的会话需要重新选择模型，且不可恢复。`,
-      danger: true,
-      onOk: () => {
-        void api
-          .providerRemoveModel(provider.id, model.id)
-          .then(() => onChanged())
-          .catch((err) => pushToast("danger", "删除失败", cleanErrorMessage(err)));
-      },
-    });
+    // 就近 Popconfirm 已在按钮处确认过，这里直接执行删除
+    void api
+      .providerRemoveModel(provider.id, model.id)
+      .then(() => onChanged())
+      .catch((err) => pushToast("danger", "删除失败", cleanErrorMessage(err)));
   };
 
   /** 拉取模型（票 5 / spec §7）：进行中防重复；结果内联反馈在模型列表区内部，不走全局 toast。 */
@@ -953,14 +942,15 @@ function ModelRow({
         >
           <Pencil className="size-3.5" />
         </button>
-        <button
-          aria-label={`删除模型 ${model.name}`}
-          title="删除模型"
-          className="flex size-6 items-center justify-center rounded-md text-foreground-subtle hover:bg-destructive-surface hover:text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <Popconfirm message={`删除模型「${model.name}」？引用它的会话需重新选择模型，且不可恢复。`} onConfirm={onDelete}>
+          <button
+            aria-label={`删除模型 ${model.name}`}
+            title="删除模型"
+            className="flex size-6 items-center justify-center rounded-md text-foreground-subtle hover:bg-destructive-surface hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </Popconfirm>
         <Switch checked={model.enabled} onChange={onToggle} />
       </div>
     </div>
@@ -1160,19 +1150,65 @@ function BackupsSection(): React.JSX.Element {
   );
 }
 
+// 基于 radix-ui 的开关：Root 提供语义与键盘交互，滑块经 flex 垂直居中、
+// 由 data-state 驱动位移与配色，不再依赖 button 匿名布局与 JS 切类。
 function Switch({ checked, onChange }: { checked: boolean; onChange(v: boolean): void }): React.JSX.Element {
   return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      className={`h-5 w-9 rounded-full transition-colors ${checked ? "bg-brand" : "bg-border"}`}
-      onClick={() => onChange(!checked)}
+    <RadixSwitch.Root
+      checked={checked}
+      onCheckedChange={onChange}
+      className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand data-[state=checked]:bg-brand data-[state=unchecked]:bg-border"
     >
-      <span className={`block size-4 translate-y-[2px] rounded-full bg-white shadow transition-transform ${checked ? "translate-x-[18px]" : "translate-x-[2px]"}`} />
-    </button>
+      <RadixSwitch.Thumb className="pointer-events-none block size-4 translate-x-[2px] rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
+    </RadixSwitch.Root>
   );
 }
 
 function useToastsPush() {
   return useToasts((s) => s.push);
+}
+
+/** 就近确认气泡（对齐 ant.design Popconfirm）：锚定触发元素的小型确认浮层，用于低层级删除操作。
+ *  打开即聚焦删除按钮——聚焦态下回车 / 空格直接确认（浏览器原生按钮行为）。 */
+function Popconfirm({ message, onConfirm, children }: { message: string; onConfirm(): void; children: React.ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>{children}</Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="end"
+          sideOffset={6}
+          className="z-[80] w-72 rounded-lg border border-popover-border bg-popover p-3 shadow-md"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            confirmRef.current?.focus();
+          }}
+        >
+          <p className="text-ui-sm text-foreground">{message}</p>
+          <div className="flex justify-end gap-2 pt-2.5">
+            <button
+              className="h-7 rounded-md border border-border px-2.5 text-ui-xs text-foreground hover:bg-surface-hover"
+              onClick={() => setOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              ref={confirmRef}
+              className="h-7 rounded-md bg-destructive px-2.5 text-ui-xs text-white hover:opacity-90"
+              onClick={() => {
+                setOpen(false);
+                onConfirm();
+              }}
+            >
+              删除
+            </button>
+          </div>
+          <Popover.Arrow className="fill-popover" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }
