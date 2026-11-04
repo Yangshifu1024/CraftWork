@@ -1,7 +1,9 @@
 // 添加提供商页纯逻辑测试：目录行「需填写端点」判定与手动创建表单内联校验。
 // 函数位于渲染层 lib（无 React 依赖），供添加页组件消费（票 6 / spec §3.2 §7）。
+// 上下文窗口归一已收敛到 lib/model-form（review 修复 #8），此处直测共享实现。
 import { describe, expect, it } from "vitest";
-import { manualModelContextK, needsEndpoint, validateManualForm } from "../src/renderer/src/lib/provider-add";
+import { needsEndpoint, validateManualForm } from "../src/renderer/src/lib/provider-add";
+import { normalizeContextK } from "../src/renderer/src/lib/model-form";
 
 describe("目录提供商「需填写端点」判定", () => {
   it("端点为空 → 需填写（true）", () => {
@@ -59,13 +61,13 @@ describe("手动创建表单内联校验", () => {
 
 describe("上下文窗口提交值归一", () => {
   it("正数取整", () => {
-    expect(manualModelContextK(128)).toBe(128);
-    expect(manualModelContextK(32.9)).toBe(32);
+    expect(normalizeContextK(128)).toBe(128);
+    expect(normalizeContextK(32.9)).toBe(32);
   });
 
   it("非正数 / NaN 归默认 32", () => {
-    expect(manualModelContextK(0)).toBe(32);
-    expect(manualModelContextK(-5)).toBe(32);
-    expect(manualModelContextK(Number.NaN)).toBe(32);
+    expect(normalizeContextK(0)).toBe(32);
+    expect(normalizeContextK(-5)).toBe(32);
+    expect(normalizeContextK(Number.NaN)).toBe(32);
   });
 });

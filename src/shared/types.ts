@@ -183,7 +183,7 @@ export interface ModelView {
   status: string;
   canonicalId: string;
   releaseDate: string;
-  /** manual | catalog | fetched（fetched 本期仅预留枚举） */
+  /** manual | catalog | fetched（fetched：providerFetchModels 拉取合并时写入，见 spec §7） */
   source: string;
   /** 启用状态：禁用后不进模型选择器 */
   enabled: boolean;

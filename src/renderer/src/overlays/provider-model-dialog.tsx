@@ -4,46 +4,15 @@
 // Esc 关闭过 IME composing 守卫（spec §10），保存中不可关。
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { cleanErrorMessage } from "../lib/errors";
+import {
+  MAX_TOKENS_LIMIT,
+  normalizeContextK,
+  normalizeMaxTokens,
+  validateModelForm,
+  type ModelFormErrors,
+} from "../lib/model-form";
 import type { ModelInput, ModelView, ProviderView } from "../../../shared/types";
-
-/** 上下文窗口服务端上限（buildModel：>100_000 报错）。 */
-const CONTEXT_K_MAX = 100_000;
-/** 最大输出 tokens 服务端边界（buildModel clamp 到 [0, 4_000_000]）。 */
-const MAX_TOKENS_LIMIT = 4_000_000;
-
-/** 客户端预校验（服务端规则的投影，重复 ID 等只能由服务端判定）：字段 → 内联红字。 */
-export type ModelFormErrors = Partial<Record<"id" | "contextK", string>>;
-
-export function validateModelForm(input: { id: string; contextK: number }): ModelFormErrors {
-  const errs: ModelFormErrors = {};
-  const id = input.id.trim();
-  if (id === "") errs.id = "模型 ID 不能为空";
-  else if (/\s/.test(id)) errs.id = "模型 ID 不能包含空白";
-  if (Number.isFinite(input.contextK) && input.contextK > CONTEXT_K_MAX) {
-    errs.contextK = `上下文窗口不能超过 ${CONTEXT_K_MAX}K`;
-  }
-  return errs;
-}
-
-/** 上下文窗口提交值归一（对齐服务端 buildModel：>0 取整，否则默认 32）。 */
-function normalizeContextK(raw: number): number {
-  if (Number.isFinite(raw) && raw > 0) return Math.trunc(raw);
-  return 32;
-}
-
-/** 最大输出 tokens 提交值归一（对齐服务端 buildModel：clamp 到 [0, 4_000_000]）。 */
-function normalizeMaxTokens(raw: number): number {
-  if (!Number.isFinite(raw)) return 0;
-  return Math.min(MAX_TOKENS_LIMIT, Math.max(0, Math.trunc(raw)));
-}
-
-/** 剥掉 Electron IPC 包装，保留服务端可读中文错误。 */
-function cleanIpcError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const marker = "Error:";
-  const idx = raw.lastIndexOf(marker);
-  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
-}
 
 export function ProviderModelDialog({
   providerId,
@@ -115,7 +84,7 @@ export function ProviderModelDialog({
         onClose();
       })
       .catch((err) => {
-        setServerError(cleanIpcError(err));
+        setServerError(cleanErrorMessage(err));
         setSaving(false);
       });
   };

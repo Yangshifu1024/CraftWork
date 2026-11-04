@@ -397,6 +397,55 @@ describe("ProviderView 新字段", () => {
   });
 });
 
+describe("providerSave 保留模型来源（review 修复）", () => {
+  it("编辑端点后 catalog 模型的 source 保持 catalog，不被改写为 manual", () => {
+    const p = makeProvider({ source: "catalog", catalogId: "deepseek" });
+    p.models = [{ ...p.models[0]!, source: "catalog" }];
+    saveCustomProviders(db, [p]);
+    const view = service.saveProvider({
+      id: "prov",
+      name: "测试提供商",
+      kind: "openai-compatible",
+      endpoint: "https://example.invalid/v2",
+      keyRequired: false,
+      models: [{ id: "model", name: "测试模型", contextK: 8, maxTokens: 1024 }],
+    });
+    expect(view.models[0]!.source).toBe("catalog");
+    expect(loadCustomProviders(db)[0]!.models[0]!.source).toBe("catalog");
+    cleanup();
+  });
+
+  it("启停后全量保存：catalog/fetched 来源不变，表单新增的模型仍为 manual", () => {
+    const p = makeProvider({ source: "catalog", catalogId: "deepseek" });
+    p.models = [
+      { ...p.models[0]!, source: "catalog", enabled: true },
+      { ...p.models[0]!, id: "fetched-1", name: "拉取模型", source: "fetched" },
+    ];
+    saveCustomProviders(db, [p]);
+    service.setModelEnabled("prov", "model", false); // 模拟界面启停
+    const view = service.saveProvider({
+      id: "prov",
+      name: "测试提供商",
+      kind: "openai-compatible",
+      endpoint: "https://example.invalid/v1",
+      keyRequired: false,
+      models: [
+        { id: "model", name: "测试模型", contextK: 8, maxTokens: 1024 },
+        { id: "fetched-1", name: "拉取模型", contextK: 8, maxTokens: 0 },
+        { id: "brand-new", name: "新模型", contextK: 8, maxTokens: 0 },
+      ],
+    });
+    const sources = Object.fromEntries(view.models.map((m) => [m.id, m.source]));
+    expect(sources["model"]).toBe("catalog");
+    expect(sources["fetched-1"]).toBe("fetched");
+    expect(sources["brand-new"]).toBe("manual");
+    // 启停结果同样不被全量保存重置
+    const enabled = Object.fromEntries(view.models.map((m) => [m.id, m.enabled]));
+    expect(enabled["model"]).toBe(false);
+    cleanup();
+  });
+});
+
 // ---------- providerFetchModels（票 5 / spec §7） ----------
 
 /** 构造 JSON Response 的 fetch mock 响应。 */

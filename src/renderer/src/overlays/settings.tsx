@@ -11,6 +11,8 @@ import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
 import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
 import { formatContextK, formatContextTitle } from "../lib/format-context";
+import { cleanErrorMessage } from "../lib/errors";
+import { isImeComposing } from "../lib/ime";
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
@@ -321,7 +323,7 @@ function ProviderListItem({
     enabled: provider.enabled,
     keyMasked: provider.keyMasked,
     keyRequired: provider.keyRequired,
-    modelCount: provider.models.length,
+    enabledModelCount: provider.models.filter((m) => m.enabled !== false).length,
   });
   return (
     <button
@@ -596,7 +598,7 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
             onBlur={commitRename}
             onKeyDown={(e) => {
               // IME 组合中的 Enter（候选确认）不触发提交（spec §10）
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (isImeComposing(e)) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 e.currentTarget.blur();
@@ -654,8 +656,23 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
         </div>
       </div>
 
-      {/* 连接配置卡（spec §6）：端点 / 协议 / 密钥 / 测试连接 */}
+      {/* 连接配置卡（spec §6）：缺密钥 warning 条 / 端点 / 协议 / 密钥 / 测试连接 */}
       <div className="flex flex-col gap-3.5 rounded-xl border border-border/50 bg-panel p-4">
+        {provider.keyRequired !== false && !provider.keyMasked && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-warning-surface px-2.5 py-1.5 text-ui-xs text-warning-surface-foreground">
+            <span>尚未配置密钥，模型无法调用。</span>
+            <button
+              className="shrink-0 rounded border border-warning-surface-foreground/40 px-1.5 text-ui-xs font-medium hover:bg-warning-surface-foreground/10"
+              onClick={() => {
+                setKeyInput("");
+                setKeyVisible(false);
+                setKeyEditing(true); // 进入输入态后输入框 autoFocus，即引导聚焦密钥输入（spec §11）
+              }}
+            >
+              设置密钥
+            </button>
+          </p>
+        )}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2.5">
             <span className="w-9 shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
@@ -669,7 +686,7 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
               }}
               onBlur={saveEndpoint}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (isImeComposing(e)) return;
                 if (e.key === "Enter") {
                   e.preventDefault();
                   e.currentTarget.blur(); // 保存逻辑统一走 blur
@@ -717,7 +734,7 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
                   disabled={savingKey}
                   onChange={(e) => setKeyInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (isImeComposing(e)) return;
                     if (e.key === "Enter") {
                       e.preventDefault();
                       saveKey();
@@ -948,14 +965,6 @@ function ModelRow({
       </div>
     </div>
   );
-}
-
-/** 清洗 IPC 错误：剥掉「Error invoking remote method ...: Error: 」前缀，只留可读文案。 */
-function cleanErrorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const marker = "Error:";
-  const idx = raw.lastIndexOf(marker);
-  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
 function PermissionsSection(): React.JSX.Element {

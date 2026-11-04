@@ -25,6 +25,7 @@
   "include": [
     "electron.vite.config.ts",
     "src/renderer/src/lib/format-context.ts",
+    "src/renderer/src/lib/model-form.ts",
     "src/renderer/src/lib/provider-add.ts",
     "src/renderer/src/lib/provider-list.ts",
     "src/main/**/*.ts",

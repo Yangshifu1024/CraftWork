@@ -153,10 +153,16 @@ async function downloadLogos(ids) {
   return { logos, failed };
 }
 
-function wrapBase64(b64, indent) {
+/** base64 按 120 字符切片（内嵌 TS 模块统一行宽，切片逻辑只此一处）。 */
+function base64Lines(b64, width = 120) {
   const lines = [];
-  for (let i = 0; i < b64.length; i += 120) lines.push(b64.slice(i, i + 120));
-  return lines.join(`"\n${indent}+ "`);
+  for (let i = 0; i < b64.length; i += width) lines.push(b64.slice(i, i + width));
+  return lines;
+}
+
+/** logo 资产模块的多行拼接格式：行间以 `"\n<indent>+ "` 连接。 */
+function wrapBase64(b64, indent) {
+  return base64Lines(b64).join(`"\n${indent}+ "`);
 }
 
 async function main() {
@@ -239,13 +245,13 @@ async function main() {
 
   // 重新内嵌为 TS 模块
   const b64 = gz.toString("base64");
-  const lines = [];
-  for (let i = 0; i < b64.length; i += 120) lines.push(b64.slice(i, i + 120));
   const ts =
     "// 由 scripts/modelsync.mjs 从 assets/catalog/catalog.json.gz 生成，请勿手改。\n" +
     "// models.dev 目录快照（构建期内嵌，运行时只读）。\n" +
     "const LINES = [\n" +
-    lines.map((l) => `  "${l}",`).join("\n") +
+    base64Lines(b64)
+      .map((l) => `  "${l}",`)
+      .join("\n") +
     "\n];\n\n" +
     'export const CATALOG_GZ_BASE64 = LINES.join("");\n';
   writeFileSync(join(root, "src/main/model/catalogdata.ts"), ts);

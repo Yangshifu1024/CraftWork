@@ -4,12 +4,13 @@ import type { ModelView, ProviderView } from "../../../shared/types";
 
 export type ProviderStatusTone = "ok" | "warn" | "off";
 
-/** 状态点判定入参：ProviderView 的最小投影（enabled 缺省视为启用，本票尚无启停字段）。 */
+/** 状态点判定入参：ProviderView 的最小投影（enabled 缺省视为启用）。 */
 export interface ProviderStatusInput {
   enabled?: boolean;
   keyMasked: string;
   keyRequired: boolean;
-  modelCount: number;
+  /** 启用模型数（models.filter(m => m.enabled !== false).length）：全停用等同无模型。 */
+  enabledModelCount: number;
 }
 
 export interface ProviderStatus {
@@ -20,13 +21,13 @@ export interface ProviderStatus {
 
 /**
  * 三色状态点（spec §5）：
- * 灰 = enabled === false；绿 = 启用且密钥就绪（或无需密钥）且有模型；
- * 橙 = 启用但缺密钥或无模型。
+ * 灰 = enabled === false；绿 = 启用且密钥就绪（或无需密钥）且有启用模型；
+ * 橙 = 启用但缺密钥或无启用模型（模型全部停用同样为橙）。
  */
 export function providerStatus(p: ProviderStatusInput): ProviderStatus {
   if (p.enabled === false) return { tone: "off", label: "已停用" };
   if (p.keyRequired && p.keyMasked === "") return { tone: "warn", label: "未配置密钥" };
-  if (p.modelCount === 0) return { tone: "warn", label: "暂无模型" };
+  if (p.enabledModelCount === 0) return { tone: "warn", label: "暂无模型" };
   return { tone: "ok", label: "可用" };
 }
 

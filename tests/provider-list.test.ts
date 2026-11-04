@@ -80,37 +80,44 @@ describe("模型选择器过滤（spec §9）", () => {
 
 describe("状态点三色判定", () => {
   it("禁用（enabled === false）为灰，优先级最高", () => {
-    const r = providerStatus({ enabled: false, keyMasked: "sk-···abcd", keyRequired: true, modelCount: 3 });
+    const r = providerStatus({ enabled: false, keyMasked: "sk-···abcd", keyRequired: true, enabledModelCount: 3 });
     expect(r.tone).toBe("off");
     expect(r.label).toBe("已停用");
   });
 
-  it("启用且密钥就绪且有模型为绿", () => {
-    const r = providerStatus({ keyMasked: "sk-···abcd", keyRequired: true, modelCount: 3 });
+  it("启用且密钥就绪且有启用模型为绿", () => {
+    const r = providerStatus({ keyMasked: "sk-···abcd", keyRequired: true, enabledModelCount: 3 });
     expect(r.tone).toBe("ok");
     expect(r.label).toBe("可用");
   });
 
-  it("启用但无需密钥且有模型为绿", () => {
-    const r = providerStatus({ keyMasked: "", keyRequired: false, modelCount: 1 });
+  it("启用但无需密钥且有启用模型为绿", () => {
+    const r = providerStatus({ keyMasked: "", keyRequired: false, enabledModelCount: 1 });
     expect(r.tone).toBe("ok");
   });
 
   it("启用但缺密钥为橙", () => {
-    const r = providerStatus({ keyMasked: "", keyRequired: true, modelCount: 3 });
+    const r = providerStatus({ keyMasked: "", keyRequired: true, enabledModelCount: 3 });
     expect(r.tone).toBe("warn");
     expect(r.label).toBe("未配置密钥");
   });
 
-  it("启用但无模型为橙", () => {
-    const r = providerStatus({ keyMasked: "sk-···abcd", keyRequired: true, modelCount: 0 });
+  it("启用但无启用模型为橙", () => {
+    const r = providerStatus({ keyMasked: "sk-···abcd", keyRequired: true, enabledModelCount: 0 });
+    expect(r.tone).toBe("warn");
+    expect(r.label).toBe("暂无模型");
+  });
+
+  it("模型全部停用（enabledModelCount 0）为橙，不因模型总数显绿", () => {
+    // 调用点以 models.filter(m => m.enabled !== false).length 传入；模型在但全停用同样无可用
+    const r = providerStatus({ keyMasked: "sk-···abcd", keyRequired: false, enabledModelCount: 0 });
     expect(r.tone).toBe("warn");
     expect(r.label).toBe("暂无模型");
   });
 
   it("enabled 缺省视为启用", () => {
-    expect(providerStatus({ keyMasked: "", keyRequired: false, modelCount: 2 }).tone).toBe("ok");
-    expect(providerStatus({ keyMasked: "", keyRequired: true, modelCount: 0 }).tone).toBe("warn");
+    expect(providerStatus({ keyMasked: "", keyRequired: false, enabledModelCount: 2 }).tone).toBe("ok");
+    expect(providerStatus({ keyMasked: "", keyRequired: true, enabledModelCount: 0 }).tone).toBe("warn");
   });
 });
 

@@ -457,11 +457,13 @@ export class ProviderService {
     const seen = new Set<string>();
     const models: PersistedModel[] = input.models.map((m) => this.buildModel(m, seen));
     const existing = loadCustomProviders(this.db).find((p) => p.id === id);
-    // 编辑已有提供商时按模型 ID 保留启停等既有状态，避免全量保存悄悄重置（与 provider.enabled 同法）
+    // 编辑已有提供商时按模型 ID 保留启停与来源等既有状态，避免全量保存悄悄重置（与 provider.enabled 同法）
     if (existing) {
       for (const [i, model] of models.entries()) {
         const prev = existing.models.find((x) => x.id === model.id);
-        if (prev) models[i] = { ...model, enabled: prev.enabled };
+        if (prev) {
+          models[i] = { ...model, enabled: prev.enabled, source: preservedModelSource(prev.source, model.source) };
+        }
       }
     }
 
@@ -552,6 +554,14 @@ export class ProviderService {
 
 function connectionMessage(code: string): string {
   return CONNECTION_MESSAGES[code] ?? "连接失败，请检查配置。";
+}
+
+/**
+ * 全量保存时的模型来源保留：已存在模型的 catalog / fetched 来源优先（目录与拉取是事实源，
+ * 表单不含此字段）；manual 或旧数据的空串回落到新构建值（manual），避免脏值固化。
+ */
+function preservedModelSource(prevSource: string, fallback: string): string {
+  return prevSource === "catalog" || prevSource === "fetched" ? prevSource : fallback;
 }
 
 /** 模型条目解析结果（id 必有，name / context 容错缺失）。 */

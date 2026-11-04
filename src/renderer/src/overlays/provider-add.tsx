@@ -7,7 +7,9 @@ import { ArrowLeft, BookOpen, PenLine } from "lucide-react";
 import { api } from "../lib/api";
 import { useToasts } from "../store/toast";
 import { ProviderLogo } from "../components/provider-logo";
-import { manualModelContextK, needsEndpoint, validateManualForm, type ManualFormErrors } from "../lib/provider-add";
+import { needsEndpoint, validateManualForm, type ManualFormErrors } from "../lib/provider-add";
+import { cleanErrorMessage } from "../lib/errors";
+import { normalizeContextK } from "../lib/model-form";
 import type { CatalogModelView, CatalogProviderView, ProviderView } from "../../../shared/types";
 
 export type AddEntry = "catalog" | "manual";
@@ -180,7 +182,7 @@ function CatalogImportPanel({ onDone }: { onDone(provider: ProviderView): void }
                           pushToast("ok", "提供商已导入", view.name);
                           onDone(view);
                         })
-                        .catch((err) => pushToast("danger", "导入失败", cleanIpcError(err)))
+                        .catch((err) => pushToast("danger", "导入失败", cleanErrorMessage(err)))
                         .finally(() => setImporting(false));
                     }}
                   >
@@ -242,20 +244,20 @@ function ManualCreateForm({ onDone }: { onDone(provider: ProviderView): void }):
         kind,
         endpoint: endpoint.trim(),
         keyRequired: true,
-        models: [{ id: modelId.trim(), name: modelId.trim(), contextK: manualModelContextK(Number(contextK)), maxTokens: 0 }],
+        models: [{ id: modelId.trim(), name: modelId.trim(), contextK: normalizeContextK(Number(contextK)), maxTokens: 0 }],
       })
       .then((view) => {
         // 密钥可选：填写了就在创建后立即保存；失败不阻塞（详情卡可再设）
         if (key.trim() !== "") {
           void api
             .providerSetKey(view.id, key.trim())
-            .catch((err) => pushToast("danger", "密钥保存失败", cleanIpcError(err)));
+            .catch((err) => pushToast("danger", "密钥保存失败", cleanErrorMessage(err)));
         }
         pushToast("ok", "提供商已创建", view.name);
         onDone(view);
       })
       .catch((err) => {
-        setServerError(cleanIpcError(err));
+        setServerError(cleanErrorMessage(err));
         setSubmitting(false);
       });
   };
@@ -355,12 +357,4 @@ function ManualCreateForm({ onDone }: { onDone(provider: ProviderView): void }):
       </div>
     </div>
   );
-}
-
-/** 剥掉 Electron IPC 包装，保留服务端可读中文错误（对齐 conversation.tsx 的 cleanErrorMessage）。 */
-function cleanIpcError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const marker = "Error:";
-  const idx = raw.lastIndexOf(marker);
-  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }

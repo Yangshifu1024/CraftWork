@@ -8,6 +8,7 @@ import { useApp, draftSlot, effectiveModelRef, EMPTY_DRAFT } from "../store/app"
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
+import { cleanErrorMessage } from "../lib/errors";
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
@@ -458,14 +459,6 @@ function StreamCaret(): React.JSX.Element {
 }
 
 // ---------- 输入区 ----------
-
-/** 清洗 IPC 错误：剥掉「Error invoking remote method ...: Error: 」前缀，只留可读文案。 */
-function cleanErrorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const marker = "Error:";
-  const idx = raw.lastIndexOf(marker);
-  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
-}
 
 /** 模型 chip：显示会话模型（草稿态显示当前草稿槽的模型引用，缺省回落全局默认），点击在按钮上方弹出选择浮层。
  *  对齐 ZCode：模型名 + ChevronDown，未选时占位文案。

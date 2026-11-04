@@ -91,7 +91,8 @@ src/renderer/            React 界面：主题（styles.css）、侧栏、对话
                          浮层（命令面板/设置/数据/对话框/toast）、zustand 状态壳
 tests/                   vitest 单测（policy / editor / store / model / tools /
                          title / context）
-scripts/                 modelsync.mjs（目录同步）、embed-catalog.mjs（快照内嵌）
+scripts/                 modelsync.mjs（拉取 models.dev 目录、按规则过滤、生成快照与
+                         logo 资产并内嵌为 TS 模块）
 assets/catalog/          models.dev 快照（catalog.json.gz + manifest + rules）
 docs/                    adr（决策记录）、specs（行为规格）
 ```

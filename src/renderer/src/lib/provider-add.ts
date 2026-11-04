@@ -1,6 +1,8 @@
-// 添加提供商页纯逻辑：目录行「需填写端点」判定、手动创建表单内联校验与上下文归一。
+// 添加提供商页纯逻辑：目录行「需填写端点」判定与手动创建表单内联校验。
 // 无 React / DOM 依赖，供添加页组件消费并由 vitest 直测（tests/provider-add.test.ts）。
+// 模型字段校验（ID / 上下文窗口）与提交值归一收敛在 lib/model-form，此处组合为表单投影；
 // 校验规则与服务端 ProviderService.buildProvider / buildModel 对齐，最终以服务端为准。
+import { validateContextK, validateModelId } from "./model-form";
 
 /** 目录提供商「需填写端点」判定（spec §3.2）：端点为空（trim 后）→ 行上显示 warning 徽标。 */
 export function needsEndpoint(p: { endpoint: string }): boolean {
@@ -18,9 +20,6 @@ export interface ManualFormInput {
 /** 字段 → 内联红字文案；无错误字段不出现。 */
 export type ManualFormErrors = Partial<Record<"name" | "endpoint" | "modelId" | "contextK", string>>;
 
-/** 上下文窗口服务端上限（buildModel：>100_000 报错）。 */
-const CONTEXT_K_MAX = 100_000;
-
 /** 手动创建表单必填校验（服务端规则的投影；服务端错误最终同样内联展示）。 */
 export function validateManualForm(input: ManualFormInput): ManualFormErrors {
   const errs: ManualFormErrors = {};
@@ -30,19 +29,11 @@ export function validateManualForm(input: ManualFormInput): ManualFormErrors {
   } else if (!isHttpUrl(input.endpoint.trim())) {
     errs.endpoint = "端点不是合法的 URL";
   }
-  const modelId = input.modelId.trim();
-  if (modelId === "") errs.modelId = "模型 ID 不能为空";
-  else if (/\s/.test(modelId)) errs.modelId = "模型 ID 不能包含空白";
-  if (Number.isFinite(input.contextK) && input.contextK > CONTEXT_K_MAX) {
-    errs.contextK = `上下文窗口不能超过 ${CONTEXT_K_MAX}K`;
-  }
+  const modelIdError = validateModelId(input.modelId);
+  if (modelIdError) errs.modelId = modelIdError;
+  const contextKError = validateContextK(input.contextK);
+  if (contextKError) errs.contextK = contextKError;
   return errs;
-}
-
-/** 上下文窗口提交值归一（对齐服务端：>0 取整，否则默认 32）。 */
-export function manualModelContextK(raw: number): number {
-  if (Number.isFinite(raw) && raw > 0) return Math.trunc(raw);
-  return 32;
 }
 
 function isHttpUrl(value: string): boolean {
