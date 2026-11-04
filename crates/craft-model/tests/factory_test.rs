@@ -119,7 +119,7 @@ fn 客户端构造_缺密钥与停用分支() {
     let keys = StubKeys {
         keys: [("ok".to_string(), "sk-test".to_string())].into_iter().collect(),
     };
-    let factory = ModelFactory::new(Catalog::new(Arc::clone(&db)), Box::new(keys));
+    let factory = ModelFactory::new(Arc::new(Catalog::new(Arc::clone(&db))), Box::new(keys));
 
     let expect_err = |factory: &ModelFactory, reference: &str| -> craft_model::errors::ModelError {
         match factory.client(reference) {
@@ -159,7 +159,7 @@ fn 回退链_停用与同引用与缺密钥候选不参与() {
         ]),
     );
     let keys = StubKeys::default();
-    let factory = ModelFactory::new(Catalog::new(Arc::clone(&db)), Box::new(keys));
+    let factory = ModelFactory::new(Arc::new(Catalog::new(Arc::clone(&db))), Box::new(keys));
 
     // 无 resolver → 空
     assert_eq!(factory.fallback_model("cur/m"), "");
@@ -194,7 +194,7 @@ fn 协议类型_费用分支用() {
             provider_json("p2", "openai-compatible", "https://b.com/v1", false, true, serde_json::json!([])),
         ]),
     );
-    let factory = ModelFactory::new(Catalog::new(Arc::clone(&db)), Box::new(StubKeys::default()));
+    let factory = ModelFactory::new(Arc::new(Catalog::new(Arc::clone(&db))), Box::new(StubKeys::default()));
     assert_eq!(factory.provider_kind("p1"), "anthropic");
     assert_eq!(factory.provider_kind("p2"), "openai-compatible");
     assert_eq!(factory.provider_kind("none"), "");

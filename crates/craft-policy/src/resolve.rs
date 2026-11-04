@@ -113,6 +113,35 @@ pub fn resolve_at(lex_root: &str, rel: &str) -> ResolveResult<(String, String)> 
     Ok((real.to_string_lossy().to_string(), rel_out))
 }
 
+/// 词法校验拼接（不触盘）：新建文件（父目录缺失）场景由调用方负责建目录。
+/// 安全语义与 resolve_at 的词法段一致：绝对路径归一、UNC 拒绝、越界拒绝。
+pub fn lexical_at(root: &str, rel: &str) -> ResolveResult<(String, String)> {
+    let root_path = Path::new(root);
+    let rel_path = Path::new(rel);
+    let candidate = if rel_path.is_absolute() {
+        lexical_normalize(rel_path)
+    } else {
+        lexical_normalize(&root_path.join(rel_path))
+    };
+    let candidate_str = candidate.to_string_lossy().to_string();
+    if candidate_str.starts_with("\\") || candidate_str.starts_with("//") {
+        return Err(ErrOutsideWorkspace);
+    }
+    if !within(root_path, &candidate) {
+        return Err(ErrOutsideWorkspace);
+    }
+    let rel_out = if candidate == root_path {
+        ".".to_string()
+    } else {
+        candidate
+            .to_string_lossy()
+            .strip_prefix(format!("{}{}", root, MAIN_SEPARATOR).as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| candidate_str.clone())
+    };
+    Ok((candidate_str, rel_out))
+}
+
 fn root_candidates(roots: &[String]) -> Vec<String> {
     roots.iter().filter(|r| !r.is_empty()).cloned().collect()
 }

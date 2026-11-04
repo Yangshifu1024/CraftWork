@@ -3,6 +3,7 @@
 //! 对应 src/main/tools/registry.ts。
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -194,34 +195,34 @@ pub fn human_size(bytes: i64) -> String {
 }
 
 pub struct Registry {
-    tools: HashMap<String, Box<dyn Tool>>,
+    tools: Mutex<HashMap<String, Box<dyn Tool>>>,
     env: Arc<ToolEnv>,
 }
 
 impl Registry {
     pub fn new(backup_dir: &str, db: Arc<Db>) -> Self {
         Self {
-            tools: HashMap::new(),
+            tools: Mutex::new(HashMap::new()),
             env: Arc::new(ToolEnv { backup_dir: backup_dir.to_string(), db }),
         }
     }
 
-    /// MCP 动态注册：同名替换。
-    pub fn register(&mut self, tool: Box<dyn Tool>) {
-        self.tools.insert(tool.spec().name, tool);
+    /// 注册工具；MCP 动态注册同名替换。
+    pub fn register(&self, tool: Box<dyn Tool>) {
+        self.tools.lock().unwrap().insert(tool.spec().name, tool);
     }
 
-    pub fn unregister(&mut self, name: &str) {
-        self.tools.remove(name);
+    pub fn unregister(&self, name: &str) {
+        self.tools.lock().unwrap().remove(name);
     }
 
     pub fn spec_for(&self, name: &str) -> Option<ToolSpec> {
-        self.tools.get(name).map(|t| t.spec())
+        self.tools.lock().unwrap().get(name).map(|t| t.spec())
     }
 
     /// 按名称排序——保证提示词工具顺序稳定。
     pub fn specs(&self) -> Vec<ToolSpec> {
-        let mut specs: Vec<ToolSpec> = self.tools.values().map(|t| t.spec()).collect();
+        let mut specs: Vec<ToolSpec> = self.tools.lock().unwrap().values().map(|t| t.spec()).collect();
         specs.sort_by(|a, b| a.name.cmp(&b.name));
         specs
     }
@@ -240,7 +241,8 @@ impl Registry {
 
     /// 只读评估：解析路径与命令分类，不产生副作用。
     pub fn assess(&self, roots: &[String], name: &str, args: &Value) -> Assessment {
-        let Some(tool) = self.tools.get(name) else {
+        let tools_guard = self.tools.lock().unwrap();
+        let Some(tool) = tools_guard.get(name) else {
             return Assessment {
                 risk: PolicyRisk::R2,
                 reason: "执行命令".into(),
@@ -299,6 +301,7 @@ impl Registry {
             err,
             env: Arc::clone(&self.env),
         };
+        drop(tools_guard);
 
         Assessment {
             risk,
@@ -311,7 +314,8 @@ impl Registry {
 
     /// 统一执行出口：err 置位直接返回错误；输出统一截断。
     pub fn execute(&self, ctx: &ToolCtx) -> ToolResult {
-        let Some(tool) = self.tools.get(&ctx.name) else {
+        let tools_guard = self.tools.lock().unwrap();
+        let Some(tool) = tools_guard.get(&ctx.name) else {
             return ToolResult::err_code(format!("未知工具：{}", ctx.name), "unknown_tool");
         };
         if let Some(err) = &ctx.err {

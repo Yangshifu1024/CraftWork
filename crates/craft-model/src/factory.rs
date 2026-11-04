@@ -31,13 +31,13 @@ impl KeyProvider for SecretKeyProvider {
 type FallbackResolver = Box<dyn Fn() -> String + Send>;
 
 pub struct ModelFactory {
-    pub catalog: Catalog,
+    pub catalog: Arc<Catalog>,
     keys: Box<dyn KeyProvider>,
     fallback_resolver: Mutex<Option<FallbackResolver>>,
 }
 
 impl ModelFactory {
-    pub fn new(catalog: Catalog, keys: Box<dyn KeyProvider>) -> Self {
+    pub fn new(catalog: Arc<Catalog>, keys: Box<dyn KeyProvider>) -> Self {
         Self {
             catalog,
             keys,
@@ -53,6 +53,11 @@ impl ModelFactory {
     /// 提供商协议类型（费用估算的缓存口径分支用）。
     pub fn provider_kind(&self, provider_id: &str) -> String {
         self.catalog.find_provider(provider_id).map(|p| p.kind.clone()).unwrap_or_default()
+    }
+
+    /// 目录句柄（壳层组装用）。
+    pub fn catalog_arc(&self) -> Arc<Catalog> {
+        Arc::clone(&self.catalog)
     }
 
     /// 实时读取备用模型设置（改设置免重启）。

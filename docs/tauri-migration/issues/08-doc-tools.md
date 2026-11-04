@@ -1,7 +1,7 @@
 # 08 文档处理工具（P7）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 05（可与 06 并行）
 
 ## 任务

@@ -3,6 +3,7 @@
 //! doc_* 在 P7（docs/tauri-migration/issues/08）接入 craft-doc 后启用。
 //! 路径解析、输出截断与写前备份由 Registry 统一处理。
 
+pub mod doc;
 pub mod fs;
 pub mod registry;
 pub mod shell;

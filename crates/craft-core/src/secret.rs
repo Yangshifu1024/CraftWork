@@ -28,16 +28,16 @@ impl Default for KeysFile {
 
 pub struct SecretStore {
     file_path: PathBuf,
-    data: KeysFile,
-    warnings: Vec<String>,
+    data: std::sync::Mutex<KeysFile>,
+    warnings: std::sync::Mutex<Vec<String>>,
 }
 
 impl SecretStore {
     fn new(file_path: PathBuf) -> Self {
         Self {
             file_path,
-            data: KeysFile::default(),
-            warnings: Vec::new(),
+            data: std::sync::Mutex::new(KeysFile::default()),
+            warnings: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -48,22 +48,24 @@ impl SecretStore {
 
     pub fn open(dir: &Path) -> SecretStore {
         let file_path = dir.join("keys.json");
-        let mut store = SecretStore::new(file_path.clone());
+        let store = SecretStore::new(file_path.clone());
         Self::ensure_dir(dir);
         if !file_path.exists() {
             return store;
         }
         // 权限过宽时自动收紧
         if !tighten_mode(&file_path) {
-            store.warnings.push("keys.json 权限过宽，自动收紧 0600 失败。".into());
+            store.warnings.lock().unwrap().push("keys.json 权限过宽，自动收紧 0600 失败。".into());
         }
         match fs::read_to_string(&file_path).map_err(|e| e.to_string()).and_then(|text| {
             serde_json::from_str::<KeysFile>(&text).map_err(|e| e.to_string())
         }) {
-            Ok(parsed) => store.data = parsed,
+            Ok(parsed) => *store.data.lock().unwrap() = parsed,
             Err(_) => {
                 store
                     .warnings
+                    .lock()
+                    .unwrap()
                     .push("keys.json 读取失败（可能已损坏），已按空密钥库启动；请重新配置密钥。".into());
             }
         }
@@ -76,12 +78,12 @@ impl SecretStore {
         SecretStore::new(dir.join("keys.json"))
     }
 
-    pub fn warnings(&self) -> &[String] {
-        &self.warnings
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().unwrap().clone()
     }
 
     pub fn get(&self, provider_id: &str) -> String {
-        self.data.providers.get(provider_id).cloned().unwrap_or_default()
+        self.data.lock().unwrap().providers.get(provider_id).cloned().unwrap_or_default()
     }
 
     /// 取密钥：文件值优先（空串视为未配置），再按 envNames 逐个回退环境变量。
@@ -132,23 +134,25 @@ impl SecretStore {
         format!("{}…{}", chars[..5].iter().collect::<String>(), &key[key.len() - 4..])
     }
 
-    pub fn set(&mut self, provider_id: &str, value: &str) {
+    pub fn set(&self, provider_id: &str, value: &str) {
+        let mut data = self.data.lock().unwrap();
         if value.is_empty() {
-            self.data.providers.remove(provider_id);
+            data.providers.remove(provider_id);
         } else {
-            self.data.providers.insert(provider_id.to_string(), value.to_string());
+            data.providers.insert(provider_id.to_string(), value.to_string());
         }
+        drop(data);
         self.persist();
     }
 
-    pub fn delete(&mut self, provider_id: &str) {
-        self.data.providers.remove(provider_id);
+    pub fn delete(&self, provider_id: &str) {
+        self.data.lock().unwrap().providers.remove(provider_id);
         self.persist();
     }
 
     fn persist(&self) {
         // 同目录临时文件 → 0600 → 原子替换
-        let text = serde_json::to_string_pretty(&self.data).unwrap_or_default();
+        let text = serde_json::to_string_pretty(&*self.data.lock().unwrap()).unwrap_or_default();
         if let Err(err) = write_file_atomic_str(&self.file_path, &format!("{text}\n"), 0o600) {
             eprintln!("[craftwork] keys.json 写入失败：{err}");
         }

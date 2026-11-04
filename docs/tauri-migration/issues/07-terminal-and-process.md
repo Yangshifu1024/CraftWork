@@ -1,7 +1,7 @@
 # 07 进程执行：shell_exec 完整执行体（P6）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 05（可与 06、08 并行）
 
 注：交互式终端功能已随决策 D1 移除（issue 02），本 issue 只覆盖 Agent 的命令执行工具 `shell_exec`。

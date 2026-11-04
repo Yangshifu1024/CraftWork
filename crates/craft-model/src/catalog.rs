@@ -142,6 +142,11 @@ pub fn catalog_model_to_persisted(m: &CatalogModel, source: &str) -> PersistedMo
     }
 }
 
+/// 公开版本（壳层目录视图用）。
+pub fn merge_caps_public(partial: Option<&PartialCaps>) -> Capabilities {
+    merge_caps(partial)
+}
+
 fn merge_caps(partial: Option<&PartialCaps>) -> Capabilities {
     let mut caps = DEFAULT_CAPS;
     if let Some(p) = partial {
@@ -174,7 +179,7 @@ pub fn catalog_provider_env(p: &CatalogProvider) -> Vec<String> {
 /// 单实例持有 db，custom providers 变化后调 reload。
 pub struct Catalog {
     db: Arc<Db>,
-    custom: Vec<PersistedProvider>,
+    custom: std::sync::Mutex<Vec<PersistedProvider>>,
 }
 
 /// Arc 版本：持久化提供商标记 serde 需要的字段已由 PersistedProvider 承担。
@@ -189,34 +194,36 @@ pub struct NormalizedRef {
 
 impl Catalog {
     pub fn new(db: Arc<Db>) -> Catalog {
-        let mut catalog = Catalog { db, custom: Vec::new() };
+        let catalog = Catalog { db, custom: std::sync::Mutex::new(Vec::new()) };
         catalog.reload();
         catalog
     }
 
-    pub fn reload(&mut self) {
-        self.custom = self
+    /// 重载用户自定义提供商（settings 变更后调用）。
+    pub fn reload(&self) {
+        let custom = self
             .db
             .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
             .ok()
             .flatten()
             .and_then(|value| serde_json::from_value::<Vec<PersistedProvider>>(value).ok())
             .unwrap_or_default(); // 读取失败按空目录：宁可提示重新配置也不崩溃
+        *self.custom.lock().unwrap() = custom;
     }
 
-    /// 全部可调用提供商（用户添加的）。
-    pub fn providers(&self) -> &[PersistedProvider] {
-        &self.custom
+    /// 全部可调用提供商（用户添加的，快照）。
+    pub fn providers(&self) -> Vec<PersistedProvider> {
+        self.custom.lock().unwrap().clone()
     }
 
-    pub fn find_provider(&self, id: &str) -> Option<&PersistedProvider> {
-        self.custom.iter().find(|p| p.id == id)
+    pub fn find_provider(&self, id: &str) -> Option<PersistedProvider> {
+        self.custom.lock().unwrap().iter().find(|p| p.id == id).cloned()
     }
 
     pub fn find_model(&self, provider_id: &str, model_id: &str) -> Option<ModelInfo> {
         let p = self.find_provider(provider_id)?;
         let m = p.models.iter().find(|x| x.id == model_id)?;
-        Some(to_model_info(p, m))
+        Some(to_model_info(&p, m))
     }
 
     pub fn find_model_by_ref(&self, reference: &str) -> Option<ModelInfo> {
@@ -236,7 +243,7 @@ impl Catalog {
         if let Some(by_ref) = self.find_model_by_ref(ref_or_id) {
             return Some(by_ref);
         }
-        for p in &self.custom {
+        for p in self.custom.lock().unwrap().iter() {
             if let Some(m) = p.models.iter().find(|x| x.id == ref_or_id) {
                 return Some(to_model_info(p, m));
             }

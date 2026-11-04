@@ -1,7 +1,7 @@
 # 06 Run 循环与 Agent 服务（P5）
 
 labels: [needs-triage]
-status: in-progress
+status: done
 depends: 03、04、05
 
 ## 任务

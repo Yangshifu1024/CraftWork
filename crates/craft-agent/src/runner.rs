@@ -144,10 +144,25 @@ impl Runner {
         let message_id = run.message_id.clone();
         let mode = thread.mode.clone();
         let model_id = thread.model_id.clone();
-        tokio::spawn(async move {
-            this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id).await;
-            // execute 内部已处理错误路径
-        });
+        // 壳层命令在 tokio 上下文：直接 spawn；测试/同步上下文：起线程驱动 current-thread 运行时
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move {
+                    this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id).await;
+                });
+            }
+            Err(_) => {
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("craftwork-run 运行时启动失败");
+                    rt.block_on(async move {
+                        this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id).await;
+                    });
+                });
+            }
+        }
         Ok(run.id)
     }
 
