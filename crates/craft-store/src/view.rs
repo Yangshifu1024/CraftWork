@@ -32,12 +32,23 @@ pub fn latest_usage_by_thread(conn: &Connection, thread_id: &str) -> StoreResult
     .map_err(other_err)
 }
 
-/// 模型显示名：目录解析接入前，非空 ID 一律「模型不可用」（P3 补 normalizeModelRef 等价逻辑）。
+type ModelNameResolver = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+static MODEL_NAME_RESOLVER: std::sync::OnceLock<ModelNameResolver> = std::sync::OnceLock::new();
+
+/// 注入模型名解析器（壳层组装时接 Catalog.normalize；store 不反向依赖 model 包）。
+pub fn set_model_name_resolver(resolver: impl Fn(&str) -> Option<String> + Send + Sync + 'static) {
+    let _ = MODEL_NAME_RESOLVER.set(Box::new(resolver));
+}
+
+/// 模型显示名：目录解析器注入后返回解析名，否则非空 ID 一律「模型不可用」。
 pub fn model_name_for(_conn: &Connection, model_id: &str) -> String {
     if model_id.is_empty() {
         return "未选择模型".into();
     }
-    // TODO(P3)：接入 craft-model 目录后返回解析到的模型名（view.ts: modelNameFor）
+    if let Some(name) = MODEL_NAME_RESOLVER.get().and_then(|resolver| resolver(model_id)) {
+        return name;
+    }
     "模型不可用".into()
 }
 

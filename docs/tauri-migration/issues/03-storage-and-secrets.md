@@ -1,7 +1,7 @@
 # 03 存储层与密钥（P2）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 02
 
 ## 任务

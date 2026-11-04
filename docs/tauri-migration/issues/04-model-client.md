@@ -1,7 +1,7 @@
 # 04 模型客户端（P3）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 03
 
 ## 任务

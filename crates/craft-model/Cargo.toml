@@ -6,3 +6,13 @@ license.workspace = true
 
 [dependencies]
 craft-core = { path = "../craft-core" }
+craft-store = { path = "../craft-store" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+tokio = { version = "1", features = ["rt", "time"] }
+futures-core = "0.3"
+futures-util = "0.3"
+async-stream = "0.3"
+flate2 = "1"
+base64 = "0.22"
