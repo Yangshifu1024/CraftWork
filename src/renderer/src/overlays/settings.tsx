@@ -8,6 +8,8 @@ import { useOverlays } from "../store/overlays";
 import { api } from "../lib/api";
 import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
+import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
+import { ProviderLogo } from "../components/provider-logo";
 import type { AuditEntry, Backup, ProviderView, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
@@ -90,7 +92,7 @@ export function SettingsOverlay(): React.JSX.Element {
           </div>
         </aside>
         <section className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-8 py-8">
+          <div className={`mx-auto px-8 py-8 ${section === "providers" ? "max-w-4xl" : "max-w-3xl"}`}>
             {section === "general" && <GeneralSection />}
             {section === "appearance" && <AppearanceSection />}
             {section === "providers" && <ProvidersSection />}
@@ -209,36 +211,66 @@ function AppearanceSection(): React.JSX.Element {
 
 function ProvidersSection(): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderView[]>([]);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const pushToast = useToastsPush();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const refresh = (): void => {
-    void api.providerList().then(setProviders);
-  };
-  useEffect(refresh, []);
+  const refresh = (): void => setRefreshKey((k) => k + 1);
+
+  useEffect(() => {
+    void api.providerList().then((list) => {
+      setProviders(list);
+      // 选中项保持稳定；被删除或未选中时回落到第一个
+      setSelectedId((cur) => (cur !== null && list.some((p) => p.id === cur) ? cur : (list[0]?.id ?? null)));
+    });
+  }, [refreshKey]);
+
+  const groups = groupProviders(providers);
+  const selected = providers.find((p) => p.id === selectedId) ?? null;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-ui-settings-title font-semibold text-foreground">模型与提供商</h2>
-        <button
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-          onClick={() => setCatalogOpen(!catalogOpen)}
-        >
-          <Plus className="size-3.5" /> 从模型目录添加
-        </button>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-ui-settings-title font-semibold text-foreground">模型与提供商</h2>
+          <p className="text-ui-sm text-foreground-subtlest">管理模型供应商与模型，配置后在聊天中选择使用。</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <RefreshButton onClick={refresh} />
+          {/* 添加入口页由添加提供商票接入；未接线控件禁用并标注（AGENTS §6.4） */}
+          <button
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40"
+            disabled
+            title="添加入口页即将提供"
+          >
+            <Plus className="size-3.5" /> 添加提供商
+          </button>
+        </div>
       </div>
 
-      {catalogOpen && <CatalogBrowser onImported={() => { refresh(); pushToast("ok", "提供商已添加"); }} />}
-
-      {providers.length === 0 && !catalogOpen && (
-        <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center text-ui-sm text-foreground-subtlest">
-          还没有提供商。点击「从模型目录添加」，或先在上方浏览目录。
+      {/* 主从两栏（spec §4）：左列表 224px、右详情自适应，各自独立滚动 */}
+      <div className="grid min-h-[32rem] max-h-[calc(100vh-14rem)] grid-cols-[224px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-clip rounded-xl border border-border/50 bg-panel">
+        <aside className="min-h-0 overflow-y-auto border-r border-border/40 p-2">
+          <div role="listbox" aria-label="供应商列表" className="flex flex-col gap-3">
+            {groups.map((group) => (
+              <div key={group.source} role="group" aria-label={group.label} className="flex flex-col gap-0.5">
+                <div className="px-2 pb-1 text-ui-xs text-foreground-subtlest">{group.label}</div>
+                {group.providers.map((p) => (
+                  <ProviderListItem
+                    key={p.id}
+                    provider={p}
+                    selected={p.id === selectedId}
+                    onSelect={() => setSelectedId(p.id)}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className="min-h-0 overflow-y-auto">
+          {selected ? <ProviderDetail key={selected.id} provider={selected} onChanged={refresh} /> : <ProvidersEmptyGuide />}
         </div>
-      )}
-      {providers.map((p) => (
-        <ProviderCard key={p.id} provider={p} onChanged={refresh} />
-      ))}
+      </div>
+
       <p className="text-ui-xs text-foreground-subtlest">
         应用不内置任何提供商；全部由你手动添加。目录数据来自 models.dev 离线快照。
       </p>
@@ -246,214 +278,187 @@ function ProvidersSection(): React.JSX.Element {
   );
 }
 
-function CatalogBrowser({ onImported }: { onImported(): void }): React.JSX.Element {
-  const pushToast = useToastsPush();
-  const [query, setQuery] = useState("");
-  const [providers, setProviders] = useState<Array<{ id: string; name: string; kind: string; modelCount: number; added: boolean; endpoint: string; env: string[] }>>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [models, setModels] = useState<Array<{ id: string; name: string; contextK: number }>>([]);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    void api.catalogProviders(query).then(setProviders);
-  }, [query]);
-
-  useEffect(() => {
-    if (!selected) {
-      setModels([]);
-      return;
-    }
-    void api.catalogModels(selected).then(setModels);
-    setPicked(new Set());
-  }, [selected]);
-
+/** 左栏列表项：logo（或字母头像）+ 名称 + 三色状态点，选中高亮（spec §5）。 */
+function ProviderListItem({
+  provider,
+  selected,
+  onSelect,
+}: {
+  provider: ProviderView;
+  selected: boolean;
+  onSelect(): void;
+}): React.JSX.Element {
+  const status = providerStatus({
+    keyMasked: provider.keyMasked,
+    keyRequired: provider.keyRequired,
+    modelCount: provider.models.length,
+  });
   return (
-    <div className="rounded-xl border border-border/50 bg-panel p-3">
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="搜索提供商…"
-        className="mb-2 h-8 w-full rounded-lg border border-border bg-input px-3 text-ui-sm"
-      />
-      <div className="flex gap-3">
-        <div className="max-h-72 w-1/2 overflow-y-auto">
-          {providers.map((p) => (
-            <button
-              key={p.id}
-              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-ui-sm ${
-                selected === p.id ? "bg-selected" : "hover:bg-surface-hover"
-              }`}
-              onClick={() => setSelected(p.id)}
-            >
-              <span className="truncate">{p.name}</span>
-              <span className="shrink-0 text-ui-xs text-foreground-subtlest">
-                {p.added ? "已添加" : `${p.modelCount} 模型`}
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="max-h-72 w-1/2 overflow-y-auto">
-          {selected && (
-            <>
-              {models.map((m) => (
-                <label key={m.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-ui-sm hover:bg-surface-hover">
-                  <input
-                    type="checkbox"
-                    checked={picked.has(m.id)}
-                    onChange={(e) => {
-                      const next = new Set(picked);
-                      if (e.target.checked) next.add(m.id);
-                      else next.delete(m.id);
-                      setPicked(next);
-                    }}
-                  />
-                  <span className="truncate">{m.name}</span>
-                  <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">{m.contextK}K</span>
-                </label>
-              ))}
-              <button
-                className="mt-2 h-8 w-full rounded-lg bg-brand text-ui-sm text-foreground-inverse disabled:opacity-40"
-                disabled={picked.size === 0}
-                onClick={() => {
-                  void api
-                    .catalogImport({ providerId: selected, all: picked.size === models.length, modelIds: [...picked] })
-                    .then(onImported)
-                    .catch((err) => pushToast("danger", "导入失败", String(err?.message ?? err)));
-                }}
-              >
-                导入选中的 {picked.size} 个模型
-              </button>
-            </>
-          )}
-        </div>
+    <button
+      role="option"
+      aria-selected={selected}
+      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-sm ${
+        selected ? "bg-selected text-foreground" : "text-foreground hover:bg-surface-hover"
+      }`}
+      onClick={onSelect}
+    >
+      <ProviderLogo providerId={provider.catalogId || provider.id} name={provider.name} className="size-4" />
+      <span className="min-w-0 flex-1 truncate">{provider.name}</span>
+      <span title={status.label} className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[status.tone]}`} />
+    </button>
+  );
+}
+
+/** 状态点三色的语义色映射（判定逻辑在 lib/provider-list，纯展示映射不测）。 */
+const STATUS_DOT: Record<ProviderStatusTone, string> = {
+  ok: "bg-success",
+  warn: "bg-warning",
+  off: "bg-foreground-subtlest",
+};
+
+/** 空态引导（spec §11）：三步引导 + 两个入口按钮（入口页未接线前禁用）。 */
+function ProvidersEmptyGuide(): React.JSX.Element {
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
+      <div className="text-ui-base font-medium text-foreground">添加你的第一个提供商</div>
+      <ol className="flex flex-col gap-1.5 text-ui-sm text-foreground-subtle">
+        <li>① 从模型目录导入或手动创建提供商</li>
+        <li>② 配置端点与 API 密钥</li>
+        <li>③ 回到聊天选择模型开始使用</li>
+      </ol>
+      <div className="flex gap-2">
+        <button
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle disabled:cursor-not-allowed disabled:opacity-40"
+          disabled
+          title="添加入口页即将提供"
+        >
+          从模型目录导入
+        </button>
+        <button
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle disabled:cursor-not-allowed disabled:opacity-40"
+          disabled
+          title="添加入口页即将提供"
+        >
+          手动创建
+        </button>
       </div>
     </div>
   );
 }
 
-function ProviderCard({ provider, onChanged }: { provider: ProviderView; onChanged(): void }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+/** 右栏详情（spec §6 的过渡形态）：承载原 ProviderCard 全部功能——端点 / 模型概览 / 密钥 / 测试 / 删除。
+    改名 / 启停 / 内联反馈与删除确认由供应商详情卡票接入；添加入口页由添加提供商票接入。 */
+function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onChanged(): void }): React.JSX.Element {
   const [keyInput, setKeyInput] = useState("");
   const [endpointInput, setEndpointInput] = useState(provider.endpoint);
   const [testing, setTesting] = useState(false);
   const pushToast = useToastsPush();
 
   return (
-    <div className="rounded-xl border border-border/50 bg-panel">
-      <button className="flex w-full items-center gap-2 px-4 py-3 text-left" onClick={() => setOpen(!open)}>
-        <ChevronRightIcon open={open} />
-        <span className="text-ui-base font-medium">{provider.name}</span>
-        <span className="rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtlest">{provider.kind}</span>
-        <span className="ml-auto text-ui-xs">
-          {provider.keyMasked ? (
-            <span className="text-success">{provider.keyMasked}</span>
-          ) : provider.keyRequired ? (
-            <span className="text-warning">未配置密钥</span>
-          ) : (
-            <span className="text-foreground-subtlest">无需密钥</span>
-          )}
-        </span>
-      </button>
-      {open && (
-        <div className="flex flex-col gap-2 border-t border-border/40 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
-            <input
-              value={endpointInput}
-              onChange={(e) => setEndpointInput(e.target.value)}
-              placeholder="https://api.example.com/v1"
-              className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-xs"
-            />
-            <button
-              className="h-8 shrink-0 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-40"
-              disabled={endpointInput.trim() === provider.endpoint}
-              onClick={() => {
-                void api
-                  .providerSave({
-                    id: provider.id,
-                    name: provider.name,
-                    kind: provider.kind,
-                    endpoint: endpointInput.trim(),
-                    keyRequired: provider.keyRequired,
-                    models: provider.models.map((m) => ({
-                      id: m.id,
-                      name: m.name,
-                      contextK: m.contextK,
-                      maxTokens: m.maxTokens,
-                      caps: m.caps,
-                      cost: m.cost,
-                    })),
-                  })
-                  .then(() => {
-                    onChanged();
-                    pushToast("ok", "端点已保存");
-                  })
-                  .catch((err) => pushToast("danger", "保存失败", String(err?.message ?? err)));
-              }}
-            >
-              保存端点
-            </button>
+    <div className="flex flex-col gap-4 p-4">
+      <div className="flex items-center gap-2.5">
+        <ProviderLogo providerId={provider.catalogId || provider.id} name={provider.name} className="size-6" />
+        <span className="min-w-0 truncate text-ui-lg font-medium text-foreground">{provider.name}</span>
+        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtlest">{provider.kind}</span>
+        <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">{provider.models.length} 个模型</span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
+        <input
+          value={endpointInput}
+          onChange={(e) => setEndpointInput(e.target.value)}
+          placeholder="https://api.example.com/v1"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-xs"
+        />
+        <button
+          className="h-8 shrink-0 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-40"
+          disabled={endpointInput.trim() === provider.endpoint}
+          onClick={() => {
+            void api
+              .providerSave({
+                id: provider.id,
+                name: provider.name,
+                kind: provider.kind,
+                endpoint: endpointInput.trim(),
+                keyRequired: provider.keyRequired,
+                models: provider.models.map((m) => ({
+                  id: m.id,
+                  name: m.name,
+                  contextK: m.contextK,
+                  maxTokens: m.maxTokens,
+                  caps: m.caps,
+                  cost: m.cost,
+                })),
+              })
+              .then(() => {
+                onChanged();
+                pushToast("ok", "端点已保存");
+              })
+              .catch((err) => pushToast("danger", "保存失败", String(err?.message ?? err)));
+          }}
+        >
+          保存端点
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {provider.models.map((m) => (
+          <div key={m.ref} className="flex items-center gap-2 text-ui-sm">
+            <span className="truncate">{m.name}</span>
+            <span className="ml-auto shrink-0 font-mono text-ui-xs text-foreground-subtlest">
+              {m.contextK}K · {m.caps.tools ? "tools" : "chat"}
+              {m.caps.vision ? "+vision" : ""}
+              {m.caps.reasoning ? "+reasoning" : ""}
+            </span>
           </div>
-          {provider.models.map((m) => (
-            <div key={m.ref} className="flex items-center gap-2 text-ui-sm">
-              <span className="truncate">{m.name}</span>
-              <span className="ml-auto shrink-0 font-mono text-ui-xs text-foreground-subtlest">
-                {m.contextK}K · {m.caps.tools ? "tools" : "chat"}
-                {m.caps.vision ? "+vision" : ""}
-                {m.caps.reasoning ? "+reasoning" : ""}
-              </span>
-            </div>
-          ))}
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="password"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              placeholder="粘贴 API Key…"
-              className="h-8 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-sm"
-            />
-            <button
-              className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-              onClick={() => {
-                void api.providerSetKey(provider.id, keyInput.trim()).then(() => {
-                  setKeyInput("");
-                  onChanged();
-                  pushToast("ok", "密钥已保存");
-                });
-              }}
-            >
-              保存密钥
-            </button>
-            <button
-              className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-              disabled={testing}
-              onClick={() => {
-                setTesting(true);
-                void api
-                  .providerTest(provider.id)
-                  .then((r) => pushToast(r.ok ? "ok" : "danger", r.ok ? `连接成功（${r.latencyMs}ms）` : "连接失败", r.message))
-                  .finally(() => setTesting(false));
-              }}
-            >
-              {testing ? "测试中…" : "测试连接"}
-            </button>
-            <button
-              className="flex h-8 items-center gap-1 rounded-lg border border-destructive/40 px-3 text-ui-sm text-destructive hover:bg-destructive-surface"
-              onClick={() => {
-                void api.providerDelete(provider.id).then(onChanged);
-              }}
-            >
-              <Trash2 className="size-3.5" /> 删除
-            </button>
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="password"
+          value={keyInput}
+          onChange={(e) => setKeyInput(e.target.value)}
+          placeholder="粘贴 API Key…"
+          className="h-8 min-w-40 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-sm"
+        />
+        <button
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
+          onClick={() => {
+            void api.providerSetKey(provider.id, keyInput.trim()).then(() => {
+              setKeyInput("");
+              onChanged();
+              pushToast("ok", "密钥已保存");
+            });
+          }}
+        >
+          保存密钥
+        </button>
+        <button
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
+          disabled={testing}
+          onClick={() => {
+            setTesting(true);
+            void api
+              .providerTest(provider.id)
+              .then((r) => pushToast(r.ok ? "ok" : "danger", r.ok ? `连接成功（${r.latencyMs}ms）` : "连接失败", r.message))
+              .finally(() => setTesting(false));
+          }}
+        >
+          {testing ? "测试中…" : "测试连接"}
+        </button>
+        <button
+          className="flex h-8 items-center gap-1 rounded-lg border border-destructive/40 px-3 text-ui-sm text-destructive hover:bg-destructive-surface"
+          onClick={() => {
+            void api.providerDelete(provider.id).then(onChanged);
+          }}
+        >
+          <Trash2 className="size-3.5" /> 删除
+        </button>
+      </div>
     </div>
   );
-}
-
-function ChevronRightIcon({ open }: { open: boolean }): React.JSX.Element {
-  return <span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span>;
 }
 
 function PermissionsSection(): React.JSX.Element {

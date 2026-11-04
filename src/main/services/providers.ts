@@ -348,6 +348,7 @@ export class ProviderService {
       keyMasked: this.secrets.maskedFor(p.id, p.envVars),
       available,
       catalogId: p.catalogId,
+      source: p.source,
       models: p.models.map((m) => ({
         id: m.id,
         ref: `${p.id}/${m.id}`,

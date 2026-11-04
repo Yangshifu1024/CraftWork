@@ -196,6 +196,7 @@ export interface ProviderView {
   keyMasked: string;
   available: boolean;
   catalogId: string;
+  source: string; // manual | catalog
   models: ModelView[];
 }
 

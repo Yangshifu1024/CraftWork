@@ -98,7 +98,6 @@ export function registerIpc(services: Services): void {
   handle("catalogMeta", () => services.providers.catalogMeta());
   handle("catalogProviders", (query) => services.providers.catalogProviders(String(query ?? "")));
   handle("catalogModels", (providerId) => services.providers.catalogModels(String(providerId)));
-  handle("catalogLogo", () => "");
   handle("catalogLookup", (providerId, modelId) => services.providers.lookupCatalogModel(String(providerId), String(modelId)));
   handle("catalogImport", (input) => services.providers.importFromCatalog(input as Parameters<ProviderService["importFromCatalog"]>[0]));
 

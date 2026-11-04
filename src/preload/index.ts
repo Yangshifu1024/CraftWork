@@ -48,7 +48,6 @@ function bridge(): CraftworkApi {
     "catalogMeta",
     "catalogProviders",
     "catalogModels",
-    "catalogLogo",
     "catalogLookup",
     "catalogImport",
     "workspaceList",

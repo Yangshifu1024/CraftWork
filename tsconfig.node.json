@@ -24,6 +24,7 @@
   },
   "include": [
     "electron.vite.config.ts",
+    "src/renderer/src/lib/provider-list.ts",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",

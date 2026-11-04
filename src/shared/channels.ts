@@ -111,7 +111,6 @@ export interface CraftworkApi {
   catalogMeta(): Promise<CatalogMeta>;
   catalogProviders(query: string): Promise<CatalogProviderView[]>;
   catalogModels(providerId: string): Promise<CatalogModelView[]>;
-  catalogLogo(providerId: string): Promise<string>;
   catalogLookup(providerId: string, modelId: string): Promise<CatalogModelView>;
   catalogImport(input: CatalogImportInput): Promise<ProviderView>;
 
