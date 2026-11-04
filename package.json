@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "dist": "electron-vite build && electron-builder --mac",
     "dist:dir": "electron-vite build && electron-builder --mac --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "prepare": "install-electron"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
@@ -54,14 +55,5 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild",
-      "node-pty",
-      "electron-winstaller",
-      "dmg-license"
-    ]
   }
 }
