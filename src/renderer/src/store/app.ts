@@ -11,6 +11,7 @@ import type {
 } from "../../../shared/types";
 import type { ApprovalPart } from "../../../shared/events";
 import { api } from "../lib/api";
+import { applyTheme, saveThemePref, watchSystemTheme } from "../lib/theme";
 
 export type Mode = "code" | "work";
 
@@ -84,9 +85,17 @@ export const useApp = create<AppState>((set, get) => ({
       api.threadList("work", false),
       api.workspaceList(),
     ]);
+    // 主题以 settings 为事实源：校准启动缓存；system 偏好下跟随系统亮暗变化。
+    saveThemePref(settings.theme);
+    const themeResolved = applyTheme(settings.theme);
+    watchSystemTheme(
+      () => useApp.getState().settings.theme,
+      (resolved) => useApp.setState({ themeResolved: resolved }),
+    );
     set({
       booted: true,
       settings,
+      themeResolved,
       mode: settings.mode === "work" ? "work" : "code",
       threads: { code: threadsCode, work: threadsWork },
       workspaces,
@@ -360,7 +369,13 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       break;
     }
     case "settings.updated": {
-      set({ settings: data as unknown as Settings });
+      const next = data as unknown as Settings;
+      // 主题偏好可能被外部改动：重新应用并同步启动缓存
+      if (next.theme !== get().settings.theme) {
+        saveThemePref(next.theme);
+        set({ themeResolved: applyTheme(next.theme) });
+      }
+      set({ settings: next });
       break;
     }
     case "workspace.updated": {
