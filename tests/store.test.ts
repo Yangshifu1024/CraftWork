@@ -3,8 +3,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DB, ErrNotFound } from "../src/main/store/db";
-import { createThread, getThread, renameThread, autoTitleThread, deleteThread, listThreads } from "../src/main/store/threads";
+import { DB, ErrNotFound, SCHEMA_V7 } from "../src/main/store/db";
+import { createThread, getThread, renameThread, autoTitleThread, deleteThread, listThreads, searchThreads } from "../src/main/store/threads";
 import { appendEvent, snapshot, latestContextSummary } from "../src/main/store/events";
 import { createApproval, resolveApproval, getApproval, interruptStaleRuns, createRun, finishRun } from "../src/main/store/runs";
 import { upsertWorkspace, getWorkspace, replaceWorkspaceFolders, defaultConversationWorkspaceId } from "../src/main/store/workspaces";
@@ -31,12 +31,36 @@ function cleanup(): void {
 describe("数据库", () => {
   it("迁移到当前版本且可重开", () => {
     const row = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(row.user_version).toBe(6);
+    expect(row.user_version).toBe(7);
     db.close();
     const reopened = DB.open(join(dir, "test.db"));
     const again = reopened.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(again.user_version).toBe(6);
+    expect(again.user_version).toBe(7);
     reopened.close();
+    cleanup();
+  });
+
+  it("V7 空会话清理：删空自动命名，保留有事件与手动改名，清理后读写正常", () => {
+    // 新库已迁到 V7（空表无影响）；手工插入三种线程后重放 V7，直接验证迁移 SQL 的语义。
+    createThread(db, { id: "th_v7_empty", mode: "code", title: "新对话", titleAuto: true, modelId: "", workspaceId: "", status: "idle", archived: false });
+    createThread(db, { id: "th_v7_events", mode: "code", title: "新对话", titleAuto: true, modelId: "", workspaceId: "", status: "idle", archived: false });
+    createThread(db, { id: "th_v7_named", mode: "code", title: "我的会话", titleAuto: false, modelId: "", workspaceId: "", status: "idle", archived: false });
+    appendEvent(db, { threadId: "th_v7_events", messageId: "m_v7", kind: "user_message", payload: { text: "你好", attachments: [] } });
+
+    db.exec(SCHEMA_V7);
+
+    // 空自动命名会话被删除
+    expect(() => getThread(db, "th_v7_empty")).toThrow(ErrNotFound);
+    // 有事件的会话保留
+    expect(getThread(db, "th_v7_events").id).toBe("th_v7_events");
+    // 手动改名（非自动命名）会话保留
+    expect(getThread(db, "th_v7_named").title).toBe("我的会话");
+    // 升级后搜索「新对话」不再命中任何空会话
+    const hits = searchThreads(db, "code", "新对话");
+    expect(hits.map((t) => t.id)).toEqual(["th_v7_events"]);
+    // 清理后可正常继续读写
+    const fresh = createThread(db, { id: "th_v7_new", mode: "code", title: "续会话", titleAuto: false, modelId: "", workspaceId: "", status: "idle", archived: false });
+    expect(getThread(db, fresh.id).title).toBe("续会话");
     cleanup();
   });
 
