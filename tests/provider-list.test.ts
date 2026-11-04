@@ -1,7 +1,82 @@
-// 提供商列表纯逻辑测试：状态点三色判定与左栏按来源分组。
-// 函数位于渲染层 lib（无 React 依赖），供设置页左栏消费。
+// 提供商列表纯逻辑测试：状态点三色判定、左栏按来源分组、模型选择器过滤（票 #7）。
+// 函数位于渲染层 lib（无 React 依赖），供设置页与模型选择器消费。
 import { describe, expect, it } from "vitest";
-import { groupProviders, providerStatus } from "../src/renderer/src/lib/provider-list";
+import { groupProviders, providerStatus, selectableModels } from "../src/renderer/src/lib/provider-list";
+import type { ModelView, ProviderView } from "../src/shared/types";
+
+function makeModel(overrides?: Partial<ModelView>): ModelView {
+  return {
+    id: "model",
+    ref: "prov/model",
+    name: "测试模型",
+    provider: "prov",
+    providerName: "测试提供商",
+    contextK: 8,
+    maxTokens: 1024,
+    caps: { stream: true, tools: false, vision: false, reasoning: false, structured: false },
+    status: "",
+    canonicalId: "",
+    releaseDate: "",
+    source: "manual",
+    enabled: true,
+    available: true,
+    ...overrides,
+  };
+}
+
+function makeProviderView(overrides?: Partial<ProviderView>): ProviderView {
+  return {
+    id: "prov",
+    name: "测试提供商",
+    kind: "openai-compatible",
+    endpoint: "https://example.invalid/v1",
+    keyRequired: false,
+    keySource: "",
+    keyMasked: "",
+    available: true,
+    enabled: true,
+    docUrl: "",
+    catalogId: "",
+    source: "manual",
+    models: [makeModel()],
+    ...overrides,
+  };
+}
+
+describe("模型选择器过滤（spec §9）", () => {
+  it("只列启用提供商 × 启用模型，分组保留提供商信息", () => {
+    const groups = selectableModels([
+      makeProviderView({
+        models: [makeModel({ id: "a", ref: "prov/a", name: "甲" }), makeModel({ id: "b", ref: "prov/b", name: "乙", enabled: false })],
+      }),
+    ]);
+    expect(groups.length).toBe(1);
+    expect(groups[0]?.provider.id).toBe("prov");
+    expect(groups[0]?.models.map((m) => m.id)).toEqual(["a"]);
+  });
+
+  it("禁用提供商的全部模型被过滤", () => {
+    const groups = selectableModels([
+      makeProviderView({ id: "on", name: "开", enabled: true }),
+      makeProviderView({ id: "off", name: "关", enabled: false }),
+    ]);
+    expect(groups.map((g) => g.provider.id)).toEqual(["on"]);
+  });
+
+  it("全部被禁时返回空列表", () => {
+    expect(selectableModels([makeProviderView({ enabled: false })])).toEqual([]);
+    expect(selectableModels([])).toEqual([]);
+  });
+
+  it("无可用模型的提供商不产生空分组", () => {
+    const groups = selectableModels([
+      makeProviderView({ id: "has" }),
+      makeProviderView({ id: "empty", models: [] }),
+      makeProviderView({ id: "allOff", models: [makeModel({ enabled: false })] }),
+    ]);
+    expect(groups.map((g) => g.provider.id)).toEqual(["has"]);
+  });
+});
 
 describe("状态点三色判定", () => {
   it("禁用（enabled === false）为灰，优先级最高", () => {
