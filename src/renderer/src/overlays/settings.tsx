@@ -11,6 +11,7 @@ import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
 import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
 import { ProviderLogo } from "../components/provider-logo";
+import { ProviderAddPage, type AddEntry } from "./provider-add";
 import type { AuditEntry, Backup, ConnectionResult, ProviderView, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
@@ -214,8 +215,15 @@ function ProvidersSection(): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderView[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // 右栏视图：详情 ↔ 添加页（spec §7）；selectedId 在添加页期间保持不变，返回即恢复原详情。
+  const [view, setView] = useState<"detail" | "add">("detail");
+  const [addEntry, setAddEntry] = useState<AddEntry | null>(null);
 
   const refresh = (): void => setRefreshKey((k) => k + 1);
+  const openAdd = (entry: AddEntry | null): void => {
+    setAddEntry(entry);
+    setView("add");
+  };
 
   useEffect(() => {
     void api.providerList().then((list) => {
@@ -237,11 +245,9 @@ function ProvidersSection(): React.JSX.Element {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <RefreshButton onClick={refresh} />
-          {/* 添加入口页由添加提供商票接入；未接线控件禁用并标注（AGENTS §6.4） */}
           <button
             className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40"
-            disabled
-            title="添加入口页即将提供"
+            onClick={() => openAdd(null)}
           >
             <Plus className="size-3.5" /> 添加提供商
           </button>
@@ -259,8 +265,11 @@ function ProvidersSection(): React.JSX.Element {
                   <ProviderListItem
                     key={p.id}
                     provider={p}
-                    selected={p.id === selectedId}
-                    onSelect={() => setSelectedId(p.id)}
+                    selected={p.id === selectedId && view === "detail"}
+                    onSelect={() => {
+                      setSelectedId(p.id);
+                      setView("detail");
+                    }}
                   />
                 ))}
               </div>
@@ -268,7 +277,24 @@ function ProvidersSection(): React.JSX.Element {
           </div>
         </aside>
         <div className="min-h-0 overflow-y-auto">
-          {selected ? <ProviderDetail key={selected.id} provider={selected} onChanged={refresh} /> : <ProvidersEmptyGuide />}
+          {view === "add" ? (
+            /* key 随入口变化：从空态引导直达不同入口时重挂载、内部状态归零 */
+            <ProviderAddPage
+              key={addEntry ?? "entries"}
+              initialEntry={addEntry}
+              onBack={() => setView("detail")}
+              onDone={(created) => {
+                // 创建即编辑：刷新列表、选中新供应商、返回详情视图
+                refresh();
+                setSelectedId(created.id);
+                setView("detail");
+              }}
+            />
+          ) : selected ? (
+            <ProviderDetail key={selected.id} provider={selected} onChanged={refresh} />
+          ) : (
+            <ProvidersEmptyGuide onOpenAdd={openAdd} />
+          )}
         </div>
       </div>
 
@@ -318,8 +344,8 @@ const STATUS_DOT: Record<ProviderStatusTone, string> = {
   off: "bg-foreground-subtlest",
 };
 
-/** 空态引导（spec §11）：三步引导 + 两个入口按钮（入口页未接线前禁用）。 */
-function ProvidersEmptyGuide(): React.JSX.Element {
+/** 空态引导（spec §11）：三步引导 + 两个入口按钮（直达添加页对应入口）。 */
+function ProvidersEmptyGuide({ onOpenAdd }: { onOpenAdd(entry: AddEntry): void }): React.JSX.Element {
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
       <div className="text-ui-base font-medium text-foreground">添加你的第一个提供商</div>
@@ -330,16 +356,14 @@ function ProvidersEmptyGuide(): React.JSX.Element {
       </ol>
       <div className="flex gap-2">
         <button
-          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle disabled:cursor-not-allowed disabled:opacity-40"
-          disabled
-          title="添加入口页即将提供"
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground hover:bg-surface-hover"
+          onClick={() => onOpenAdd("catalog")}
         >
           从模型目录导入
         </button>
         <button
-          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle disabled:cursor-not-allowed disabled:opacity-40"
-          disabled
-          title="添加入口页即将提供"
+          className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground hover:bg-surface-hover"
+          onClick={() => onOpenAdd("manual")}
         >
           手动创建
         </button>
