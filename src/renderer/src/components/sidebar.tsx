@@ -256,8 +256,8 @@ export function Sidebar(): React.JSX.Element {
                   <span className="ml-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">⌘N</span>
                 </div>
               </div>
-              <NavButton icon={<CalendarClock />} label="任务与提醒" onClick={() => open("data")} />
-              <NavButton icon={<Database />} label="用量与数据" onClick={() => open("data")} />
+              <NavButton icon={<CalendarClock />} label="任务与提醒" onClick={() => open("settings", "usage")} />
+              <NavButton icon={<Database />} label="用量与数据" onClick={() => open("settings", "usage")} />
             </div>
             {/* 列表区 */}
             <div className="flex min-h-0 flex-1 flex-col border-t border-border/50 pt-3">
@@ -324,7 +324,7 @@ export function Sidebar(): React.JSX.Element {
               <div className="flex min-w-0 gap-2">
                 <button
                   className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-start gap-2 overflow-hidden rounded-lg hover:bg-hover"
-                  onClick={() => open("data")}
+                  onClick={() => open("settings", "usage")}
                 >
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-foreground-subtle">
                     <User className="size-4" />

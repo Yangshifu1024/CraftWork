@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Command } from "cmdk";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
+import { applyTheme, resolveTheme, saveThemePref } from "../lib/theme";
 
 export function CommandPalette(): React.JSX.Element {
   const close = useOverlays((s) => s.close);
@@ -75,14 +76,11 @@ export function CommandPalette(): React.JSX.Element {
               <Item
                 onSelect={() =>
                   run(() => {
-                    const next =
-                      settings.theme === "dark" || settings.theme === "system"
-                        ? "zai-light"
-                        : "zai-dark";
-                    void saveSettings({ theme: next as "dark" | "light" | "system" });
-                    document.documentElement.classList.remove("theme-zai-light", "theme-zai-dark");
-                    document.documentElement.classList.add(next);
-                    localStorage.setItem("craftwork-theme", next);
+                    // 切到当前生效主题的反面（显式偏好）；解析与应用统一走 lib/theme
+                    const next = resolveTheme(settings.theme) === "theme-zai-light" ? "dark" : "light";
+                    void saveSettings({ theme: next });
+                    saveThemePref(next);
+                    applyTheme(next);
                   })
                 }
               >
@@ -91,7 +89,7 @@ export function CommandPalette(): React.JSX.Element {
               <Item onSelect={() => run(() => setMode(mode === "code" ? "work" : "code"))}>
                 切换到 {mode === "code" ? "Work" : "Code"} 模式
               </Item>
-              <Item shortcut="⌘D" onSelect={() => run(() => open("data"))}>
+              <Item shortcut="⌘D" onSelect={() => run(() => open("settings", "usage"))}>
                 用量 / 审计 / 备份
               </Item>
             </Command.Group>

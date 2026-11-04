@@ -1,27 +1,45 @@
 // 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/工具与权限/数据）。
 // 所有改动立即保存生效。
 import { useEffect, useState } from "react";
-import { X, Settings as SettingsIcon, Palette, ShieldCheck, Database, Plus, Trash2 } from "lucide-react";
+import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, type LucideIcon } from "lucide-react";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { useOverlays } from "../store/overlays";
 import { api } from "../lib/api";
-import type { ProviderView } from "../../../shared/types";
+import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
+import { applyTheme, saveThemePref } from "../lib/theme";
+import type { AuditEntry, Backup, ProviderView, UsageSummary } from "../../../shared/types";
 
-type Section = "general" | "appearance" | "providers" | "permissions" | "data";
+type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
-const SECTIONS: Array<{ id: Section; label: string }> = [
-  { id: "general", label: "通用" },
-  { id: "appearance", label: "外观" },
-  { id: "providers", label: "模型与提供商" },
-  { id: "permissions", label: "工具与权限" },
-  { id: "data", label: "数据" },
+/** 侧栏分组导航（对齐 ZCode 设置侧栏）：分组标题 + 图标导航项。 */
+const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; icon: LucideIcon }> }> = [
+  {
+    label: "基础设置",
+    items: [
+      { id: "general", label: "通用", icon: SlidersHorizontal },
+      { id: "appearance", label: "外观", icon: Palette },
+      { id: "providers", label: "模型与提供商", icon: Package },
+    ],
+  },
+  {
+    label: "Agent 能力",
+    items: [{ id: "permissions", label: "工具与权限", icon: ShieldCheck }],
+  },
+  {
+    label: "数据与统计",
+    items: [
+      { id: "usage", label: "用量", icon: ChartColumn },
+      { id: "audit", label: "审计", icon: ScrollText },
+      { id: "backups", label: "备份", icon: DatabaseBackup },
+    ],
+  },
 ];
 
 export function SettingsOverlay(): React.JSX.Element {
   const close = useOverlays((s) => s.close);
-  const open = useOverlays((s) => s.open);
-  const [section, setSection] = useState<Section>("general");
+  // 支持外部入口指定初始分区（如模型菜单「管理模型」直达「模型与提供商」）。
+  const [section, setSection] = useState<Section>(() => useOverlays.getState().settingsSection ?? "general");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -35,47 +53,54 @@ export function SettingsOverlay(): React.JSX.Element {
   }, [close]);
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-background">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border/50 p-3">
-        <div className="flex h-12 items-center justify-between px-1">
-          <span className="flex items-center gap-2 text-ui-lg font-semibold text-foreground">
-            <SettingsIcon className="size-4" /> 设置
-          </span>
-          <button className="rounded-md p-1.5 hover:bg-surface-hover" onClick={close}>
-            <X className="size-4" />
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      {/* 全宽顶部拖拽留白：交通灯区，对齐主窗口侧栏 h-12 顶条 */}
+      <div className="h-12 shrink-0 app-region-drag" />
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-border/50 p-3">
+          <button
+            className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-surface px-3 text-ui-sm text-foreground hover:bg-surface-hover"
+            onClick={close}
+          >
+            <ArrowLeft className="size-4 shrink-0" />
+            返回工作区
           </button>
-        </div>
-        <nav className="mt-2 flex flex-col gap-0.5">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              className={`rounded-lg px-3 py-2 text-left text-ui-base ${
-                section === s.id ? "bg-selected text-foreground" : "text-foreground-subtle hover:bg-surface-hover"
-              }`}
-              onClick={() => setSection(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </nav>
-        <div className="flex-1" />
-        <button
-          className="rounded-lg px-3 py-2 text-left text-ui-sm text-foreground-subtle hover:bg-surface-hover"
-          onClick={() => open("data")}
-        >
-          <Database className="mr-2 inline size-3.5" />
-          用量 / 审计 / 备份
-        </button>
-      </aside>
-      <section className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-8 py-8">
-          {section === "general" && <GeneralSection />}
-          {section === "appearance" && <AppearanceSection />}
-          {section === "providers" && <ProvidersSection />}
-          {section === "permissions" && <PermissionsSection />}
-          {section === "data" && <DataSection />}
-        </div>
-      </section>
+          <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label} className="flex flex-col gap-0.5">
+                <div className="px-3 pb-1 text-ui-xs text-foreground-subtlest">{group.label}</div>
+                {group.items.map((s) => (
+                  <button
+                    key={s.id}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-ui-base ${
+                      section === s.id ? "bg-selected text-foreground" : "text-foreground hover:bg-surface-hover"
+                    }`}
+                    onClick={() => setSection(s.id)}
+                  >
+                    <s.icon className="size-4 shrink-0" />
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div className="flex h-10 shrink-0 items-center gap-2 px-2 text-ui-sm text-foreground-subtle">
+            <User className="size-4 shrink-0" />
+            CraftWork
+          </div>
+        </aside>
+        <section className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-8 py-8">
+            {section === "general" && <GeneralSection />}
+            {section === "appearance" && <AppearanceSection />}
+            {section === "providers" && <ProvidersSection />}
+            {section === "permissions" && <PermissionsSection />}
+            {section === "usage" && <UsageSection />}
+            {section === "audit" && <AuditSection />}
+            {section === "backups" && <BackupsSection />}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -129,13 +154,6 @@ function GeneralSection(): React.JSX.Element {
 function AppearanceSection(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
   const save = useApp((s) => s.saveSettings);
-  const applyTheme = (theme: "system" | "dark" | "light"): void => {
-    void save({ theme });
-    const resolved = theme === "light" ? "theme-zai-light" : theme === "dark" ? "theme-zai-dark" : window.matchMedia("(prefers-color-scheme: light)").matches ? "theme-zai-light" : "theme-zai-dark";
-    document.documentElement.classList.remove("theme-zai-light", "theme-zai-dark");
-    document.documentElement.classList.add(resolved);
-    localStorage.setItem("craftwork-theme", resolved === "theme-zai-light" ? "zai-light" : "zai-dark");
-  };
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-ui-settings-title font-semibold text-foreground">
@@ -150,7 +168,11 @@ function AppearanceSection(): React.JSX.Element {
               className={`h-8 rounded-lg border px-3 text-ui-sm ${
                 settings.theme === t ? "border-brand bg-selected text-foreground" : "border-border text-foreground-subtle hover:bg-surface-hover"
               }`}
-              onClick={() => applyTheme(t)}
+              onClick={() => {
+                void save({ theme: t });
+                saveThemePref(t);
+                applyTheme(t);
+              }}
             >
               {t === "system" ? "跟随系统" : t === "dark" ? "深色" : "浅色"}
             </button>
@@ -398,13 +420,7 @@ function ChevronRightIcon({ open }: { open: boolean }): React.JSX.Element {
 
 function PermissionsSection(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
-  const save = useApp((s) => s.saveSettings);
-  const levels = [
-    { id: "graded", name: "分级", desc: "只读自动放行；写入与执行每次询问；可本会话/本工作区授权" },
-    { id: "strict", name: "严格", desc: "全部逐次询问，不提供永久授权" },
-    { id: "readonly", name: "只读", desc: "只允许只读操作，其余直接拒绝" },
-    { id: "free", name: "自由", desc: "放行一切操作（含破坏性），安全靠审计与备份兜底" },
-  ] as const;
+  const chooseLevel = useApprovalLevelAction();
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-ui-settings-title font-semibold text-foreground">
@@ -412,13 +428,13 @@ function PermissionsSection(): React.JSX.Element {
         工具与权限
       </h2>
       <div className="grid gap-2">
-        {levels.map((l) => (
+        {APPROVAL_LEVELS.map((l) => (
           <button
             key={l.id}
             className={`rounded-xl border px-4 py-3 text-left ${
               settings.approvalLevel === l.id ? "border-brand bg-selected" : "border-border/50 bg-panel hover:bg-surface-hover"
             }`}
-            onClick={() => void save({ approvalLevel: l.id })}
+            onClick={() => chooseLevel(l.id)}
           >
             <div className="text-ui-base font-medium">{l.name}</div>
             <div className="text-ui-sm text-foreground-subtlest">{l.desc}</div>
@@ -432,19 +448,165 @@ function PermissionsSection(): React.JSX.Element {
   );
 }
 
-function DataSection(): React.JSX.Element {
-  const open = useOverlays((s) => s.open);
+// ---------- 数据与统计（用量 / 审计 / 备份 三个独立分区） ----------
+
+const fmtCost = (micros: number): string => `$${(micros / 1_000_000).toFixed(4)}`;
+const fmtTokens = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+const fmtTime = (ts: number): string => new Date(ts).toLocaleString("zh-CN", { hour12: false });
+
+function RefreshButton({ onClick }: { onClick(): void }): React.JSX.Element {
+  return (
+    <button className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover" onClick={onClick}>
+      刷新
+    </button>
+  );
+}
+
+function UsageSection(): React.JSX.Element {
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    void api.auditUsage().then(setUsage);
+  }, [refreshKey]);
+
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-ui-settings-title font-semibold text-foreground">数据</h2>
-      <Row title="用量统计" desc="token 用量与费用估算">
-        <button className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover" onClick={() => open("data")}>
-          打开
-        </button>
-      </Row>
+      <div className="flex items-center justify-between">
+        <h2 className="text-ui-settings-title font-semibold text-foreground">用量</h2>
+        <RefreshButton onClick={() => setRefreshKey((k) => k + 1)} />
+      </div>
       <Row title="全部数据存于本机" desc="SQLite + keys.json（0600），不收集遥测">
         <span />
       </Row>
+      {usage && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            {(
+              [
+                ["今天", usage.today],
+                ["近 7 天", usage.week],
+                ["近 30 天", usage.month],
+              ] as const
+            ).map(([label, t]) => (
+              <div key={label} className="rounded-xl border border-border/50 bg-panel px-4 py-3">
+                <div className="text-ui-xs text-foreground-subtlest">{label}</div>
+                <div className="pt-1 font-mono text-ui-lg">{fmtTokens(t.inputTokens + t.outputTokens)} tokens</div>
+                <div className="text-ui-sm text-foreground-subtlest">{fmtCost(t.costMicros)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-border/50 bg-panel">
+            <div className="border-b border-border/40 px-4 py-2 text-ui-sm font-medium">按模型（近 30 天）</div>
+            {usage.byModel.length === 0 ? (
+              <div className="px-4 py-6 text-center text-ui-sm text-foreground-subtlest">暂无用量</div>
+            ) : (
+              usage.byModel.map((m) => (
+                <div key={m.modelId} className="flex items-center gap-2 border-b border-border/20 px-4 py-2 text-ui-sm last:border-0">
+                  <span className="truncate font-mono">{m.modelId}</span>
+                  <span className="ml-auto shrink-0 text-foreground-subtlest">{fmtTokens(m.inputTokens + m.outputTokens)}</span>
+                  <span className="w-20 shrink-0 text-right text-foreground-subtlest">{fmtCost(m.costMicros)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuditSection(): React.JSX.Element {
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    void api.auditList(200).then(setAudit);
+  }, [refreshKey]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-ui-settings-title font-semibold text-foreground">审计</h2>
+        <RefreshButton onClick={() => setRefreshKey((k) => k + 1)} />
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border/50">
+        <div className="max-h-[480px] overflow-y-auto">
+          {audit.length === 0 ? (
+            <div className="py-10 text-center text-ui-sm text-foreground-subtlest">暂无审计记录</div>
+          ) : (
+            <table className="w-full text-ui-sm">
+              <thead className="bg-surface text-left text-ui-xs text-foreground-subtlest">
+                <tr>
+                  <th className="px-3 py-2">时间</th>
+                  <th className="px-3 py-2">工具</th>
+                  <th className="px-3 py-2">风险</th>
+                  <th className="px-3 py-2">决定</th>
+                  <th className="px-3 py-2">范围</th>
+                  <th className="px-3 py-2">详情</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.map((a) => (
+                  <tr key={a.id} className="border-t border-border/20">
+                    <td className="whitespace-nowrap px-3 py-1.5 font-mono text-ui-xs">{fmtTime(a.ts)}</td>
+                    <td className="px-3 py-1.5 font-mono">{a.tool}</td>
+                    <td className="px-3 py-1.5">{a.risk}</td>
+                    <td className="px-3 py-1.5">{a.decision}</td>
+                    <td className="px-3 py-1.5">{a.scope}</td>
+                    <td className="max-w-52 truncate px-3 py-1.5 text-foreground-subtle">{a.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BackupsSection(): React.JSX.Element {
+  const [backups, setBackups] = useState<Backup[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    void api.auditBackups(50).then(setBackups);
+  }, [refreshKey]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-ui-settings-title font-semibold text-foreground">备份</h2>
+        <RefreshButton onClick={() => setRefreshKey((k) => k + 1)} />
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border/50">
+        {backups.length === 0 ? (
+          <div className="py-10 text-center text-ui-sm text-foreground-subtlest">暂无备份</div>
+        ) : (
+          backups.map((b) => (
+            <div key={b.id} className="flex items-center gap-3 border-b border-border/20 px-4 py-2 text-ui-sm last:border-0">
+              <div className="min-w-0 flex-1">
+                <div className="truncate">{b.path}</div>
+                <div className="text-ui-xs text-foreground-subtlest">
+                  {fmtTime(b.createdAt)} · {b.size} 字节
+                </div>
+              </div>
+              <button
+                className="h-7 shrink-0 rounded-lg border border-border px-3 text-ui-xs hover:bg-surface-hover"
+                onClick={() => {
+                  void api
+                    .auditRestore(b.id)
+                    .then(() => setRefreshKey((k) => k + 1))
+                    .catch((err) => alert(String(err?.message ?? err)));
+                }}
+              >
+                恢复
+              </button>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

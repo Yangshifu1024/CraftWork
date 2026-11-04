@@ -1,5 +1,5 @@
 // 根组件：布局外壳 + 事件接线。
-// 布局：左侧会话侧栏（可收起）+ 拖拽分隔 + 主区（对话列，含顶栏/消息流/输入区/终端面板）。
+// 布局：左侧会话侧栏（可收起）+ 拖拽分隔 + 主区行（对话列 + 右侧面板，含终端/文件/文档）。
 import { useEffect, useRef } from "react";
 import { useApp } from "./store/app";
 import { onEvents, onToast } from "./lib/api";
@@ -9,7 +9,6 @@ import { SidePane } from "./components/panel";
 import { useToasts } from "./store/toast";
 import { CommandPalette } from "./overlays/palette";
 import { SettingsOverlay } from "./overlays/settings";
-import { DataOverlay } from "./overlays/data";
 import { ToastViewport } from "./overlays/toast";
 import { Dialogs } from "./overlays/dialogs";
 import { useOverlays } from "./store/overlays";
@@ -43,7 +42,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-background-win-alt">
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-background">
       <Sidebar />
       <div
         role="separator"
@@ -51,14 +50,13 @@ export default function App(): React.JSX.Element {
         className="group/handle relative z-10 flex h-full w-1 shrink-0 cursor-ew-resize bg-transparent after:absolute after:top-0 after:mx-auto after:h-full after:w-0.5 after:rounded-full after:bg-foreground-subtlest/50 after:opacity-0 hover:after:opacity-100"
       />
       <div id="content" className="flex min-w-[320px] flex-1 flex-col pb-1 pr-1">
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-row">
           <Conversation />
           <SidePane />
         </div>
       </div>
       {overlay === "palette" && <CommandPalette />}
       {overlay === "settings" && <SettingsOverlay />}
-      {overlay === "data" && <DataOverlay />}
       <Dialogs />
       <ToastViewport />
     </div>
