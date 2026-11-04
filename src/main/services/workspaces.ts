@@ -14,12 +14,14 @@ import {
   getWorkspace,
   listWorkspaces,
   replaceWorkspaceFolders,
+  updateWorkspaceName,
   updateWorkspacePurpose,
   updateWorkspaceTrust,
   upsertWorkspace,
   type WorkspaceWithFolders,
 } from "../store/workspaces";
 import { docKind, docReadFile } from "../doc";
+import { deleteThreadsByWorkspace } from "../store/threads";
 import { diff as computeDiffLines } from "../core/editor";
 
 const MAX_READ_BYTES = 10 * 1024 * 1024; // 编辑器读取上限
@@ -132,8 +134,23 @@ export class WorkspaceService {
   remove(workspaceId: string): void {
     const ws = getWorkspace(this.db, workspaceId);
     if (ws.purpose === "conversation") throw new Error("内置临时会话目录不可移除");
+    // 级联删除其下全部会话（事件 / 审批 / 运行一并清理），不留孤儿
+    deleteThreadsByWorkspace(this.db, workspaceId);
     deleteWorkspace(this.db, workspaceId);
     this.recorder.emit(EventType.WorkspaceUpdated, undefined, undefined, { workspaceId, removed: true });
+  }
+
+  rename(workspaceId: string, name: string): WorkspaceView {
+    const ws = getWorkspace(this.db, workspaceId);
+    if (ws.purpose === "conversation") throw new Error("内置临时会话目录不可重命名");
+    const cleaned = name.trim();
+    if (!cleaned) throw new Error("项目名称不能为空");
+    if (cleaned !== ws.name && listWorkspaces(this.db).some((w) => w.name === cleaned)) {
+      throw new Error(`已有同名项目「${cleaned}」`);
+    }
+    updateWorkspaceName(this.db, workspaceId, cleaned);
+    this.publishChanged(workspaceId, { name: cleaned });
+    return toView(getWorkspace(this.db, workspaceId));
   }
 
   // ---------- 文件 ----------

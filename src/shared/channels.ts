@@ -134,6 +134,7 @@ export interface CraftworkApi {
   workspaceAddProject(name: string, folders: string[], trust: string): Promise<WorkspaceView>;
   workspaceSetActive(workspaceId: string): Promise<WorkspaceView>;
   workspaceSetTrust(workspaceId: string, trust: string): Promise<void>;
+  workspaceRename(workspaceId: string, name: string): Promise<WorkspaceView>;
   workspaceRemove(workspaceId: string): Promise<void>;
   workspaceListDir(workspaceId: string, folderId: string, rel: string): Promise<FileNode[]>;
   workspaceReadFile(workspaceId: string, folderId: string, rel: string): Promise<FileContent>;

@@ -184,6 +184,7 @@ export interface ThreadSummary {
 
 export interface WorkspaceUpdatedData {
   workspaceId: string;
+  name?: string;
   trust?: string;
   active?: boolean;
   removed?: boolean;

@@ -62,6 +62,7 @@ function bridge(): CraftworkApi {
     "workspaceAddProject",
     "workspaceSetActive",
     "workspaceSetTrust",
+    "workspaceRename",
     "workspaceRemove",
     "workspaceListDir",
     "workspaceReadFile",

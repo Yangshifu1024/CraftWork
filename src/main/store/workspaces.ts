@@ -144,6 +144,11 @@ export function updateWorkspaceTrust(db: DB, id: string, trust: string): void {
   if (res.changes === 0) throw new ErrNotFound("工作区不存在");
 }
 
+export function updateWorkspaceName(db: DB, id: string, name: string): void {
+  const res = db.prepare("UPDATE workspaces SET name = ? WHERE id = ?").run(name, id);
+  if (res.changes === 0) throw new ErrNotFound("工作区不存在");
+}
+
 export function updateWorkspacePurpose(db: DB, id: string, purpose: string): void {
   db.prepare("UPDATE workspaces SET purpose = ? WHERE id = ?").run(purpose, id);
 }

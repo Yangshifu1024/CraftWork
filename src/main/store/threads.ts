@@ -137,3 +137,10 @@ export function deleteThread(db: DB, id: string): void {
     db.prepare("DELETE FROM threads WHERE id = ?").run(id);
   });
 }
+
+/** 删除工作区下全部会话（事件 / 审批 / 运行一并清理），返回删除数。项目删除时级联调用。 */
+export function deleteThreadsByWorkspace(db: DB, workspaceId: string): number {
+  const rows = db.prepare("SELECT id FROM threads WHERE workspace_id = ?").all(workspaceId) as Array<{ id: string }>;
+  for (const row of rows) deleteThread(db, row.id);
+  return rows.length;
+}

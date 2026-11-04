@@ -126,6 +126,7 @@ export function registerIpc(services: Services): void {
   );
   handle("workspaceSetActive", (workspaceId) => services.workspaces.setActive(String(workspaceId)));
   handle("workspaceSetTrust", (workspaceId, trust) => services.workspaces.setTrust(String(workspaceId), String(trust ?? "")));
+  handle("workspaceRename", (workspaceId, name) => services.workspaces.rename(String(workspaceId), String(name ?? "")));
   handle("workspaceRemove", (workspaceId) => services.workspaces.remove(String(workspaceId)));
   handle("workspaceListDir", (workspaceId, folderId, rel) =>
     services.workspaces.listDir(String(workspaceId), String(folderId ?? ""), String(rel ?? "")),
