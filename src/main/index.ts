@@ -1,7 +1,7 @@
 // 应用组合根：进程装配，不含业务逻辑；控制启动顺序（有依赖）与退出清理。
 // 启动顺序：单实例锁 → 数据目录 → 存储 → 密钥 → 事件总线 → 策略/工具 → 服务 → 窗口 → 通知。
 import { app, BrowserWindow, Notification } from "electron";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PushChannels } from "../shared/channels";
@@ -240,6 +240,11 @@ function notify(threadId: string, title: string, message: string): void {
 }
 
 app.whenReady().then(() => {
+  // 开发态 Dock 图标：assets/logo.png。打包产物由 electron-builder 从该 png 生成的 icns 提供，无需手动设置。
+  if (process.platform === "darwin" && !app.isPackaged) {
+    const iconPath = join(app.getAppPath(), "assets", "logo.png");
+    if (existsSync(iconPath)) app.dock?.setIcon(iconPath);
+  }
   bootstrap().catch((err) => {
     console.error("[craftwork] 启动失败：", err);
     app.quit();
