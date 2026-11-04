@@ -47,6 +47,7 @@ function bridge(): CraftworkApi {
     "providerAddModel",
     "providerUpdateModel",
     "providerRemoveModel",
+    "providerFetchModels",
     "providerSetKey",
     "providerClearKey",
     "providerTest",

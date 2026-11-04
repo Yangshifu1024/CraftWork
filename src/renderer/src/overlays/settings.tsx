@@ -1,7 +1,7 @@
 // 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/工具与权限/数据）。
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
-import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, type LucideIcon } from "lucide-react";
+import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, type LucideIcon } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
@@ -408,6 +408,10 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
   // 模型增改弹窗（受控）：null 关闭；{ mode: "add" } 新增；{ mode: "edit", model } 编辑
   const [modelDialog, setModelDialog] = useState<{ mode: "add" } | { mode: "edit"; model: ModelView } | null>(null);
 
+  // 拉取模型（票 5 / spec §7）：进行中 loading + 内联反馈（成功计数 / 失败归因文案）
+  const [fetching, setFetching] = useState(false);
+  const [fetchFeedback, setFetchFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
   // 空端点必填态：导入无端点提供商后聚焦引导（spec §3.2）
   const endpointMissing = endpointInput.trim() === "";
   useEffect(() => {
@@ -556,6 +560,26 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
           .catch((err) => pushToast("danger", "删除失败", cleanErrorMessage(err)));
       },
     });
+  };
+
+  /** 拉取模型（票 5 / spec §7）：进行中防重复；结果内联反馈在模型列表区内部，不走全局 toast。 */
+  const runFetch = (): void => {
+    if (fetching || endpointMissing) return;
+    setFetching(true);
+    setFetchFeedback(null);
+    api.providerFetchModels(provider.id)
+      .then((result) => {
+        setFetchFeedback({
+          ok: true,
+          text:
+            result.added.length > 0
+              ? `拉取到 ${result.fetched} 个模型，新增 ${result.added.length} 个`
+              : `拉取到 ${result.fetched} 个模型，无新增模型`,
+        });
+        onChanged();
+      })
+      .catch((err) => setFetchFeedback({ ok: false, text: cleanErrorMessage(err) }))
+      .finally(() => setFetching(false));
   };
 
   return (
@@ -793,17 +817,36 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
         </div>
       </div>
 
-      {/* 模型列表区（票 4 / spec §6）：标题 + 添加 + 行管理（徽章 / 启停 / 编辑 / 删除）/ 空态引导 */}
+      {/* 模型列表区（票 4 / spec §6）：标题 + [拉取模型][添加模型] + 行管理（徽章 / 启停 / 编辑 / 删除）/ 空态引导 */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-ui-sm font-medium text-foreground">模型列表</span>
-          <button
-            className="flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-            onClick={() => setModelDialog({ mode: "add" })}
-          >
-            <Plus className="size-3.5" /> 添加模型
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              className="flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={fetching || endpointMissing}
+              title={endpointMissing ? "请先填写服务端点" : undefined}
+              onClick={runFetch}
+            >
+              <RefreshCw className="size-3.5" />
+              {fetching ? <span className="animated-gradient-text">拉取中…</span> : "拉取模型"}
+            </button>
+            <button
+              className="flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+              onClick={() => setModelDialog({ mode: "add" })}
+            >
+              <Plus className="size-3.5" /> 添加模型
+            </button>
+          </div>
         </div>
+        {fetchFeedback && (
+          <p
+            className={`text-ui-xs ${fetchFeedback.ok ? "text-success" : "text-destructive"}`}
+            role="status"
+          >
+            {fetchFeedback.text}
+          </p>
+        )}
         {provider.models.length === 0 ? (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-8 text-center">
             <span className="text-ui-sm text-foreground-subtlest">当前没有配置模型，添加模型后可在聊天中使用。</span>

@@ -5,6 +5,7 @@ import type {
   CatalogModelView,
   CatalogProviderView,
   ConnectionResult,
+  FetchedModelsResult,
   ModelInput,
   ProviderInput,
   ProviderView,
@@ -21,7 +22,7 @@ import {
   type PersistedProvider,
 } from "../model/catalog";
 import { DEFAULT_CAPS, type Capabilities, type ProviderInfo } from "../model/types";
-import { statusError, transportError, ModelError } from "../model/errors";
+import { statusError, transportError, ModelError, Code } from "../model/errors";
 import { ModelFactory } from "../model/factory";
 
 const MAX_IMPORTED_MODELS = 500;
@@ -215,6 +216,75 @@ export class ProviderService {
       const wrapped = transportError(persisted.name, err);
       return { ok: false, message: connectionMessage(wrapped.code), latencyMs, code: wrapped.code };
     }
+  }
+
+  /** 拉取模型（票 5 / spec §7）：按协议 GET 端点模型列表，与现有模型按 ID 去重合并。 */
+  async fetchModels(providerId: string): Promise<FetchedModelsResult> {
+    const persisted = this.requireExists(providerId);
+    const key = this.secrets.getFor(providerId, persisted.envVars);
+    if (persisted.keyRequired && !key) {
+      throw new Error("尚未配置密钥，请先设置 API Key");
+    }
+    validateEndpoint(persisted.endpoint);
+    // fetch 期间数据可能被并发修改，响应回来后重新读取再合并
+    const url =
+      persisted.kind === "anthropic"
+        ? `${joinServiceURL(persisted.endpoint, "/v1/models")}?limit=1000`
+        : `${persisted.endpoint.replace(/\/+$/, "")}/models`;
+    const headers: Record<string, string> =
+      persisted.kind === "anthropic"
+        ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
+        : { Authorization: `Bearer ${key}` };
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 10_000);
+    let resp: Response;
+    try {
+      resp = await fetch(url, { headers, signal: controller.signal });
+    } catch (err) {
+      // 主动超时 abort 归因为 timeout，其余网络错误沿用 transportError 归因；文案复用连接测试映射
+      const code = timedOut ? Code.Timeout : transportError(persisted.name, err).code;
+      throw new ModelError(code, persisted.name, connectionMessage(code), 0, err);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => "")).slice(0, 8192);
+      const err = statusError(persisted.name, resp.status, body);
+      throw new ModelError(err.code, persisted.name, connectionMessage(err.code), err.status, err);
+    }
+    const entries = parseModelEntries(await resp.json().catch(() => null));
+    const all = loadCustomProviders(this.db);
+    const pIdx = all.findIndex((x) => x.id === providerId);
+    if (pIdx < 0) throw new Error("提供商不存在");
+    const provider = all[pIdx]!;
+    const seen = new Set(provider.models.map((m) => m.id));
+    const added: string[] = [];
+    const fresh: PersistedModel[] = [];
+    for (const entry of entries) {
+      if (seen.has(entry.id)) continue; // 已存在：不覆盖、不重排
+      seen.add(entry.id);
+      added.push(entry.id);
+      fresh.push({
+        id: entry.id,
+        name: entry.name || entry.id,
+        contextK: contextKFrom(entry.contextLength) || 32,
+        maxTokens: 0,
+        caps: { ...DEFAULT_CAPS, stream: true } as Capabilities,
+        status: "",
+        canonicalId: "",
+        releaseDate: "",
+        source: "fetched",
+        enabled: true,
+      });
+    }
+    all[pIdx] = { ...provider, models: [...provider.models, ...fresh] };
+    saveCustomProviders(this.db, all);
+    this.catalog.reload();
+    return { fetched: entries.length, added, models: this.toView(all[pIdx]!).models };
   }
 
   // ---------- 模型目录（候选列表） ----------
@@ -482,6 +552,56 @@ export class ProviderService {
 
 function connectionMessage(code: string): string {
   return CONNECTION_MESSAGES[code] ?? "连接失败，请检查配置。";
+}
+
+/** 模型条目解析结果（id 必有，name / context 容错缺失）。 */
+interface FetchedModelEntry {
+  id: string;
+  name: string;
+  contextLength: unknown;
+}
+
+/** 解析 /models 响应的 data[]：整体结构不符抛可读错误；单条坏数据容错跳过。 */
+function parseModelEntries(payload: unknown): FetchedModelEntry[] {
+  const message = "模型列表响应格式不符，请确认端点协议是否正确";
+  if (!payload || typeof payload !== "object") throw new Error(message);
+  const data = (payload as Record<string, unknown>)["data"];
+  if (!Array.isArray(data)) throw new Error(message);
+  const entries: FetchedModelEntry[] = [];
+  for (const item of data) {
+    // 少数网关直接返回字符串数组
+    if (typeof item === "string") {
+      const id = item.trim();
+      if (id) entries.push({ id, name: "", contextLength: undefined });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const id = typeof rec["id"] === "string" ? rec["id"].trim() : "";
+    if (!id) continue;
+    const name = typeof rec["display_name"] === "string" ? rec["display_name"].trim() : "";
+    entries.push({ id, name, contextLength: rec["context_length"] });
+  }
+  return entries;
+}
+
+/** 响应的 context 字段换算为 K：数值按 token 数 /1024，字符串支持 "128k" / "1M"；无效返回 0（调用方落默认）。 */
+function contextKFrom(value: unknown): number {
+  const clamp = (k: number): number => Math.min(100_000, Math.max(1, Math.trunc(k)));
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return clamp(value / 1024);
+  }
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d+(?:\.\d+)?)\s*([kKmM]?)/);
+    if (m) {
+      const n = Number(m[1]!);
+      const unit = (m[2] ?? "").toLowerCase();
+      if (unit === "k") return clamp(n);
+      if (unit === "m") return clamp(n * 1024);
+      return clamp(n / 1024);
+    }
+  }
+  return 0;
 }
 
 /** 端点校验：必须合法 http(s)；非本地端点必须 HTTPS（避免明文传密钥）。 */

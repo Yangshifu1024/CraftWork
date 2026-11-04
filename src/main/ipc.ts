@@ -107,6 +107,7 @@ export function registerIpc(services: Services): void {
   handle("providerRemoveModel", (providerId, modelId) =>
     services.providers.removeModel(String(providerId), String(modelId)),
   );
+  handle("providerFetchModels", (providerId) => services.providers.fetchModels(String(providerId)));
   handle("providerSetKey", (providerId, key) => services.providers.setKey(String(providerId), String(key ?? "")));
   handle("providerClearKey", (providerId) => services.providers.clearKey(String(providerId)));
   handle("providerTest", (providerId) => services.providers.test(String(providerId)));

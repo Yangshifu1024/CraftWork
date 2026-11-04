@@ -11,6 +11,7 @@ import type {
   CatalogModelView,
   CatalogProviderView,
   ConnectionResult,
+  FetchedModelsResult,
   DiffResult,
   DocumentPreview,
   FileContent,
@@ -115,6 +116,8 @@ export interface CraftworkApi {
   providerUpdateModel(providerId: string, modelId: string, model: ModelInput): Promise<ProviderView>;
   /** 删除模型：返回刷新后的 ProviderView */
   providerRemoveModel(providerId: string, modelId: string): Promise<ProviderView>;
+  /** 拉取模型（spec §7）：按协议 GET 端点模型列表并按 ID 去重合并 */
+  providerFetchModels(providerId: string): Promise<FetchedModelsResult>;
   providerSetKey(providerId: string, key: string): Promise<void>;
   providerClearKey(providerId: string): Promise<void>;
   providerTest(providerId: string): Promise<ConnectionResult>;

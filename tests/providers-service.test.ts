@@ -1,6 +1,6 @@
-// 提供商服务测试：enabled 缺省迁移、启停与改名契约（真实 SQLite 临时目录）。
-// 只测公共接缝：loadCustomProviders / ProviderService.setEnabled / rename / list。
-import { beforeEach, describe, expect, it } from "vitest";
+// 提供商服务测试：enabled 缺省迁移、启停与改名契约、拉取模型（真实 SQLite 临时目录 + mock fetch）。
+// 只测公共接缝：loadCustomProviders / ProviderService.setEnabled / rename / list / fetchModels。
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -393,6 +393,237 @@ describe("ProviderView 新字段", () => {
       models: [{ id: "model", name: "测试模型", contextK: 8, maxTokens: 1024 }],
     });
     expect(loadCustomProviders(db)[0]!.models[0]!.enabled).toBe(false);
+    cleanup();
+  });
+});
+
+// ---------- providerFetchModels（票 5 / spec §7） ----------
+
+/** 构造 JSON Response 的 fetch mock 响应。 */
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+describe("providerFetchModels：密钥检查", () => {
+  it("keyRequired 且无密钥：抛可读错误且不发请求", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: true })]);
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ data: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(service.fetchModels("prov")).rejects.toThrowError("尚未配置密钥，请先设置 API Key");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("keyRequired=false：无密钥也可发起拉取", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: false })]);
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ data: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await service.fetchModels("prov");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.fetched).toBe(0);
+      expect(result.added).toEqual([]);
+      expect(result.models).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("提供商不存在：抛可读错误", async () => {
+    await expect(service.fetchModels("ghost")).rejects.toThrowError("提供商不存在");
+    cleanup();
+  });
+});
+
+describe("providerFetchModels：OpenAI 系解析与合并", () => {
+  it("GET {endpoint}/models，Bearer 密钥头，解析 data[] 合并新增（默认启用、source=fetched、contextK 换算）", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: true })]);
+    service.setKey("prov", "sk-test");
+    let requestedUrl = "";
+    let authHeader = "";
+    const fetchMock = vi.fn(((url: string | URL, init?: RequestInit) => {
+      requestedUrl = String(url);
+      authHeader = String((init?.headers as Record<string, string>)?.Authorization ?? "");
+      return Promise.resolve(
+        jsonResponse({ data: [{ id: "deepseek-reasoner", context_length: 131072 }, { id: "plain-model" }] }),
+      );
+    }) as typeof fetch);
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await service.fetchModels("prov");
+      expect(requestedUrl).toBe("https://example.invalid/v1/models");
+      expect(authHeader).toBe("Bearer sk-test");
+      expect(result.fetched).toBe(2);
+      expect(result.added).toEqual(["deepseek-reasoner", "plain-model"]);
+      const withCtx = result.models.find((m) => m.id === "deepseek-reasoner")!;
+      expect(withCtx.enabled).toBe(true);
+      expect(withCtx.source).toBe("fetched");
+      expect(withCtx.contextK).toBe(128); // 131072 tokens → 128K
+      expect(withCtx.maxTokens).toBe(0);
+      expect(withCtx.name).toBe("deepseek-reasoner"); // 无 display_name 时取 ID
+      const plain = result.models.find((m) => m.id === "plain-model")!;
+      expect(plain.contextK).toBe(32); // 无 context_length 时默认 32
+      // 已有模型原样保留，新增追加在尾部，持久化生效
+      expect(result.models[0]!.id).toBe("model");
+      expect(result.models[0]!.name).toBe("测试模型");
+      expect(loadCustomProviders(db)[0]!.models.map((m) => m.id)).toEqual(["model", "deepseek-reasoner", "plain-model"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("响应结构不符（无 data 数组）：抛可读错误", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: false })]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ objects: [] }))));
+    try {
+      await expect(service.fetchModels("prov")).rejects.toThrowError("模型列表响应格式不符");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("去重：已存在的模型不覆盖不重排，保留原 enabled 与配置；fetched 计入总数不计入新增", async () => {
+    const p = makeProvider({ keyRequired: false });
+    p.models = [{ ...p.models[0]!, enabled: false, name: "原名字", contextK: 8 }];
+    saveCustomProviders(db, [p]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({ data: [{ id: "model", context_length: 999999 }, { id: "extra" }, { id: "model" }] }),
+        ),
+      ),
+    );
+    try {
+      const result = await service.fetchModels("prov");
+      expect(result.fetched).toBe(3); // 拉取到的总数（含响应内重复）
+      expect(result.added).toEqual(["extra"]);
+      const kept = result.models.find((m) => m.id === "model")!;
+      expect(kept.name).toBe("原名字");
+      expect(kept.enabled).toBe(false);
+      expect(kept.contextK).toBe(8); // 不被响应字段覆盖
+      // 已有在前、新增追加在后，无重复行
+      expect(result.models.map((m) => m.id)).toEqual(["model", "extra"]);
+      expect(loadCustomProviders(db)[0]!.models.map((m) => m.id)).toEqual(["model", "extra"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+});
+
+describe("providerFetchModels：anthropic 协议", () => {
+  it("GET {endpoint}/v1/models?limit=1000，x-api-key 头，display_name 作显示名", async () => {
+    saveCustomProviders(db, [
+      makeProvider({ kind: "anthropic", endpoint: "https://api.anthropic.com", keyRequired: true }),
+    ]);
+    service.setKey("prov", "sk-ant");
+    let requestedUrl = "";
+    let headers: Record<string, string> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(((url: string | URL, init?: RequestInit) => {
+        requestedUrl = String(url);
+        headers = (init?.headers ?? {}) as Record<string, string>;
+        return Promise.resolve(jsonResponse({ data: [{ id: "claude-x", type: "model", display_name: "Claude X" }] }));
+      }) as typeof fetch),
+    );
+    try {
+      const result = await service.fetchModels("prov");
+      expect(requestedUrl).toBe("https://api.anthropic.com/v1/models?limit=1000");
+      expect(headers["x-api-key"]).toBe("sk-ant");
+      expect(headers["anthropic-version"]).toBe("2023-06-01");
+      expect(result.added).toEqual(["claude-x"]);
+      const added = result.models.find((m) => m.id === "claude-x")!;
+      expect(added.name).toBe("Claude X");
+      expect(added.source).toBe("fetched");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("base 已含 /v1 时不重复拼接（joinServiceURL）", async () => {
+    saveCustomProviders(db, [
+      makeProvider({ kind: "anthropic", endpoint: "https://proxy.example.com/v1", keyRequired: false }),
+    ]);
+    let requestedUrl = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(((url: string | URL) => {
+        requestedUrl = String(url);
+        return Promise.resolve(jsonResponse({ data: [] }));
+      }) as typeof fetch),
+    );
+    try {
+      await service.fetchModels("prov");
+      expect(requestedUrl).toBe("https://proxy.example.com/v1/models?limit=1000");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+});
+
+describe("providerFetchModels：HTTP 与超时错误归因", () => {
+  it("HTTP 401：归因为 auth 文案", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: false })]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(jsonResponse({ error: { message: "invalid api key" } }, 401)),
+      ),
+    );
+    try {
+      await expect(service.fetchModels("prov")).rejects.toThrowError("密钥无效或权限不足，请检查 API Key。");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("HTTP 500：归因为 provider_unavailable 文案", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: false })]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse({ error: "boom" }, 500))),
+    );
+    try {
+      await expect(service.fetchModels("prov")).rejects.toThrowError("无法连接服务，请检查端点地址与网络。");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+  });
+
+  it("超过 10 秒未响应：按 timeout 归因", async () => {
+    saveCustomProviders(db, [makeProvider({ keyRequired: false })]);
+    vi.stubGlobal(
+      "fetch",
+      ((_url: string | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("This operation was aborted", "AbortError")),
+          );
+        })) as unknown as typeof fetch,
+    );
+    vi.useFakeTimers();
+    try {
+      const pending = service.fetchModels("prov");
+      const assertion = expect(pending).rejects.toThrowError("连接超时，请检查网络或端点地址。");
+      await vi.advanceTimersByTimeAsync(10_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
     cleanup();
   });
 });

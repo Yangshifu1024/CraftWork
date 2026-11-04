@@ -233,6 +233,13 @@ export interface ConnectionResult {
   code: string;
 }
 
+/** 拉取模型结果（spec §7）：fetched = 拉取到的总数；added = 新增 ID；models = 合并后的最新模型视图。 */
+export interface FetchedModelsResult {
+  fetched: number;
+  added: string[];
+  models: ModelView[];
+}
+
 // ---------- 模型目录 ----------
 
 export interface CatalogMeta {
