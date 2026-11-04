@@ -1,6 +1,6 @@
 # Spec：模型设置界面与交互重构（参考 ZCode）
 
-状态：草案（待评审）
+状态：已实现（票 1–8 完成并通过双轴 code-review；GUI 深交互与真实密钥闭环待人工验收，见票 08 走查记录）
 日期：2026-11-04（r2：补充数据层修复——logo 本地化与端点直连）
 关联：`GLOSSARY.md`（模型与提供商）、`AGENTS.md` §5/§6、`docs/agents/issue-tracker.md`
 
