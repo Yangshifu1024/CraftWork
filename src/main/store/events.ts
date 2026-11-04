@@ -236,12 +236,17 @@ export function snapshot(db: DB, threadId: string, limit = 0, beforeSeq = 0): Sn
         msg.workDurationMs = run.finishedAt - run.startedAt;
       }
     } else if (run.messageId && (run.status === "running" || run.status === "error")) {
+      // 补消息的 seq 取该 run 名下最早事件的 seq：失败 run 往往没有任何部件，
+      // 若落 seq=0 会排到触发它的用户消息（seq 更大）之前，时间线顺序颠倒。
+      const runFirstSeq = events
+        .filter((e) => e.runId === run.id)
+        .reduce((min, e) => (min === 0 || (e.seq > 0 && e.seq < min) ? e.seq : min), 0);
       messages.set(run.messageId, {
         id: run.messageId,
         role: "assistant",
         parts: [],
         status: runMessageStatus(run.status),
-        seq: 0,
+        seq: runFirstSeq,
         workDurationMs: run.finishedAt !== null && run.finishedAt > run.startedAt ? run.finishedAt - run.startedAt : undefined,
       });
     }
