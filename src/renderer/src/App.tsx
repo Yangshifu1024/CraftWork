@@ -43,10 +43,19 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 w-full overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-background-win-alt">
       <Sidebar />
-      <Conversation />
-      <SidePane />
+      <div
+        role="separator"
+        aria-label="调整侧栏宽度"
+        className="group/handle relative z-10 flex h-full w-1 shrink-0 cursor-ew-resize bg-transparent after:absolute after:top-0 after:mx-auto after:h-full after:w-0.5 after:rounded-full after:bg-foreground-subtlest/50 after:opacity-0 hover:after:opacity-100"
+      />
+      <div id="content" className="flex min-w-[320px] flex-1 flex-col pb-1 pr-1">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Conversation />
+          <SidePane />
+        </div>
+      </div>
       {overlay === "palette" && <CommandPalette />}
       {overlay === "settings" && <SettingsOverlay />}
       {overlay === "data" && <DataOverlay />}

@@ -137,7 +137,7 @@ export function Sidebar(): React.JSX.Element {
     <div
       id="sidebar"
       data-workspace-sidebar-panel="true"
-      className={`w-[264px] max-w-[50%] flex-none overflow-hidden duration-200 ease-out transition-[width,opacity] app-region-drag ${
+      className={`w-[264px] max-w-[50%] flex-none overflow-hidden bg-sidebar duration-200 ease-out transition-[width,opacity] app-region-drag ${
         sidebarVisible ? "opacity-100" : "pointer-events-none w-0 opacity-0"
       }`}
     >

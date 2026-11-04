@@ -1,6 +1,7 @@
 // 右侧面板：终端（xterm + PTY）/ 文件树 / 文档预览 三个视图。
 // 终端是用户终端：不经过 Agent 审批；Agent 的命令执行走策略引擎。
 import { useEffect, useRef, useState } from "react";
+import { TerminalSquare, FolderOpen, FileText } from "lucide-react";
 import { createTerminal } from "../lib/xterm";
 import { api, onTerminalData, onTerminalExit } from "../lib/api";
 import { useApp } from "../store/app";
@@ -16,13 +17,13 @@ export function SidePane(): React.JSX.Element {
     return (
       <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-l border-border/40 py-2">
         <PaneButton label="终端" active={false} onClick={() => { setOpen(true); setTab("terminal"); }}>
-          ▶_
+          <TerminalSquare className="size-4" />
         </PaneButton>
         <PaneButton label="文件" active={false} onClick={() => { setOpen(true); setTab("files"); }}>
-          🗀
+          <FolderOpen className="size-4" />
         </PaneButton>
         <PaneButton label="文档" active={false} onClick={() => { setOpen(true); setTab("doc"); }}>
-          🗎
+          <FileText className="size-4" />
         </PaneButton>
       </div>
     );

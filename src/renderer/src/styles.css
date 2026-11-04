@@ -291,7 +291,7 @@
 /* ---------- 全局基础 ---------- */
 @layer base {
   * {
-    border-color: var(--color-border);
+    border-color: var(--zai-border);
   }
   html,
   body,
@@ -303,8 +303,8 @@
     margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-ui-base);
-    color: var(--color-foreground);
-    background: var(--color-background);
+    color: var(--zai-foreground);
+    background: var(--zai-background);
     -webkit-font-smoothing: antialiased;
   }
   /* 焦点反馈交给组件内 ring/hover，不用浏览器默认轮廓 */
@@ -318,7 +318,7 @@
 /* 全局滚动条：14px 透明轨道 + 圆角 thumb（3px 透明边制造视觉留白） */
 * {
   scrollbar-width: auto;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--zai-border) transparent;
 }
 *::-webkit-scrollbar {
   width: 14px;
@@ -332,7 +332,7 @@
   min-width: 32px;
   border: 3px solid transparent;
   border-radius: 9999px;
-  background: var(--color-border);
+  background: var(--zai-border);
   background-clip: padding-box;
 }
 
@@ -356,9 +356,9 @@
 .animated-gradient-text {
   background: linear-gradient(
     90deg,
-    var(--color-foreground-subtlest) 0%,
-    var(--color-foreground) 40%,
-    var(--color-foreground-subtlest) 80%
+    var(--zai-foreground-subtlest) 0%,
+    var(--zai-foreground) 40%,
+    var(--zai-foreground-subtlest) 80%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -407,7 +407,7 @@
   inset-block: 0;
   width: 33%;
   border-radius: 9999px;
-  background: var(--color-border-hover);
+  background: var(--zai-border-hover);
   animation: tool-call-progress 1.2s ease-in-out infinite;
 }
 

@@ -1,7 +1,8 @@
 // 对话区：顶栏 + 消息流 + 输入区。
 import { useEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
+import { useOverlays } from "../store/overlays";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -18,7 +19,7 @@ export function Conversation(): React.JSX.Element {
 
   return (
     <div id="content" className="flex min-w-[320px] flex-1 flex-col app-region-no-drag">
-      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-[0.5px] border-border/50 bg-background shadow-xs">
+      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xs">
         <WorkspaceHeader title={thread?.title ?? "新对话"} status={thread?.status ?? "idle"} mode={mode} />
         <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
         <Composer activeId={activeId} chat={chat ? { running: chat.running } : { running: false }} />
@@ -465,12 +466,57 @@ function cleanErrorMessage(err: unknown): string {
   return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
+/** 模型指示 chip：显示会话模型（缺省用全局默认），点击跳转设置。 */
+function ModelChip(): React.JSX.Element {
+  const mode = useApp((s) => s.mode);
+  const activeId = useApp((s) => s.activeThreadId[mode]);
+  const threads = useApp((s) => s.threads[mode]);
+  const settings = useApp((s) => s.settings);
+  const open = useOverlays((s) => s.open);
+  const thread = threads.find((t) => t.id === activeId);
+  const modelId = thread?.modelId || settings.defaultModel;
+  const label = modelId ? (thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用" ? thread.modelName : modelId.split("/").pop() || modelId) : "选择模型";
+  return (
+    <button
+      type="button"
+      onClick={() => open("settings")}
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+      title={modelId || "先在设置中添加提供商并选择模型"}
+    >
+      <span className="size-1.5 rounded-full bg-success" />
+      <span className="max-w-40 truncate">{label}</span>
+    </button>
+  );
+}
+
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
   const pushToast = useToasts((s) => s.push);
   const running = chat?.running ?? false;
   const taRef = useRef<HTMLTextAreaElement>(null);
   const armedRef = useRef<number>(0);
+
+  const pickAndAttach = async (): Promise<void> => {
+    try {
+      const files = await api.pickFiles();
+      if (files.length > 0) {
+        setAttachments((prev) => [...prev, ...files.filter((f) => !prev.includes(f))].slice(0, 10));
+      }
+    } catch {
+      // 用户取消
+    }
+  };
+
+  const stop = (): void => {
+    if (Date.now() - armedRef.current < 800) {
+      void api.chatCancel(activeId);
+      armedRef.current = 0;
+    } else {
+      armedRef.current = Date.now();
+      setTimeout(() => (armedRef.current = 0), 800);
+    }
+  };
 
   // 自适应高度（1→8 行）
   useEffect(() => {
@@ -482,19 +528,24 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
 
   const submit = (): void => {
     const clean = text.trim();
-    if (!clean || !activeId) return;
+    if ((!clean && attachments.length === 0) || !activeId) return;
+    const sendAttachments = attachments;
     setText("");
-    const restore = (): void => setText(clean); // 失败还原草稿
+    setAttachments([]);
+    const restore = (): void => {
+      setText(clean); // 失败还原草稿与附件
+      setAttachments(sendAttachments);
+    };
     if (running) {
       void api
-        .chatSteer(activeId, clean, [])
+        .chatSteer(activeId, clean, sendAttachments)
         .catch((err) => {
           restore();
           pushToast("danger", "引导失败", cleanErrorMessage(err));
         });
     } else {
       void api
-        .chatSend(activeId, clean, [])
+        .chatSend(activeId, clean, sendAttachments)
         .catch((err) => {
           restore();
           pushToast("danger", "发送失败", cleanErrorMessage(err));
@@ -512,28 +563,26 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
   return (
     <div className="shrink-0 px-4 pb-4">
       <div className="mx-auto flex max-w-3xl flex-col gap-2">
-        {running && (
-          <div className="flex justify-end">
-            <button
-              className="flex items-center gap-1.5 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-xs hover:bg-menu-hover"
-              onClick={() => {
-                if (Date.now() - armedRef.current < 800) {
-                  void api.chatCancel(activeId);
-                  armedRef.current = 0;
-                } else {
-                  armedRef.current = Date.now();
-                  setTimeout(() => (armedRef.current = 0), 800);
-                }
-              }}
-            >
-              <Square className="size-3" /> 停止（双击确认）
-            </button>
-          </div>
-        )}
         <div
           className="relative flex flex-col gap-3 overflow-hidden rounded-2xl border-[0.5px] border-input-border bg-input p-3 shadow-(--shadow-composer-soft) transition-colors focus-within:border-input-border-focused"
           data-composer-layout="conversation"
         >
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {attachments.map((path) => (
+                <span key={path} className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2 text-ui-xs text-foreground-subtle">
+                  <Paperclip className="size-3" />
+                  <span className="max-w-48 truncate">{path.split("/").pop()}</span>
+                  <button
+                    className="rounded p-0.5 hover:bg-surface-hover"
+                    onClick={() => setAttachments((prev) => prev.filter((p) => p !== path))}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <textarea
             ref={taRef}
             rows={1}
@@ -543,9 +592,29 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
             className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
           />
-          <div className="flex items-end gap-3">
-            <div className="min-w-0 flex-1" />
-            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5">
+          <div className="group/toolbar flex items-end gap-3">
+            <div className="flex min-w-0 flex-1 items-center" data-composer-leading-actions>
+              <button
+                type="button"
+                title="添加附件"
+                className="flex size-7 items-center justify-center rounded-lg text-foreground-subtle hover:bg-surface-hover"
+                onClick={() => void pickAndAttach()}
+              >
+                <Plus className="size-4" />
+              </button>
+              <ModelChip />
+            </div>
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
+              {running ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="flex size-8 items-center justify-center rounded-full border border-border text-foreground-subtle hover:bg-surface-hover"
+                  title="停止（Esc）"
+                >
+                  <Square className="size-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={submit}
