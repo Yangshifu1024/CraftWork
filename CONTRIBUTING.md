@@ -8,11 +8,12 @@
 
 | 依赖 | 版本 | 说明 |
 | --- | --- | --- |
-| Node.js | ≥ 24 | `node:sqlite` 为稳定内置模块；Electron 45 内置 Node 24 |
-| pnpm | 最新稳定 | 唯一包管理器 |
-| macOS | — | 当前实测平台；Windows / Linux 打包待实机验证 |
+| Rust | ≥ 1.90（`rust-toolchain.toml` 锁定具体版本） | 领域内核与 Tauri 壳 |
+| Node.js | ≥ 20 | 渲染层构建与目录同步脚本 |
+| pnpm | 最新稳定 | 唯一包管理器（渲染层） |
+| macOS | — | 当前实测平台；Windows / Linux 打包配置已备，待实机验证 |
 
-- 包管理只用 pnpm；原生模块（`node-pty`）的构建许可在 `pnpm-workspace.yaml` 的 `onlyBuiltDependencies` 里维护。
+- 包管理只用 pnpm（渲染层）；Rust 依赖由 cargo workspace 管理，构建脚本许可在 `pnpm-workspace.yaml` 维护。
 - 不要擅自安装或升级工具与依赖；需要新工具或大版本升级时先提 issue 说明情况。
 
 ## 本地开发
@@ -38,9 +39,9 @@ node scripts/modelsync.mjs --check   # 只检查是否与上游一致
 每次提交至少运行：
 
 ```bash
-pnpm typecheck    # node 侧 + web 侧两个 tsconfig
-pnpm test         # vitest（tests/ 目录）
-pnpm build        # 产物构建（输出 out/）
+pnpm typecheck    # 渲染层类型检查
+pnpm test:rust    # cargo test --workspace（领域内核）
+pnpm build        # tauri build
 pnpm dist:dir     # 打包冒烟（.app 可启动）
 ```
 
@@ -65,15 +66,15 @@ CI 未通过时不要在 PR 中直接合并。
 
 完整约束见 [AGENTS.md](AGENTS.md) 第 6 节，这里列出最容易踩错的几条：
 
-- **分层**：领域包（`core`、`store`、`policy`、`agent`、`model`、`tools`）保持普通 TypeScript 模块、不 import Electron（保证可单测）；`services` 只做参数校验、编排与错误转换。只有 `index.ts`、`ipc.ts`、`services/app.ts`、`services/terminal.ts` 允许接触 Electron API。
+- **分层**：领域 crate（`craft-core`、`craft-store`、`craft-policy`、`craft-agent`、`craft-model`、`craft-tools`、`craft-doc`）保持普通 Rust 模块、不依赖 Tauri（保证可 `cargo test`）；`src-tauri/src/services.rs` 只做参数校验、编排与错误转换。只有 `src-tauri` 允许接触 Tauri API。
 - **事件**：事件写入与广播统一走 `core/record.Recorder`（`seq` 分配与插入同事务）；渲染层状态壳只做「事件应用 + 动作」，`applyBatch` 是唯一事件入口。
 - **通道**：渲染层一切系统操作经 `window.craftwork`（集中通道表）；新增能力在 `channels.ts`、`preload`、`ipc.ts` 三处同步接线，渲染层不使用 Node API。
-- **审批**：审批必须由用户显式决定，不允许在主进程侧静默放行；审批决定与工具执行都要写入审计。
-- **安全**：路径校验（词法 + 符号链接真实路径）、命令分级、密钥读取、外链白名单都在主进程完成，不信任渲染层传入的路径或命令；密钥只存主进程与 `~/.craftwork/keys.json`（0600）。
-- **数据**：SQLite 是事实源；修改表结构要新增迁移版本，不要改已有迁移；写文件前先备份；`node:sqlite` 必须经 `createRequire` 引入。
+- **审批**：审批必须由用户显式决定，不允许在后端侧静默放行；审批决定与工具执行都要写入审计。
+- **安全**：路径校验（词法 + 符号链接真实路径）、命令分级、密钥读取、外链白名单都在 Rust 内核完成，不信任渲染层传入的路径或命令；密钥只存 Rust 进程与 `~/.craftwork/keys.json`（0600）。
+- **数据**：SQLite 是事实源；修改表结构要新增迁移版本，不要改已有迁移；写文件前先备份；rusqlite 走 bundled 静态编译。
 - **界面**：观感取值只使用 `styles.css` 的语义色 token（深浅两套主题同改），不写死色值；动效遵循 `prefers-reduced-motion`；图标用 lucide-react；列表渲染给稳定 `key`。
-- **错误处理**：主进程返回可读中文错误，界面 toast 展示；模型错误统一映射到既有错误码；后台异步失败要写日志或投递 `error` 事件，不能静默退出。
-- **测试**：策略、路径、diff、存储、Agent 循环、工具、模型层等核心逻辑必须有 vitest 单测；修复缺陷时补对应回归测试。
+- **错误处理**：后端返回可读中文错误，界面 toast 展示；模型错误统一映射到既有错误码；后台异步失败要写日志或投递 `error` 事件，不能静默退出。
+- **测试**：策略、路径、diff、存储、Agent 循环、工具、模型层等核心逻辑必须有 cargo test；修复缺陷时补对应回归测试。
 
 新增界面、工具或提供商接入的步骤见 [AGENTS.md](AGENTS.md) 第 5 节。
 

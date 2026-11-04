@@ -15,13 +15,10 @@ permissions:
   contents: read
 
 jobs:
+  # 渲染层类型检查（领域内核由 rust job 覆盖）。
   check:
-    name: 类型检查与单元测试（${{ matrix.os }}）
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: 类型检查（web）
+    runs-on: macos-latest
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -36,16 +33,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # postinstall 会执行 electron-builder install-app-deps，
-      # 按当前平台与 Electron ABI 原生构建 node-pty——三平台矩阵同时验证原生编译。
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
       - name: 类型检查
         run: pnpm typecheck
-
-      - name: 单元测试
-        run: pnpm test
 
   # Rust 侧（cargo workspace：src-tauri + crates/craft-*）。
   # 迁移期 macOS 必绿；ubuntu/windows 允许失败占位（docs/tauri-migration/issues/01）。

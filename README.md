@@ -7,7 +7,7 @@
 <p align="center">本地优先、可审计的桌面 Agent</p>
 
 <p align="center">
-  TypeScript · Electron · 数据不出本机
+  Rust · Tauri 2 · 数据不出本机
 </p>
 
 ---
@@ -128,8 +128,8 @@ pnpm dev
 ### 构建
 
 ```bash
-pnpm dist        # dist/mac-arm64/CraftWork.app（electron-builder）
-pnpm dist:dir    # 只产出 .app 目录（不打包 DMG）
+pnpm dist        # target/release/bundle/dmg/*.dmg（Tauri bundler）
+pnpm dist:dir    # 只产出 .app 目录（debug 构建）
 ```
 
 ### 模型目录
@@ -157,13 +157,14 @@ node scripts/modelsync.mjs --check  # 只检查是否与上游一致
 ### 流程
 
 1. Fork 仓库并从 `main` 建分支。
-2. 修改代码，补对应测试（核心逻辑 vitest 单测，覆盖策略、diff、存储、Agent、工具与模型层）。
+2. 修改代码，补对应测试（核心逻辑 cargo test，覆盖策略、diff、存储、Agent、工具与模型层）。
 3. 运行检查：
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm dist:dir      # 打包冒烟
+pnpm typecheck     # 渲染层类型检查
+pnpm test:rust     # cargo test --workspace（领域内核）
+pnpm lint:rust     # cargo clippy
+pnpm dist:dir      # 打包冒烟（.app 可启动）
 ```
 
 4. 涉及界面时，在 1440×900 窗口尺寸确认三栏布局与深浅主题。

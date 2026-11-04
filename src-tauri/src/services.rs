@@ -871,3 +871,282 @@ pub fn read_attachment(state: &AppState, name: &str) -> SvcResult {
         "mime": mime,
     }))
 }
+
+// ---------- 提供商模型级操作与拉取 ----------
+
+fn load_providers(state: &AppState) -> Vec<craft_model::types::PersistedProvider> {
+    state
+        .db
+        .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+fn model_input_to_persisted(v: &Value) -> Result<craft_model::types::PersistedModel, String> {
+    serde_json::from_value(json!({
+        "id": v.get("id").cloned().unwrap_or(Value::Null),
+        "name": v.get("name").cloned().unwrap_or(Value::Null),
+        "contextK": v.get("contextK").cloned().unwrap_or(json!(0)),
+        "maxTokens": v.get("maxTokens").cloned().unwrap_or(json!(0)),
+        "caps": v.get("caps").cloned().unwrap_or(serde_json::to_value(craft_model::types::DEFAULT_CAPS).unwrap_or(Value::Null)),
+        "cost": v.get("cost").cloned().unwrap_or(Value::Null),
+        "status": v.get("status").cloned().unwrap_or(json!("")),
+        "canonicalId": "", "releaseDate": "",
+        "source": "manual", "enabled": true,
+    }))
+    .map_err(|e| format!("模型数据无效：{e}"))
+}
+
+pub fn provider_rename(state: &AppState, id: &str, name: &str) -> SvcResult {
+    let mut providers = load_providers(state);
+    match providers.iter_mut().find(|p| p.id == id) {
+        Some(p) => p.name = name.into(),
+        None => return err("提供商不存在"),
+    }
+    save_providers(state, &providers)?;
+    provider_list(state)
+}
+
+pub fn provider_set_model_enabled(state: &AppState, provider_id: &str, model_id: &str, enabled: bool) -> SvcResult {
+    let mut providers = load_providers(state);
+    match providers.iter_mut().find(|p| p.id == provider_id) {
+        Some(p) => match p.models.iter_mut().find(|m| m.id == model_id) {
+            Some(m) => m.enabled = enabled,
+            None => return err("模型不存在"),
+        },
+        None => return err("提供商不存在"),
+    }
+    save_providers(state, &providers)?;
+    provider_list(state)
+}
+
+pub fn provider_add_model(state: &AppState, provider_id: &str, model: &Value) -> SvcResult {
+    let mut providers = load_providers(state);
+    let persisted = model_input_to_persisted(model)?;
+    let provider = providers.iter_mut().find(|p| p.id == provider_id).ok_or("提供商不存在")?;
+    if provider.models.iter().any(|m| m.id == persisted.id) {
+        return err(format!("模型 ID 已存在：{}", persisted.id));
+    }
+    provider.models.push(persisted);
+    save_providers(state, &providers)?;
+    provider_list(state)
+}
+
+pub fn provider_update_model(state: &AppState, provider_id: &str, model_id: &str, model: &Value) -> SvcResult {
+    let mut providers = load_providers(state);
+    let persisted = model_input_to_persisted(model)?;
+    let provider = providers.iter_mut().find(|p| p.id == provider_id).ok_or("提供商不存在")?;
+    let slot = provider.models.iter_mut().find(|m| m.id == model_id).ok_or("模型不存在")?;
+    // ID 不可变：保留原 ID
+    let id = slot.id.clone();
+    *slot = craft_model::types::PersistedModel { id, ..persisted };
+    save_providers(state, &providers)?;
+    provider_list(state)
+}
+
+pub fn provider_remove_model(state: &AppState, provider_id: &str, model_id: &str) -> SvcResult {
+    let mut providers = load_providers(state);
+    let provider = providers.iter_mut().find(|p| p.id == provider_id).ok_or("提供商不存在")?;
+    let before = provider.models.len();
+    provider.models.retain(|m| m.id != model_id);
+    if provider.models.len() == before {
+        return err("模型不存在");
+    }
+    save_providers(state, &providers)?;
+    provider_list(state)
+}
+
+/// 拉取模型（spec §7）：按协议 GET 端点模型列表并按 ID 去重合并（source=fetched）。
+pub fn provider_fetch_models(state: &AppState, provider_id: &str) -> SvcResult {
+    let mut providers = load_providers(state);
+    let Some(provider) = providers.iter_mut().find(|p| p.id == provider_id) else {
+        return err("提供商不存在");
+    };
+    let env_refs: Vec<&str> = provider.env_vars.iter().map(String::as_str).collect();
+    let key = state.secrets.get_for(&provider.id, &env_refs);
+    let endpoint = provider.endpoint.trim_end_matches('/').to_string();
+    if endpoint.is_empty() {
+        return err("提供商未配置服务地址");
+    }
+    let url = if provider.kind == "anthropic" {
+        format!("{endpoint}/v1/models")
+    } else {
+        format!("{endpoint}/models")
+    };
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut req = client.get(&url);
+    if provider.kind == "anthropic" {
+        req = req.header("x-api-key", &key).header("anthropic-version", "2023-06-01");
+    } else if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    let resp = req.send().map_err(|e| format!("拉取失败：{e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("拉取失败：HTTP {}", status.as_u16()));
+    }
+    let body: Value = resp.json().map_err(|e| format!("响应解析失败：{e}"))?;
+    let items = body
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut fetched = 0usize;
+    let mut added: Vec<String> = Vec::new();
+    for item in &items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
+        fetched += 1;
+        if provider.models.iter().any(|m| m.id == id) {
+            continue;
+        }
+        provider.models.push(craft_model::types::PersistedModel {
+            id: id.to_string(),
+            name: id.to_string(),
+            context_k: 0,
+            max_tokens: 0,
+            caps: craft_model::types::DEFAULT_CAPS,
+            cost: None,
+            status: String::new(),
+            canonical_id: String::new(),
+            release_date: String::new(),
+            source: "fetched".into(),
+            enabled: true,
+        });
+        added.push(id.to_string());
+    }
+    save_providers(state, &providers)?;
+    Ok(json!({ "fetched": fetched, "added": added, "models": provider_models_json(state, provider_id)? }))
+}
+
+fn provider_models_json(state: &AppState, provider_id: &str) -> Result<Value, String> {
+    let list = provider_list(state)?;
+    let Some(providers) = list.as_array() else { return Ok(json!([])) };
+    for p in providers {
+        if p["id"] == json!(provider_id) {
+            return Ok(p["models"].clone());
+        }
+    }
+    Ok(json!([]))
+}
+
+/// 密钥提示：密钥来源为环境变量的提供商（环境缺失后不可用的提醒）。
+pub fn provider_warnings(state: &AppState) -> SvcResult {
+    let providers = load_providers(state);
+    let mut warnings: Vec<String> = Vec::new();
+    for p in providers {
+        if !p.key_required {
+            continue;
+        }
+        let env_refs: Vec<&str> = p.env_vars.iter().map(String::as_str).collect();
+        if state.secrets.source_for(&p.id, &env_refs) == "env" {
+            warnings.push(format!(
+                "{} 的密钥来自环境变量：重启后若环境变量缺失，该提供商将不可用。",
+                p.name
+            ));
+        }
+    }
+    Ok(json!(warnings))
+}
+
+// ---------- 审计恢复 ----------
+
+pub fn audit_restore(state: &AppState, backup_id: &str) -> SvcResult {
+    let backup = craft_store::records::get_backup(&state.db.lock_conn(), backup_id).map_err(|e| e.to_string())?;
+    let current = std::fs::read(&backup.path);
+    if let Ok(existing) = current {
+        // 恢复前把当前内容也做一次备份（可再恢复回来）
+        state
+            .registry_backup_env()
+            .backup(&backup.path, &existing)?;
+    }
+    let data = std::fs::read(&backup.backup_path).map_err(|e| format!("备份读取失败：{e}"))?;
+    write_file_atomic(Path::new(&backup.path), &data, 0o644).map_err(|e| format!("恢复失败：{e}"))?;
+    Ok(json!(null))
+}
+
+impl AppState {
+    pub fn registry_backup_env(&self) -> craft_tools::ToolEnv {
+        craft_tools::ToolEnv { backup_dir: self.backup_dir.clone(), db: Arc::clone(&self.db) }
+    }
+}
+
+// ---------- MCP（连接留桩，配置可存） ----------
+
+pub fn mcp_list(state: &AppState) -> SvcResult {
+    let servers: Vec<Value> = state
+        .db
+        .with(|conn| get_setting(conn, "mcp.servers"))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value::<Vec<Value>>(v).ok())
+        .unwrap_or_default();
+    let views: Vec<Value> = servers
+        .into_iter()
+        .map(|mut s| {
+            if s.get("connected").is_none() {
+                s["connected"] = json!(false);
+            }
+            if s.get("tools").is_none() {
+                s["tools"] = json!([]);
+            }
+            s
+        })
+        .collect();
+    Ok(json!(views))
+}
+
+pub fn mcp_add(state: &AppState, name: &str, command_line: &str) -> SvcResult {
+    if name.trim().is_empty() || command_line.trim().is_empty() {
+        return err("名称与命令不能为空");
+    }
+    let mut parts = command_line.split_whitespace().map(String::from);
+    let command = parts.next().unwrap_or_default();
+    let args: Vec<String> = parts.collect();
+    let mut servers: Vec<Value> = state
+        .db
+        .with(|conn| get_setting(conn, "mcp.servers"))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    let server = json!({
+        "id": craft_core::ids::new_id(craft_core::ids::id_prefix::MCP_SERVER),
+        "name": name, "command": command, "args": args, "enabled": true,
+    });
+    servers.push(server);
+    state
+        .db
+        .with(|conn| set_setting(conn, "mcp.servers", &serde_json::to_value(&servers).unwrap_or(Value::Null)))
+        .map_err(|e| e.to_string())?;
+    mcp_list(state)
+}
+
+pub fn mcp_remove(state: &AppState, server_id: &str) -> SvcResult {
+    let servers: Vec<Value> = state
+        .db
+        .with(|conn| get_setting(conn, "mcp.servers"))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    let filtered: Vec<Value> = servers.into_iter().filter(|s| s["id"] != json!(server_id)).collect();
+    state
+        .db
+        .with(|conn| set_setting(conn, "mcp.servers", &serde_json::to_value(&filtered).unwrap_or(Value::Null)))
+        .map_err(|e| e.to_string())?;
+    Ok(json!(null))
+}
+
+pub fn mcp_connect(_state: &AppState, _server_id: &str) -> SvcResult {
+    // stdio 连接能力留桩（决策 D5）：设置可存，连接迁移后单独立项
+    err("MCP 连接能力尚未启用（迁移后单独立项）")
+}
+
+pub fn mcp_disconnect(_state: &AppState, _server_id: &str) -> SvcResult {
+    err("MCP 连接能力尚未启用（迁移后单独立项）")
+}

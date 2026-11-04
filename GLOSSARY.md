@@ -6,9 +6,9 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| CraftWork | 完全本地运行的桌面 Agent：Electron 主进程承载全部领域逻辑（Agent 循环、工具、策略、存储、终端、密钥），渲染层为 React 界面，数据不出本机 |
-| Code 模式 | 面向开发者的工作台：工作区、代码编辑、Shell、Git、差异与终端 |
-| Work 模式 | 面向文档处理的工作台：Word / Excel / PDF 文本级读取与预览；不显示 Git、差异与终端 |
+| CraftWork | 完全本地运行的桌面 Agent：Rust 领域内核承载全部领域逻辑（Agent 循环、工具、策略、存储、密钥），渲染层为 React 界面，数据不出本机 |
+| Code 模式 | 面向开发者的工作台：工作区、代码编辑、Shell、Git 与差异 |
+| Work 模式 | 面向文档处理的工作台：Word / Excel / PDF 文本级读取与预览；不显示 Git、差异与 Shell |
 | 工作区 | 用户在本地选择的项目根，独立于模式存在；可挂载一个或多个源文件夹，同一项目可在两种模式下打开 |
 | 源文件夹 | 工作区挂载的目录；第一个是主要目录，其余是附加目录，全部纳入 Agent 可访问范围 |
 | 主要目录 | 工作区的第一个源文件夹，也是会话的工作目录（`workspaces.path`）；Git 与环境上下文只作用于它 |
@@ -54,7 +54,7 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| 主进程（Main Process） | 领域内核所在：Agent 循环、工具、策略、SQLite、终端与密钥全部由主进程执行；领域包（`core` / `store` / `policy` / `agent` / `model` / `tools`）是普通 TypeScript 模块，不 import Electron |
+| 领域内核 | Agent 循环、工具、策略、SQLite、模型客户端与密钥全部由领域 crate 执行（`craft-core` / `craft-store` / `craft-policy` / `craft-agent` / `craft-model` / `craft-tools` / `craft-doc`）；领域 crate 是普通 Rust 模块，不依赖 Tauri，只有应用壳（`src-tauri`）接触 Tauri API |
 | 渲染层（Renderer） | React 19 + zustand + Tailwind v4 界面；不持有任何 Node 能力，不加载远程页面，系统操作只经通道表 |
 | 预加载桥（preload） | contextBridge 只做桥：把集中通道表暴露为 `window.craftwork`，不含业务逻辑 |
 | 通道表（channels） | 渲染层系统操作的唯一出口；方法签名在 `shared` 定义，`channels` / `preload` / `ipc` 三处同步接线 |
@@ -77,8 +77,7 @@
 | 术语 | 定义 |
 | --- | --- |
 | MCP | Model Context Protocol，模型与外部工具、资源之间的标准协议；工具命名 `mcp__服务器__工具` |
-| PTY | 伪终端，让程序以为自己在跟终端交互；由 node-pty 提供 |
-| 终端（Terminal） | node-pty 真实 PTY + xterm.js 渲染；node-pty 只能在主进程经 `createRequire` 引入 |
+| Shell 执行（shell_exec） | Agent 的命令执行工具：独立进程组、环境白名单清洗、超时杀进程树；不是交互式终端（交互式终端已移除，决策 D1） |
 | Diff | 修改前后的差异；代码使用代码差异，文档使用文本级差异 |
 | 文本级读写 | 只修改 Word / Excel 的内容不重建排版；不保证复杂样式的完整保真 |
 | Token | 模型处理文本的最小单位，用于计量上下文与费用 |

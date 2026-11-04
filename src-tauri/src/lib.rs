@@ -4,6 +4,7 @@
 //! invoke 统一入口 `craftwork_invoke` 按方法名分发到 services（与 Electron 版 ipc.ts 通道表等价）。
 
 pub mod services;
+pub mod system;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -141,20 +142,30 @@ async fn craftwork_invoke(
     method: String,
     args: Vec<Value>,
     state: tauri::State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
 ) -> Result<Value, String> {
     let state = Arc::clone(&state);
     // 同步领域操作放阻塞线程池，保持 UI 响应
-    tokio::task::spawn_blocking(move || dispatch(&method, &args, &state))
+    tokio::task::spawn_blocking(move || dispatch(&method, &args, &state, &app))
         .await
         .map_err(|e| format!("任务执行失败：{e}"))?
 }
 
-fn dispatch(method: &str, args: &[Value], state: &AppState) -> Result<Value, String> {
+fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHandle) -> Result<Value, String> {
     use services::*;
     let a = Args::new(args);
     match method {
         // ---------- 应用 ----------
         "getInfo" => get_info(state),
+        "openExternal" => system::open_external(&a.str_at(0)),
+        "pickFiles" => system::pick_files(app),
+        "pickFolder" => system::pick_folder(app),
+        "clipboardWrite" => system::clipboard_write(app, &a.str_at(0)),
+        "clipboardRead" => system::clipboard_read(app),
+        "showInFolder" => system::show_in_folder(&a.str_at(0)),
+        "minimiseWindow" => system::minimise_window(app),
+        "toggleMaximiseWindow" => system::toggle_maximise_window(app),
+        "closeWindow" => system::close_window(app),
         // ---------- 设置 ----------
         "settingsGet" => settings_get(state),
         "settingsSave" => settings_save(state, &a.value_at(0)),
@@ -215,6 +226,13 @@ fn dispatch(method: &str, args: &[Value], state: &AppState) -> Result<Value, Str
         "providerSetEnabled" => provider_set_enabled(state, &a.str_at(0), a.bool_at(1)),
         "providerSetKey" => provider_set_key(state, &a.str_at(0), &a.str_at(1)),
         "providerClearKey" => provider_clear_key(state, &a.str_at(0)),
+        "providerRename" => provider_rename(state, &a.str_at(0), &a.str_at(1)),
+        "providerSetModelEnabled" => provider_set_model_enabled(state, &a.str_at(0), &a.str_at(1), a.bool_at(2)),
+        "providerAddModel" => provider_add_model(state, &a.str_at(0), &a.value_at(1)),
+        "providerUpdateModel" => provider_update_model(state, &a.str_at(0), &a.str_at(1), &a.value_at(2)),
+        "providerRemoveModel" => provider_remove_model(state, &a.str_at(0), &a.str_at(1)),
+        "providerFetchModels" => provider_fetch_models(state, &a.str_at(0)),
+        "providerWarnings" => provider_warnings(state),
         "providerTest" => provider_test(state, &a.str_at(0)),
         "catalogMeta" => catalog_meta(state),
         "catalogProviders" => catalog_providers(state, &a.str_at(0)),
@@ -224,6 +242,12 @@ fn dispatch(method: &str, args: &[Value], state: &AppState) -> Result<Value, Str
         "auditList" => audit_list(state, a.i64_at(0)),
         "auditUsage" => audit_usage(state),
         "auditBackups" => audit_backups(state, a.i64_at(0)),
+        "auditRestore" => audit_restore(state, &a.str_at(0)),
+        "mcpList" => mcp_list(state),
+        "mcpAdd" => mcp_add(state, &a.str_at(0), &a.str_at(1)),
+        "mcpRemove" => mcp_remove(state, &a.str_at(0)),
+        "mcpConnect" => mcp_connect(state, &a.str_at(0)),
+        "mcpDisconnect" => mcp_disconnect(state, &a.str_at(0)),
         "savePastedAttachment" => save_pasted_attachment(state, &a.str_at(0), &a.str_at(1)),
         "readAttachment" => read_attachment(state, &a.str_at(0)),
         _ => Err(format!("方法 {method} 尚未接线（迁移进行中，见 docs/tauri-migration/issues/09）")),
@@ -233,6 +257,8 @@ fn dispatch(method: &str, args: &[Value], state: &AppState) -> Result<Value, Str
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let state = build_app_state(&app.handle().clone()).map_err(std::io::Error::other)?;
             // 启动确保内置临时会话目录

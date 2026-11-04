@@ -1,7 +1,7 @@
 # 09 系统能力接线与 capabilities 审计（P8）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 06
 
 ## 任务

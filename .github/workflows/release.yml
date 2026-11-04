@@ -1,6 +1,6 @@
 name: Release
 
-# 仅 v* 标签推送触发发布。
+# 仅 v* 标签推送触发发布（Tauri bundler 打包；macOS 必产出，win/linux 允许失败占位）。
 on:
   push:
     tags:
@@ -17,15 +17,19 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            script: dist # dmg
-            paths: dist/*.dmg
+            paths: |
+              target/release/bundle/dmg/*.dmg
+              target/release/bundle/macos/*.app
           - os: windows-latest
-            script: dist:win # nsis 安装包
-            paths: dist/*.exe
+            paths: |
+              target/release/bundle/nsis/*.exe
+              target/release/bundle/msi/*.msi
           - os: ubuntu-latest
-            script: dist:linux # AppImage
-            paths: dist/*.AppImage
+            paths: |
+              target/release/bundle/appimage/*.AppImage
+              target/release/bundle/deb/*.deb
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os != 'macos-latest' }}
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -39,14 +43,23 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # postinstall 按当前平台与 Electron ABI 原生构建 node-pty。
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装 Linux 系统依赖
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      # --publish never：electron-builder 自带的 GitHub 发布走 api.github.com，
-      # 这里只打包，发布统一由 release job 经 gh CLI（github.com）完成。
       - name: 打包
-        run: pnpm ${{ matrix.script }} --publish never
+        run: pnpm dist
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -54,11 +67,12 @@ jobs:
           name: bundle-${{ matrix.os }}
           path: ${{ matrix.paths }}
           retention-days: 3
-          if-no-files-found: error
+          if-no-files-found: warn
 
   release:
     name: 发布草稿 release
     needs: build
+    if: ${{ !failure() && !cancelled() && contains(needs.build.result, 'success') }}
     runs-on: ubuntu-latest
     steps:
       # 完整历史与全部标签：更新说明需要对比上一个 tag 到当前 tag 的提交
@@ -67,7 +81,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 下载三平台产物
+      - name: 下载产物
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true

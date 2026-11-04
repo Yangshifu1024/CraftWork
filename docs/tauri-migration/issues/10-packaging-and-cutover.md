@@ -1,7 +1,7 @@
 # 10 打包分发与切换清理（P9）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 06、07、08、09 全部完成
 
 ## 任务
