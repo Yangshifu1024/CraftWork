@@ -1,12 +1,14 @@
 // 对话区：顶栏 + 消息流 + 输入区。
 import { useEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Shield } from "lucide-react";
-import { useOverlays } from "../store/overlays";
+import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
+import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
 import { useApp } from "../store/app";
+import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
+import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
 import { Markdown } from "./markdown";
@@ -460,8 +462,9 @@ function cleanErrorMessage(err: unknown): string {
   return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
-/** 模型 chip：显示会话模型（缺省用全局默认），点击打开选择浮层。 */
-function ModelChip({ onOpen }: { onOpen(): void }): React.JSX.Element {
+/** 模型 chip：显示会话模型（缺省用全局默认），点击在按钮上方弹出选择浮层。对齐 ZCode：模型名 + ChevronDown，未选时占位文案。
+ *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。 */
+function ModelChip({ className, ...props }: React.ComponentProps<"button">): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const threads = useApp((s) => s.threads[mode]);
@@ -476,12 +479,14 @@ function ModelChip({ onOpen }: { onOpen(): void }): React.JSX.Element {
   return (
     <button
       type="button"
-      onClick={onOpen}
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+      {...props}
+      className={`flex h-7 shrink-0 items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover ${
+        modelId ? "text-foreground" : "text-foreground-subtle hover:text-foreground-subtle"
+      } ${className ?? ""}`}
       title={modelId || "先在设置中添加提供商并选择模型"}
     >
-      <span className={`size-1.5 rounded-full ${modelId ? "bg-success" : "bg-border"}`} />
       <span className="max-w-40 truncate">{label}</span>
+      <ChevronDown className="size-3.5 shrink-0 text-foreground-subtlest" />
     </button>
   );
 }
@@ -507,28 +512,84 @@ function ModeSwitch(): React.JSX.Element {
   );
 }
 
-/** 审批档位 chip：显示当前档位，点击打开设置的工具与权限区。 */
+/** 审批档位 chip：点击在按钮上方弹出档位选择浮层；切到「自由」先弹危险确认。
+ *  对齐 ZCode 模式切换：档位图标 + ChevronDown；「自由」为高权限警示态（text-warning 常驻）。 */
 function LevelChip(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
-  const open = useOverlays((s) => s.open);
-  const names: Record<string, string> = { graded: "分级", strict: "严格", readonly: "只读", free: "自由" };
+  const chooseLevel = useApprovalLevelAction();
+  const picker = useOverlays((s) => s.picker);
+  const openPicker = useOverlays((s) => s.openPicker);
+  const closePicker = useOverlays((s) => s.closePicker);
+  const open = picker === "level";
+  const current = APPROVAL_LEVEL_NAMES[settings.approvalLevel] ?? settings.approvalLevel;
+  const Icon = APPROVAL_LEVEL_ICONS[settings.approvalLevel];
+  const warning = settings.approvalLevel === "free";
   return (
-    <button
-      type="button"
-      onClick={() => open("settings")}
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
-      title={`审批档位：${names[settings.approvalLevel] ?? settings.approvalLevel}（点击前往设置）`}
-    >
-      <Shield className="size-3.5" />
-      <span className="max-w-16 truncate">{names[settings.approvalLevel] ?? settings.approvalLevel}</span>
-    </button>
+    <Popover.Root open={open} onOpenChange={(o) => (o ? openPicker("level") : closePicker())}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-ui-sm hover:bg-surface-hover ${
+            warning ? "text-warning hover:text-warning" : "text-foreground-subtle"
+          }`}
+          title={`审批档位：${current}`}
+        >
+          <Icon className="size-3.5 shrink-0" />
+          <span className="max-w-16 truncate">{current}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-foreground-subtlest" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="start"
+          sideOffset={8}
+          aria-label="选择审批档位"
+          onCloseAutoFocus={(e) => {
+            // 对齐 ZCode：关闭后焦点回 composer 输入框。
+            e.preventDefault();
+            document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+          }}
+          className="z-50 w-80 rounded-xl border border-popover-border bg-popover p-1.5 shadow-md"
+        >
+          {APPROVAL_LEVELS.map((l) => {
+            const LevelIcon = APPROVAL_LEVEL_ICONS[l.id];
+            const selected = settings.approvalLevel === l.id;
+            return (
+              <button
+                key={l.id}
+                className={`flex min-h-11 w-full cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-menu-hover ${
+                  l.id === "free" ? "text-warning" : ""
+                }`}
+                onClick={() => {
+                  chooseLevel(l.id);
+                  closePicker();
+                }}
+              >
+                <LevelIcon className="mt-0.5 size-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-ui-sm font-medium text-foreground">
+                    {l.name}
+                    {selected && <Check className="size-3.5 shrink-0 text-success" />}
+                  </span>
+                  <span className="block text-ui-xs text-foreground-subtlest">{l.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // composer 配置 picker 排他态收在 overlays store（模型 / 档位互斥，⌘M 可从快捷键打开）。
+  const picker = useOverlays((s) => s.picker);
+  const openPicker = useOverlays((s) => s.openPicker);
+  const closePicker = useOverlays((s) => s.closePicker);
   const pushToast = useToasts((s) => s.push);
   const running = chat?.running ?? false;
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -627,6 +688,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
+            data-composer-input
             className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
           />
           <div className="group/toolbar flex items-end gap-3">
@@ -640,7 +702,11 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
                 <Plus className="size-4" />
               </button>
               <ModeSwitch />
-              <ModelChip onOpen={() => setPickerOpen(true)} />
+              <ModelPicker
+                open={picker === "model"}
+                onOpenChange={(o) => (o ? openPicker("model") : closePicker())}
+                trigger={<ModelChip />}
+              />
               <LevelChip />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
@@ -670,7 +736,6 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
           Enter 发送 · Shift+Enter 换行 · 运行中输入为引导指令 · ⌘K 命令面板 · ⌘, 设置
         </div>
       </div>
-      <ModelPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }
