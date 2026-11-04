@@ -1,8 +1,9 @@
 // 对话区：顶栏 + 消息流 + 输入区。
 import { useEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Shield } from "lucide-react";
 import { useOverlays } from "../store/overlays";
+import { ModelPicker } from "./model-picker";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -459,25 +460,67 @@ function cleanErrorMessage(err: unknown): string {
   return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
-/** 模型指示 chip：显示会话模型（缺省用全局默认），点击跳转设置。 */
-function ModelChip(): React.JSX.Element {
+/** 模型 chip：显示会话模型（缺省用全局默认），点击打开选择浮层。 */
+function ModelChip({ onOpen }: { onOpen(): void }): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const settings = useApp((s) => s.settings);
-  const open = useOverlays((s) => s.open);
   const thread = threads.find((t) => t.id === activeId);
   const modelId = thread?.modelId || settings.defaultModel;
-  const label = modelId ? (thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用" ? thread.modelName : modelId.split("/").pop() || modelId) : "选择模型";
+  const label = modelId
+    ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
+      ? thread.modelName
+      : (modelId.split("/").pop() ?? modelId)
+    : "选择模型";
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+      title={modelId || "先在设置中添加提供商并选择模型"}
+    >
+      <span className={`size-1.5 rounded-full ${modelId ? "bg-success" : "bg-border"}`} />
+      <span className="max-w-40 truncate">{label}</span>
+    </button>
+  );
+}
+
+/** 模式切换：Code / Work 两段 pill。 */
+function ModeSwitch(): React.JSX.Element {
+  const mode = useApp((s) => s.mode);
+  const setMode = useApp((s) => s.setMode);
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-surface p-0.5">
+      {(["code", "work"] as const).map((m) => (
+        <button
+          key={m}
+          className={`h-6 rounded-md px-2 text-ui-xs transition-colors ${
+            mode === m ? "bg-card text-foreground shadow-xs" : "text-foreground-subtlest hover:text-foreground-subtle"
+          }`}
+          onClick={() => setMode(m)}
+        >
+          {m === "code" ? "Code" : "Work"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 审批档位 chip：显示当前档位，点击打开设置的工具与权限区。 */
+function LevelChip(): React.JSX.Element {
+  const settings = useApp((s) => s.settings);
+  const open = useOverlays((s) => s.open);
+  const names: Record<string, string> = { graded: "分级", strict: "严格", readonly: "只读", free: "自由" };
   return (
     <button
       type="button"
       onClick={() => open("settings")}
       className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
-      title={modelId || "先在设置中添加提供商并选择模型"}
+      title={`审批档位：${names[settings.approvalLevel] ?? settings.approvalLevel}（点击前往设置）`}
     >
-      <span className="size-1.5 rounded-full bg-success" />
-      <span className="max-w-40 truncate">{label}</span>
+      <Shield className="size-3.5" />
+      <span className="max-w-16 truncate">{names[settings.approvalLevel] ?? settings.approvalLevel}</span>
     </button>
   );
 }
@@ -485,6 +528,7 @@ function ModelChip(): React.JSX.Element {
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const pushToast = useToasts((s) => s.push);
   const running = chat?.running ?? false;
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -586,7 +630,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
             className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
           />
           <div className="group/toolbar flex items-end gap-3">
-            <div className="flex min-w-0 flex-1 items-center" data-composer-leading-actions>
+            <div className="flex min-w-0 flex-1 items-center gap-0.5" data-composer-leading-actions>
               <button
                 type="button"
                 title="添加附件"
@@ -595,7 +639,9 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
               >
                 <Plus className="size-4" />
               </button>
-              <ModelChip />
+              <ModeSwitch />
+              <ModelChip onOpen={() => setPickerOpen(true)} />
+              <LevelChip />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
               {running ? (
@@ -624,6 +670,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
           Enter 发送 · Shift+Enter 换行 · 运行中输入为引导指令 · ⌘K 命令面板 · ⌘, 设置
         </div>
       </div>
+      <ModelPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }
