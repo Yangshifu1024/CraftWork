@@ -7,10 +7,12 @@
 
 ## 验收标准
 
-- [ ] 对 OpenAI 兼容端点拉取成功，新增模型出现在列表且默认启用
-- [ ] 重复拉取不产生重复行，已有模型的配置不被覆盖
-- [ ] 未配密钥时点击给出可读提示，不发请求
-- [ ] HTTP 错误 / 超时显示归因文案；进行中按钮禁用
-- [ ] 单测：两种协议解析、去重合并、错误路径
+- [x] 对 OpenAI 兼容端点拉取成功，新增模型出现在列表且默认启用
+- [x] 重复拉取不产生重复行，已有模型的配置不被覆盖
+- [x] 未配密钥时点击给出可读提示，不发请求
+- [x] HTTP 错误 / 超时显示归因文案；进行中按钮禁用
+- [x] 单测：两种协议解析、去重合并、错误路径
 
 ## 进展
+
+已实现（`adbe162`，并入集成分支后 `e62aace`）。服务端 `providerFetchModels`：按协议 GET（OpenAI 系 `{endpoint}/models`、anthropic `joinServiceURL(endpoint,"/v1/models")?limit=1000`）、密钥缺失不发请求直接可读报错、10 秒超时归因 timeout、`data[]` 容错解析（字符串条目/单条坏数据跳过、结构不符抛「响应格式不符」）、按 ID 去重合并（已存在不覆盖不重排、保留原 enabled）、新增 `enabled: true`/`source: "fetched"`/contextK 换算（数值 token、字符串 128k/1M）缺省 32、合并前重读数据防竞态；`FetchedModelsResult` 契约三处接线；HTTP/网络错误复用 statusError/transportError + CONNECTION_MESSAGES 归因。UI：[拉取模型] 置于模型列表标题行（端点空禁用 + title、进行中扫光防重复、成功内联「拉取到 N 个，新增 M 个」、失败内联红字归因）。11 例新单测（含 fake timers 驱动超时）。全量 165 测试绿 + build。
