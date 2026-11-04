@@ -1,7 +1,7 @@
 # 02 终端移除、应用壳与渲染层平移（P1）
 
 labels: [needs-triage]
-status: pending
+status: done
 depends: 01
 
 ## 任务
