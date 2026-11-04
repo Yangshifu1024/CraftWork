@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 craft-core = { path = "../craft-core" }
 craft-policy = { path = "../craft-policy" }
+craft-store = { path = "../craft-store" }
+serde_json = "1"
+regex = "1"

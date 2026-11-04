@@ -524,9 +524,6 @@ dependencies = [
 [[package]]
 name = "craft-policy"
 version = "0.1.0"
-dependencies = [
- "craft-core",
-]
 
 [[package]]
 name = "craft-store"
@@ -544,6 +541,9 @@ version = "0.1.0"
 dependencies = [
  "craft-core",
  "craft-policy",
+ "craft-store",
+ "regex",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,3 +1,9 @@
 //! 策略：风险分级与审批档位、命令分类、路径安全解析、敏感附件名。
-//!
-//! 对应 Electron 主进程 `src/main/policy/`，自 P4（docs/tauri-migration/issues/05）起实现。
+//! 对应 Electron 主进程 `src/main/policy/`。本 crate 零依赖、可独立测试。
+
+pub mod attachment;
+pub mod command;
+pub mod engine;
+pub mod resolve;
+
+pub use engine::{parse_level, reason_for, Action, Engine, Level, PolicyRisk};
