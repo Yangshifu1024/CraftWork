@@ -5,6 +5,7 @@ import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, Re
 import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
 import { useApp } from "../store/app";
+import type { DraftState } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -586,10 +587,14 @@ function LevelChip(): React.JSX.Element {
   );
 }
 
+/** 稳定空槽：无草稿内容时回落（引用稳定，避免 zustand selector 每次返回新对象）。 */
+const EMPTY_DRAFT: DraftState = { text: "", attachments: [] };
+
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
-  // 文本与附件受控于 store 的草稿槽（按模式分槽）：草稿态内容由此保留，普通会话下同样经槽读写。
+  // 文本与附件受控于 store 的草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽）：
+  // 草稿态内容随槽保留互不覆盖，普通会话下同样经槽读写。
   const mode = useApp((s) => s.mode);
-  const draft = useApp((s) => s.drafts[mode]);
+  const draft = useApp((s) => s.drafts[mode][s.draftWsId[mode]] ?? EMPTY_DRAFT);
   const setDraft = useApp((s) => s.setDraft);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const selectThread = useApp((s) => s.selectThread);
@@ -597,7 +602,8 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
   const attachments = draft.attachments;
   const setText = (value: string): void => setDraft(mode, { text: value });
   const setAttachments = (value: string[] | ((prev: string[]) => string[])): void => {
-    const prev = useApp.getState().drafts[mode].attachments;
+    const state = useApp.getState();
+    const prev = state.drafts[mode][state.draftWsId[mode]]?.attachments ?? EMPTY_DRAFT.attachments;
     setDraft(mode, { attachments: typeof value === "function" ? value(prev) : value });
   };
   // composer 配置 picker 排他态收在 overlays store（模型 / 档位互斥，⌘M 可从快捷键打开）。

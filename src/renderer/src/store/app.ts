@@ -12,6 +12,8 @@ import type {
 import type { ApprovalPart } from "../../../shared/events";
 import { api } from "../lib/api";
 import { applyTheme, saveThemePref, watchSystemTheme } from "../lib/theme";
+import { emptyDraftTable, loadDrafts, saveDrafts } from "../lib/drafts";
+import type { DraftTable } from "../lib/drafts";
 
 export type Mode = "code" | "work";
 
@@ -37,7 +39,10 @@ interface AppState {
   mode: Mode;
   threads: Record<Mode, ThreadView[]>;
   activeThreadId: Record<Mode, string>;
-  drafts: Record<Mode, DraftState>;
+  /** 草稿槽按归属分桶：key 为工作区 id，空串 "" 为内置临时会话槽；持久化经 lib/drafts。 */
+  drafts: Record<Mode, Record<string, DraftState>>;
+  /** 各模式当前草稿槽归属（空串 = 临时槽）；活动会话非空时不起作用。 */
+  draftWsId: Record<Mode, string>;
   workspaces: WorkspaceView[];
   settings: Settings;
   chats: Record<string, ChatState>;
@@ -49,8 +54,9 @@ interface AppState {
   refreshThreads(mode?: Mode): Promise<void>;
   refreshWorkspaces(): Promise<void>;
   selectThread(id: string): Promise<void>;
-  /** 进入当前模式的草稿态：活动会话置空，不创建任何线程（草稿不落库）。 */
-  newDraft(): void;
+  /** 进入当前模式的草稿态：活动会话置空并切到 workspaceId 槽（缺省临时槽），不创建线程、不覆盖槽内容。 */
+  newDraft(workspaceId?: string): void;
+  /** 写当前草稿槽（按 mode + draftWsId 归属），并同步落本地存储。 */
   setDraft(mode: Mode, patch: Partial<DraftState>): void;
   deleteThread(id: string): Promise<void>;
   renameThread(id: string, title: string): Promise<void>;
@@ -68,7 +74,8 @@ export const useApp = create<AppState>((set, get) => ({
   mode: "code",
   threads: { code: [], work: [] },
   activeThreadId: { code: "", work: "" },
-  drafts: { code: emptyDraft(), work: emptyDraft() },
+  drafts: emptyDraftTable(),
+  draftWsId: { code: "", work: "" },
   workspaces: [],
   settings: {
     theme: "system",
@@ -113,6 +120,9 @@ export const useApp = create<AppState>((set, get) => ({
       mode: settings.mode === "work" ? "work" : "code",
       threads: { code: threadsCode, work: threadsWork },
       workspaces,
+      // 启动恢复各槽草稿文本与附件；槽归属不恢复（恒为临时槽），
+      // activeThreadId 选择逻辑不动：有会话选中最近会话，即「恢复草稿但不自动进入草稿态」。
+      drafts: loadDrafts(),
       activeThreadId: {
         code: threadsCode[0]?.id ?? "",
         work: threadsWork[0]?.id ?? "",
@@ -161,16 +171,23 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 
-  newDraft() {
+  newDraft(workspaceId = "") {
     const mode = get().mode;
-    // 草稿态：活动会话置空即可，不调线程创建（草稿是纯渲染层状态）
-    set((state) => ({ activeThreadId: { ...state.activeThreadId, [mode]: "" } }));
+    // 草稿态：活动会话置空并切到归属槽（缺省临时槽），不调线程创建（草稿是纯渲染层状态）；
+    // 槽已有内容原样保留（重复 ⌘N 回到同一条草稿）。
+    set((state) => ({
+      activeThreadId: { ...state.activeThreadId, [mode]: "" },
+      draftWsId: { ...state.draftWsId, [mode]: workspaceId },
+    }));
   },
 
   setDraft(mode, patch) {
-    set((state) => ({
-      drafts: { ...state.drafts, [mode]: { ...state.drafts[mode], ...patch } },
-    }));
+    const wsId = get().draftWsId[mode];
+    const prev = get().drafts;
+    const slot = prev[mode][wsId] ?? emptyDraft();
+    const drafts = { ...prev, [mode]: { ...prev[mode], [wsId]: { ...slot, ...patch } } };
+    saveDrafts(drafts);
+    set({ drafts });
   },
 
   async deleteThread(id) {
@@ -243,6 +260,24 @@ function findMessageIdForPart(chat: ChatState, partId: string): string | null {
 }
 
 function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
+  // workspace.updated 与会话无关（threadId 为空）：草稿态（无活动会话）下也会到达，
+  // 必须在 threadId 短路之前处理，否则删项目清槽事件会被丢弃。
+  if (event.type === "workspace.updated") {
+    const payload = event.data as Record<string, unknown>;
+    const removedWsId = payload["removed"] === true && typeof payload["workspaceId"] === "string" ? payload["workspaceId"] : "";
+    if (removedWsId) {
+      // 删除项目：清掉该工作区在两个模式下的草稿槽（无残留），并同步本地存储。
+      set((state) => {
+        const drafts: DraftTable = { code: { ...state.drafts.code }, work: { ...state.drafts.work } };
+        delete drafts.code[removedWsId];
+        delete drafts.work[removedWsId];
+        saveDrafts(drafts);
+        return { drafts };
+      });
+    }
+    void get().refreshWorkspaces();
+    return;
+  }
   const state = get();
   const threadId = event.threadId ?? state.activeThreadId[state.mode];
   if (!threadId) return;
@@ -395,10 +430,6 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
         set({ themeResolved: applyTheme(next.theme) });
       }
       set({ settings: next });
-      break;
-    }
-    case "workspace.updated": {
-      void get().refreshWorkspaces();
       break;
     }
     default:
