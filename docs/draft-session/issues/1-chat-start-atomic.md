@@ -13,3 +13,7 @@
 - [ ] 服务层测试：工作区不存在时抛错且零落库
 - [ ] 渲染层可经通道表调用该方法，三处接线签名一致
 - [ ] 既有发送 / 引导 / 重新生成行为不变（既有测试全绿）
+
+## 进展
+
+已实现（feature/draft-session @ `2f7739f`）。`ChatService.createAndStart(mode, workspaceId, text, attachments, modelRef)`：模型校验前置（空引用抛「尚未选择模型」、不可解析抛「当前模型不可用」）→ 工作区校验 → 建 Thread（shortTitle 直用置 titleAuto=false，取不到回落「新对话」置 true）→ Recorder 写用户消息事件 + emit 广播 → 启动 Run；创建后 Run 失败不抛错返回 `runId: ""`。通道表/preload/ipc 三处接线 `chatCreateAndStart`；ChatService 构造依赖零新增（modelRef 由渲染层传所见引用）。`tests/chat-start.test.ts` 8 用例覆盖全部验收（含空消息、Run 启动失败、纯附件回落）。既有测试无回归；typecheck / test / build / dist:dir 全绿（6195ade 后复验）。

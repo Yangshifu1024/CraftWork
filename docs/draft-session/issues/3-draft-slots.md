@@ -12,3 +12,7 @@
 - [ ] 删除项目后其草稿槽被清除，无残留
 - [ ] Code / Work 两模式的草稿相互独立
 - [ ] 隔离目录冒烟走查：多槽切换、重启恢复、删项目清槽
+
+## 进展
+
+已实现（`92090d3`）。`drafts: Record<Mode, Record<string, DraftState>>` 按工作区分桶（空串 key = 临时槽），`draftWsId` 记录草稿槽归属，`newDraft(workspaceId)` 支持项目槽；持久化经 `lib/drafts.ts`（key `craftwork-drafts`，逐字段容错，参照 theme.ts 先例）；boot 读入但不动「选中最近会话」的启动逻辑。删项目清槽挂在 `workspace.updated { removed: true }` 事件（载荷已含 workspaceId，主进程零改动）。**注意：渲染层当前没有删除项目 UI，清槽路径需经主进程触发才能观察。** typecheck / test / build 全绿；GUI 冒烟待走查。

@@ -14,3 +14,7 @@
 - [ ] 草稿态模型选择为禁用态，不产生任何请求与报错
 - [ ] 草稿态下附件、模式切换等输入区能力照常可用
 - [ ] 隔离目录冒烟完整走查上述场景（Code / Work 两模式）
+
+## 进展
+
+已实现（`0b16762`，后续修复 `6195ade`）。store 新增 `drafts` / `setDraft`，`createThread` 改为 `newDraft()`（不再调 `api.threadCreate`，渲染层调用归零）；侧栏新建 / ⌘N / ⌘K / 新建项目收尾四个入口全改草稿态；Composer 草稿首发走 `chatCreateAndStart`（`6195ade` 修复：workspaceId 传当前槽归属、会话态输入与草稿槽分流互不污染）；草稿态模型选择先禁用（票 4 解除）。渲染层无单测（spec 决策）；typecheck / test / build 全绿。**待办：隔离目录 GUI 冒烟走查（Code / Work 两模式）尚未执行。**

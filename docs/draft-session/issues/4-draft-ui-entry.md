@@ -13,3 +13,7 @@
 - [ ] 草稿态顶部标题正确显示归属（「新对话」/ 项目名），深浅主题下显示正常
 - [ ] 项目草稿态下右侧面板显示该项目内容（文件树 / 终端等），发送前即可浏览项目；临时草稿态维持内置临时目录
 - [ ] 隔离目录冒烟走查上述场景
+
+## 进展
+
+已实现（`55ffb05`，评审修复 `6195ade`）。`DraftState` 加 `modelRef`；草稿态选模型只写当前槽（`setDraft`，零写请求），首发传 `槽.modelRef || settings.defaultModel`，三处口径收敛为 `effectiveModelRef` 纯函数；项目分组 hover「+」与新建项目收尾进入项目草稿槽；顶部标题按槽归属显示（项目名 /「新对话」）；右侧面板 `effectiveWorkspaceId` 统一推导「活动会话工作区 → 草稿槽归属 → conversation 工作区」（终端与文件树共用，`6195ade` 修复 FilesView 临时态回落）。typecheck / test / build 全绿；GUI 冒烟待走查。
