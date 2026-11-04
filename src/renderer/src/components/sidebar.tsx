@@ -266,11 +266,14 @@ export function Sidebar(): React.JSX.Element {
       list.push(t);
       byWs.set(t.workspaceId, list);
     }
-    const projectGroups = [...byWs.entries()].map(([wsId, list]) => ({
-      name: workspaces.find((w) => w.id === wsId)?.name ?? "其他",
-      workspaceId: wsId,
-      threads: list,
-    }));
+    // 以工作区为主序：空项目（无会话）也显示分组，才能从「+」进入该项目草稿槽；
+    // 工作区已删的孤儿会话兜底进「其他」。
+    const projectGroups = workspaces
+      .filter((w) => w.purpose === "project")
+      .map((w) => ({ name: w.name, workspaceId: w.id, threads: byWs.get(w.id) ?? [] }));
+    for (const [wsId, list] of byWs) {
+      if (!workspaces.some((w) => w.id === wsId)) projectGroups.push({ name: "其他", workspaceId: wsId, threads: list });
+    }
     return { conversationWs, temp, projectGroups };
   }, [threads, workspaces]);
 

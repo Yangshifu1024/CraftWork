@@ -334,6 +334,7 @@ function CatalogBrowser({ onImported }: { onImported(): void }): React.JSX.Eleme
 function ProviderCard({ provider, onChanged }: { provider: ProviderView; onChanged(): void }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
+  const [endpointInput, setEndpointInput] = useState(provider.endpoint);
   const [testing, setTesting] = useState(false);
   const pushToast = useToastsPush();
 
@@ -355,7 +356,44 @@ function ProviderCard({ provider, onChanged }: { provider: ProviderView; onChang
       </button>
       {open && (
         <div className="flex flex-col gap-2 border-t border-border/40 px-4 py-3">
-          <div className="text-ui-xs text-foreground-subtlest">端点：{provider.endpoint}</div>
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
+            <input
+              value={endpointInput}
+              onChange={(e) => setEndpointInput(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-xs"
+            />
+            <button
+              className="h-8 shrink-0 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-40"
+              disabled={endpointInput.trim() === provider.endpoint}
+              onClick={() => {
+                void api
+                  .providerSave({
+                    id: provider.id,
+                    name: provider.name,
+                    kind: provider.kind,
+                    endpoint: endpointInput.trim(),
+                    keyRequired: provider.keyRequired,
+                    models: provider.models.map((m) => ({
+                      id: m.id,
+                      name: m.name,
+                      contextK: m.contextK,
+                      maxTokens: m.maxTokens,
+                      caps: m.caps,
+                      cost: m.cost,
+                    })),
+                  })
+                  .then(() => {
+                    onChanged();
+                    pushToast("ok", "端点已保存");
+                  })
+                  .catch((err) => pushToast("danger", "保存失败", String(err?.message ?? err)));
+              }}
+            >
+              保存端点
+            </button>
+          </div>
           {provider.models.map((m) => (
             <div key={m.ref} className="flex items-center gap-2 text-ui-sm">
               <span className="truncate">{m.name}</span>
