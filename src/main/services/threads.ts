@@ -23,7 +23,7 @@ import type { SettingsService } from "./settings";
 
 const TITLE_MAX_RUNES = 80;
 
-function normalizeMode(mode: string): string {
+export function normalizeMode(mode: string): string {
   return mode === "work" ? "work" : "code";
 }
 

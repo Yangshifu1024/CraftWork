@@ -30,6 +30,7 @@ function bridge(): CraftworkApi {
     "threadDelete",
     "threadSnapshot",
     "threadSnapshotPage",
+    "chatCreateAndStart",
     "chatSend",
     "chatSteer",
     "chatRegenerate",

@@ -83,6 +83,13 @@ export interface CraftworkApi {
   threadSnapshotPage(threadId: string, limit: number, beforeSeq: number): Promise<Snapshot>;
 
   // ---------- 对话 ----------
+  chatCreateAndStart(
+    mode: string,
+    workspaceId: string,
+    text: string,
+    attachments: string[],
+    modelRef: string,
+  ): Promise<{ threadId: string; runId: string }>;
   chatSend(threadId: string, text: string, attachments: string[]): Promise<string>;
   chatSteer(threadId: string, text: string, attachments: string[]): Promise<string>;
   chatRegenerate(threadId: string): Promise<string>;

@@ -62,6 +62,15 @@ export function registerIpc(services: Services): void {
   );
 
   // ---------- 对话 ----------
+  handle("chatCreateAndStart", (mode, workspaceId, text, attachments, modelRef) =>
+    services.chat.createAndStart(
+      String(mode),
+      String(workspaceId ?? ""),
+      String(text ?? ""),
+      toStrList(attachments),
+      String(modelRef ?? ""),
+    ),
+  );
   handle("chatSend", (threadId, text, attachments) =>
     services.chat.send(String(threadId), String(text ?? ""), toStrList(attachments)),
   );
