@@ -31,10 +31,6 @@ export interface DraftState {
   modelRef: string;
 }
 
-function emptyDraft(): DraftState {
-  return { text: "", attachments: [], modelRef: "" };
-}
-
 interface AppState {
   booted: boolean;
   mode: Mode;
@@ -68,6 +64,19 @@ interface AppState {
 
 function emptyChat(): ChatState {
   return { messages: [], running: false, lastSeq: 0 };
+}
+
+/** 稳定空草稿槽：槽尚无内容时的回落（引用恒定，避免 zustand selector 每次返回新对象触发重渲染）。 */
+export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "" };
+
+/** 当前模式的草稿槽（draftWsId 指向归属）；槽尚无内容时为 undefined。 */
+export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
+  return state.drafts[mode][state.draftWsId[mode]];
+}
+
+/** 草稿态生效模型引用：槽选定引用优先，回落全局默认。 */
+export function effectiveModelRef(state: AppState, mode: Mode): string {
+  return draftSlot(state, mode)?.modelRef || state.settings.defaultModel;
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -185,7 +194,7 @@ export const useApp = create<AppState>((set, get) => ({
   setDraft(mode, patch) {
     const wsId = get().draftWsId[mode];
     const prev = get().drafts;
-    const slot = prev[mode][wsId] ?? emptyDraft();
+    const slot = prev[mode][wsId] ?? EMPTY_DRAFT;
     const drafts = { ...prev, [mode]: { ...prev[mode], [wsId]: { ...slot, ...patch } } };
     saveDrafts(drafts);
     set({ drafts });

@@ -4,8 +4,7 @@ import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
-import { useApp } from "../store/app";
-import type { DraftState } from "../store/app";
+import { useApp, draftSlot, effectiveModelRef, EMPTY_DRAFT } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -476,9 +475,9 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const settings = useApp((s) => s.settings);
-  const draftModelRef = useApp((s) => s.drafts[s.mode][s.draftWsId[s.mode]]?.modelRef ?? "");
+  const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
   const thread = threads.find((t) => t.id === activeId);
-  const modelId = activeId === "" ? (draftModelRef || settings.defaultModel) : (thread?.modelId || settings.defaultModel);
+  const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
   const label = modelId
     ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
       ? thread.modelName
@@ -592,24 +591,30 @@ function LevelChip(): React.JSX.Element {
   );
 }
 
-/** 稳定空槽：无草稿内容时回落（引用稳定，避免 zustand selector 每次返回新对象）。 */
-const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "" };
-
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
-  // 文本与附件受控于 store 的草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽）：
-  // 草稿态内容随槽保留互不覆盖，普通会话下同样经槽读写。
+  // 输入态分流：草稿态（活动会话为空）读写当前草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽，
+  // 内容随槽保留互不覆盖）；会话态回到组件本地 state（切会话丢输入的既有行为），打字不写草稿槽。
   const mode = useApp((s) => s.mode);
-  const draft = useApp((s) => s.drafts[mode][s.draftWsId[mode]] ?? EMPTY_DRAFT);
   const setDraft = useApp((s) => s.setDraft);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const selectThread = useApp((s) => s.selectThread);
-  const text = draft.text;
-  const attachments = draft.attachments;
-  const setText = (value: string): void => setDraft(mode, { text: value });
+  const isDraft = activeId === "";
+  const draft = useApp((s) => (isDraft ? (draftSlot(s, s.mode) ?? EMPTY_DRAFT) : EMPTY_DRAFT));
+  const [localText, setLocalText] = useState("");
+  const [localAttachments, setLocalAttachments] = useState<string[]>([]);
+  const text = isDraft ? draft.text : localText;
+  const attachments = isDraft ? draft.attachments : localAttachments;
+  const setText = (value: string): void => {
+    if (isDraft) setDraft(mode, { text: value });
+    else setLocalText(value);
+  };
   const setAttachments = (value: string[] | ((prev: string[]) => string[])): void => {
-    const state = useApp.getState();
-    const prev = state.drafts[mode][state.draftWsId[mode]]?.attachments ?? EMPTY_DRAFT.attachments;
-    setDraft(mode, { attachments: typeof value === "function" ? value(prev) : value });
+    if (isDraft) {
+      const prev = draftSlot(useApp.getState(), mode)?.attachments ?? EMPTY_DRAFT.attachments;
+      setDraft(mode, { attachments: typeof value === "function" ? value(prev) : value });
+    } else {
+      setLocalAttachments((prev) => (typeof value === "function" ? value(prev) : value));
+    }
   };
   // composer 配置 picker 排他态收在 overlays store（模型 / 档位互斥，⌘M 可从快捷键打开）。
   const picker = useOverlays((s) => s.picker);
@@ -659,14 +664,15 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
       setText(clean); // 失败还原草稿与附件
       setAttachments(sendAttachments);
     };
-    if (activeId === "") {
+    if (isDraft) {
       // 草稿首发：创建并首发原子路径。创建前失败（如未配置模型）还原草稿；
       // 创建成功即视为发送成功——会话立即入栏并选中，Run 启动失败经 run.failed 在时间线展示，不还原草稿。
+      // 工作区传当前草稿槽归属：临时槽空串（主进程回落 conversation 工作区），项目槽传项目 id（会话落入该项目分组）。
       // 模型取当前草稿槽引用（草稿态选择过），取不到回落全局默认。
       const state = useApp.getState();
-      const modelRef = state.drafts[mode][state.draftWsId[mode]]?.modelRef || state.settings.defaultModel;
+      const modelRef = effectiveModelRef(state, mode);
       void api
-        .chatCreateAndStart(mode, "", clean, sendAttachments, modelRef)
+        .chatCreateAndStart(mode, state.draftWsId[mode], clean, sendAttachments, modelRef)
         .then(async ({ threadId }) => {
           await refreshThreads(mode);
           // 首发飞行中切走模式时不抢选：新会话留在原模式侧栏

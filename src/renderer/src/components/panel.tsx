@@ -5,15 +5,18 @@ import { TerminalSquare, FolderOpen, FileText } from "lucide-react";
 import { createTerminal } from "../lib/xterm";
 import { api, onTerminalData, onTerminalExit } from "../lib/api";
 import { useApp } from "../store/app";
-import type { FileNode, ThreadView } from "../../../shared/types";
+import type { FileNode, ThreadView, WorkspaceView } from "../../../shared/types";
 
 export type PanelTab = "terminal" | "files" | "doc";
 
-/** 当前面板生效的工作区 id：活动会话优先取其工作区；草稿态（活动会话为空）取草稿槽归属
- *  （空串 = 临时槽）。查不到由调用方走各自回落（终端回落内置临时目录，文件树回落首个工作区）。 */
-function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads: ThreadView[]): string {
-  if (activeThreadId) return threads.find((t) => t.id === activeThreadId)?.workspaceId ?? "";
-  return draftWsId;
+/** 当前面板生效的工作区 id：活动会话的工作区 → 草稿态取草稿槽归属（draftWsId 非空时，发送前即可浏览项目）
+ *  → 回落内置临时目录（conversation 工作区）。归属查不到（如项目已删）同样回落。终端与文件树共用同一推导。 */
+function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads: ThreadView[], workspaces: WorkspaceView[]): string {
+  const direct = activeThreadId
+    ? (threads.find((t) => t.id === activeThreadId)?.workspaceId ?? "")
+    : draftWsId;
+  const found = direct ? workspaces.find((w) => w.id === direct) : undefined;
+  return (found ?? workspaces.find((w) => w.purpose === "conversation"))?.id ?? "";
 }
 
 export function SidePane(): React.JSX.Element {
@@ -94,9 +97,8 @@ function TerminalView(): React.JSX.Element {
   const [exitCode, setExitCode] = useState<number | null>(null);
 
   // 生效工作区：活动会话的工作区 → 草稿态按草稿槽归属（发送前即可浏览项目）→ 回落内置临时目录。
-  const wsId = effectiveWorkspaceId(activeThreadId, draftWsId, threads);
-  const activeWorkspace =
-    workspaces.find((w) => w.id === wsId) ?? workspaces.find((w) => w.purpose === "conversation");
+  const wsId = effectiveWorkspaceId(activeThreadId, draftWsId, threads, workspaces);
+  const activeWorkspace = workspaces.find((w) => w.id === wsId);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -157,9 +159,9 @@ function FilesView(): React.JSX.Element {
   const draftWsId = useApp((s) => s.draftWsId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const [pickedId, setPickedId] = useState("");
-  // 默认选中跟随当前归属（活动会话 / 草稿槽），用户下拉选择后尊重手动选择。
-  const wsId = pickedId || effectiveWorkspaceId(activeThreadId, draftWsId, threads);
-  const ws = workspaces.find((w) => w.id === wsId) ?? workspaces[0];
+  // 默认选中跟随当前归属（活动会话工作区 / 草稿槽归属 / 内置临时目录），用户下拉选择后尊重手动选择。
+  const wsId = pickedId || effectiveWorkspaceId(activeThreadId, draftWsId, threads, workspaces);
+  const ws = workspaces.find((w) => w.id === wsId);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

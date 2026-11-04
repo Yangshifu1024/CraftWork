@@ -7,7 +7,7 @@ import { Popover } from "radix-ui";
 import { Command } from "cmdk";
 import { Check, Package } from "lucide-react";
 import { api } from "../lib/api";
-import { useApp } from "../store/app";
+import { useApp, effectiveModelRef } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import type { ProviderView } from "../../../shared/types";
 
@@ -23,7 +23,7 @@ export function ModelPicker({
   const mode = useApp((s) => s.mode);
   const activeThreadId = useApp((s) => s.activeThreadId[mode]);
   const settings = useApp((s) => s.settings);
-  const draftModelRef = useApp((s) => s.drafts[s.mode][s.draftWsId[s.mode]]?.modelRef ?? "");
+  const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
   const setDraft = useApp((s) => s.setDraft);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const openSettings = useOverlays((s) => s.open);
@@ -39,7 +39,7 @@ export function ModelPicker({
 
   const current = activeThreadId
     ? (useApp.getState().threads[mode].find((t) => t.id === activeThreadId)?.modelId || settings.defaultModel)
-    : (draftModelRef || settings.defaultModel);
+    : draftModel;
 
   const pick = async (ref: string): Promise<void> => {
     if (activeThreadId) {
