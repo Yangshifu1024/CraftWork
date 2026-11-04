@@ -17,4 +17,6 @@
 
 ## 进展
 
-已实现（`0b16762`，后续修复 `6195ade`）。store 新增 `drafts` / `setDraft`，`createThread` 改为 `newDraft()`（不再调 `api.threadCreate`，渲染层调用归零）；侧栏新建 / ⌘N / ⌘K / 新建项目收尾四个入口全改草稿态；Composer 草稿首发走 `chatCreateAndStart`（`6195ade` 修复：workspaceId 传当前槽归属、会话态输入与草稿槽分流互不污染）；草稿态模型选择先禁用（票 4 解除）。渲染层无单测（spec 决策）；typecheck / test / build 全绿。**待办：隔离目录 GUI 冒烟走查（Code / Work 两模式）尚未执行。**
+已实现（`0b16762`，后续修复 `6195ade`）。store 新增 `drafts` / `setDraft`，`createThread` 改为 `newDraft()`（不再调 `api.threadCreate`，渲染层调用归零）；侧栏新建 / ⌘N / ⌘K / 新建项目收尾四个入口全改草稿态；Composer 草稿首发走 `chatCreateAndStart`（`6195ade` 修复：workspaceId 传当前槽归属、会话态输入与草稿槽分流互不污染）；草稿态模型选择先禁用（票 4 解除）。渲染层无单测（spec 决策）；typecheck / test / build 全绿。
+
+**冒烟已走查（隔离目录 + computer-use，2026-11-04）**：新建零落库、草稿还原、首发短标题入正确分组、失败错误卡片实时展示、Code/Work 草稿独立、重启选中最近会话——全部通过。走查中修复的关联缺陷：dev 下 React.StrictMode 使事件订阅失效（`de7e57d`，App.tsx 订阅不再被防护跳过）；`user_message` 落库无广播映射致普通发送的用户消息不实时显示（`de7e57d`，PART_EVENTS 加 `user_message → user.message`，首发/steer 手动 emit 移除）；目录提供商 endpoint 为空抛原始 URL 错误（`3002adc`）与提供商卡片无法补全端点（`5ee97a5`）。

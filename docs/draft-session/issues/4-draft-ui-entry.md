@@ -16,4 +16,6 @@
 
 ## 进展
 
-已实现（`55ffb05`，评审修复 `6195ade`）。`DraftState` 加 `modelRef`；草稿态选模型只写当前槽（`setDraft`，零写请求），首发传 `槽.modelRef || settings.defaultModel`，三处口径收敛为 `effectiveModelRef` 纯函数；项目分组 hover「+」与新建项目收尾进入项目草稿槽；顶部标题按槽归属显示（项目名 /「新对话」）；右侧面板 `effectiveWorkspaceId` 统一推导「活动会话工作区 → 草稿槽归属 → conversation 工作区」（终端与文件树共用，`6195ade` 修复 FilesView 临时态回落）。typecheck / test / build 全绿；GUI 冒烟待走查。
+已实现（`55ffb05`，评审修复 `6195ade`）。`DraftState` 加 `modelRef`；草稿态选模型只写当前槽（`setDraft`，零写请求），首发传 `槽.modelRef || settings.defaultModel`，三处口径收敛为 `effectiveModelRef` 纯函数；项目分组 hover「+」与新建项目收尾进入项目草稿槽；顶部标题按槽归属显示（项目名 /「新对话」）；右侧面板 `effectiveWorkspaceId` 统一推导「活动会话工作区 → 草稿槽归属 → conversation 工作区」（终端与文件树共用，`6195ade` 修复 FilesView 临时态回落）。typecheck / test / build 全绿。
+
+**冒烟已走查（2026-11-04）**：项目「+」进入草稿槽、标题显示项目名、槽级模型选择零写请求、首发继承模型、深浅主题显示正常——全部通过。走查中发现空项目分组不显示堵住「+」入口，已修复（`5ee97a5`）。

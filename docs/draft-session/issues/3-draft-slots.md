@@ -15,4 +15,6 @@
 
 ## 进展
 
-已实现（`92090d3`）。`drafts: Record<Mode, Record<string, DraftState>>` 按工作区分桶（空串 key = 临时槽），`draftWsId` 记录草稿槽归属，`newDraft(workspaceId)` 支持项目槽；持久化经 `lib/drafts.ts`（key `craftwork-drafts`，逐字段容错，参照 theme.ts 先例）；boot 读入但不动「选中最近会话」的启动逻辑。删项目清槽挂在 `workspace.updated { removed: true }` 事件（载荷已含 workspaceId，主进程零改动）。**注意：渲染层当前没有删除项目 UI，清槽路径需经主进程触发才能观察。** typecheck / test / build 全绿；GUI 冒烟待走查。
+已实现（`92090d3`）。`drafts: Record<Mode, Record<string, DraftState>>` 按工作区分桶（空串 key = 临时槽），`draftWsId` 记录草稿槽归属，`newDraft(workspaceId)` 支持项目槽；持久化经 `lib/drafts.ts`（key `craftwork-drafts`，逐字段容错，参照 theme.ts 先例）；boot 读入但不动「选中最近会话」的启动逻辑。删项目清槽挂在 `workspace.updated { removed: true }` 事件（载荷已含 workspaceId，主进程零改动）。
+
+**冒烟已走查（2026-11-04）**：临时 + 项目甲/乙三槽互不覆盖 ✓、项目槽草稿跨重启恢复 ✓、Code/Work 独立 ✓、启动选中最近会话不自动进草稿态 ✓、深浅主题下正常 ✓。另发现并修复：`CRAFTWORK_HOME` 隔离未接管 userData，dev/冒烟实例共享 localStorage 致草稿槽互相污染（`4c7d0d7`）；空项目（无会话）不显示分组致无法进入其草稿槽（`5ee97a5`，分组改以工作区为主序）。删项目清槽因渲染层无删除 UI 仍未走查（事件路径已接通，待删除 UI 落地）。
