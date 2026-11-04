@@ -59,6 +59,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **TypeScript
 | --- | --- |
 | 桌面开发 | `pnpm dev` |
 | 单元测试 | `pnpm test`（vitest，`tests/` 目录） |
+| Rust 检查/测试/lint | `pnpm check:rust` / `pnpm test:rust` / `pnpm lint:rust`（cargo workspace：`src-tauri/` + `crates/craft-*`，见 `docs/tauri-migration/plan.md`） |
 | 类型检查 | `pnpm typecheck`（node 侧 + web 侧两个 tsconfig） |
 | 构建产物 | `pnpm build`（输出 `out/`） |
 | 打包 .app | `pnpm dist:dir` → `dist/mac-arm64/CraftWork.app`；分发 dmg 用 `pnpm dist` → `dist/*.dmg` |

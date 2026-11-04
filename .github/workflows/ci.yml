@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, tauri-migration]
   pull_request:
   workflow_dispatch:
 
@@ -46,3 +46,34 @@ jobs:
 
       - name: 单元测试
         run: pnpm test
+
+  # Rust 侧（cargo workspace：src-tauri + crates/craft-*）。
+  # 迁移期 macOS 必绿；ubuntu/windows 允许失败占位（docs/tauri-migration/issues/01）。
+  rust:
+    name: Rust 检查（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os != 'macos-latest' }}
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings

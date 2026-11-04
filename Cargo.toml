@@ -1,0 +1,25 @@
+# CraftWork cargo workspace：src-tauri 为应用壳（唯一允许接触 Tauri API 的成员），
+# crates/craft-* 为领域 crate（与 Electron 主进程领域包一一对应，保持可独立测试）。
+# 分层依据：docs/tauri-migration/plan.md §1.2。
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/craft-core",
+    "crates/craft-store",
+    "crates/craft-policy",
+    "crates/craft-model",
+    "crates/craft-tools",
+    "crates/craft-agent",
+    "crates/craft-doc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
