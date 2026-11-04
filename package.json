@@ -19,7 +19,9 @@
     "dist": "electron-vite build && electron-builder --mac",
     "dist:dir": "electron-vite build && electron-builder --mac --dir",
     "postinstall": "electron-builder install-app-deps",
-    "prepare": "install-electron"
+    "prepare": "install-electron",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

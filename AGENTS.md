@@ -51,7 +51,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **TypeScript
 | Node ≥ 24 | `node:sqlite` 稳定可用；Electron 45 内置 Node 24 |
 | pnpm | 唯一包管理器；`pnpm-workspace.yaml` 承载构建脚本许可 |
 | electron-vite | 开发/构建：`pnpm dev` / `pnpm build`（main、preload、renderer 三段） |
-| electron-builder | 打包：`pnpm dist:dir`（.app 目录）/ `pnpm dist`（含签名流程时再开） |
+| electron-builder | 打包：`pnpm dist`（mac dmg）/ `pnpm dist:dir`（.app 目录）；`dist:win` / `dist:linux` 需在对应平台实机执行 |
 
 ## 3. 常用命令
 
@@ -61,7 +61,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **TypeScript
 | 单元测试 | `pnpm test`（vitest，`tests/` 目录） |
 | 类型检查 | `pnpm typecheck`（node 侧 + web 侧两个 tsconfig） |
 | 构建产物 | `pnpm build`（输出 `out/`） |
-| 打包 .app | `pnpm dist:dir` → `dist/mac-arm64/CraftWork.app` |
+| 打包 .app | `pnpm dist:dir` → `dist/mac-arm64/CraftWork.app`；分发 dmg 用 `pnpm dist` → `dist/*.dmg` |
 | 同步模型目录 | `node scripts/modelsync.mjs`（检查漂移加 `--check`；生成快照并重写内嵌模块） |
 | GUI 冒烟（隔离目录） | `CRAFTWORK_HOME=/tmp/cw-smoke pnpm dev` |
 
@@ -229,7 +229,7 @@ pnpm dist:dir   # 打包冒烟（.app 可启动）
 - 沙箱与 MCP（stdio 客户端）：设置页可存储服务器配置，连接能力留桩。
 - Work 模式限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
 - 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。
-- 跨平台：Windows（ConPTY 终端）与 Linux 打包需要实机验证；仅 macOS 实测。
+- 跨平台：`dist:win` / `dist:linux` 打包命令与 nsis / AppImage 配置已备，但 node-pty 为原生模块交叉编译不可行，且终端等能力未在对应平台验证——需在 Windows / Linux 实机执行与走查；仅 macOS 实测。
 
 ## 11. 提交规范
 

@@ -19,10 +19,25 @@ mac:
   icon: assets/logo.png
   identity: null
   target:
-    - target: dir
+    - target: dmg
       arch:
         - arm64
   hardenedRuntime: false
   gatekeeperAssess: false
 dmg:
   writeUpdateInfo: false
+# Windows：nsis 安装包（node-pty 需在 Windows 上实机编译，交叉编译不可行）
+win:
+  icon: assets/logo.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+# Linux：AppImage（node-pty 需在 Linux 上实机编译）
+linux:
+  icon: assets/logo.png
+  category: Development
+  target:
+    - target: AppImage
+      arch:
+        - x64
