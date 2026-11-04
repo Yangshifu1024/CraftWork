@@ -1,6 +1,6 @@
 // OpenAI / OpenAI-compatible 适配器。
 // 请求体拼接规则固定不增减空白——前缀缓存依赖字节稳定。
-import { streamError, transportError } from "./errors";
+import { missingEndpointError, streamError, transportError } from "./errors";
 import { openSSE, sseData, ToolCallBuilder } from "./sse";
 import { attachmentPromptText } from "./types";
 import type { Chunk, Client, Message, Request, SystemBlock, ToolSpec, Usage } from "./types";
@@ -111,6 +111,7 @@ export class OpenAICompatClient implements Client {
   ) {}
 
   async *stream(req: Request): AsyncIterable<Chunk> {
+    if (!this.endpoint) throw missingEndpointError(this.providerName);
     const controller = new AbortController();
     const lines = await openSSE(
       joinURL(this.endpoint),

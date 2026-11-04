@@ -1,7 +1,7 @@
 // Anthropic 适配器。
 // 关键点：三个 cache_control 断点（系统稳定块 / 系统动态块 / 历史最后一块）、
 // 连续同角色合并、tool 结果以 user 身份回传。
-import { streamError, transportError } from "./errors";
+import { missingEndpointError, streamError, transportError } from "./errors";
 import { openSSE, sseData, ToolCallBuilder } from "./sse";
 import { attachmentPromptText } from "./types";
 import type { Chunk, Client, Request, Usage } from "./types";
@@ -133,6 +133,7 @@ export class AnthropicClient implements Client {
   ) {}
 
   async *stream(req: Request): AsyncIterable<Chunk> {
+    if (!this.endpoint) throw missingEndpointError(this.providerName);
     const controller = new AbortController();
     const lines = await openSSE(
       joinAPIPath(this.endpoint, "/v1/messages"),

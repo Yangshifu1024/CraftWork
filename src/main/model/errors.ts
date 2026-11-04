@@ -143,6 +143,15 @@ export function transportError(provider: string, err: unknown): ModelError {
   return new ModelError(Code.ProviderUnavailable, provider, `无法连接模型服务：${msg}`, 0, err);
 }
 
+/** 提供商缺少服务地址（如从目录添加但目录未收录 Endpoint）：配置问题，不可重试。 */
+export function missingEndpointError(provider: string): ModelError {
+  return new ModelError(
+    Code.InvalidRequest,
+    provider,
+    `${provider} 未配置服务地址，请在设置中编辑该提供商并补全 Endpoint`,
+  );
+}
+
 /** 从错误响应体提取可读消息：兼容 error 对象 / error 字符串 / 顶层 message。 */
 export function extractErrorMessage(body: string): string {
   try {

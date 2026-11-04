@@ -1,8 +1,8 @@
 // 模型层测试：错误分类、请求体构建、SSE 解析、费用估算。
 import { describe, expect, it } from "vitest";
-import { statusError, streamError, extractErrorMessage, retryable, transportError } from "../src/main/model/errors";
-import { buildOpenAIBody } from "../src/main/model/openai";
-import { buildAnthropicBody, buildAnthropicMessages, joinAPIPath } from "../src/main/model/anthropic";
+import { statusError, streamError, extractErrorMessage, retryable, transportError, ModelError } from "../src/main/model/errors";
+import { buildOpenAIBody, OpenAICompatClient } from "../src/main/model/openai";
+import { buildAnthropicBody, buildAnthropicMessages, joinAPIPath, AnthropicClient } from "../src/main/model/anthropic";
 import { parseArguments, ToolCallBuilder } from "../src/main/model/sse";
 import { estimateCostMicros } from "../src/main/agent/runner";
 import type { Request, ToolSpec, Message, ModelInfo, Usage } from "../src/main/model/types";
@@ -44,6 +44,21 @@ describe("错误分类", () => {
     expect(retryable(statusError("p", 401, "{}"))).toBe(false);
     const cancelErr = transportError("p", Object.assign(new Error("x"), { name: "AbortError" }));
     expect(cancelErr.code).toBe("canceled");
+  });
+
+  it("空 Endpoint 在请求前抛可读配置错误（不可重试）", async () => {
+    const consume = async (gen: AsyncIterable<unknown>): Promise<unknown> => {
+      for await (const chunk of gen) return chunk;
+      return undefined;
+    };
+    const openai = new OpenAICompatClient("", "k", "测试商");
+    const err = await consume(openai.stream(makeRequest())).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelError);
+    expect((err as ModelError).code).toBe("invalid_request");
+    expect((err as ModelError).message).toMatch(/未配置服务地址/);
+    expect(retryable(err)).toBe(false);
+    const anthropic = new AnthropicClient("", "k", "测试商");
+    await expect(consume(anthropic.stream(makeRequest()))).rejects.toMatchObject({ code: "invalid_request" });
   });
 });
 
