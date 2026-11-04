@@ -127,6 +127,7 @@ fn set_dir_mode_0700(dir: &str) {
 fn set_dir_mode_0700(_dir: &str) {}
 
 /// 工具调用上下文（assess 阶段准备，execute 阶段消费）。
+#[derive(Clone)]
 pub struct ToolCtx {
     pub name: String,
     pub args: Value,

@@ -2,6 +2,8 @@
 //! 「写进历史」与「推给界面」的映射只存在这一份，不会漂移。
 //! 对应 src/main/core/record.ts。
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use crate::db::Db;
@@ -11,19 +13,25 @@ use crate::threads;
 use craft_core::bus::{part_event, Bus};
 use craft_core::contract::event_type;
 
-pub struct Recorder<'a> {
-    db: &'a Db,
-    bus: &'a Bus,
+/// Arc 持有版：可跨任务克隆（壳层与 Runner 共享同一实例）。
+#[derive(Clone)]
+pub struct Recorder {
+    db: Arc<Db>,
+    bus: Arc<Bus>,
 }
 
-impl<'a> Recorder<'a> {
-    pub fn new(db: &'a Db, bus: &'a Bus) -> Self {
+impl Recorder {
+    pub fn new(db: Arc<Db>, bus: Arc<Bus>) -> Self {
         Self { db, bus }
+    }
+
+    pub fn bus(&self) -> &Arc<Bus> {
+        &self.bus
     }
 
     /// 落库 + 广播；无 PART_EVENTS 映射的 kind 只入库不广播。载荷统一补 messageId（渲染层幂等键）。
     pub fn append(&self, rec: &EventRecord) -> crate::db::StoreResult<(String, i64)> {
-        let result = record_event(self.db, rec)?;
+        let result = record_event(&self.db, rec)?;
         if let Some(broadcast_type) = part_event(&rec.kind) {
             let mut base = match &rec.payload {
                 Value::Object(map) => map.clone(),
@@ -67,7 +75,7 @@ impl<'a> Recorder<'a> {
     /// 启动收尾（interrupt_stale_runs 的 Recorder 包装）：事务内标记中断 + 逐条广播 error 事件。
     pub fn interrupt_stale_runs(&self) -> crate::db::StoreResult<usize> {
         let mut broadcast: Vec<EventRecord> = Vec::new();
-        let count = runs::interrupt_stale_runs(self.db, |rec| {
+        let count = runs::interrupt_stale_runs(&self.db, |rec| {
             // 事务回调里只收集；落库与广播在回调外统一处理
             broadcast.push(rec);
         })?;

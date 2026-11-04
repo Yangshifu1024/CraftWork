@@ -130,6 +130,7 @@ pub fn build_openai_body(model_id: &str, req: &Request) -> Value {
     body
 }
 
+#[derive(Clone)]
 pub struct OpenAICompatClient {
     http: reqwest::Client,
     endpoint: String,
@@ -149,6 +150,15 @@ impl OpenAICompatClient {
 }
 
 impl Client for OpenAICompatClient {
+    fn clone_box(&self) -> Box<dyn Client> {
+        Box::new(OpenAICompatClient {
+            http: self.http.clone(),
+            endpoint: self.endpoint.clone(),
+            api_key: self.api_key.clone(),
+            provider_name: self.provider_name.clone(),
+        })
+    }
+
     fn stream<'a>(&'a self, req: &'a Request) -> BoxStream<'a, Result<Chunk, ModelError>> {
         let body = build_openai_body(&req.model, req);
         let endpoint = self.endpoint.clone();

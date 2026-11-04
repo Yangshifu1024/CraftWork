@@ -27,6 +27,15 @@ impl RetryClient {
 }
 
 impl Client for RetryClient {
+    fn clone_box(&self) -> Box<dyn Client> {
+        Box::new(RetryClient {
+            inner: self.inner.clone_box(),
+            attempts: self.attempts,
+            base_delay_ms: self.base_delay_ms,
+            max_delay_ms: self.max_delay_ms,
+        })
+    }
+
     fn stream<'a>(&'a self, req: &'a Request) -> BoxStream<'a, Result<Chunk, ModelError>> {
         let attempts = self.attempts;
         let base = self.base_delay_ms;

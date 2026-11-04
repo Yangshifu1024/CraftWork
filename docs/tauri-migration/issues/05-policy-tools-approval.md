@@ -1,7 +1,7 @@
 # 05 策略、工具框架与审批（P4）
 
 labels: [needs-triage]
-status: in-progress
+status: done
 depends: 03（可与 04 并行）
 
 ## 任务

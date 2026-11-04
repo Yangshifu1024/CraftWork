@@ -241,4 +241,6 @@ pub mod errors {
 /// 统一客户端：流式接口，流结束即完成。
 pub trait Client: Send + Sync {
     fn stream<'a>(&'a self, req: &'a Request) -> futures_core::stream::BoxStream<'a, Result<Chunk, ModelError>>;
+    /// 克隆为 boxed 实例（Runner 把客户端移入阻塞任务时使用）。
+    fn clone_box(&self) -> Box<dyn Client>;
 }
