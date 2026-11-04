@@ -5,7 +5,7 @@
 ## models.dev
 
 - 项目：https://github.com/anomalyco/models.dev
-- 用途：模型提供商与模型目录数据通过 `cmd/modelsync` 同步、裁剪后嵌入二进制。
+- 用途：模型提供商与模型目录数据通过 `scripts/modelsync.mjs` 同步、裁剪后内嵌进源码，并随应用构建打包。
 - 许可：MIT License
 
 ```text
@@ -31,3 +31,16 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## 随应用分发的核心第三方运行时
+
+以下组件以 npm 依赖形式随应用构建产物分发，均采用 MIT License；许可全文见各项目仓库或 npm 包内声明。
+
+| 组件 | 用途 | 许可 | 项目 |
+| --- | --- | --- | --- |
+| Electron | 桌面外壳（主进程 / 渲染进程 / 预加载桥） | MIT | https://github.com/electron/electron |
+| node-pty | 终端面板的真实 PTY（原生模块） | MIT | https://github.com/microsoft/node-pty |
+| @xterm/xterm | 终端前端渲染 | MIT | https://github.com/xtermjs/xterm.js |
+| @xterm/addon-fit | 终端尺寸自适应插件 | MIT | https://github.com/xtermjs/xterm.js |
+
+其余 npm 依赖的完整清单见根目录 `package.json`，各自的许可以其 npm 包声明为准。

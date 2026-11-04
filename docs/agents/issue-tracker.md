@@ -1,30 +1,24 @@
-# Issue tracker：仓库内 markdown
+# Issue tracker：本地 markdown（docs/<feature>/）
 
-本仓库的 issue 与 spec 以 markdown 文件形式存放在 `docs/<feature>/` 下，不使用 GitHub Issues 或其他外部跟踪系统。
+本仓库的 spec 与 issue 以 markdown 文件存放在仓库内，**不使用 GitHub Issues**（remote 虽指向 GitHub，勿用 `gh issue`）。
 
-## 约定
+## 目录约定
 
-- 一个特性一个目录：`docs/<feature-slug>/`，slug 用小写连字符（例如 `docs/mcp-http/`）。
-- 该特性的规格是 `docs/<feature-slug>/spec.md`。
-- 实现 issue 一票一个文件：`docs/<feature-slug>/issues/<NN>-<slug>.md`，编号从 `01` 起，不要合并成一个总票文件。
-- 分诊状态写在每个 issue 文件顶部附近的 `Status:` 行（角色字符串见 `triage-labels.md`）。
-- 评论与讨论历史追加到文件底部 `## Comments` 标题之下。
+- 每个 feature 一个目录：`docs/<feature>/`，目录名用简短 kebab-case 英文（如 `draft-session`）
+- `docs/<feature>/spec.md`：该 feature 的行为规格（`/to-spec` 的产物）
+- `docs/<feature>/issues/N-<slug>.md`：拆解出的 issue，`N` 为从 1 递增的序号，`slug` 为 kebab-case 短名
 
-## 当技能说「发布到 issue tracker」
+## Conventions
 
-在 `docs/<feature-slug>/` 下新建文件（目录不存在则先创建）。
+- **创建 issue**：在对应 feature 目录下新增 `issues/N-<slug>.md`，文件头部写元信息字段（标题、labels、状态）。
+- **标签**：以行内字段记录，如 `labels: [ready-for-agent]`；不用 GitHub 标签系统。
+- **读取**：按目录枚举 feature；issue 按文件名序号排序。
+- **评论/进展**：以 issue 文件内的 `## 进展` 小节追加记录。
 
-## 当技能说「读取相关票」
+## When a skill says "publish to the issue tracker"
 
-读取被引用路径的文件。用户通常会直接给出路径或编号。
+把 spec 写为 `docs/<feature>/spec.md`（`<feature>` 由当次工作确定）。
 
-## Wayfinder 操作
+## When a skill says "fetch the relevant ticket"
 
-供 `/wayfinder` 使用。**map** 是一个文件，每张子票一个**子文件**。
-
-- **Map**：`docs/<effort>/map.md`（Notes / Decisions-so-far / Fog 正文）。
-- **子票**：`docs/<effort>/issues/NN-<slug>.md`，编号从 `01` 起，正文写问题。`Type:` 行记录票型（`research`/`prototype`/`grilling`/`task`）；`Status:` 行记录 `claimed`/`resolved`。
-- **阻塞**：文件顶部 `Blocked by: NN, NN` 行。所列文件全部 `resolved` 时该票解除阻塞。
-- **前沿**：扫描 `docs/<effort>/issues/` 中开放、未阻塞、未认领的文件；编号最小者优先。
-- **认领**：动手前先置 `Status: claimed` 并保存。
-- **解决**：在 `## Answer` 标题下追加答案，置 `Status: resolved`，并在 map 的 Decisions-so-far 追加上下文指针（摘要 + 链接）。
+读取对应 feature 目录下的 spec.md 或 issue 文件。

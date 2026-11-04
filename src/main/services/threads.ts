@@ -16,7 +16,7 @@ import {
   type ThreadRow,
 } from "../store/threads";
 import { snapshot as buildSnapshot } from "../store/events";
-import { getWorkspace } from "../store/workspaces";
+import { defaultConversationWorkspaceId, getWorkspace } from "../store/workspaces";
 import { toThreadView } from "../store/view";
 import type { Catalog } from "../model/catalog";
 import type { SettingsService } from "./settings";
@@ -64,7 +64,7 @@ export class ThreadService {
       title: auto ? "新对话" : [...trimmed].slice(0, TITLE_MAX_RUNES).join(""),
       titleAuto: auto,
       modelId: threadModel,
-      workspaceId,
+      workspaceId: workspaceId || defaultConversationWorkspaceId(this.db),
       status: "idle",
       archived: false,
     };

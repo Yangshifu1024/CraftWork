@@ -146,11 +146,11 @@ node scripts/modelsync.mjs --check  # 只检查是否与上游一致
 
 ## 参与贡献
 
-欢迎提交 Issue 与 Pull Request。完整的环境准备、代码约定、检查命令与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎提 issue 与 Pull Request。spec 与 issue 以本地 markdown 存放在仓库内（`docs/<feature>/`），不使用 GitHub Issues，约定见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)。完整的环境准备、代码约定、检查命令与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### 开始之前
 
-1. 阅读 [AGENTS.md](AGENTS.md)：里面有命令、代码结构、审批 / 安全 / 界面约定。
+1. 阅读 [AGENTS.md](AGENTS.md)：里面有命令、代码结构、审批 / 安全 / 界面约定，以及 Agent skills 协作约定（issue tracker、triage 标签、领域文档）。
 2. 阅读 [架构规格](docs/specs/architecture.md)；涉及决策取舍时查 [docs/adr/](docs/adr/)。
 
 ### 流程
@@ -185,6 +185,7 @@ pnpm dist:dir      # 打包冒烟
 - [系统提示词契约](docs/specs/prompt-contract.md)：提示词分节与缓存分层
 - [决策记录（ADR）](docs/adr/)：架构与选型决策的背景与取舍
 - [术语表](GLOSSARY.md)：仓库领域词汇基准
+- [Agent skills 约定](docs/agents/)：issue tracker（本地 markdown）、triage 标签与领域文档消费规则
 - [贡献指南](CONTRIBUTING.md)
 - [开发与协作约定](AGENTS.md)
 

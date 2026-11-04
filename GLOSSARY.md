@@ -6,9 +6,9 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| CraftWork | 完全本地运行、以 Go 为内核、用 mygo 原生 UI 自绘界面的桌面 Agent |
+| CraftWork | 完全本地运行的桌面 Agent：Electron 主进程承载全部领域逻辑（Agent 循环、工具、策略、存储、终端、密钥），渲染层为 React 界面，数据不出本机 |
 | Code 模式 | 面向开发者的工作台：工作区、代码编辑、Shell、Git、差异与终端 |
-| Work 模式 | 面向日常办公的工作台：文档、邮件、日历与文件预览；不显示 Git、差异与终端 |
+| Work 模式 | 面向文档处理的工作台：Word / Excel / PDF 文本级读取与预览；不显示 Git、差异与终端 |
 | 工作区 | 用户在本地选择的项目根，独立于模式存在；可挂载一个或多个源文件夹，同一项目可在两种模式下打开 |
 | 源文件夹 | 工作区挂载的目录；第一个是主要目录，其余是附加目录，全部纳入 Agent 可访问范围 |
 | 主要目录 | 工作区的第一个源文件夹，也是会话的工作目录（`workspaces.path`）；Git 与环境上下文只作用于它 |
@@ -18,7 +18,7 @@
 | Run | 一次从发送消息到 Agent 完成或失败的执行过程；同一会话同时只允许一个 run |
 | 临时会话 | 绑定应用内置临时目录（数据目录 `workspace/default`，`purpose = conversation`）的普通会话；开箱即用，能力与工作区会话一致，文件操作限定在内置目录内 |
 | 运行中引导（steer） | 会话运行中排队追加的用户指令：当前工具批次结束后并入下一次模型请求，运行结束后自动接力为新 run |
-| RunEnv | 运行环境的值对象 `{WorkspacePath, Restricted, Purpose}`：运行开始时由 Runner 解析并沿调用图下发，不进任何全局可变状态 |
+| 环境上下文（EnvContext） | 运行开始时采集的环境快照：日期 / 平台 / Shell + Git 摘要 + 指令文件（AGENTS.md 两级）；任何一步失败都降级省略，不阻断运行 |
 | 部件（Part） | 消息内的结构化块：文本、推理、工具、审批、待办、错误、草稿等 |
 | 快照（Snapshot） | 按 `thread_id` 读取事件并按 `message_id` 分组得到的会话完整状态 |
 
@@ -45,38 +45,35 @@
 | 上下文占用 | 最近一次主对话请求的 `input + output` token，每轮覆盖更新（不累加） |
 | 上下文压缩 | 历史超过模型窗口 70% 时摘要早期消息；摘要以 `context_summary` 事件持久化 |
 
-## 架构与原生 UI
+## 架构与界面
 
 | 术语 | 定义 |
 | --- | --- |
-| 原生 UI | mygo（`package ui`）的界面形态：Go 立即模式 view 每帧构建界面，GPU 自绘；应用内没有任何 WebView（ADR-0014） |
-| 立即模式（Immediate Mode） | view 是每帧执行的普通函数，状态放 app 结构体；没有虚拟 DOM，元素身份靠兄弟位置或 `Key` 保持 |
-| mygo | CraftWork 的桌面外壳与 UI 库（go.mod tool 依赖，`go tool mygo`）；提供窗口、事件循环、通知、终端与原生控件 |
-| view 直调 | 界面调用后端的方式：普通 Go 方法调用，没有 IPC 与绑定层（Wails 时期的绑定语义已随迁移消失） |
-| win.Update 桥 | 后台结果回界面的唯一通道：`win.Update(func)` 把回调投到主线程执行并合并到下一帧 |
+| 主进程（Main Process） | 领域内核所在：Agent 循环、工具、策略、SQLite、终端与密钥全部由主进程执行；领域包（`core` / `store` / `policy` / `agent` / `model` / `tools`）是普通 TypeScript 模块，不 import Electron |
+| 渲染层（Renderer） | React 19 + zustand + Tailwind v4 界面；不持有任何 Node 能力，不加载远程页面，系统操作只经通道表 |
+| 预加载桥（preload） | contextBridge 只做桥：把集中通道表暴露为 `window.craftwork`，不含业务逻辑 |
+| 通道表（channels） | 渲染层系统操作的唯一出口；方法签名在 `shared` 定义，`channels` / `preload` / `ipc` 三处同步接线 |
 | 事件（Event） | 会话事实来源 `events` 表中的一条记录，按线程 `seq` 单调递增；类型表是内部契约 |
-| Recorder | `internal/record` 的事件写入与广播唯一出口：一次调用完成 seq 分配、落库与推送 |
-| Singleton tab | 面板里同类型只保留一个的 tab（文件树 / 差异 / 终端 / 文档）：重复打开等价于聚焦 |
-| 工作区分桶 | 面板 tab 状态按工作区（再按线程）分桶存储：切换工作区或会话只显示归属桶内的 tab |
-| Esc 退出链 | 窗口级 Esc 的分层消费：浮层模态 → 面板激活 tab（焦点守卫）→ 聊天列两级（双击停止 / 拒绝审批），一次退一层 |
+| Recorder | `core/record` 的事件写入与广播唯一出口：一次调用完成 seq 分配、落库与广播 |
+| Esc 退出链 | 窗口级快捷键集中在渲染层 hooks；Esc 一次退一层：浮层一层 → 输入框不拦截 |
 | 系统提示词缓存层 | 前缀块（无标记）/ 稳定块（跨会话一致）/ 动态块（会话内一致）三层 |
 
 ## 存储
 
 | 术语 | 定义 |
 | --- | --- |
-| 数据目录 | `~/.craftwork`：数据库、keys.json、backups/、attachments/；`CRAFTWORK_HOME` 可隔离 |
+| 数据目录 | `~/.craftwork`：`craftwork.db`、`keys.json`、`backups/`、`attachments/`、`workspace/default`（内置临时会话目录）；`CRAFTWORK_HOME` 可隔离 |
 | keys.json | 按提供商与 MCP 服务器保存的密钥文件；目录 0700、文件 0600；不进入日志、数据库与导出包 |
 | 写前备份 | 写文件或文档前把原文件备份到 `~/.craftwork/backups/`，记录 SHA-256 |
-| 软删除 | 会话删除后保留 7 天可恢复；到期清理事件与本地文件 |
+| 会话删除 | 彻底删除：事务内物理移除该会话的事件、审批、运行与线程行，不可恢复；运行中或等待审批的会话拒绝删除 |
 
 ## 外部协议与组件
 
 | 术语 | 定义 |
 | --- | --- |
 | MCP | Model Context Protocol，模型与外部工具、资源之间的标准协议；工具命名 `mcp__服务器__工具` |
-| PTY | 伪终端，让程序以为自己在跟终端交互 |
-| libghostty | mygo 终端插件的 GPU 终端渲染内核；动态库由 `mygo build` 内嵌并随应用签名，运行时不下载 |
+| PTY | 伪终端，让程序以为自己在跟终端交互；由 node-pty 提供 |
+| 终端（Terminal） | node-pty 真实 PTY + xterm.js 渲染；node-pty 只能在主进程经 `createRequire` 引入 |
 | Diff | 修改前后的差异；代码使用代码差异，文档使用文本级差异 |
 | 文本级读写 | 只修改 Word / Excel 的内容不重建排版；不保证复杂样式的完整保真 |
 | Token | 模型处理文本的最小单位，用于计量上下文与费用 |

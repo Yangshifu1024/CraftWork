@@ -1,13 +1,17 @@
-# Triage 标签
+# Triage Labels
 
-本仓库使用默认的五个分诊角色，标签字符串与角色名一致：
+The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
 
-| 角色 | 标签字符串 | 含义 |
-| --- | --- | --- |
-| 待分诊 | `needs-triage` | 尚未判断有效性、优先级与归属 |
-| 缺信息 | `needs-info` | 缺少复现步骤或决策输入，需要补充信息 |
-| 可交给代理 | `ready-for-agent` | 信息完整，Agent 可以直接开工 |
-| 需要人做 | `ready-for-human` | 需要人来执行或决策，Agent 不应接手 |
-| 不修 | `wontfix` | 明确不处理 |
+| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
+| -------------------------- | -------------------- | ---------------------------------------- |
+| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
+| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
+| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
+| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
+| `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
-Issue tracker 为仓库内 markdown（见 `issue-tracker.md`），状态写在 issue 文件的 `Status:` 行，值为上表中的标签字符串。不创建任何外部标签。
+When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+
+本仓库的 tracker 是本地 markdown（见 `issue-tracker.md`）：标签以 issue 文件头部的行内字段记录，如 `labels: [ready-for-agent]`，不使用 GitHub 标签系统。
+
+Edit the "Label in our tracker" column to match whatever vocabulary you actually use.

@@ -216,11 +216,6 @@ pnpm dist:dir   # 打包冒烟（.app 可启动）
 
 | 改动 | 需要同步 |
 | --- | --- |
-| 技术栈、分层、安全机制 | `docs/specs/architecture.md` |
-| 系统提示词分节、缓存层级 | `docs/specs/prompt-contract.md` |
-| 产品定位、范围、验收 | `docs/specs/product.md` |
-| 功能与验收要点、工具与规则 | `docs/specs/features.md` |
-| 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
 | 开发约定、命令、陷阱 | 本文件 |
@@ -239,3 +234,17 @@ pnpm dist:dir   # 打包冒烟（.app 可启动）
 - 提交前运行第 8 节的检查；不要提交 `out/`、`dist/`、`node_modules/`。
 - 贡献使用 DCO：`git commit -s`。
 - 界面视觉与交互的变更先更新受影响的行为 spec，再改实现；决策变更走 `docs/adr/`。
+
+## Agent skills
+
+### Issue tracker
+
+本地 markdown：spec 与 issue 存放在 `docs/<feature>/`（`spec.md` + `issues/N-<slug>.md`），不使用 GitHub Issues。See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+默认五角色标签，以 issue 文件内字段记录。See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context：根目录 `GLOSSARY.md` + `docs/adr/`。See `docs/agents/domain.md`.

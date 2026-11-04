@@ -1,42 +1,51 @@
 # Domain Docs
 
-工程类技能在探索本仓库时应如何消费领域文档。
+How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-## 探索前先读
+## Before exploring, read these
 
-- 仓库根的 **`GLOSSARY.md`**（单上下文布局，本仓库无 `GLOSSARY-MAP.md`）。
-- **`docs/adr/`**：阅读与你即将改动的区域相关的决策记录（ADR）。
+- **`GLOSSARY.md`** at the repo root, or
+- **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
 
-如果这些文件不存在，**静默继续**：不要提示缺失，也不要主动建议创建。`/domain-modeling` 技能（经 `/grill-with-docs` 与 `/improve-codebase-architecture` 触达）会在术语或决策真正落定的时候按需创建它们。
+If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
-## 文件结构
+## File structure
 
-本仓库为单上下文布局：
+Single-context repo (most repos):
 
 ```
 /
 ├── GLOSSARY.md
-├── docs/
-│   ├── adr/          架构决策记录，NNNN-短横线标题.md
-│   ├── agents/       工程技能的仓库配置（本目录）
-│   └── specs/        行为规格：product / features / architecture / interface / prompt-contract
-└── frontend/、internal/ 等
+├── docs/adr/
+│   ├── 0001-event-sourced-orders.md
+│   └── 0002-postgres-for-write-model.md
+└── src/
 ```
 
-## 使用术语表的词汇
+Multi-context repo (presence of `GLOSSARY-MAP.md` at the root):
 
-当你的输出需要指称领域概念（issue 标题、重构提案、假设、测试名）时，使用 `GLOSSARY.md` 中定义的术语。不要漂移到术语表明确避免的同义词。
+```
+/
+├── GLOSSARY-MAP.md
+├── docs/adr/                          ← system-wide decisions
+└── src/
+    ├── ordering/
+    │   ├── GLOSSARY.md
+    │   └── docs/adr/                  ← context-specific decisions
+    └── billing/
+```
 
-如果需要的概念还不在术语表里，这是一个信号：要么你在发明项目不使用的语言（请重新斟酌），要么存在真实的空缺（记录下来交给 `/domain-modeling`）。
+本仓库为 single-context 布局：根目录 `GLOSSARY.md` + `docs/adr/`。
 
-## 标记与 ADR 的冲突
+## Use the glossary's vocabulary
 
-如果你的输出与某个既有 ADR 矛盾，显式指出，而不是静默推翻：
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
-> _与 ADR-0007（SQLite 事件溯源）矛盾，但值得重开讨论，因为……_
+If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
-## specs 与 ADR 的分工
+## Flag ADR conflicts
 
-- `docs/specs/` 描述**系统当前的行为规格**（是什么）：功能与验收、架构契约、界面规格、提示词契约。
-- `docs/adr/` 记录**为什么是这样**：背景、决策、后果、被否决的备选。
-- 改变现有行为时，先查对应 spec 与 ADR；推翻既有决策需要新写一份 ADR 并标记旧 ADR 为 superseded，同时更新受影响的 spec。
+If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
+
+> _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_

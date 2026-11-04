@@ -5,8 +5,6 @@ import { useMemo, useState } from "react";
 import {
   MessageCirclePlus,
   Search,
-  Folder,
-  FolderOpen,
   Pin,
   Pencil,
   Trash2,
@@ -15,9 +13,13 @@ import {
   Settings,
   User,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus,
 } from "lucide-react";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
+import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
 
 function relativeTime(ts: number): string {
@@ -178,8 +180,8 @@ function ProjectGroup({
           className="flex h-8 min-w-0 flex-1 cursor-pointer justify-start gap-2 rounded-lg pl-2.5 pr-1 text-left"
           onClick={onToggle}
         >
-          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtle">
-            {isOpen ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
+          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
+            {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </span>
           <span className="min-w-0 flex-1 truncate text-ui-base text-foreground-subtle">{name}</span>
           {!isOpen && hasUnread ? <span className="mx-1 size-1.5 shrink-0 rounded-full bg-icon-blue" /> : null}
@@ -202,9 +204,15 @@ export function Sidebar(): React.JSX.Element {
   const sidebarVisible = useApp((s) => s.sidebarVisible);
   const selectThread = useApp((s) => s.selectThread);
   const createThread = useApp((s) => s.createThread);
+  const refreshWorkspaces = useApp((s) => s.refreshWorkspaces);
+  const pushToast = useToasts((s) => s.push);
   const open = useOverlays((s) => s.open);
   const overlay = useOverlays((s) => s.overlay);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+
+  /** 每组默认可见条数，超出折叠为「显示更多」（对齐 ZCode 任务列表）。 */
+  const VISIBLE_LIMIT = 5;
 
   const toggleGroup = (key: string): void => {
     setCollapsed((prev) => {
@@ -213,6 +221,28 @@ export function Sidebar(): React.JSX.Element {
       else next.add(key);
       return next;
     });
+  };
+
+  const toggleShowAll = (key: string): void => {
+    setShowAll((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  /** 新建项目：选目录 → 创建项目工作区（restricted 保守信任）→ 在该项目下开新会话。 */
+  const createProject = async (): Promise<void> => {
+    try {
+      const folder = await api.pickFolder();
+      if (!folder) return; // 用户取消
+      const ws = await api.workspaceAddProject("", [folder], "restricted");
+      await refreshWorkspaces();
+      await createThread(ws.id);
+    } catch (err) {
+      pushToast("danger", "新建项目失败", err instanceof Error ? err.message : String(err));
+    }
   };
 
   const groups = useMemo(() => {
@@ -263,8 +293,15 @@ export function Sidebar(): React.JSX.Element {
             <div className="flex min-h-0 flex-1 flex-col border-t border-border/50 pt-3">
               <div className="flex min-w-0 shrink-0 items-center gap-1 px-2 pb-2">
                 <span className="min-w-0 flex-1 truncate px-2.5 text-ui-base font-medium text-foreground-subtle">
-                  会话
+                  任务列表
                 </span>
+                <button
+                  className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle hover:bg-hover hover:text-foreground"
+                  title="新建项目（选择一个目录作为项目工作区）"
+                  onClick={() => void createProject()}
+                >
+                  <FolderPlus className="size-3.5" />
+                </button>
                 <button
                   className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle hover:bg-hover hover:text-foreground"
                   title="搜索（⌘K）"
@@ -275,24 +312,77 @@ export function Sidebar(): React.JSX.Element {
               </div>
               <div className="relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
                 <div className="flex flex-col gap-3 pb-3">
+                  {/* 临时会话在顶部，项目分组在后；每组超 5 条折叠为「显示更多」 */}
                   {groups.temp.length > 0 && (
                     <section className="px-2">
-                      <h3 className="px-2.5 py-1 text-ui-base font-medium text-foreground-subtlest">临时会话</h3>
-                      <ul className="space-y-0.5">
-                        {groups.temp.map((t) => (
-                          <ThreadRowItem
-                            key={t.id}
-                            thread={t}
-                            active={t.id === activeId}
-                            onSelect={() => void selectThread(t.id)}
-                          />
-                        ))}
-                      </ul>
+                      {/* 分组头：与项目分组一致可折叠 */}
+                      <div className="group/temp-row ml-2 flex h-8 min-w-0 items-center rounded-lg hover:bg-surface-hover">
+                        <button
+                          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2 pr-1 text-left"
+                          onClick={() => toggleGroup(groups.conversationWs?.id ?? "temp")}
+                        >
+                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
+                            {collapsed.has(groups.conversationWs?.id ?? "temp") ? (
+                              <ChevronRight className="size-3.5" />
+                            ) : (
+                              <ChevronDown className="size-3.5" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-ui-base font-medium text-foreground-subtlest">
+                            临时会话
+                          </span>
+                        </button>
+                      </div>
+                      {!collapsed.has(groups.conversationWs?.id ?? "temp") && (
+                        <>
+                          <ul className="space-y-0.5 pt-1">
+                            {(showAll.has("temp") ? groups.temp : groups.temp.slice(0, VISIBLE_LIMIT)).map((t) => (
+                              <ThreadRowItem
+                                key={t.id}
+                                thread={t}
+                                active={t.id === activeId}
+                                onSelect={() => void selectThread(t.id)}
+                              />
+                            ))}
+                          </ul>
+                          {groups.temp.length > VISIBLE_LIMIT && (
+                            <button
+                              className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-3 text-left text-ui-sm text-foreground-subtlest hover:text-foreground-subtle"
+                              onClick={() => toggleShowAll("temp")}
+                            >
+                              {showAll.has("temp") ? "收起" : "显示更多"}
+                            </button>
+                          )}
+                        </>
+                      )}
                     </section>
                   )}
-                  {groups.projectGroups.map((group) => {
+                  {/* 「项目」分组：与临时会话同级同款（可折叠头），折叠即收起其下全部项目 */}
+                  {groups.projectGroups.length > 0 && (
+                    <section className="px-2">
+                      <div className="group/proj-sec ml-2 flex h-8 min-w-0 items-center rounded-lg hover:bg-surface-hover">
+                        <button
+                          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2 pr-1 text-left"
+                          onClick={() => toggleGroup("projects")}
+                        >
+                          <span className="flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
+                            {collapsed.has("projects") ? (
+                              <ChevronRight className="size-3.5" />
+                            ) : (
+                              <ChevronDown className="size-3.5" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-ui-base font-medium text-foreground-subtlest">
+                            项目
+                          </span>
+                        </button>
+                      </div>
+                      {!collapsed.has("projects") && (
+                        <div className="flex flex-col gap-3 pt-1">
+                          {groups.projectGroups.map((group) => {
                     const key = group.workspaceId;
                     const isOpen = !collapsed.has(key);
+                    const visible = showAll.has(key) ? group.threads : group.threads.slice(0, VISIBLE_LIMIT);
                     return (
                       <ProjectGroup
                         key={key}
@@ -301,7 +391,7 @@ export function Sidebar(): React.JSX.Element {
                         onToggle={() => toggleGroup(key)}
                       >
                         <ul className="space-y-0.5">
-                          {group.threads.map((t) => (
+                          {visible.map((t) => (
                             <ThreadRowItem
                               key={t.id}
                               thread={t}
@@ -310,9 +400,21 @@ export function Sidebar(): React.JSX.Element {
                             />
                           ))}
                         </ul>
+                        {group.threads.length > VISIBLE_LIMIT && (
+                          <button
+                            className="mt-0.5 flex h-7 w-full cursor-pointer items-center rounded-lg pl-4.5 text-left text-ui-sm text-foreground-subtlest hover:text-foreground-subtle"
+                            onClick={() => toggleShowAll(key)}
+                          >
+                            {showAll.has(key) ? "收起" : "显示更多"}
+                          </button>
+                        )}
                       </ProjectGroup>
-                    );
-                  })}
+                          );
+                        })}
+                        </div>
+                      )}
+                    </section>
+                  )}
                   {threads.length === 0 && (
                     <div className="px-8.5 py-2 text-ui-base text-foreground-subtlest">还没有会话</div>
                   )}

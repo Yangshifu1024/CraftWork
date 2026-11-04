@@ -7,7 +7,8 @@ import { DB, ErrNotFound } from "../src/main/store/db";
 import { createThread, getThread, renameThread, autoTitleThread, deleteThread, listThreads } from "../src/main/store/threads";
 import { appendEvent, snapshot, latestContextSummary } from "../src/main/store/events";
 import { createApproval, resolveApproval, getApproval, interruptStaleRuns, createRun, finishRun } from "../src/main/store/runs";
-import { upsertWorkspace, getWorkspace, replaceWorkspaceFolders } from "../src/main/store/workspaces";
+import { upsertWorkspace, getWorkspace, replaceWorkspaceFolders, defaultConversationWorkspaceId } from "../src/main/store/workspaces";
+import { ensureConversationWorkspace } from "../src/main/services/workspaces";
 import { setSetting, getSetting, addAudit, listAudit } from "../src/main/store/records";
 
 let dir: string;
@@ -124,6 +125,15 @@ describe("工作区", () => {
     const loaded = getWorkspace(db, ws.id);
     expect(loaded.folders.map((f) => f.path)).toEqual(["/tmp/ws-b", "/tmp/ws-c"]);
     expect(loaded.path).toBe("/tmp/ws-b");
+    cleanup();
+  });
+
+  it("默认临时会话工作区解析：ensure 后命中，缺失时空串", () => {
+    // 启动 ensure 之前：无 conversation 工作区，回落空串（行为同修复前）
+    expect(defaultConversationWorkspaceId(db)).toBe("");
+    // 启动 ensure 之后：空 workspaceId 的新会话可解析到内置临时目录
+    const ws = ensureConversationWorkspace(db, dir);
+    expect(defaultConversationWorkspaceId(db)).toBe(ws.id);
     cleanup();
   });
 });

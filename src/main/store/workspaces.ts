@@ -153,6 +153,14 @@ export function backfillThreadWorkspaces(db: DB, workspaceId: string): void {
   db.prepare("UPDATE threads SET workspace_id = ? WHERE workspace_id = ''").run(workspaceId);
 }
 
+/** 内置临时会话目录的工作区 id（purpose=conversation；启动 ensure 后必然存在，取不到回落空串）。 */
+export function defaultConversationWorkspaceId(db: DB): string {
+  const row = db
+    .prepare("SELECT id FROM workspaces WHERE purpose = 'conversation' ORDER BY created_at LIMIT 1")
+    .get() as { id?: string } | undefined;
+  return row?.id ?? "";
+}
+
 export function deleteWorkspace(db: DB, id: string): void {
   db.transaction(() => {
     db.prepare("DELETE FROM workspace_folders WHERE workspace_id = ?").run(id);
