@@ -88,6 +88,30 @@ export class ProviderService {
     this.catalog.reload();
   }
 
+  /** 启停供应商：读 → 校验 → 写 → reload → 返回刷新后的 ProviderView（spec §8）。 */
+  setEnabled(providerId: string, enabled: boolean): ProviderView {
+    const all = loadCustomProviders(this.db);
+    const idx = all.findIndex((p) => p.id === providerId);
+    if (idx < 0) throw new Error("提供商不存在");
+    all[idx] = { ...all[idx]!, enabled };
+    saveCustomProviders(this.db, all);
+    this.catalog.reload();
+    return this.toView(all[idx]!);
+  }
+
+  /** 供应商改名：名称非空校验，同 mutation 契约返回刷新后的 ProviderView。 */
+  rename(providerId: string, name: string): ProviderView {
+    const trimmed = String(name ?? "").trim();
+    if (!trimmed) throw new Error("提供商名称不能为空");
+    const all = loadCustomProviders(this.db);
+    const idx = all.findIndex((p) => p.id === providerId);
+    if (idx < 0) throw new Error("提供商不存在");
+    all[idx] = { ...all[idx]!, name: trimmed };
+    saveCustomProviders(this.db, all);
+    this.catalog.reload();
+    return this.toView(all[idx]!);
+  }
+
   setKey(providerId: string, key: string): void {
     this.requireExists(providerId);
     this.secrets.set(providerId, key);
@@ -252,6 +276,7 @@ export class ProviderService {
       catalogId: source.id,
       catalogVersion: this.catalog.builtinMeta().version,
       envVars: info.envVars,
+      enabled: true,
       models,
     };
     existing.push(persisted);
@@ -301,6 +326,8 @@ export class ProviderService {
       catalogId: existing?.catalogId ?? "",
       catalogVersion: existing?.catalogVersion ?? "",
       envVars: existing?.envVars ?? envNameFallback(id),
+      // 更新已有提供商时保留启停状态，避免编辑端点等操作把禁用项悄悄重新启用
+      enabled: existing?.enabled ?? true,
       models,
     };
   }
@@ -347,6 +374,8 @@ export class ProviderService {
       keySource: this.secrets.sourceFor(p.id, p.envVars),
       keyMasked: this.secrets.maskedFor(p.id, p.envVars),
       available,
+      enabled: p.enabled,
+      docUrl: p.note,
       catalogId: p.catalogId,
       source: p.source,
       models: p.models.map((m) => ({

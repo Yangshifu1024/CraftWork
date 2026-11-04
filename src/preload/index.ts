@@ -41,6 +41,8 @@ function bridge(): CraftworkApi {
     "providerList",
     "providerSave",
     "providerDelete",
+    "providerSetEnabled",
+    "providerRename",
     "providerSetKey",
     "providerClearKey",
     "providerTest",

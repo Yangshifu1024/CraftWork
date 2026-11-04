@@ -31,6 +31,7 @@ function makeProvider(): PersistedProvider {
     catalogId: "",
     catalogVersion: "",
     envVars: [],
+    enabled: true,
     models: [
       {
         id: "model",

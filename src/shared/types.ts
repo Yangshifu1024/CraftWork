@@ -195,6 +195,10 @@ export interface ProviderView {
   keySource: string;
   keyMasked: string;
   available: boolean;
+  /** 启用状态：禁用后该供应商模型不进模型选择器 */
+  enabled: boolean;
+  /** 文档地址（目录导入时来自 models.dev 的 doc 字段） */
+  docUrl: string;
   catalogId: string;
   source: string; // manual | catalog
   models: ModelView[];

@@ -91,6 +91,10 @@ export function registerIpc(services: Services): void {
   handle("providerList", () => services.providers.list());
   handle("providerSave", (input) => services.providers.saveProvider(input as Parameters<ProviderService["saveProvider"]>[0]));
   handle("providerDelete", (providerId) => services.providers.deleteProvider(String(providerId)));
+  handle("providerSetEnabled", (providerId, enabled) =>
+    services.providers.setEnabled(String(providerId), Boolean(enabled)),
+  );
+  handle("providerRename", (providerId, name) => services.providers.rename(String(providerId), String(name ?? "")));
   handle("providerSetKey", (providerId, key) => services.providers.setKey(String(providerId), String(key ?? "")));
   handle("providerClearKey", (providerId) => services.providers.clearKey(String(providerId)));
   handle("providerTest", (providerId) => services.providers.test(String(providerId)));

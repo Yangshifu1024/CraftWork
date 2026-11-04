@@ -1,7 +1,8 @@
 // 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/工具与权限/数据）。
 // 所有改动立即保存生效。
-import { useEffect, useState } from "react";
-import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, type LucideIcon } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { useOverlays } from "../store/overlays";
@@ -10,7 +11,7 @@ import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
 import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
 import { ProviderLogo } from "../components/provider-logo";
-import type { AuditEntry, Backup, ProviderView, UsageSummary } from "../../../shared/types";
+import type { AuditEntry, Backup, ConnectionResult, ProviderView, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
@@ -289,6 +290,7 @@ function ProviderListItem({
   onSelect(): void;
 }): React.JSX.Element {
   const status = providerStatus({
+    enabled: provider.enabled,
     keyMasked: provider.keyMasked,
     keyRequired: provider.keyRequired,
     modelCount: provider.models.length,
@@ -346,62 +348,401 @@ function ProvidersEmptyGuide(): React.JSX.Element {
   );
 }
 
-/** 右栏详情（spec §6 的过渡形态）：承载原 ProviderCard 全部功能——端点 / 模型概览 / 密钥 / 测试 / 删除。
-    改名 / 启停 / 内联反馈与删除确认由供应商详情卡票接入；添加入口页由添加提供商票接入。 */
+/** 右栏供应商详情卡（spec §3.2 / §6 / §10）：
+    头部 = logo + 内联改名 + 协议徽章 + 模型数 + 启用开关 + ⋯菜单（测试连接 / 删除）；
+    连接卡 = 端点（blur/Enter 保存、失败内联红字、空值必填态）+ 协议只读 + 密钥（masked / 明文切换 / 设置 / 清除确认）
+    + 测试连接（内联结果反馈）；禁用后详情区降透明度但控件保持可操作。
+    模型列表管理与添加入口页由票 4 / 票 5 接入。 */
 function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onChanged(): void }): React.JSX.Element {
-  const [keyInput, setKeyInput] = useState("");
-  const [endpointInput, setEndpointInput] = useState(provider.endpoint);
-  const [testing, setTesting] = useState(false);
+  const openConfirm = useOverlays((s) => s.openConfirm);
   const pushToast = useToastsPush();
 
+  // 改名（内联编辑态）
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(provider.name);
+  const [renaming, setRenaming] = useState(false);
+  const nameEscRef = useRef(false);
+
+  // 端点（blur / Enter 保存）
+  const [endpointInput, setEndpointInput] = useState(provider.endpoint);
+  const [endpointError, setEndpointError] = useState("");
+  const [savingEndpoint, setSavingEndpoint] = useState(false);
+  const endpointRef = useRef<HTMLInputElement>(null);
+
+  // 密钥（输入态 + 明文切换）
+  const [keyEditing, setKeyEditing] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
+
+  // 测试连接（内联结果）
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ConnectionResult | null>(null);
+
+  // 空端点必填态：导入无端点提供商后聚焦引导（spec §3.2）
+  const endpointMissing = endpointInput.trim() === "";
+  useEffect(() => {
+    if (provider.endpoint === "") endpointRef.current?.focus();
+    // 仅挂载时引导一次（组件按 provider.id 重建）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const startRename = (): void => {
+    setNameDraft(provider.name);
+    setNameEditing(true);
+  };
+
+  const commitRename = (): void => {
+    if (nameEscRef.current) {
+      nameEscRef.current = false;
+      return;
+    }
+    const next = nameDraft.trim();
+    if (renaming || !next || next === provider.name) {
+      setNameEditing(false);
+      return;
+    }
+    setRenaming(true);
+    api.providerRename(provider.id, next)
+      .then(() => {
+        setNameEditing(false);
+        onChanged();
+      })
+      .catch((err) => pushToast("danger", "改名失败", cleanErrorMessage(err)))
+      .finally(() => {
+        setRenaming(false);
+        setNameEditing(false);
+      });
+  };
+
+  const saveEndpoint = (): void => {
+    const next = endpointInput.trim();
+    if (savingEndpoint) return;
+    if (next === provider.endpoint) {
+      setEndpointError("");
+      return;
+    }
+    setSavingEndpoint(true);
+    api.providerSave({
+      id: provider.id,
+      name: provider.name,
+      kind: provider.kind,
+      endpoint: next,
+      keyRequired: provider.keyRequired,
+      models: provider.models.map((m) => ({
+        id: m.id,
+        name: m.name,
+        contextK: m.contextK,
+        maxTokens: m.maxTokens,
+        caps: m.caps,
+        cost: m.cost,
+      })),
+    })
+      .then(() => {
+        setEndpointError("");
+        onChanged();
+        pushToast("ok", "端点已保存");
+      })
+      .catch((err) => setEndpointError(cleanErrorMessage(err)))
+      .finally(() => setSavingEndpoint(false));
+  };
+
+  const saveKey = (): void => {
+    const key = keyInput.trim();
+    if (savingKey || !key) return;
+    setSavingKey(true);
+    api.providerSetKey(provider.id, key)
+      .then(() => {
+        setKeyEditing(false);
+        setKeyInput("");
+        setKeyVisible(false);
+        onChanged();
+        pushToast("ok", "密钥已保存");
+      })
+      .catch((err) => pushToast("danger", "密钥保存失败", cleanErrorMessage(err)))
+      .finally(() => setSavingKey(false));
+  };
+
+  const confirmClearKey = (): void => {
+    openConfirm({
+      title: "清除密钥",
+      message: `将清除「${provider.name}」已保存的 API 密钥，清除后需要重新配置才能调用。`,
+      danger: true,
+      onOk: () => {
+        void api.providerClearKey(provider.id)
+          .then(() => {
+            onChanged();
+            pushToast("ok", "密钥已清除");
+          })
+          .catch((err) => pushToast("danger", "密钥清除失败", cleanErrorMessage(err)));
+      },
+    });
+  };
+
+  const runTest = (): void => {
+    if (testing) return;
+    setTesting(true);
+    api.providerTest(provider.id)
+      .then(setTestResult)
+      .catch((err) => setTestResult({ ok: false, message: cleanErrorMessage(err), latencyMs: 0, code: "" }))
+      .finally(() => setTesting(false));
+  };
+
+  const confirmDelete = (): void => {
+    openConfirm({
+      title: "删除供应商",
+      message: `将删除「${provider.name}」，其已保存的 API 密钥与 ${provider.models.length} 个模型配置会一并删除，且不可恢复。`,
+      danger: true,
+      onOk: () => {
+        void api.providerDelete(provider.id)
+          .then(onChanged)
+          .catch((err) => pushToast("danger", "删除失败", cleanErrorMessage(err)));
+      },
+    });
+  };
+
+  const setEnabled = (enabled: boolean): void => {
+    api.providerSetEnabled(provider.id, enabled)
+      .then(() => onChanged())
+      .catch((err) => pushToast("danger", enabled ? "启用失败" : "停用失败", cleanErrorMessage(err)));
+  };
+
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className={`flex flex-col gap-4 p-4 ${provider.enabled ? "" : "opacity-60"}`}>
+      {/* 头部：logo + 内联改名 + 协议徽章 + 模型数 + 启用开关 + ⋯菜单 */}
       <div className="flex items-center gap-2.5">
         <ProviderLogo providerId={provider.catalogId || provider.id} name={provider.name} className="size-6" />
-        <span className="min-w-0 truncate text-ui-lg font-medium text-foreground">{provider.name}</span>
+        {nameEditing ? (
+          <input
+            autoFocus
+            value={nameDraft}
+            disabled={renaming}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              // IME 组合中的 Enter（候选确认）不触发提交（spec §10）
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                nameEscRef.current = true;
+                e.preventDefault();
+                setNameEditing(false);
+              }
+            }}
+            aria-label="供应商名称"
+            className="h-7 min-w-0 max-w-56 rounded-md border border-brand bg-input px-1.5 text-ui-lg font-medium text-foreground"
+          />
+        ) : (
+          <button
+            className="group flex min-w-0 items-center gap-1 rounded-md text-left"
+            onClick={startRename}
+            title="点击重命名"
+          >
+            <span className="min-w-0 truncate text-ui-lg font-medium text-foreground group-hover:text-foreground-subtle">
+              {provider.name}
+            </span>
+            <Pencil className="size-3 shrink-0 text-foreground-subtlest opacity-0 transition-opacity group-hover:opacity-100" />
+          </button>
+        )}
         <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtlest">{provider.kind}</span>
-        <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">{provider.models.length} 个模型</span>
+        <span className="shrink-0 text-ui-xs text-foreground-subtlest">{provider.models.length} 个模型</span>
+        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+          <label className="flex items-center gap-1.5">
+            <span className="text-ui-xs text-foreground-subtle">{provider.enabled ? "已启用" : "已停用"}</span>
+            <Switch checked={provider.enabled} onChange={setEnabled} />
+          </label>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button aria-label="更多操作" className="flex size-7 items-center justify-center rounded-lg text-foreground-subtle hover:bg-surface-hover hover:text-foreground">
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-32 rounded-xl border border-popover-border bg-popover p-1 shadow-md">
+                <DropdownMenu.Item
+                  onSelect={runTest}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-ui-sm text-foreground outline-none data-[highlighted]:bg-surface-hover"
+                >
+                  <PlugZap className="size-3.5 shrink-0 text-foreground-subtle" /> 测试连接
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  onSelect={confirmDelete}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-ui-sm text-destructive outline-none data-[highlighted]:bg-destructive-surface"
+                >
+                  <Trash2 className="size-3.5 shrink-0" /> 删除…
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
-        <input
-          value={endpointInput}
-          onChange={(e) => setEndpointInput(e.target.value)}
-          placeholder="https://api.example.com/v1"
-          className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-xs"
-        />
-        <button
-          className="h-8 shrink-0 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-40"
-          disabled={endpointInput.trim() === provider.endpoint}
-          onClick={() => {
-            void api
-              .providerSave({
-                id: provider.id,
-                name: provider.name,
-                kind: provider.kind,
-                endpoint: endpointInput.trim(),
-                keyRequired: provider.keyRequired,
-                models: provider.models.map((m) => ({
-                  id: m.id,
-                  name: m.name,
-                  contextK: m.contextK,
-                  maxTokens: m.maxTokens,
-                  caps: m.caps,
-                  cost: m.cost,
-                })),
-              })
-              .then(() => {
-                onChanged();
-                pushToast("ok", "端点已保存");
-              })
-              .catch((err) => pushToast("danger", "保存失败", String(err?.message ?? err)));
-          }}
-        >
-          保存端点
-        </button>
+      {/* 连接配置卡（spec §6）：端点 / 协议 / 密钥 / 测试连接 */}
+      <div className="flex flex-col gap-3.5 rounded-xl border border-border/50 bg-panel p-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2.5">
+            <span className="w-9 shrink-0 text-ui-xs text-foreground-subtlest">端点</span>
+            <input
+              ref={endpointRef}
+              value={endpointInput}
+              disabled={savingEndpoint}
+              onChange={(e) => {
+                setEndpointInput(e.target.value);
+                if (endpointError) setEndpointError("");
+              }}
+              onBlur={saveEndpoint}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur(); // 保存逻辑统一走 blur
+                }
+              }}
+              placeholder="https://api.example.com/v1"
+              aria-invalid={endpointMissing || endpointError !== ""}
+              className={`h-8 min-w-0 flex-1 rounded-lg border bg-input px-2.5 font-mono text-ui-xs ${
+                endpointError ? "border-destructive" : endpointMissing ? "border-warning" : "border-border"
+              }`}
+            />
+          </div>
+          {endpointMissing ? (
+            <p className="flex items-center gap-1.5 rounded-lg bg-warning-surface px-2.5 py-1.5 text-ui-xs text-warning-surface-foreground">
+              请填写服务端点后才能调用
+            </p>
+          ) : endpointError ? (
+            <p className="px-0.5 text-ui-xs text-destructive">{endpointError}</p>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <span className="w-9 shrink-0 text-ui-xs text-foreground-subtlest">协议</span>
+          <span title="协议创建后不可修改（如需更换请删除后重建）" className="rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtlest">
+            {provider.kind}
+          </span>
+          {provider.docUrl && (
+            <span className="min-w-0 truncate text-ui-xs text-foreground-subtlest" title={provider.docUrl}>
+              {provider.docUrl}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <span className="w-9 shrink-0 text-ui-xs text-foreground-subtlest">密钥</span>
+          {provider.keyRequired === false ? (
+            <span className="rounded bg-surface px-1.5 py-0.5 text-ui-xs text-foreground-subtlest">无需密钥</span>
+          ) : keyEditing ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  autoFocus
+                  type={keyVisible ? "text" : "password"}
+                  value={keyInput}
+                  disabled={savingKey}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveKey();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setKeyEditing(false);
+                      setKeyInput("");
+                    }
+                  }}
+                  placeholder="粘贴 API Key…"
+                  className="h-8 w-full rounded-lg border border-border bg-input pl-2.5 pr-8 font-mono text-ui-sm"
+                />
+                <button
+                  type="button"
+                  aria-label={keyVisible ? "隐藏密钥" : "显示密钥"}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-subtlest hover:text-foreground"
+                  onClick={() => setKeyVisible((v) => !v)}
+                >
+                  {keyVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+              </div>
+              <button
+                className="h-8 shrink-0 rounded-lg bg-brand px-3 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={!keyInput.trim() || savingKey}
+                onClick={saveKey}
+              >
+                {savingKey ? "保存中…" : "保存"}
+              </button>
+              <button
+                className="h-8 shrink-0 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+                onClick={() => {
+                  setKeyEditing(false);
+                  setKeyInput("");
+                  setKeyVisible(false);
+                }}
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className={`min-w-0 truncate font-mono text-ui-sm ${provider.keyMasked ? "text-foreground" : "text-foreground-subtlest"}`}>
+                {provider.keyMasked || "未配置"}
+              </span>
+              {provider.keySource === "env" && (
+                <span title="密钥来自环境变量" className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-ui-xs text-foreground-subtlest">
+                  环境变量
+                </span>
+              )}
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <button
+                  className="h-7 rounded-lg border border-border px-2.5 text-ui-sm hover:bg-surface-hover"
+                  onClick={() => {
+                    setKeyInput("");
+                    setKeyVisible(false);
+                    setKeyEditing(true);
+                  }}
+                >
+                  {provider.keyMasked ? "更换密钥" : "设置密钥"}
+                </button>
+                {provider.keyMasked && (
+                  <button
+                    className="h-7 rounded-lg border border-destructive/40 px-2.5 text-ui-sm text-destructive hover:bg-destructive-surface"
+                    onClick={confirmClearKey}
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <span className="w-9 shrink-0 text-ui-xs text-foreground-subtlest" />
+          <button
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={testing}
+            onClick={runTest}
+          >
+            <PlugZap className="size-3.5 shrink-0" />
+            {testing ? <span className="animated-gradient-text">测试中…</span> : "测试连接"}
+          </button>
+          {testing ? (
+            <span className="text-ui-xs text-foreground-subtlest">正在请求服务端，最长 10 秒…</span>
+          ) : testResult ? (
+            testResult.ok ? (
+              <span className="text-ui-sm text-success">✓ 连接成功 · {testResult.latencyMs}ms</span>
+            ) : (
+              <span className="min-w-0 truncate text-ui-sm text-destructive" title={testResult.message}>
+                ✗ {testResult.message}
+              </span>
+            )
+          ) : (
+            <span className="text-ui-xs text-foreground-subtlest">用当前端点与密钥请求一次模型列表</span>
+          )}
+        </div>
       </div>
 
+      {/* 模型概览（完整管理由票 4 接入） */}
       <div className="flex flex-col gap-1">
         {provider.models.map((m) => (
           <div key={m.ref} className="flex items-center gap-2 text-ui-sm">
@@ -414,51 +755,16 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
           </div>
         ))}
       </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="password"
-          value={keyInput}
-          onChange={(e) => setKeyInput(e.target.value)}
-          placeholder="粘贴 API Key…"
-          className="h-8 min-w-40 flex-1 rounded-lg border border-border bg-input px-2.5 font-mono text-ui-sm"
-        />
-        <button
-          className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-          onClick={() => {
-            void api.providerSetKey(provider.id, keyInput.trim()).then(() => {
-              setKeyInput("");
-              onChanged();
-              pushToast("ok", "密钥已保存");
-            });
-          }}
-        >
-          保存密钥
-        </button>
-        <button
-          className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-          disabled={testing}
-          onClick={() => {
-            setTesting(true);
-            void api
-              .providerTest(provider.id)
-              .then((r) => pushToast(r.ok ? "ok" : "danger", r.ok ? `连接成功（${r.latencyMs}ms）` : "连接失败", r.message))
-              .finally(() => setTesting(false));
-          }}
-        >
-          {testing ? "测试中…" : "测试连接"}
-        </button>
-        <button
-          className="flex h-8 items-center gap-1 rounded-lg border border-destructive/40 px-3 text-ui-sm text-destructive hover:bg-destructive-surface"
-          onClick={() => {
-            void api.providerDelete(provider.id).then(onChanged);
-          }}
-        >
-          <Trash2 className="size-3.5" /> 删除
-        </button>
-      </div>
     </div>
   );
+}
+
+/** 清洗 IPC 错误：剥掉「Error invoking remote method ...: Error: 」前缀，只留可读文案。 */
+function cleanErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const marker = "Error:";
+  const idx = raw.lastIndexOf(marker);
+  return (idx >= 0 ? raw.slice(idx + marker.length) : raw).trim();
 }
 
 function PermissionsSection(): React.JSX.Element {

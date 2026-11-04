@@ -82,6 +82,8 @@ export interface PersistedProvider {
   catalogId: string;
   catalogVersion: string;
   envVars: string[];
+  /** 启用状态：禁用后不进模型选择器；旧数据无此字段，读取时缺省补 true。 */
+  enabled: boolean;
   models: PersistedModel[];
 }
 
@@ -89,7 +91,9 @@ export const CUSTOM_PROVIDERS_KEY = "model.custom_providers";
 
 export function loadCustomProviders(db: DB): PersistedProvider[] {
   const value = getSetting<PersistedProvider[]>(db, CUSTOM_PROVIDERS_KEY, []);
-  return Array.isArray(value) ? value : [];
+  if (!Array.isArray(value)) return [];
+  // 旧数据兼容：无 enabled 字段的提供商缺省视为启用（spec §8）
+  return value.map((p) => (p && p.enabled === undefined ? { ...p, enabled: true } : p));
 }
 
 export function saveCustomProviders(db: DB, providers: PersistedProvider[]): void {

@@ -104,6 +104,8 @@ export interface CraftworkApi {
   providerList(): Promise<ProviderView[]>;
   providerSave(input: ProviderInput): Promise<ProviderView>;
   providerDelete(providerId: string): Promise<void>;
+  providerSetEnabled(providerId: string, enabled: boolean): Promise<ProviderView>;
+  providerRename(providerId: string, name: string): Promise<ProviderView>;
   providerSetKey(providerId: string, key: string): Promise<void>;
   providerClearKey(providerId: string): Promise<void>;
   providerTest(providerId: string): Promise<ConnectionResult>;
