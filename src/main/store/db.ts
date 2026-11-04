@@ -11,7 +11,7 @@ const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 export type Database = import("node:sqlite").DatabaseSync;
 export type Statement = import("node:sqlite").StatementSync;
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export class ErrNotFound extends Error {
   constructor(message = "记录不存在") {
@@ -183,7 +183,13 @@ INSERT INTO workspace_folders (id, workspace_id, path, position, created_at)
   SELECT 'wfo_' || id, id, path, 0, created_at FROM workspaces;
 `;
 
-const MIGRATIONS: string[] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6];
+// V7：一次性清理遗留空会话——无任何事件、自动命名、标题「新对话」的线程；
+// 有事件或被手动改名（title_auto = 0）的会话一律保留。
+export const SCHEMA_V7 = `
+DELETE FROM threads WHERE title = '新对话' AND title_auto = 1 AND NOT EXISTS (SELECT 1 FROM events WHERE events.thread_id = threads.id);
+`;
+
+const MIGRATIONS: string[] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7];
 
 function migrate(db: Database): void {
   const row = db.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
