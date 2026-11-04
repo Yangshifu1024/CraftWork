@@ -19,7 +19,10 @@
     "fireworks-ai": "https://api.fireworks.ai/inference/v1",
     "venice": "https://api.venice.ai/api/v1",
     "cohere": "https://api.cohere.ai/compatibility/v1",
-    "deepseek": "https://api.deepseek.com/v1"
+    "deepseek": "https://api.deepseek.com/v1",
+    "salad-cloud": "https://ai.salad.cloud/v1",
+    "aihubmix": "https://aihubmix.com/v1",
+    "vercel": "https://ai-gateway.vercel.sh/v1"
   },
   "excludedProviders": [
     "google",

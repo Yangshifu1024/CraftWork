@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// 模型目录同步：从 models.dev 拉取最新目录，按过滤规则生成离线快照并内嵌进源码。
+// 模型目录同步：从 models.dev 拉取最新目录，按过滤规则生成离线快照并内嵌进源码；
+// 同时下载各提供商 SVG logo，清洗后落盘 assets/catalog/logos/，并内嵌为渲染层资产模块。
 // 用法：node scripts/modelsync.mjs [--check]
 //   --check  只检查漂移（远端内容与当前快照是否一致），有漂移时以非零码退出。
 // 规则（assets/catalog/rules.json）：
 //   只保留 openai / anthropic / openai-compatible 三种协议；排除指定提供商；
 //   端点覆盖表固定主流服务的可直连地址。
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,10 @@ import { dirname, join } from "node:path";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const checkOnly = process.argv.includes("--check");
 const SOURCE = "https://models.dev/api.json";
+const LOGO_BASE = "https://models.dev/logos";
 const SCHEMA = 1;
+const LOGO_MAX_BYTES = 100 * 1024; // 单个 logo 超过 100KB 视为异常体积，丢弃
+const LOGO_CONCURRENCY = 8;
 
 const rules = JSON.parse(readFileSync(join(root, "assets/catalog/rules.json"), "utf8"));
 
@@ -36,12 +40,29 @@ function kindOf(provider) {
   return FALLBACK_KIND;
 }
 
+/** 端点解析：覆盖表优先，models.dev 新 `api` 字段次之，旧 `baseUrl` 字段兜底。
+ *  坏值防御：含 `${` 占位符、非 http(s)、URL 解析失败的一律置空，按「无端点」处理。 */
+function resolveEndpoint(id, provider) {
+  const raw = ENDPOINT_OVERRIDES[id] ?? provider.api ?? provider.baseUrl ?? "";
+  if (typeof raw !== "string") return "";
+  const value = raw.trim();
+  if (value === "" || value.includes("${")) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
+  } catch {
+    return "";
+  }
+  return value;
+}
+
 function normalizeProvider(id, provider) {
   const kind = kindOf(provider);
   const models = [];
   for (const [modelId, m] of Object.entries(provider.models ?? {})) {
-    // 只保留对话模型（带 tool_call 或 reasoning/categorize 为 chat 的都不排除，过滤明显非对话类）
-    if (m.attachment === true) continue;
+    // models.dev 现语义：attachment=true = 支持附件输入的对话模型，false 多为嵌入/语音/图像类。
+    // 保留 attachment 或 tool_call 为 true 的模型，其余（嵌入/语音/图像生成等非对话类）滤除。
+    if (m.attachment !== true && m.tool_call !== true) continue;
     models.push({
       id: modelId,
       name: m.name ?? modelId,
@@ -72,12 +93,70 @@ function normalizeProvider(id, provider) {
     id,
     name: provider.name ?? id,
     kind,
-    endpoint: ENDPOINT_OVERRIDES[id] ?? provider.baseUrl ?? "",
+    endpoint: resolveEndpoint(id, provider),
     doc: provider.doc ?? "",
     env: provider.env ?? [],
-    logo: `https://models.dev/logos/${id}.svg`,
+    logo: `${LOGO_BASE}/${id}.svg`,
     models,
   };
+}
+
+/** SVG 清洗：剔除 script/foreignObject、事件属性（on*）、javascript: 引用与外部 href/url() 引用。 */
+function sanitizeSvg(svg) {
+  let s = svg;
+  s = s.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
+  s = s.replace(/<script[^>]*\/?>/gi, "");
+  s = s.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
+  s = s.replace(/<foreignObject[^>]*\/?>/gi, "");
+  s = s.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  s = s.replace(/\s+(?:xlink:)?href\s*=\s*(["'])\s*javascript:[^"']*\1/gi, "");
+  s = s.replace(/javascript:/gi, "");
+  // 仅保留同文档锚点引用（# 开头），外部/相对/data: 引用整属性剔除
+  s = s.replace(/\s+xlink:href\s*=\s*(["'])(?!#)[^"']*\1/gi, "");
+  s = s.replace(/\s+href\s*=\s*(["'])(?!#)[^"']*\1/gi, "");
+  // style/fill 等属性中的 url() 引用：仅保留 # 开头的内部引用，其余替换为 none
+  s = s.replace(/url\(\s*['"]?\s*(?!#)[^)'"]*['"]?\s*\)/gi, "none");
+  return s;
+}
+
+/** 下载单个 logo：仅收 image/svg+xml 响应，超限/非 SVG/清洗失败一律返回 null。 */
+async function fetchLogo(id) {
+  try {
+    const resp = await fetch(`${LOGO_BASE}/${id}.svg`, {
+      headers: { "User-Agent": "craftwork-modelsync" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!resp.ok) return null;
+    const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.includes("image/svg+xml")) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length === 0 || buf.length > LOGO_MAX_BYTES) return null;
+    const text = buf.toString("utf8");
+    if (!/<svg[\s>]/i.test(text)) return null;
+    return sanitizeSvg(text);
+  } catch {
+    return null;
+  }
+}
+
+async function downloadLogos(ids) {
+  const logos = new Map();
+  let failed = 0;
+  for (let i = 0; i < ids.length; i += LOGO_CONCURRENCY) {
+    const batch = ids.slice(i, i + LOGO_CONCURRENCY);
+    const results = await Promise.all(batch.map(async (id) => [id, await fetchLogo(id)]));
+    for (const [id, svg] of results) {
+      if (svg === null) failed++;
+      else logos.set(id, svg);
+    }
+  }
+  return { logos, failed };
+}
+
+function wrapBase64(b64, indent) {
+  const lines = [];
+  for (let i = 0; i < b64.length; i += 120) lines.push(b64.slice(i, i + 120));
+  return lines.join(`"\n${indent}+ "`);
 }
 
 async function main() {
@@ -105,23 +184,42 @@ async function main() {
     }
   }
 
+  // version 与 sha256 都只基于 providers 内容计算，与 generatedAt 时间戳解耦，
+  // 保证 --check 漂移比对幂等（时间戳不参与校验和）。
+  const contentJson = JSON.stringify(providers);
+  const contentHash = createHash("sha256");
+  contentHash.update(contentJson);
   const dataset = {
     schema: SCHEMA,
     generatedAt: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-    version: createHash("sha256").update(JSON.stringify(providers)).digest("hex").slice(0, 16),
+    version: contentHash.copy().digest("hex").slice(0, 16),
     source: SOURCE,
     license: "MIT",
     providers,
   };
   const json = JSON.stringify(dataset);
   const gz = gzipSync(Buffer.from(json, "utf8"));
-  const sha256 = createHash("sha256").update(json).digest("hex");
+  const sha256 = contentHash.digest("hex");
   const modelCount = providers.reduce((sum, p) => sum + p.models.length, 0);
 
   if (checkOnly) {
     const same = sha256 === existingSha;
     console.log(same ? "目录无漂移。" : `目录有漂移（当前快照 version=${existingVersion}）。请运行 node scripts/modelsync.mjs 更新。`);
     process.exit(same ? 0 : 1);
+  }
+
+  // 下载并清洗 logo（失败的不收录，渲染层回退字母头像）
+  const logoDir = join(root, "assets/catalog/logos");
+  console.log(`下载 ${providers.length} 个提供商 logo…`);
+  const { logos, failed } = await downloadLogos(providers.map((p) => p.id));
+  rmSync(logoDir, { recursive: true, force: true });
+  mkdirSync(logoDir, { recursive: true });
+  const sortedLogos = [...logos.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  let logoBytes = 0;
+  for (const [id, svg] of sortedLogos) {
+    const buf = Buffer.from(svg, "utf8");
+    logoBytes += buf.length;
+    writeFileSync(join(logoDir, `${id}.svg`), buf);
   }
 
   writeFileSync(existingPath, gz);
@@ -134,6 +232,7 @@ async function main() {
     license: "MIT",
     providerCount: providers.length,
     modelCount,
+    logoCount: sortedLogos.length,
     sha256,
   };
   writeFileSync(join(root, "assets/catalog/catalog.manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -143,7 +242,7 @@ async function main() {
   const lines = [];
   for (let i = 0; i < b64.length; i += 120) lines.push(b64.slice(i, i + 120));
   const ts =
-    "// 由 scripts/embed-catalog.mjs 从 assets/catalog/catalog.json.gz 生成，请勿手改。\n" +
+    "// 由 scripts/modelsync.mjs 从 assets/catalog/catalog.json.gz 生成，请勿手改。\n" +
     "// models.dev 目录快照（构建期内嵌，运行时只读）。\n" +
     "const LINES = [\n" +
     lines.map((l) => `  "${l}",`).join("\n") +
@@ -151,7 +250,28 @@ async function main() {
     'export const CATALOG_GZ_BASE64 = LINES.join("");\n';
   writeFileSync(join(root, "src/main/model/catalogdata.ts"), ts);
 
-  console.log(`目录已更新：${providers.length} 个提供商，${modelCount} 个模型（version ${dataset.version}）。`);
+  // 渲染层 logo 资产模块：providerId → data:image/svg+xml;base64 URL
+  const assetsDir = join(root, "src/renderer/src/assets");
+  mkdirSync(assetsDir, { recursive: true });
+  const logoEntries = sortedLogos
+    .map(([id, svg]) => {
+      const payload = wrapBase64(Buffer.from(svg, "utf8").toString("base64"), "    ");
+      return `  ${JSON.stringify(id)}:\n    "data:image/svg+xml;base64,${payload}",`;
+    })
+    .join("\n");
+  const logosTs =
+    "// 由 scripts/modelsync.mjs 生成，请勿手改。更新目录：node scripts/modelsync.mjs。\n" +
+    "// 提供商 logo 内嵌资产（来源 https://models.dev/logos/{id}.svg，构建期下载并清洗，\n" +
+    "// 仅保留同文档锚点引用；缺失 logo 的提供商由渲染层回退字母头像）。\n" +
+    "export const PROVIDER_LOGOS: Record<string, string> = {\n" +
+    logoEntries +
+    "\n};\n";
+  writeFileSync(join(assetsDir, "provider-logos.ts"), logosTs);
+
+  console.log(
+    `目录已更新：${providers.length} 个提供商，${modelCount} 个模型（version ${dataset.version}）；` +
+      `logo ${sortedLogos.length} 个（失败/缺失 ${failed} 个，清洗后合计 ${(logoBytes / 1024).toFixed(0)}KB）。`,
+  );
 }
 
 main().catch((err) => {
