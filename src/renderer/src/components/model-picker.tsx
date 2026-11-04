@@ -7,6 +7,7 @@ import { Popover } from "radix-ui";
 import { Command } from "cmdk";
 import { Check, Package } from "lucide-react";
 import { api } from "../lib/api";
+import { selectableModels } from "../lib/provider-list";
 import { useApp, effectiveModelRef } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import type { ProviderView } from "../../../shared/types";
@@ -40,6 +41,9 @@ export function ModelPicker({
   const current = activeThreadId
     ? (useApp.getState().threads[mode].find((t) => t.id === activeThreadId)?.modelId || settings.defaultModel)
     : draftModel;
+
+  // 启停联动（spec §9）：只列「启用提供商 × 启用模型」，无可用模型（含全部被禁）时走空态。
+  const groups = selectableModels(providers);
 
   const pick = async (ref: string): Promise<void> => {
     if (activeThreadId) {
@@ -85,15 +89,15 @@ export function ModelPicker({
             </div>
             <Command.List className="max-h-[380px] overflow-y-auto p-1.5">
               <Command.Empty className="py-8 text-center text-ui-sm text-foreground-subtlest">
-                {providers.length === 0 ? "还没有可用模型，请先在设置中添加提供商" : "没有匹配的模型"}
+                {groups.length === 0 ? "还没有可用模型，请先在设置中添加提供商" : "没有匹配的模型"}
               </Command.Empty>
-              {providers.map((p) => (
+              {groups.map(({ provider: p, models }) => (
                 <Command.Group
                   key={p.id}
-                  heading={`${p.name}（${p.kind}）`}
+                  heading={p.name}
                   className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-ui-xs [&_[cmdk-group-heading]]:text-foreground-subtlest"
                 >
-                  {p.models.map((m) => (
+                  {models.map((m) => (
                     <Command.Item
                       key={m.ref}
                       value={`${m.name} ${m.id} ${p.name}`}

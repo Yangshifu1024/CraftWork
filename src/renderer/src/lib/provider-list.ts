@@ -1,5 +1,6 @@
-// 提供商列表纯逻辑：状态点三色判定与左栏按来源分组。
-// 无 React / DOM 依赖，供设置页左栏消费并由 vitest 直测（tests/provider-list.test.ts）。
+// 提供商列表纯逻辑：状态点三色判定、左栏按来源分组、模型选择器过滤。
+// 无 React / DOM 依赖，供设置页左栏与模型选择器消费并由 vitest 直测（tests/provider-list.test.ts）。
+import type { ModelView, ProviderView } from "../../../shared/types";
 
 export type ProviderStatusTone = "ok" | "warn" | "off";
 
@@ -52,4 +53,25 @@ export function groupProviders<T extends { source?: string }>(providers: T[]): A
     { source: "manual", label: "手动添加", providers: manual },
   ];
   return groups.filter((g) => g.providers.length > 0);
+}
+
+/** 选择器分组：提供商与其可选模型（过滤后非空才有分组）。 */
+export interface SelectableModelGroup {
+  provider: ProviderView;
+  models: ModelView[];
+}
+
+/**
+ * 模型选择器过滤（spec §9 / 票 #7）：只列「启用提供商 × 启用模型」，
+ * 跳过无可用模型的提供商（不产生空分组）。历史会话引用不在选择器层面清理，
+ * 仅由 factory.client 在调用侧拦截。
+ */
+export function selectableModels(providers: ProviderView[]): Array<SelectableModelGroup> {
+  const groups: Array<SelectableModelGroup> = [];
+  for (const p of providers) {
+    if (p.enabled === false) continue;
+    const models = p.models.filter((m) => m.enabled !== false);
+    if (models.length > 0) groups.push({ provider: p, models });
+  }
+  return groups;
 }

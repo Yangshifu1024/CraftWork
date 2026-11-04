@@ -42,11 +42,28 @@ export class ModelFactory {
     if (!provider) {
       throw new ModelError(Code.ProviderUnavailable, info.provider, "提供商不存在，请重新选择模型");
     }
+    const displayName = provider.name || provider.id;
+    // 启停语义在调用侧收口（spec §9）：停用提供商 / 模型不可调用，但 resolve/findModel
+    // 保持不变——历史会话引用仍可解析显示名称，只在真正调用时给出可读停用提示。
+    if (provider.enabled === false) {
+      throw new ModelError(
+        Code.ProviderUnavailable,
+        provider.id,
+        `${displayName}：该模型已停用，请重新选择模型`,
+      );
+    }
+    const persisted = provider.models.find((m) => m.id === info.id);
+    if (persisted?.enabled === false) {
+      throw new ModelError(
+        Code.ProviderUnavailable,
+        provider.id,
+        `${displayName}：该模型已停用，请重新选择模型`,
+      );
+    }
     const key = this.keys.getFor(provider.id, provider.envVars);
     if (provider.keyRequired && !key) {
       throw new ModelError(Code.Auth, provider.name, `${provider.name} 尚未配置密钥，请在设置 → 模型 中粘贴 API Key`);
     }
-    const displayName = provider.name || provider.id;
     let inner: Client;
     if (provider.kind === "anthropic") {
       inner = new AnthropicClient(provider.endpoint, key, displayName);
@@ -57,7 +74,7 @@ export class ModelFactory {
     return new RetryClient(inner, displayName, 3, 700, 5000);
   }
 
-  /** 备用模型引用：存在、与当前不同、可解析、需要密钥时密钥可得。 */
+  /** 备用模型引用：存在、与当前不同、可解析、未停用、需要密钥时密钥可得。 */
   fallbackModel(refOrId: string): string {
     if (!this.fallbackResolver) return "";
     const candidate = this.fallbackResolver();
@@ -70,6 +87,10 @@ export class ModelFactory {
     if (currentRef === fallbackRef) return "";
     const provider = this.catalog.findProvider(fallback.provider);
     if (!provider) return "";
+    // 与「密钥不可得返回空」同模式：停用候选不参与失败转移（spec §9）
+    if (provider.enabled === false) return "";
+    const persisted = provider.models.find((m) => m.id === fallback.id);
+    if (persisted?.enabled === false) return "";
     if (provider.keyRequired && !this.keys.getFor(provider.id, provider.envVars)) return "";
     return fallbackRef;
   }
