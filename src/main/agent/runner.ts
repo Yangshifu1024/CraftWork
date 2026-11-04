@@ -421,14 +421,15 @@ export class Runner {
 
   // ---------- 会话建立与失败转移 ----------
 
-  private openSession(modelRef: string): Session | null {
+  /** 建立单模型会话；失败时带出可读原因（模型缺失/已停用/密钥缺失等），供转移文案使用。 */
+  private openSession(modelRef: string): { session: Session | null; reason: string } {
     try {
       const info = this.deps.models.resolve(modelRef);
-      if (!info) return null;
+      if (!info) return { session: null, reason: "模型不存在" };
       const client = this.deps.models.client(modelRef);
-      return { client, modelId: info.id, modelRef, info };
-    } catch {
-      return null;
+      return { session: { client, modelId: info.id, modelRef, info }, reason: "" };
+    } catch (err) {
+      return { session: null, reason: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -442,7 +443,7 @@ export class Runner {
     const candidates = fallback && fallback !== modelRef ? [modelRef, fallback] : [modelRef];
     const failures: string[] = [];
     for (const candidate of candidates) {
-      const session = this.openSession(candidate);
+      const { session, reason } = this.openSession(candidate);
       if (session) {
         if (failures.length > 0) {
           this.deps.records.appendOrWarn({
@@ -458,7 +459,7 @@ export class Runner {
         }
         return session;
       }
-      failures.push(candidate);
+      failures.push(reason || candidate);
     }
     const error = new ModelError("provider_unavailable", modelRef, `无法建立模型连接（${failures.join("；")}），请检查模型配置`);
     this.fail(threadId, runId, messageId, error.code, error.message, false, Date.now());
