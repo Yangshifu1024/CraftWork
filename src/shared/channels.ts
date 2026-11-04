@@ -17,6 +17,7 @@ import type {
   FileNode,
   LocatedFile,
   MCPServerView,
+  ModelInput,
   ProviderInput,
   ProviderView,
   Settings,
@@ -106,6 +107,14 @@ export interface CraftworkApi {
   providerDelete(providerId: string): Promise<void>;
   providerSetEnabled(providerId: string, enabled: boolean): Promise<ProviderView>;
   providerRename(providerId: string, name: string): Promise<ProviderView>;
+  /** 启停单个模型（spec §8）：返回刷新后的 ProviderView */
+  providerSetModelEnabled(providerId: string, modelId: string, enabled: boolean): Promise<ProviderView>;
+  /** 新增模型：提供商内 ID 唯一，返回刷新后的 ProviderView */
+  providerAddModel(providerId: string, model: ModelInput): Promise<ProviderView>;
+  /** 更新模型：按 modelId 定位整行更新，ID 不可变，返回刷新后的 ProviderView */
+  providerUpdateModel(providerId: string, modelId: string, model: ModelInput): Promise<ProviderView>;
+  /** 删除模型：返回刷新后的 ProviderView */
+  providerRemoveModel(providerId: string, modelId: string): Promise<ProviderView>;
   providerSetKey(providerId: string, key: string): Promise<void>;
   providerClearKey(providerId: string): Promise<void>;
   providerTest(providerId: string): Promise<ConnectionResult>;

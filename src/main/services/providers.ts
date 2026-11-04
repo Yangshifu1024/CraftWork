@@ -112,6 +112,58 @@ export class ProviderService {
     return this.toView(all[idx]!);
   }
 
+  /** 启停模型：读 → 校验 → 写 → reload → 返回刷新后的 ProviderView（spec §8）。 */
+  setModelEnabled(providerId: string, modelId: string, enabled: boolean): ProviderView {
+    return this.mutateModel(providerId, modelId, (p, mIdx) => {
+      const models = [...p.models];
+      models[mIdx] = { ...models[mIdx]!, enabled };
+      return { ...p, models };
+    });
+  }
+
+  /** 新增模型：提供商内 ID 唯一，其余校验复用 buildModel 规则；新模型默认启用。 */
+  addModel(providerId: string, input: ModelInput): ProviderView {
+    const all = loadCustomProviders(this.db);
+    const idx = all.findIndex((x) => x.id === providerId);
+    if (idx < 0) throw new Error("提供商不存在");
+    const provider = all[idx]!;
+    const seen = new Set(provider.models.map((m) => m.id));
+    const model = this.buildModel(input, seen);
+    all[idx] = { ...provider, models: [...provider.models, model] };
+    saveCustomProviders(this.db, all);
+    this.catalog.reload();
+    return this.toView(all[idx]!);
+  }
+
+  /** 更新模型：按 modelId 定位后整行更新；ID 不可变，启用状态与来源等非表单字段保留。 */
+  updateModel(providerId: string, modelId: string, input: ModelInput): ProviderView {
+    if (input.id.trim() !== modelId) throw new Error("模型 ID 不可修改");
+    return this.mutateModel(providerId, modelId, (p, mIdx) => {
+      const prev = p.models[mIdx]!;
+      const seen = new Set(p.models.filter((_, i) => i !== mIdx).map((m) => m.id));
+      const model = this.buildModel(input, seen);
+      const models = [...p.models];
+      models[mIdx] = {
+        ...model,
+        enabled: prev.enabled,
+        source: prev.source,
+        cost: input.cost ?? prev.cost,
+        status: prev.status,
+        canonicalId: prev.canonicalId,
+        releaseDate: prev.releaseDate,
+      };
+      return { ...p, models };
+    });
+  }
+
+  /** 删除模型：确认由界面侧完成，服务端直接移除。 */
+  removeModel(providerId: string, modelId: string): ProviderView {
+    return this.mutateModel(providerId, modelId, (p, mIdx) => ({
+      ...p,
+      models: p.models.filter((_, i) => i !== mIdx),
+    }));
+  }
+
   setKey(providerId: string, key: string): void {
     this.requireExists(providerId);
     this.secrets.set(providerId, key);
@@ -293,6 +345,27 @@ export class ProviderService {
     return p;
   }
 
+  /**
+   * 模型增量 mutation 公共路径：读全部 → 定位提供商与模型 → mutate → 写 → reload → 返回 toView。
+   * mutate 收到目标提供商与目标模型下标，返回更新后的提供商（不可变替换，不原地改）。
+   */
+  private mutateModel(
+    providerId: string,
+    modelId: string,
+    mutate: (p: PersistedProvider, modelIdx: number) => PersistedProvider,
+  ): ProviderView {
+    const all = loadCustomProviders(this.db);
+    const pIdx = all.findIndex((x) => x.id === providerId);
+    if (pIdx < 0) throw new Error("提供商不存在");
+    const provider = all[pIdx]!;
+    const mIdx = provider.models.findIndex((m) => m.id === modelId);
+    if (mIdx < 0) throw new Error(`模型不存在：${modelId}`);
+    all[pIdx] = mutate(provider, mIdx);
+    saveCustomProviders(this.db, all);
+    this.catalog.reload();
+    return this.toView(all[pIdx]!);
+  }
+
   /** 构建并校验提供商输入（含端点 HTTPS 规则与模型清单校验）。 */
   private buildProvider(input: ProviderInput): PersistedProvider {
     const name = input.name.trim();
@@ -314,6 +387,13 @@ export class ProviderService {
     const seen = new Set<string>();
     const models: PersistedModel[] = input.models.map((m) => this.buildModel(m, seen));
     const existing = loadCustomProviders(this.db).find((p) => p.id === id);
+    // 编辑已有提供商时按模型 ID 保留启停等既有状态，避免全量保存悄悄重置（与 provider.enabled 同法）
+    if (existing) {
+      for (const [i, model] of models.entries()) {
+        const prev = existing.models.find((x) => x.id === model.id);
+        if (prev) models[i] = { ...model, enabled: prev.enabled };
+      }
+    }
 
     return {
       id,
@@ -352,6 +432,7 @@ export class ProviderService {
       canonicalId: "",
       releaseDate: "",
       source: "manual",
+      enabled: true,
     };
   }
 
@@ -391,6 +472,8 @@ export class ProviderService {
         status: m.status,
         canonicalId: m.canonicalId,
         releaseDate: m.releaseDate,
+        source: m.source,
+        enabled: m.enabled,
         available,
       })),
     };

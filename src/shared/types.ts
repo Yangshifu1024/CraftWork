@@ -183,6 +183,10 @@ export interface ModelView {
   status: string;
   canonicalId: string;
   releaseDate: string;
+  /** manual | catalog | fetched（fetched 本期仅预留枚举） */
+  source: string;
+  /** 启用状态：禁用后不进模型选择器 */
+  enabled: boolean;
   available: boolean;
 }
 

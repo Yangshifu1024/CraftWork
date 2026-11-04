@@ -68,7 +68,10 @@ export interface PersistedModel {
   status: string;
   canonicalId: string;
   releaseDate: string;
+  /** manual | catalog | fetched（fetched 本期仅预留枚举，拉取能力见 spec §7） */
   source: string;
+  /** 启用状态：禁用后不进模型选择器；旧数据无此字段，读取时缺省补 true。 */
+  enabled: boolean;
 }
 
 export interface PersistedProvider {
@@ -92,8 +95,15 @@ export const CUSTOM_PROVIDERS_KEY = "model.custom_providers";
 export function loadCustomProviders(db: DB): PersistedProvider[] {
   const value = getSetting<PersistedProvider[]>(db, CUSTOM_PROVIDERS_KEY, []);
   if (!Array.isArray(value)) return [];
-  // 旧数据兼容：无 enabled 字段的提供商缺省视为启用（spec §8）
-  return value.map((p) => (p && p.enabled === undefined ? { ...p, enabled: true } : p));
+  // 旧数据兼容：提供商与模型无 enabled 字段时缺省视为启用（spec §8）
+  return value.map((p) => {
+    if (!p) return p;
+    const provider = p.enabled === undefined ? { ...p, enabled: true } : p;
+    const models = provider.models.some((m) => m && m.enabled === undefined)
+      ? provider.models.map((m) => (m && m.enabled === undefined ? { ...m, enabled: true } : m))
+      : provider.models;
+    return models === provider.models ? provider : { ...provider, models };
+  });
 }
 
 export function saveCustomProviders(db: DB, providers: PersistedProvider[]): void {
@@ -232,6 +242,7 @@ export function catalogModelToPersisted(m: CatalogModel, source: string): Persis
     canonicalId: m.canonicalId ?? "",
     releaseDate: m.releaseDate ?? "",
     source,
+    enabled: true,
   };
 }
 

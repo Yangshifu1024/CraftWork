@@ -10,9 +10,11 @@ import { api } from "../lib/api";
 import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
 import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
+import { formatContextK, formatContextTitle } from "../lib/format-context";
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
-import type { AuditEntry, Backup, ConnectionResult, ProviderView, UsageSummary } from "../../../shared/types";
+import { ProviderModelDialog } from "./provider-model-dialog";
+import type { AuditEntry, Backup, ConnectionResult, ModelView, ProviderView, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
@@ -375,8 +377,8 @@ function ProvidersEmptyGuide({ onOpenAdd }: { onOpenAdd(entry: AddEntry): void }
 /** 右栏供应商详情卡（spec §3.2 / §6 / §10）：
     头部 = logo + 内联改名 + 协议徽章 + 模型数 + 启用开关 + ⋯菜单（测试连接 / 删除）；
     连接卡 = 端点（blur/Enter 保存、失败内联红字、空值必填态）+ 协议只读 + 密钥（masked / 明文切换 / 设置 / 清除确认）
-    + 测试连接（内联结果反馈）；禁用后详情区降透明度但控件保持可操作。
-    模型列表管理与添加入口页由票 4 / 票 5 接入。 */
+    + 测试连接（内联结果反馈）；模型列表区 = 完整管理（增改弹窗 / 删除确认 / 启停 / 徽章，票 4）；
+    禁用后详情区降透明度但控件保持可操作。添加入口页由票 5 提供。 */
 function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onChanged(): void }): React.JSX.Element {
   const openConfirm = useOverlays((s) => s.openConfirm);
   const pushToast = useToastsPush();
@@ -402,6 +404,9 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
   // 测试连接（内联结果）
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionResult | null>(null);
+
+  // 模型增改弹窗（受控）：null 关闭；{ mode: "add" } 新增；{ mode: "edit", model } 编辑
+  const [modelDialog, setModelDialog] = useState<{ mode: "add" } | { mode: "edit"; model: ModelView } | null>(null);
 
   // 空端点必填态：导入无端点提供商后聚焦引导（spec §3.2）
   const endpointMissing = endpointInput.trim() === "";
@@ -529,6 +534,28 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
     api.providerSetEnabled(provider.id, enabled)
       .then(() => onChanged())
       .catch((err) => pushToast("danger", enabled ? "启用失败" : "停用失败", cleanErrorMessage(err)));
+  };
+
+  // ---------- 模型列表管理（票 4 / spec §6） ----------
+
+  const setModelEnabled = (model: ModelView, enabled: boolean): void => {
+    api.providerSetModelEnabled(provider.id, model.id, enabled)
+      .then(() => onChanged())
+      .catch((err) => pushToast("danger", enabled ? "启用失败" : "停用失败", cleanErrorMessage(err)));
+  };
+
+  const confirmRemoveModel = (model: ModelView): void => {
+    openConfirm({
+      title: "删除模型",
+      message: `将从「${provider.name}」删除模型「${model.name}」，引用它的会话需要重新选择模型，且不可恢复。`,
+      danger: true,
+      onOk: () => {
+        void api
+          .providerRemoveModel(provider.id, model.id)
+          .then(() => onChanged())
+          .catch((err) => pushToast("danger", "删除失败", cleanErrorMessage(err)));
+      },
+    });
   };
 
   return (
@@ -766,18 +793,115 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
         </div>
       </div>
 
-      {/* 模型概览（完整管理由票 4 接入） */}
-      <div className="flex flex-col gap-1">
-        {provider.models.map((m) => (
-          <div key={m.ref} className="flex items-center gap-2 text-ui-sm">
-            <span className="truncate">{m.name}</span>
-            <span className="ml-auto shrink-0 font-mono text-ui-xs text-foreground-subtlest">
-              {m.contextK}K · {m.caps.tools ? "tools" : "chat"}
-              {m.caps.vision ? "+vision" : ""}
-              {m.caps.reasoning ? "+reasoning" : ""}
-            </span>
+      {/* 模型列表区（票 4 / spec §6）：标题 + 添加 + 行管理（徽章 / 启停 / 编辑 / 删除）/ 空态引导 */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-ui-sm font-medium text-foreground">模型列表</span>
+          <button
+            className="flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+            onClick={() => setModelDialog({ mode: "add" })}
+          >
+            <Plus className="size-3.5" /> 添加模型
+          </button>
+        </div>
+        {provider.models.length === 0 ? (
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-8 text-center">
+            <span className="text-ui-sm text-foreground-subtlest">当前没有配置模型，添加模型后可在聊天中使用。</span>
+            <button
+              className="h-7 rounded-lg border border-border px-3 text-ui-sm text-foreground hover:bg-surface-hover"
+              onClick={() => setModelDialog({ mode: "add" })}
+            >
+              添加模型
+            </button>
           </div>
-        ))}
+        ) : (
+          <div className="flex flex-col gap-1">
+            {provider.models.map((m) => (
+              <ModelRow
+                key={m.ref}
+                model={m}
+                onEdit={() => setModelDialog({ mode: "edit", model: m })}
+                onToggle={(enabled) => setModelEnabled(m, enabled)}
+                onDelete={() => confirmRemoveModel(m)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 模型增改共用弹窗（spec §7）：保存成功才关窗，失败内联红字 */}
+      {modelDialog && (
+        <ProviderModelDialog
+          providerId={provider.id}
+          providerName={provider.name}
+          model={modelDialog.mode === "edit" ? modelDialog.model : null}
+          onClose={() => setModelDialog(null)}
+          onSaved={() => onChanged()}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 模型列表行（spec §6）：名称 + ID（同名不重复显示）+ 上下文徽章 + 能力徽章（视觉 / 推理）
+    + 编辑 / 删除 / 启用开关；禁用行弱化不隐藏；行内错误仅在异常数据时出现（防御渲染）。 */
+function ModelRow({
+  model,
+  onEdit,
+  onToggle,
+  onDelete,
+}: {
+  model: ModelView;
+  onEdit(): void;
+  onToggle(enabled: boolean): void;
+  onDelete(): void;
+}): React.JSX.Element {
+  const invalid = !(model.contextK > 0);
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border border-border/40 bg-panel px-2.5 py-1.5 ${
+        model.enabled ? "" : "opacity-50"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-ui-sm text-foreground">{model.name}</span>
+          {model.id !== model.name && (
+            <span className="truncate font-mono text-ui-xs text-foreground-subtlest">{model.id}</span>
+          )}
+        </div>
+        {invalid && <span className="text-ui-xs text-destructive">上下文窗口配置不完整，请编辑模型修正</span>}
+      </div>
+      <span
+        title={formatContextTitle(model.contextK * 1000)}
+        className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-ui-xs text-foreground-subtle"
+      >
+        {formatContextK(model.contextK * 1000)}
+      </span>
+      {model.caps.vision && (
+        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-ui-xs text-foreground-subtle">视觉</span>
+      )}
+      {model.caps.reasoning && (
+        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-ui-xs text-foreground-subtle">推理</span>
+      )}
+      <div className="ml-1 flex shrink-0 items-center gap-1.5">
+        <button
+          aria-label={`编辑模型 ${model.name}`}
+          title="编辑模型"
+          className="flex size-6 items-center justify-center rounded-md text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+          onClick={onEdit}
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <button
+          aria-label={`删除模型 ${model.name}`}
+          title="删除模型"
+          className="flex size-6 items-center justify-center rounded-md text-foreground-subtle hover:bg-destructive-surface hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+        <Switch checked={model.enabled} onChange={onToggle} />
       </div>
     </div>
   );

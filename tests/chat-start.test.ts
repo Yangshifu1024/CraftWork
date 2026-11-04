@@ -43,6 +43,7 @@ function makeProvider(): PersistedProvider {
         canonicalId: "",
         releaseDate: "",
         source: "",
+        enabled: true,
       },
     ],
   };
