@@ -16,8 +16,12 @@ permissions:
 
 jobs:
   check:
-    name: 类型检查与单元测试
-    runs-on: ubuntu-latest
+    name: 类型检查与单元测试（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -32,6 +36,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      # postinstall 会执行 electron-builder install-app-deps，
+      # 按当前平台与 Electron ABI 原生构建 node-pty——三平台矩阵同时验证原生编译。
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
@@ -40,37 +46,3 @@ jobs:
 
       - name: 单元测试
         run: pnpm test
-
-  build:
-    name: 桌面构建冒烟
-    runs-on: macos-latest
-    steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
-
-      - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      # postinstall 会执行 electron-builder install-app-deps，
-      # 为 Electron ABI 原生构建 node-pty。
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
-
-      # macOS runner 上产出 dist/mac-arm64/CraftWork.app；
-      # 未配置签名与公证时 electron-builder 以可用身份签名或跳过。
-      - name: 打包冒烟
-        run: pnpm dist:dir
-
-      - name: 上传构建产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: CraftWork-macos
-          path: dist/mac-arm64/
-          retention-days: 3
-          if-no-files-found: error

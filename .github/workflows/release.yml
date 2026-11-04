@@ -1,0 +1,109 @@
+name: Release
+
+# 仅 v* 标签推送触发发布。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 三平台打包（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist # dmg
+            paths: dist/*.dmg
+          - os: windows-latest
+            script: dist:win # nsis 安装包
+            paths: dist/*.exe
+          - os: ubuntu-latest
+            script: dist:linux # AppImage
+            paths: dist/*.AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # postinstall 按当前平台与 Electron ABI 原生构建 node-pty。
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # --publish never：electron-builder 自带的 GitHub 发布走 api.github.com，
+      # 这里只打包，发布统一由 release job 经 gh CLI（github.com）完成。
+      - name: 打包
+        run: pnpm ${{ matrix.script }} --publish never
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          path: ${{ matrix.paths }}
+          retention-days: 3
+          if-no-files-found: error
+
+  release:
+    name: 发布草稿 release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # 完整历史与全部标签：更新说明需要对比上一个 tag 到当前 tag 的提交
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 下载三平台产物
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release
+
+      # 更新说明 = 上一个 tag 到当前 tag 的提交列表（不含合并提交），最新在上。
+      - name: 生成两个 tag 之间的更新说明
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          {
+            echo "## 更新内容"
+            echo ""
+            if [ -n "$PREV" ]; then
+              echo "范围：\`$PREV\` → \`$TAG\`"
+              echo ""
+              git log "$PREV..$TAG" --oneline --no-decorate --no-merges | sed 's/^/- /'
+            else
+              echo "首个版本 \`$TAG\`"
+              echo ""
+              git log "$TAG" --oneline --no-decorate --no-merges | sed 's/^/- /'
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
+      # 资源发布统一走 gh CLI（github.com），不走 api.github.com 的 REST 端点。
+      # 草稿 release：人工核对资源与说明后手动发布；重跑时同步刷新说明。
+      - name: 创建草稿 release 并上传资源
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --draft --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --draft --title "$TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" release/* --clobber
