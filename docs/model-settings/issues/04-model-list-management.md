@@ -7,10 +7,12 @@
 
 ## 验收标准
 
-- [ ] 每行徽章与开关正确渲染；禁用模型行视觉弱化但不隐藏
-- [ ] 新增模型：ID 为空 / 含空白 / 提供商内重复 / 上下文超限时内联标错；成功后列表即时更新
-- [ ] 编辑 catalog 来源模型时 ID 只读，其余字段可改并保存生效
-- [ ] 删除模型需确认，确认后从列表消失
-- [ ] 单测：四个增量 API 成功与报错路径（重名、不存在）；上下文长度格式化函数
+- [x] 每行徽章与开关正确渲染；禁用模型行视觉弱化但不隐藏
+- [x] 新增模型：ID 为空 / 含空白 / 提供商内重复 / 上下文超限时内联标错；成功后列表即时更新
+- [x] 编辑 catalog 来源模型时 ID 只读，其余字段可改并保存生效
+- [x] 删除模型需确认，确认后从列表消失
+- [x] 单测：四个增量 API 成功与报错路径（重名、不存在）；上下文长度格式化函数
 
 ## 进展
+
+已实现（`952af95`）。服务端：`PersistedModel.enabled`（提供商与模型两级缺省迁移补 true）；`providerSetModelEnabled`/`providerAddModel`/`providerUpdateModel`/`providerRemoveModel` 四通道三处接线（统一 `mutateModel`：读→校验→写→reload→返回 toView；updateModel ID 不可变并保留 enabled/source/cost 等非表单字段；providerSave 全量保存按模型 ID 保留既有启停）；`ModelView` + enabled/source。UI：模型行 = 名称 + ID（同名不重复）+ 上下文徽章（`lib/format-context.ts` 的 formatContextK，Intl compact en-US）+ 视觉/推理徽章 + 编辑/删除（confirm）/启停开关（禁用行 opacity-50 弱化不隐藏）；增改共用弹窗（catalog 来源 ID 只读、保存成功才关窗、服务端错误内联、保存中锁定、Esc 过 IME 守卫）。38 例新单测（全量 143 绿）+ build。
