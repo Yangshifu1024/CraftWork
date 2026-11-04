@@ -24,9 +24,12 @@ export default function App(): React.JSX.Element {
   const started = useRef(false);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void boot();
+    // boot 只执行一次；订阅不设防——StrictMode 双执行会先 cleanup 再重跑 effect，
+    // 若订阅也被防护跳过，事件通道将永久失效（dev 下界面收不到任何推送）。
+    if (!started.current) {
+      started.current = true;
+      void boot();
+    }
     const offEvents = onEvents((batch) => applyBatch(batch));
     const offToast = onToast((payload) => pushToast(payload.tone, payload.title, payload.message));
     return () => {

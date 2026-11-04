@@ -1,6 +1,6 @@
 // 「创建并首发」原子路径：服务层测试（真实 SQLite 临时目录 + 桩 Runner）。
 // 只验证外部行为：落库结果、返回值与抛错；不窥探内部调用。
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,9 +64,14 @@ function cleanup(): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
-/** 装配服务：模型已配置；runError 可注入 run 启动失败。 */
-function assemble(runError?: Error): { chat: ChatService; runCalls: string[] } {
+/** 装配服务：模型已配置；runError 可注入 run 启动失败；广播事件收集进 pushed 供断言实时推送。 */
+function assemble(runError?: Error): {
+  chat: ChatService;
+  runCalls: string[];
+  pushed: Array<{ type: string; data: Record<string, unknown> }>;
+} {
   const runCalls: string[] = [];
+  const pushed: Array<{ type: string; data: Record<string, unknown> }> = [];
   const stub = {
     isRunning: () => false,
     run: (threadId: string) => {
@@ -77,11 +82,14 @@ function assemble(runError?: Error): { chat: ChatService; runCalls: string[] } {
     trySteer: () => true,
     cancel: () => false,
   } as unknown as Runner;
-  const recorder = new Recorder(db, new Bus(() => {}));
+  const bus = new Bus((batch) => {
+    for (const event of batch.events) pushed.push({ type: event.type, data: event.data as Record<string, unknown> });
+  });
+  const recorder = new Recorder(db, bus);
   const approvals = new Approvals(db, recorder, new Grants(db));
   const catalog = new Catalog(db);
   const chat = new ChatService(db, recorder, stub, approvals, catalog);
-  return { chat, runCalls };
+  return { chat, runCalls, pushed };
 }
 
 function seededProvider(): void {
@@ -97,9 +105,13 @@ describe("创建并首发", () => {
       trust: "trusted",
       purpose: "conversation",
     }).id;
-    const { chat, runCalls } = assemble();
+    const { chat, runCalls, pushed } = assemble();
+    // Bus 广播走 30ms 微批：fake timers 推进 flush 窗口后再断言
+    vi.useFakeTimers();
 
     const result = chat.createAndStart("code", "", "帮我写个快排", [], MODEL_REF);
+    vi.advanceTimersByTime(31);
+    vi.useRealTimers();
 
     const thread = getThread(db, result.threadId);
     expect(thread.title).toBe("帮我写个快排");
@@ -110,6 +122,12 @@ describe("创建并首发", () => {
     const userMessage = events.find((e) => e.kind === "user_message");
     expect(userMessage).toBeDefined();
     expect(JSON.parse(userMessage?.payload ?? "{}")).toMatchObject({ text: "帮我写个快排", attachments: [] });
+    // 落库即广播 user.message（载荷带 messageId），且先于 thread.updated
+    const umIdx = pushed.findIndex((p) => p.type === "user.message");
+    const tuIdx = pushed.findIndex((p) => p.type === "thread.updated");
+    expect(umIdx).toBeGreaterThanOrEqual(0);
+    expect(pushed[umIdx]?.data["messageId"]).toBe(userMessage?.messageId);
+    expect(tuIdx).toBeGreaterThan(umIdx);
     expect(runCalls).toEqual([result.threadId]);
     expect(result.runId).toBe("run_stub_1");
     cleanup();

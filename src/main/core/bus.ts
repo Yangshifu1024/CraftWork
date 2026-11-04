@@ -50,6 +50,7 @@ export class Bus {
 
 /** 部件落库后广播哪个完成事件（原 record.partEvents，契约只存在一份）。 */
 export const PART_EVENTS: Record<string, EventType> = {
+  user_message: "user.message",
   text: "text.completed",
   reasoning: "reasoning.completed",
   tool_call: "tool.completed",

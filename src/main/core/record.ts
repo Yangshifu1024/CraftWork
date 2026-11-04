@@ -12,12 +12,13 @@ export class Recorder {
     private readonly bus: Bus,
   ) {}
 
-  /** 落库 + 广播；无 PART_EVENTS 映射的 kind 只入库不广播。 */
+  /** 落库 + 广播；无 PART_EVENTS 映射的 kind 只入库不广播。载荷统一补 messageId（渲染层幂等键）。 */
   append(rec: EventRecord): { id: string; seq: number } {
     const result = appendEvent(this.db, rec);
     const broadcastType = PART_EVENTS[rec.kind];
     if (broadcastType) {
-      this.bus.emit(broadcastType, rec.threadId, rec.runId, rec.payload);
+      const base = typeof rec.payload === "object" && rec.payload !== null ? rec.payload as Record<string, unknown> : {};
+      this.bus.emit(broadcastType, rec.threadId, rec.runId, { ...base, messageId: rec.messageId });
     }
     return result;
   }

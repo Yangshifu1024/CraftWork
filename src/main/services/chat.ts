@@ -68,9 +68,8 @@ export class ChatService {
       archived: false,
     };
     const created = createThread(this.db, row);
-    const messageId = this.writeUserMessage(created.id, clean, attachments);
-    // 首发后新会话时间线立即显示用户消息（user_message 落库无广播映射，手动 emit 一次）
-    this.recorder.emit(EventType.UserMessage, created.id, undefined, { messageId, text: clean, attachments });
+    // 用户消息落库即经 PART_EVENTS 自动广播 user.message（时间线立即显示）
+    this.writeUserMessage(created.id, clean, attachments);
     this.publishThreadChanged(created.id);
     const { runId, error } = this.runner.run(created.id);
     if (error) {
@@ -86,12 +85,6 @@ export class ChatService {
     this.ensureThreadModel(thread);
     const clean = text.trim();
     const messageId = this.writeUserMessage(threadId, clean, attachments);
-    this.recorder.emit(EventType.UserMessage, threadId, undefined, {
-      messageId,
-      text: clean,
-      attachments,
-      via: "steer",
-    });
     const item: SteerItem = { messageId, text: clean, attachments };
     const queued = this.runner.trySteer(threadId, item);
     if (queued) return messageId;
