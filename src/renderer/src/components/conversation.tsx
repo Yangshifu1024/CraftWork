@@ -463,14 +463,16 @@ function cleanErrorMessage(err: unknown): string {
 }
 
 /** 模型 chip：显示会话模型（缺省用全局默认），点击在按钮上方弹出选择浮层。对齐 ZCode：模型名 + ChevronDown，未选时占位文案。
- *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。 */
-function ModelChip({ className, ...props }: React.ComponentProps<"button">): React.JSX.Element {
+ *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。
+ *  草稿态（活动会话为空）禁点：首发将使用显示的默认模型，切换能力在草稿槽接通后开放。 */
+function ModelChip({ className, disabled, ...props }: React.ComponentProps<"button">): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
   const threads = useApp((s) => s.threads[mode]);
   const settings = useApp((s) => s.settings);
   const thread = threads.find((t) => t.id === activeId);
   const modelId = thread?.modelId || settings.defaultModel;
+  const draftLocked = activeId === "";
   const label = modelId
     ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
       ? thread.modelName
@@ -479,11 +481,12 @@ function ModelChip({ className, ...props }: React.ComponentProps<"button">): Rea
   return (
     <button
       type="button"
+      disabled={disabled || draftLocked}
       {...props}
-      className={`flex h-7 shrink-0 items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover ${
+      className={`flex h-7 shrink-0 items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover disabled:hover:bg-transparent disabled:cursor-default disabled:opacity-50 ${
         modelId ? "text-foreground" : "text-foreground-subtle hover:text-foreground-subtle"
       } ${className ?? ""}`}
-      title={modelId || "先在设置中添加提供商并选择模型"}
+      title={draftLocked ? "首发后将使用该模型，草稿态暂不可切换" : (modelId || "先在设置中添加提供商并选择模型")}
     >
       <span className="max-w-40 truncate">{label}</span>
       <ChevronDown className="size-3.5 shrink-0 text-foreground-subtlest" />
@@ -584,8 +587,19 @@ function LevelChip(): React.JSX.Element {
 }
 
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
+  // 文本与附件受控于 store 的草稿槽（按模式分槽）：草稿态内容由此保留，普通会话下同样经槽读写。
+  const mode = useApp((s) => s.mode);
+  const draft = useApp((s) => s.drafts[mode]);
+  const setDraft = useApp((s) => s.setDraft);
+  const refreshThreads = useApp((s) => s.refreshThreads);
+  const selectThread = useApp((s) => s.selectThread);
+  const text = draft.text;
+  const attachments = draft.attachments;
+  const setText = (value: string): void => setDraft(mode, { text: value });
+  const setAttachments = (value: string[] | ((prev: string[]) => string[])): void => {
+    const prev = useApp.getState().drafts[mode].attachments;
+    setDraft(mode, { attachments: typeof value === "function" ? value(prev) : value });
+  };
   // composer 配置 picker 排他态收在 overlays store（模型 / 档位互斥，⌘M 可从快捷键打开）。
   const picker = useOverlays((s) => s.picker);
   const openPicker = useOverlays((s) => s.openPicker);
@@ -626,7 +640,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
 
   const submit = (): void => {
     const clean = text.trim();
-    if ((!clean && attachments.length === 0) || !activeId) return;
+    if (!clean && attachments.length === 0) return;
     const sendAttachments = attachments;
     setText("");
     setAttachments([]);
@@ -634,6 +648,23 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
       setText(clean); // 失败还原草稿与附件
       setAttachments(sendAttachments);
     };
+    if (activeId === "") {
+      // 草稿首发：创建并首发原子路径。创建前失败（如未配置模型）还原草稿；
+      // 创建成功即视为发送成功——会话立即入栏并选中，Run 启动失败经 run.failed 在时间线展示，不还原草稿。
+      const modelRef = useApp.getState().settings.defaultModel;
+      void api
+        .chatCreateAndStart(mode, "", clean, sendAttachments, modelRef)
+        .then(async ({ threadId }) => {
+          await refreshThreads(mode);
+          // 首发飞行中切走模式时不抢选：新会话留在原模式侧栏
+          if (useApp.getState().mode === mode) await selectThread(threadId);
+        })
+        .catch((err) => {
+          restore();
+          pushToast("danger", "发送失败", cleanErrorMessage(err));
+        });
+      return;
+    }
     if (running) {
       void api
         .chatSteer(activeId, clean, sendAttachments)
@@ -703,7 +734,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
               </button>
               <ModeSwitch />
               <ModelPicker
-                open={picker === "model"}
+                open={picker === "model" && activeId !== ""}
                 onOpenChange={(o) => (o ? openPicker("model") : closePicker())}
                 trigger={<ModelChip />}
               />

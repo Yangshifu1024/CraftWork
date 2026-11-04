@@ -19,7 +19,7 @@ export function useShortcuts(): void {
       }
       if (meta && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        void useApp.getState().createThread();
+        useApp.getState().newDraft();
         return;
       }
       if (meta && e.key.toLowerCase() === "b") {
@@ -46,10 +46,12 @@ export function useShortcuts(): void {
         if (overlay === "none") cycleApprovalLevel();
         return;
       }
-      // ⌘M：开/关模型菜单（composer picker 排他态在 overlays store）。
+      // ⌘M：开/关模型菜单（composer picker 排他态在 overlays store）；草稿态模型选择禁用。
       if (meta && e.key.toLowerCase() === "m") {
         e.preventDefault();
         if (overlay !== "none") return;
+        const app = useApp.getState();
+        if (app.activeThreadId[app.mode] === "") return;
         const { picker, openPicker, closePicker } = useOverlays.getState();
         if (picker === "model") closePicker();
         else openPicker("model");

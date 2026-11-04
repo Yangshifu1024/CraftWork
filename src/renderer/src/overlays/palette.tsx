@@ -11,7 +11,7 @@ export function CommandPalette(): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const threads = useApp((s) => s.threads[mode]);
   const selectThread = useApp((s) => s.selectThread);
-  const createThread = useApp((s) => s.createThread);
+  const newDraft = useApp((s) => s.newDraft);
   const setMode = useApp((s) => s.setMode);
   const toggleSidebar = useApp((s) => s.toggleSidebar);
   const settings = useApp((s) => s.settings);
@@ -64,7 +64,7 @@ export function CommandPalette(): React.JSX.Element {
               ))}
             </Command.Group>
             <Command.Group heading="命令" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-ui-xs [&_[cmdk-group-heading]]:text-foreground-subtlest">
-              <Item shortcut="⌘N" onSelect={() => run(() => void createThread())}>
+              <Item shortcut="⌘N" onSelect={() => run(() => newDraft())}>
                 新建对话
               </Item>
               <Item shortcut="⌘," onSelect={() => run(() => open("settings"))}>

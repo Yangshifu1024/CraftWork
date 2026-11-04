@@ -22,11 +22,22 @@ export interface ChatState {
   lastSeq: number;
 }
 
+/** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容。 */
+export interface DraftState {
+  text: string;
+  attachments: string[];
+}
+
+function emptyDraft(): DraftState {
+  return { text: "", attachments: [] };
+}
+
 interface AppState {
   booted: boolean;
   mode: Mode;
   threads: Record<Mode, ThreadView[]>;
   activeThreadId: Record<Mode, string>;
+  drafts: Record<Mode, DraftState>;
   workspaces: WorkspaceView[];
   settings: Settings;
   chats: Record<string, ChatState>;
@@ -38,7 +49,9 @@ interface AppState {
   refreshThreads(mode?: Mode): Promise<void>;
   refreshWorkspaces(): Promise<void>;
   selectThread(id: string): Promise<void>;
-  createThread(workspaceId?: string): Promise<void>;
+  /** 进入当前模式的草稿态：活动会话置空，不创建任何线程（草稿不落库）。 */
+  newDraft(): void;
+  setDraft(mode: Mode, patch: Partial<DraftState>): void;
   deleteThread(id: string): Promise<void>;
   renameThread(id: string, title: string): Promise<void>;
   applyBatch(batch: Batch): void;
@@ -55,6 +68,7 @@ export const useApp = create<AppState>((set, get) => ({
   mode: "code",
   threads: { code: [], work: [] },
   activeThreadId: { code: "", work: "" },
+  drafts: { code: emptyDraft(), work: emptyDraft() },
   workspaces: [],
   settings: {
     theme: "system",
@@ -147,11 +161,16 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 
-  async createThread(workspaceId) {
+  newDraft() {
     const mode = get().mode;
-    const thread = await api.threadCreate(mode, workspaceId ?? "", "");
-    await get().refreshThreads(mode);
-    await get().selectThread(thread.id);
+    // 草稿态：活动会话置空即可，不调线程创建（草稿是纯渲染层状态）
+    set((state) => ({ activeThreadId: { ...state.activeThreadId, [mode]: "" } }));
+  },
+
+  setDraft(mode, patch) {
+    set((state) => ({
+      drafts: { ...state.drafts, [mode]: { ...state.drafts[mode], ...patch } },
+    }));
   },
 
   async deleteThread(id) {
