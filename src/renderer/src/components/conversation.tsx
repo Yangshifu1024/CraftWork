@@ -90,15 +90,10 @@ function MessageRow({
   chatRunning: boolean;
 }): React.JSX.Element {
   const activeId = useApp((s) => s.activeThreadId[s.mode]);
-  const [hovered, setHovered] = useState(false);
 
   if (message.role === "user") {
     return (
-      <div
-        className="group flex w-full flex-col items-end gap-1"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
+      <div className="group/msg flex w-full flex-col items-end gap-1">
         <div className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-user-message-bubble px-4 py-3 text-ui-base text-foreground sm:max-w-xl">
           {message.parts
             .filter((p) => p.kind === "text")
@@ -108,52 +103,50 @@ function MessageRow({
               </div>
             ))}
         </div>
-        {hovered && (
-          <button
-            className="mr-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-            onClick={() => {
-              const text = message.parts
-                .filter((p) => p.kind === "text")
-                .map((p) => String(p.payload["text"] ?? ""))
-                .join("\n");
-              void api.clipboardWrite(text);
-            }}
-          >
-            <Copy className="size-3" /> 复制
-          </button>
-        )}
+        {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动 */}
+        <button
+          className="mr-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest opacity-0 transition-opacity duration-150 hover:bg-surface-hover group-hover/msg:opacity-100"
+          onClick={() => {
+            const text = message.parts
+              .filter((p) => p.kind === "text")
+              .map((p) => String(p.payload["text"] ?? ""))
+              .join("\n");
+            void api.clipboardWrite(text);
+          }}
+        >
+          <Copy className="size-3" /> 复制
+        </button>
       </div>
     );
   }
 
   // 助手消息：按「过程分组」切段渲染（工具/推理/审批收进折叠，最终正文在外）
   return (
-    <div className="group flex w-full flex-col gap-2" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="group/msg flex w-full flex-col gap-2">
       <TurnBody message={message} chatRunning={chatRunning} />
-      {hovered && (
-        <div className="flex items-center gap-1">
+      {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动；复制/重新生成由可见性控制 */}
+      <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
+        <button
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+          onClick={() => {
+            const text = message.parts
+              .filter((p) => p.kind === "text")
+              .map((p) => String(p.payload["text"] ?? ""))
+              .join("\n");
+            void api.clipboardWrite(text);
+          }}
+        >
+          <Copy className="size-3" /> 复制
+        </button>
+        {!chatRunning && (
           <button
             className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-            onClick={() => {
-              const text = message.parts
-                .filter((p) => p.kind === "text")
-                .map((p) => String(p.payload["text"] ?? ""))
-                .join("\n");
-              void api.clipboardWrite(text);
-            }}
+            onClick={() => void api.chatRegenerate(activeId)}
           >
-            <Copy className="size-3" /> 复制
+            <RefreshCw className="size-3" /> 重新生成
           </button>
-          {!chatRunning && (
-            <button
-              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-              onClick={() => void api.chatRegenerate(activeId)}
-            >
-              <RefreshCw className="size-3" /> 重新生成
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

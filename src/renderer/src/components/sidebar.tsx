@@ -171,14 +171,9 @@ function ProjectGroup({
   children: React.ReactNode;
   hasUnread?: boolean;
 }): React.JSX.Element {
-  const [hovered, setHovered] = useState(false);
   return (
     <div>
-      <div
-        className="group/project-row ml-2 flex h-8 min-w-0 items-center gap-1 rounded-lg pr-1 hover:bg-surface-hover"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
+      <div className="group/project-row ml-2 flex h-8 min-w-0 items-center gap-1 rounded-lg pr-1 hover:bg-surface-hover">
         <button
           className="flex h-8 min-w-0 flex-1 cursor-pointer justify-start gap-2 rounded-lg pl-2.5 pr-1 text-left"
           onClick={onToggle}
@@ -188,8 +183,9 @@ function ProjectGroup({
           </span>
           <span className="min-w-0 flex-1 truncate text-ui-base text-foreground-subtle">{name}</span>
           {!isOpen && hasUnread ? <span className="mx-1 size-1.5 shrink-0 rounded-full bg-icon-blue" /> : null}
-          <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-foreground-subtlest">
-            {hovered ? <Pin className="size-3.5" /> : null}
+          {/* 置顶槽常驻占位：hover 才显示，避免布局跳动 */}
+          <span className="mr-1 flex size-4 shrink-0 items-center justify-center text-foreground-subtlest opacity-0 transition-opacity duration-150 group-hover/project-row:opacity-100">
+            <Pin className="size-3.5" />
           </span>
         </button>
       </div>
