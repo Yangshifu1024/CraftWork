@@ -208,6 +208,28 @@ function MessageAttachments({ attachments }: { attachments: unknown }): React.JS
   );
 }
 
+/** 消息复制按钮：写入成功后原处切换「已复制」反馈，短暂停留后恢复。 */
+function CopyButton({ getText }: { getText: () => string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(timer.current ?? undefined), []);
+  return (
+    <button
+      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+      onClick={() => {
+        void api.clipboardWrite(getText()).then(() => {
+          setCopied(true);
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => setCopied(false), 1600);
+        });
+      }}
+    >
+      {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+      {copied ? "已复制" : "复制"}
+    </button>
+  );
+}
+
 function MessageRow({
   message,
   chatRunning,
@@ -242,18 +264,14 @@ function MessageRow({
           {message.createdAt > 0 && (
             <span className="select-none text-ui-xs text-foreground-subtlest">{fmtDateTime(message.createdAt)}</span>
           )}
-          <button
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-            onClick={() => {
-              const text = message.parts
+          <CopyButton
+            getText={() =>
+              message.parts
                 .filter((p) => p.kind === "text")
                 .map((p) => String(p.payload["text"] ?? ""))
-                .join("\n");
-              void api.clipboardWrite(text);
-            }}
-          >
-            <Copy className="size-3" /> 复制
-          </button>
+                .join("\n")
+            }
+          />
         </div>
       </div>
     );
@@ -265,18 +283,14 @@ function MessageRow({
       <TurnBody message={message} chatRunning={chatRunning} />
       {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动 */}
       <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
-        <button
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-          onClick={() => {
-            const text = message.parts
+        <CopyButton
+          getText={() =>
+            message.parts
               .filter((p) => p.kind === "text")
               .map((p) => String(p.payload["text"] ?? ""))
-              .join("\n");
-            void api.clipboardWrite(text);
-          }}
-        >
-          <Copy className="size-3" /> 复制
-        </button>
+              .join("\n")
+          }
+        />
         {message.createdAt > 0 && (
           <span className="select-none text-ui-xs text-foreground-subtlest">{fmtDateTime(message.createdAt)}</span>
         )}
