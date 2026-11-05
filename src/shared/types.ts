@@ -4,7 +4,8 @@
 // ---------- 策略 ----------
 
 export type Risk = "R0" | "R1" | "R2" | "R3" | "R4";
-export type PolicyLevel = "graded" | "strict" | "readonly" | "free";
+/** 审批档位：分级（默认）/ 自由。历史档位 strict/readonly 已移除，旧存储值由后端回落分级。 */
+export type PolicyLevel = "graded" | "free";
 export type PolicyAction = "allow" | "ask" | "deny";
 export type ApprovalScope = "once" | "session" | "workspace";
 

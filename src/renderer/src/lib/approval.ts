@@ -1,6 +1,8 @@
 // 审批档位：清单、显示名与图标供设置页与 composer 档位浮层共用；切换动作统一收口
 // （切到「自由」放行一切操作含破坏性，必须先经危险确认框——对齐 ZCode yolo 语义）。
-import { Eye, Shield, ShieldAlert, ShieldCheck, type LucideIcon } from "lucide-react";
+// 历史说明：曾有「严格」（逐次询问不提供永久授权）与「只读」（R1+ 直接拒绝）两档，
+// 前者与分级档差异仅是禁用授权缓存、后者被计划模式完全覆盖，已移除；旧 settings 值由后端回落分级档。
+import { Shield, ShieldAlert, type LucideIcon } from "lucide-react";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import type { PolicyLevel } from "../../../shared/types";
@@ -8,8 +10,6 @@ import type { PolicyLevel } from "../../../shared/types";
 /** 审批档位清单（设置页与 composer 档位浮层共用）：id 与 PolicyLevel 对齐。 */
 export const APPROVAL_LEVELS = [
   { id: "graded", name: "分级", desc: "只读自动放行；写入与执行每次询问；可本会话/本工作区授权" },
-  { id: "strict", name: "严格", desc: "全部逐次询问，不提供永久授权" },
-  { id: "readonly", name: "只读", desc: "只允许只读操作，其余直接拒绝" },
   { id: "free", name: "自由", desc: "放行一切操作（含破坏性），安全靠审计与备份兜底" },
 ] as const;
 
@@ -21,13 +21,11 @@ export const APPROVAL_LEVEL_NAMES: Record<string, string> = Object.fromEntries(
 /** 档位 ID → 图标；「自由」用 ShieldAlert（高权限警示，对齐 ZCode yolo）。 */
 export const APPROVAL_LEVEL_ICONS: Record<PolicyLevel, LucideIcon> = {
   graded: Shield,
-  strict: ShieldCheck,
-  readonly: Eye,
   free: ShieldAlert,
 };
 
 /** ⌘⇧M 的档位循环顺序。 */
-const LEVEL_ORDER: readonly PolicyLevel[] = ["graded", "strict", "readonly", "free"];
+const LEVEL_ORDER: readonly PolicyLevel[] = ["graded", "free"];
 
 type SaveSettings = (next: { approvalLevel: PolicyLevel }) => Promise<unknown>;
 type OpenFreeLevel = (opts: { onOk(): void }) => void;

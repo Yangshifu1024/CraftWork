@@ -1,7 +1,10 @@
 //! 风险分级与审批档位的核心判定。
 //! 风险等级：R0 读 / R1 写工作区 / R2 执行 / R3 网络或越界 / R4 破坏性（参数可提升风险）。
-//! 审批档位：graded 分级 / strict 严格 / readonly 只读 / free 自由；档位只是策略引擎的输入，
-//! 不改变风险分级本身。`Engine::action` 的判定顺序不可调换（AGENTS.md 审批表）。
+//! 审批档位：graded 分级 / free 自由；档位只是策略引擎的输入，不改变风险分级本身。
+//! `Engine::action` 的判定顺序不可调换（AGENTS.md 审批表）。
+//! 历史说明：曾存在 strict（逐次询问不提供永久授权）与 readonly（R1+ 直接拒绝）两档，
+//! 前者与分级档差异仅是禁用授权缓存、后者被计划模式（提示词约束 + R1+ 强制逐次审批）完全覆盖，
+//! 已移除；旧 settings 里的 "strict"/"readonly" 由 [`parse_level`] 回落分级档。
 
 /// 风险等级（与 shared/types.ts 的 Risk 对齐）：
 /// R0 读、R1 写工作区、R2 执行、R3 网络或越界、R4 破坏性；工具参数可把基础风险向上提升。
@@ -42,23 +45,19 @@ impl PolicyRisk {
     }
 }
 
-/// 审批档位：graded 分级（默认）/ strict 严格（逐次询问）/ readonly 只读 / free 自由。
+/// 审批档位：graded 分级（默认）/ free 自由。
 /// free 是唯一放行一切（含 R4 与受限工作区）的档位；切换前的确认门由调用方实现，策略层不负责交互。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
     Graded,
-    Strict,
-    Readonly,
     Free,
 }
 
 impl Level {
-    /// 存储形式："graded" / "strict" / "readonly" / "free"。
+    /// 存储形式："graded" / "free"。
     pub fn as_str(&self) -> &'static str {
         match self {
             Level::Graded => "graded",
-            Level::Strict => "strict",
-            Level::Readonly => "readonly",
             Level::Free => "free",
         }
     }
@@ -95,10 +94,9 @@ pub fn reason_for(risk: PolicyRisk) -> &'static str {
 }
 
 /// 解析档位字符串；未知值回落 graded（默认档）。
+/// 已移除的 "strict"/"readonly"（历史 settings 值）同样回落分级档。
 pub fn parse_level(value: &str) -> Level {
     match value {
-        "strict" => Level::Strict,
-        "readonly" => Level::Readonly,
         "free" => Level::Free,
         _ => Level::Graded,
     }
@@ -139,29 +137,15 @@ impl Engine {
 
     /// 处置规则（见 AGENTS.md 审批表，判定顺序不可调换）：
     /// 1. free 全放行（安全兜底退化为审计 + 写前备份）
-    /// 2. readonly 仅 R0 放行，其余拒绝
-    /// 3. 受限工作区 R3 直接拒绝（先于档位判定，对 strict/graded 均生效）
-    /// 4. strict：R0 放行、R4 拒绝、其余逐次询问
-    /// 5. graded：R0 放行、R4 拒绝、其余逐次询问；永久授权见 [`Engine::allows_permanent`]
+    /// 2. 受限工作区 R3 直接拒绝（先于档位判定，对分级档生效）
+    /// 3. graded：R0 放行、R4 拒绝、其余逐次询问；永久授权见 [`Engine::allows_permanent`]
     pub fn action(&self, restricted: bool, risk: PolicyRisk) -> Action {
         let level = self.level;
         if level == Level::Free {
             return Action::Allow; // 用户显式风险确认，策略层放行，安全靠审计+备份兜底
         }
-        if level == Level::Readonly {
-            return if risk == PolicyRisk::R0 { Action::Allow } else { Action::Deny };
-        }
         if restricted && risk == PolicyRisk::R3 {
             return Action::Deny; // 受限工作区默认断网
-        }
-        if level == Level::Strict {
-            if risk == PolicyRisk::R0 {
-                return Action::Allow;
-            }
-            if risk == PolicyRisk::R4 {
-                return Action::Deny;
-            }
-            return Action::Ask; // 严格档逐次询问，不提供永久允许
         }
         // graded
         if risk == PolicyRisk::R0 {
@@ -173,24 +157,10 @@ impl Engine {
         Action::Ask
     }
 
-    /// 是否允许永久授权（session/workspace 范围）：仅分级档 + 非受限工作区 + R1/R2。
+    /// 是否允许永久授权（session/workspace 范围）：非受限工作区 + R1/R2。
     /// R3/R4 与受限工作区一律逐次审批；allowPermanent=false 时调用方也应把 session/workspace 降为 once。
     pub fn allows_permanent(&self, restricted: bool, risk: PolicyRisk) -> bool {
-        self.level == Level::Graded && !restricted && matches!(risk, PolicyRisk::R1 | PolicyRisk::R2)
-    }
-
-    /// 档位是否允许任何写操作（readonly 返回 false），供写类能力做前置检查。
-    pub fn allows_write(&self) -> bool {
-        self.level != Level::Readonly
-    }
-}
-
-/// 档位放行的最宽风险（审计展示用）：free 到 R4，readonly 只到 R0，graded/strict 到 R3（R4 恒拒）。
-pub fn level_widest_risk(level: Level) -> PolicyRisk {
-    match level {
-        Level::Free => PolicyRisk::R4,
-        Level::Readonly => PolicyRisk::R0,
-        _ => PolicyRisk::R3,
+        !restricted && matches!(risk, PolicyRisk::R1 | PolicyRisk::R2)
     }
 }
 
@@ -211,41 +181,28 @@ mod tests {
         // 受限工作区 R1/R2 仍逐次询问
         assert_eq!(graded.action(true, PolicyRisk::R1), Action::Ask);
 
-        // strict：逐次询问，不因受限改变
-        let strict = Engine::new(Level::Strict);
-        assert_eq!(strict.action(false, PolicyRisk::R1), Action::Ask);
-        assert_eq!(strict.action(true, PolicyRisk::R1), Action::Ask);
-        assert_eq!(strict.action(false, PolicyRisk::R4), Action::Deny);
-
-        // readonly：仅 R0
-        let readonly = Engine::new(Level::Readonly);
-        assert_eq!(readonly.action(false, PolicyRisk::R0), Action::Allow);
-        assert_eq!(readonly.action(false, PolicyRisk::R1), Action::Deny);
-        assert_eq!(readonly.action(true, PolicyRisk::R0), Action::Allow);
-
         // free：全放行（含 R4、受限）
         let free = Engine::new(Level::Free);
         assert_eq!(free.action(true, PolicyRisk::R4), Action::Allow);
     }
 
     #[test]
-    fn permanent_grant_only_graded_unrestricted_r1_r2() {
+    fn permanent_grant_only_unrestricted_r1_r2() {
         let graded = Engine::new(Level::Graded);
         assert!(graded.allows_permanent(false, PolicyRisk::R1));
         assert!(graded.allows_permanent(false, PolicyRisk::R2));
         assert!(!graded.allows_permanent(true, PolicyRisk::R1));
         assert!(!graded.allows_permanent(false, PolicyRisk::R3));
-        let strict = Engine::new(Level::Strict);
-        assert!(!strict.allows_permanent(false, PolicyRisk::R1));
     }
 
     #[test]
-    fn level_parsing_and_widest_risk() {
-        assert_eq!(parse_level("strict"), Level::Strict);
+    fn level_parsing_falls_back_to_graded() {
+        assert_eq!(parse_level("free"), Level::Free);
+        assert_eq!(parse_level("graded"), Level::Graded);
+        // 已移除的历史档位与未知值一律回落分级档（旧 settings 兼容）
+        assert_eq!(parse_level("strict"), Level::Graded);
+        assert_eq!(parse_level("readonly"), Level::Graded);
         assert_eq!(parse_level("其他"), Level::Graded);
-        assert_eq!(level_widest_risk(Level::Free), PolicyRisk::R4);
-        assert_eq!(level_widest_risk(Level::Readonly), PolicyRisk::R0);
-        assert_eq!(level_widest_risk(Level::Graded), PolicyRisk::R3);
         assert!(is_workspace_trusted("trusted"));
         assert!(!is_workspace_trusted("restricted"));
     }
