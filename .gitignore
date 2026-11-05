@@ -15,3 +15,4 @@ target/
 # 本地环境
 .env
 .env.*
+tests/fixtures/craftwork-golden.db-*

@@ -223,6 +223,10 @@ export interface ModelInput {
   maxTokens: number;
   caps?: Partial<Capabilities>;
   cost?: Cost;
+  /** 思考档位声明（手动声明，用于不在目录中的网关模型）：缺省 = 编辑时保留现值；
+   *  kind 空串 + [] = 显式清除；kind "effort" + 非空集 = 声明档位（注入 reasoning_effort）。 */
+  reasoningKind?: string;
+  reasoningLevels?: string[];
 }
 
 export interface ProviderInput {

@@ -1071,6 +1071,9 @@ fn model_input_to_persisted(v: &Value) -> Result<craft_model::types::PersistedMo
         "status": v.get("status").cloned().unwrap_or(json!("")),
         "canonicalId": "", "releaseDate": "",
         "source": "manual", "enabled": true,
+        // 手动声明的思考档位（ModelInput 可选；编辑未携带时由 provider_update_model 保留现值）
+        "reasoningKind": v.get("reasoningKind").cloned().unwrap_or(json!("")),
+        "reasoningLevels": v.get("reasoningLevels").cloned().unwrap_or(json!([])),
     }))
     .map_err(|e| format!("模型数据无效：{e}"))
 }
@@ -1112,9 +1115,15 @@ pub fn provider_add_model(state: &AppState, provider_id: &str, model: &Value) ->
 
 pub fn provider_update_model(state: &AppState, provider_id: &str, model_id: &str, model: &Value) -> SvcResult {
     let mut providers = load_providers(state);
-    let persisted = model_input_to_persisted(model)?;
     let provider = providers.iter_mut().find(|p| p.id == provider_id).ok_or("提供商不存在")?;
     let slot = provider.models.iter_mut().find(|m| m.id == model_id).ok_or("模型不存在")?;
+    let mut persisted = model_input_to_persisted(model)?;
+    // 档位保留语义：请求未携带 reasoningLevels 字段时保留现值（目录归一值或上次手动声明），
+    // 避免编辑显示名等操作把目录导入的档位元数据抹掉
+    if model.get("reasoningLevels").is_none() {
+        persisted.reasoning_kind = std::mem::take(&mut slot.reasoning_kind);
+        persisted.reasoning_levels = std::mem::take(&mut slot.reasoning_levels);
+    }
     // ID 不可变：保留原 ID
     let id = slot.id.clone();
     *slot = craft_model::types::PersistedModel { id, ..persisted };

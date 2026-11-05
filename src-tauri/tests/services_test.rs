@@ -327,3 +327,39 @@ fn settings_save_level_takes_effect_without_restart() {
     services::settings_save(&state, &json!({ "approvalLevel": "bogus" })).unwrap();
     assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
 }
+
+#[test]
+fn model_reasoning_declaration_persists_and_survives_unrelated_edit() {
+    let (_dir, state) = test_state("reasoning-decl");
+    let provider = json!({
+        "id": "gw", "name": "GW", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": false,
+        "models": [{ "id": "m1", "name": "网关模型", "contextK": 8, "maxTokens": 512,
+                     "caps": {"stream": true, "tools": true, "vision": false, "reasoning": true, "structured": false},
+                     "status": "", "source": "manual", "enabled": true }],
+    });
+    services::provider_save(&state, &provider).unwrap();
+
+    // 手动声明档位：写入 reasoning_kind/levels 并出现在视图中
+    let view = services::provider_update_model(&state, "gw", "m1", &json!({
+        "id": "m1", "name": "网关模型", "contextK": 8, "maxTokens": 512,
+        "caps": {"stream": true, "tools": true, "vision": false, "reasoning": true, "structured": false},
+        "reasoningKind": "effort", "reasoningLevels": ["low", "high", "max"],
+    })).unwrap();
+    assert!(view.to_string().contains(r#""reasoningLevels":["low","high","max"]"#));
+
+    // 不携带档位字段的编辑（改显示名）：保留已声明的档位，不被抹掉
+    let view = services::provider_update_model(&state, "gw", "m1", &json!({
+        "id": "m1", "name": "改名", "contextK": 8, "maxTokens": 512,
+        "caps": {"stream": true, "tools": true, "vision": false, "reasoning": true, "structured": false},
+    })).unwrap();
+    assert!(view.to_string().contains(r#""reasoningLevels":["low","high","max"]"#));
+
+    // 显式清除：kind 空串 + 空数组
+    let view = services::provider_update_model(&state, "gw", "m1", &json!({
+        "id": "m1", "name": "改名", "contextK": 8, "maxTokens": 512,
+        "caps": {"stream": true, "tools": true, "vision": false, "reasoning": true, "structured": false},
+        "reasoningKind": "", "reasoningLevels": [],
+    })).unwrap();
+    assert!(view.to_string().contains(r#""reasoningLevels":[]"#));
+}

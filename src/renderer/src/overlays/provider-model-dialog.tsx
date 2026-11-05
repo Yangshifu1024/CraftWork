@@ -15,6 +15,16 @@ import {
 } from "../lib/model-form";
 import type { ModelInput, ModelView, ProviderView } from "../../../shared/types";
 
+/** 思考档位声明预设（effort 集，注入 reasoning_effort；budget 型仅 Anthropic 原生协议，不对手动声明开放）。
+ *  levels undefined = 保留现值（保存时不携带档位字段）。 */
+const REASONING_PRESETS: Array<{ id: string; label: string; kind?: string; levels?: string[] }> = [
+  { id: "keep", label: "跟随目录 / 保留现状" },
+  { id: "none", label: "不支持（清除声明）", kind: "", levels: [] },
+  { id: "deepseek-off", label: "关闭 / 低 / 高 / 最高", kind: "effort", levels: ["none", "low", "high", "max"] },
+  { id: "deepseek", label: "低 / 高 / 最高", kind: "effort", levels: ["low", "high", "max"] },
+  { id: "openai", label: "极低 / 低 / 中 / 高", kind: "effort", levels: ["minimal", "low", "medium", "high"] },
+];
+
 export function ProviderModelDialog({
   providerId,
   providerName,
@@ -47,6 +57,13 @@ export function ProviderModelDialog({
   const [errors, setErrors] = useState<ModelFormErrors>({});
   const [serverError, setServerError] = useState("");
   const [saving, setSaving] = useState(false);
+  // 思考档位声明预设：目录外的网关模型无元数据，手动声明后模型浮层才出思考强度区。
+  // keep = 保存时不携带档位字段（服务端保留现值：目录归一值或上次声明）。
+  const currentLevels = model?.reasoningLevels ?? [];
+  const matchedPreset = REASONING_PRESETS.find(
+    (p) => p.levels !== undefined && p.levels.join(",") === currentLevels.join(","),
+  );
+  const [reasoningPreset, setReasoningPreset] = useState<string>(matchedPreset?.id ?? (currentLevels.length > 0 ? "keep" : "none"));
 
   const submit = (): void => {
     if (saving) return;
@@ -62,6 +79,12 @@ export function ProviderModelDialog({
       maxTokens: normalizeMaxTokens(Number(maxTokens)),
       caps,
     };
+    // 档位声明：keep 不携带字段（服务端保留现值）；其余按预设写入（none = 显式清除）
+    const preset = REASONING_PRESETS.find((p) => p.id === reasoningPreset);
+    if (preset && preset.levels !== undefined) {
+      payload.reasoningKind = preset.kind;
+      payload.reasoningLevels = preset.levels;
+    }
     setSaving(true);
     setServerError("");
     const call = editing
@@ -78,7 +101,7 @@ export function ProviderModelDialog({
       });
   };
 
-  const field = (label: string, hint: string, err: string | undefined, control: React.JSX.Element): React.JSX.Element => (
+  const field = (label: string, hint: string | undefined, err: string | undefined, control: React.JSX.Element): React.JSX.Element => (
     <div className="flex flex-col gap-1">
       <label className="text-ui-xs text-foreground-subtle">
         {label}
@@ -203,6 +226,25 @@ export function ProviderModelDialog({
               ))}
             </div>
           </div>
+          {field(
+            "思考档位",
+            model?.source === "catalog" ? undefined : "目录外网关模型可手动声明",
+            undefined,
+            <select
+              value={reasoningPreset}
+              disabled={saving}
+              onChange={(e) => setReasoningPreset(e.target.value)}
+              className={`${inputCls(false)} cursor-pointer`}
+            >
+              {REASONING_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id === "keep" && currentLevels.length > 0
+                    ? `${p.label}（当前：${currentLevels.join(" / ")}）`
+                    : p.label}
+                </option>
+              ))}
+            </select>,
+          )}
           {serverError && <p className="text-ui-xs text-destructive">{serverError}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <button
