@@ -4,6 +4,7 @@ import { Tabs } from "radix-ui";
 import { FolderOpen, FileText } from "lucide-react";
 import { api } from "../lib/api";
 import { useApp } from "../store/app";
+import { useToasts } from "../store/toast";
 import type { FileNode, ThreadView, WorkspaceView } from "../../../shared/types";
 
 export type PanelTab = "files" | "doc";
@@ -153,6 +154,7 @@ function DirNode({ workspaceId, folderId, rel, depth, name }: { workspaceId: str
 
 function FileLeaf({ workspaceId, folderId, node, depth }: { workspaceId: string; folderId: string; node: FileNode; depth: number }): React.JSX.Element {
   const [preview, setPreview] = useState<string | null>(null);
+  const pushToast = useToasts((s) => s.push);
   return (
     <div>
       <button
@@ -163,7 +165,10 @@ function FileLeaf({ workspaceId, folderId, node, depth }: { workspaceId: string;
             setPreview(null);
             return;
           }
-          void api.documentPreview(workspaceId, folderId, node.path).then((p) => setPreview(p.text || p.note || "（空）"));
+          void api
+            .documentPreview(workspaceId, folderId, node.path)
+            .then((p) => setPreview(p.text || p.note || "（空）"))
+            .catch((err) => pushToast("danger", "文档预览失败", String(err)));
         }}
       >
         <span className="truncate">{node.name}</span>

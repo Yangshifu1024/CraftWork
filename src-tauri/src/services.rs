@@ -332,6 +332,13 @@ pub fn workspace_remove(state: &AppState, id: &str) -> SvcResult {
     // 级联删除其下会话（AGENTS.md：删除级联清理会话）
     let count = threads::delete_threads_by_workspace(&state.db, id).map_err(|e| e.to_string())?;
     workspaces::delete_workspace(&state.db, id).map_err(|e| e.to_string())?;
+    // 广播删除事件：渲染层据此清理该工作区的草稿槽（localStorage），避免残留
+    state.recorder.emit(
+        craft_core::contract::event_type::WORKSPACE_UPDATED,
+        None,
+        None,
+        json!({ "workspaceId": id, "removed": true }),
+    );
     Ok(json!({ "removedThreads": count }))
 }
 
@@ -575,36 +582,48 @@ pub fn chat_cancel(state: &AppState, thread_id: &str) -> SvcResult {
 
 fn provider_views(state: &AppState) -> SvcResult {
     let providers = state.catalog.providers();
-    let mut views: Vec<Value> = Vec::new();
-    for p in providers {
-        let secrets = &*state.secrets;
-        let env_refs: Vec<&str> = p.env_vars.iter().map(String::as_str).collect();
-        let key_source = secrets.source_for(&p.id, &env_refs);
-        let key_masked = secrets.masked_for(&p.id, &env_refs);
-        let _ = secrets;
-        let models: Vec<Value> = p
-            .models
-            .iter()
-            .map(|m| {
-                json!({
-                    "id": m.id, "ref": format!("{}/{}", p.id, m.id), "name": m.name,
-                    "provider": p.id, "providerName": p.name,
-                    "contextK": m.context_k, "maxTokens": m.max_tokens,
-                    "caps": m.caps, "cost": m.cost,
-                    "status": m.status, "canonicalId": m.canonical_id,
-                    "releaseDate": m.release_date, "source": m.source,
-                    "enabled": m.enabled, "available": !m.status.is_empty() && m.status != "alpha",
-                })
-            })
-            .collect();
-        views.push(json!({
-            "id": p.id, "name": p.name, "kind": p.kind, "endpoint": p.endpoint,
-            "keyRequired": p.key_required, "keySource": key_source, "keyMasked": key_masked,
-            "available": true, "enabled": p.enabled, "docUrl": "", "catalogId": p.catalog_id,
-            "source": p.source, "models": models,
-        }));
-    }
+    let views: Vec<Value> = providers.iter().map(|p| provider_view_json(state, p)).collect();
     Ok(json!(views))
+}
+
+/// 单个提供商视图（与 provider_views 同构）：providerSave/AddModel/UpdateModel 返回单对象
+/// 与前端声明 Promise<ProviderView> 对齐（此前实现惰性返回整个列表，消费方 view.id 取到 undefined）。
+fn provider_view_one(state: &AppState, provider_id: &str) -> SvcResult {
+    let provider = state
+        .catalog
+        .providers()
+        .into_iter()
+        .find(|p| p.id == provider_id)
+        .ok_or("提供商不存在")?;
+    Ok(provider_view_json(state, &provider))
+}
+
+fn provider_view_json(state: &AppState, p: &craft_model::types::PersistedProvider) -> Value {
+    let secrets = &*state.secrets;
+    let env_refs: Vec<&str> = p.env_vars.iter().map(String::as_str).collect();
+    let key_source = secrets.source_for(&p.id, &env_refs);
+    let key_masked = secrets.masked_for(&p.id, &env_refs);
+    let models: Vec<Value> = p
+        .models
+        .iter()
+        .map(|m| {
+            json!({
+                "id": m.id, "ref": format!("{}/{}", p.id, m.id), "name": m.name,
+                "provider": p.id, "providerName": p.name,
+                "contextK": m.context_k, "maxTokens": m.max_tokens,
+                "caps": m.caps, "cost": m.cost,
+                "status": m.status, "canonicalId": m.canonical_id,
+                "releaseDate": m.release_date, "source": m.source,
+                "enabled": m.enabled, "available": !m.status.is_empty() && m.status != "alpha",
+            })
+        })
+        .collect();
+    json!({
+        "id": p.id, "name": p.name, "kind": p.kind, "endpoint": p.endpoint,
+        "keyRequired": p.key_required, "keySource": key_source, "keyMasked": key_masked,
+        "available": true, "enabled": p.enabled, "docUrl": "", "catalogId": p.catalog_id,
+        "source": p.source, "models": models,
+    })
 }
 
 pub fn provider_list(state: &AppState) -> SvcResult {
@@ -620,9 +639,10 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
-    let id = input.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+    let mut id = input.get("id").and_then(Value::as_str).unwrap_or_default().trim().to_string();
     if id.is_empty() {
-        return err("提供商 ID 不能为空");
+        // 空串由服务端生成 ID（custom_*）：对齐渲染层手动新增提供商的语义
+        id = craft_core::ids::new_id(craft_core::ids::id_prefix::CUSTOM_PROVIDER);
     }
     let entry = json!({
         "id": id,
@@ -642,7 +662,7 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
         providers.push(provider);
     }
     save_providers(state, &providers)?;
-    provider_list(state)
+    provider_view_one(state, &id)
 }
 
 fn save_providers(state: &AppState, providers: &[craft_model::types::PersistedProvider]) -> Result<(), String> {
@@ -682,12 +702,12 @@ pub fn provider_set_enabled(state: &AppState, id: &str, enabled: bool) -> SvcRes
 
 pub fn provider_set_key(state: &AppState, id: &str, key: &str) -> SvcResult {
     state.secrets.set(id, key);
-    provider_list(state)
+    Ok(json!(null))
 }
 
 pub fn provider_clear_key(state: &AppState, id: &str) -> SvcResult {
     state.secrets.delete(id);
-    provider_list(state)
+    Ok(json!(null))
 }
 
 pub fn provider_test(state: &AppState, id: &str) -> SvcResult {
@@ -945,7 +965,7 @@ pub fn provider_add_model(state: &AppState, provider_id: &str, model: &Value) ->
     }
     provider.models.push(persisted);
     save_providers(state, &providers)?;
-    provider_list(state)
+    provider_view_one(state, provider_id)
 }
 
 pub fn provider_update_model(state: &AppState, provider_id: &str, model_id: &str, model: &Value) -> SvcResult {
@@ -957,7 +977,7 @@ pub fn provider_update_model(state: &AppState, provider_id: &str, model_id: &str
     let id = slot.id.clone();
     *slot = craft_model::types::PersistedModel { id, ..persisted };
     save_providers(state, &providers)?;
-    provider_list(state)
+    provider_view_one(state, provider_id)
 }
 
 pub fn provider_remove_model(state: &AppState, provider_id: &str, model_id: &str) -> SvcResult {

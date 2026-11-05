@@ -220,6 +220,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "workspaceWriteFile" => workspace_write_file(state, &a.str_at(0), &a.str_at(1), &a.str_at(2), &a.str_at(3), &a.str_at(4)),
         "workspaceComputeDiff" => workspace_compute_diff(state, &a.str_at(0), &a.str_at(1)),
         "workspaceGitStatuses" => workspace_git_statuses(state),
+        "documentPreview" => document_preview(state, &a.str_at(0), &a.str_at(1), &a.str_at(2)),
         // ---------- 提供商与模型 ----------
         "providerList" => provider_list(state),
         "providerSave" => provider_save(state, &a.value_at(0)),
@@ -238,7 +239,14 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "catalogMeta" => catalog_meta(state),
         "catalogProviders" => catalog_providers(state, &a.str_at(0)),
         "catalogModels" => catalog_models(state, &a.str_at(0)),
-        "catalogImport" => catalog_import(state, &a.str_at(0), a.bool_at(1), a.value_at(2).as_array().map(Vec::as_slice).unwrap_or(&[])),
+        // 前端传单对象 {providerId, all, modelIds}（channels.ts CatalogImportInput），按字段解包
+        "catalogImport" => {
+            let input = a.value_at(0);
+            let provider_id = input.get("providerId").and_then(Value::as_str).unwrap_or_default();
+            let all = input.get("all").and_then(Value::as_bool).unwrap_or(false);
+            let model_ids = input.get("modelIds").and_then(Value::as_array).cloned().unwrap_or_default();
+            catalog_import(state, provider_id, all, &model_ids)
+        }
         // ---------- 审计 / 用量 / 备份 / 附件 ----------
         "auditList" => audit_list(state, a.i64_at(0)),
         "auditUsage" => audit_usage(state),

@@ -243,3 +243,24 @@ fn 内置目录加载与导入() {
     let imported = services::catalog_import(&state, "openai", true, &[]).unwrap();
     assert!(imported.to_string().contains("gpt"), "导入应包含 openai 模型");
 }
+
+#[test]
+fn 提供商保存空id由服务端生成并返回单对象() {
+    let (_dir, state) = test_state("provider-save-empty-id");
+    let provider = json!({
+        "id": "", "name": "手动提供商", "kind": "openai-compatible",
+        "endpoint": "https://stub.invalid/v1", "keyRequired": true,
+        "models": [{ "id": "m1", "name": "模型一", "contextK": 8, "maxTokens": 0,
+                     "caps": {"stream": true, "tools": true, "vision": false, "reasoning": false, "structured": false},
+                     "status": "", "source": "manual", "enabled": true }],
+    });
+    // 迁移回归（migration-parity 票 01）：空 id 曾直接报「提供商 ID 不能为空」，手动新增提供商全废
+    let view = services::provider_save(&state, &provider).unwrap();
+    let id = view["id"].as_str().unwrap().to_string();
+    assert!(id.starts_with("custom_"), "服务端应生成 custom_* ID，实际 {id}");
+    assert_eq!(view["name"], "手动提供商", "返回应为单个 ProviderView（对齐 channels 声明）");
+    // 再以同一 id 保存走更新分支，仍返回单对象
+    let updated = services::provider_save(&state, &json!({ "id": id, "name": "改名", "kind": "openai-compatible", "endpoint": "", "keyRequired": true, "models": [] })).unwrap();
+    assert_eq!(updated["id"], id.as_str());
+    assert_eq!(updated["name"], "改名");
+}

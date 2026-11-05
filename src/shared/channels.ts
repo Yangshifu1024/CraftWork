@@ -78,7 +78,7 @@ export interface CraftworkApi {
     modelRef: string,
   ): Promise<{ threadId: string; runId: string }>;
   chatSend(threadId: string, text: string, attachments: string[]): Promise<string>;
-  chatSteer(threadId: string, text: string, attachments: string[]): Promise<string>;
+  chatSteer(threadId: string, text: string, attachments: string[]): Promise<{ queued: boolean; runId?: string }>;
   chatRegenerate(threadId: string): Promise<string>;
   chatCancel(threadId: string): Promise<boolean>;
   chatDecideApproval(approvalId: string, allow: boolean, scope: ApprovalScope): Promise<void>;
@@ -90,17 +90,17 @@ export interface CraftworkApi {
   // ---------- 提供商与模型 ----------
   providerList(): Promise<ProviderView[]>;
   providerSave(input: ProviderInput): Promise<ProviderView>;
-  providerDelete(providerId: string): Promise<void>;
-  providerSetEnabled(providerId: string, enabled: boolean): Promise<ProviderView>;
-  providerRename(providerId: string, name: string): Promise<ProviderView>;
-  /** 启停单个模型（spec §8）：返回刷新后的 ProviderView */
-  providerSetModelEnabled(providerId: string, modelId: string, enabled: boolean): Promise<ProviderView>;
-  /** 新增模型：提供商内 ID 唯一，返回刷新后的 ProviderView */
+  providerDelete(providerId: string): Promise<ProviderView[]>;
+  providerSetEnabled(providerId: string, enabled: boolean): Promise<ProviderView[]>;
+  providerRename(providerId: string, name: string): Promise<ProviderView[]>;
+  /** 启停单个模型（spec §8）：返回刷新后的提供商列表 */
+  providerSetModelEnabled(providerId: string, modelId: string, enabled: boolean): Promise<ProviderView[]>;
+  /** 新增模型：提供商内 ID 唯一，返回刷新后的该提供商视图 */
   providerAddModel(providerId: string, model: ModelInput): Promise<ProviderView>;
-  /** 更新模型：按 modelId 定位整行更新，ID 不可变，返回刷新后的 ProviderView */
+  /** 更新模型：按 modelId 定位整行更新，ID 不可变，返回刷新后的该提供商视图 */
   providerUpdateModel(providerId: string, modelId: string, model: ModelInput): Promise<ProviderView>;
-  /** 删除模型：返回刷新后的 ProviderView */
-  providerRemoveModel(providerId: string, modelId: string): Promise<ProviderView>;
+  /** 删除模型：返回刷新后的提供商列表 */
+  providerRemoveModel(providerId: string, modelId: string): Promise<ProviderView[]>;
   /** 拉取模型（spec §7）：按协议 GET 端点模型列表并按 ID 去重合并 */
   providerFetchModels(providerId: string): Promise<FetchedModelsResult>;
   providerSetKey(providerId: string, key: string): Promise<void>;
@@ -115,11 +115,11 @@ export interface CraftworkApi {
 
   // ---------- 工作区与文件 ----------
   workspaceList(): Promise<WorkspaceView[]>;
-  workspaceAdd(path: string, trust: string): Promise<WorkspaceView>;
+  workspaceAdd(path: string, trust: string): Promise<WorkspaceView[]>;
   workspaceAddProject(name: string, folders: string[], trust: string): Promise<WorkspaceView>;
   workspaceSetActive(workspaceId: string): Promise<WorkspaceView>;
   workspaceSetTrust(workspaceId: string, trust: string): Promise<void>;
-  workspaceRename(workspaceId: string, name: string): Promise<WorkspaceView>;
+  workspaceRename(workspaceId: string, name: string): Promise<WorkspaceView[]>;
   workspaceRemove(workspaceId: string): Promise<void>;
   workspaceListDir(workspaceId: string, folderId: string, rel: string): Promise<FileNode[]>;
   workspaceReadFile(workspaceId: string, folderId: string, rel: string): Promise<FileContent>;
