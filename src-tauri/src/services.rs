@@ -1061,12 +1061,18 @@ fn load_providers(state: &AppState) -> Vec<craft_model::types::PersistedProvider
 }
 
 fn model_input_to_persisted(v: &Value) -> Result<craft_model::types::PersistedModel, String> {
+    // caps 经 PartialCaps 归一化：调用方可传任意子集（如模型弹窗不含 stream 勾选），
+    // 缺失字段回落 DEFAULT_CAPS，避免反序列化因缺字段而拒绝
+    let partial_caps: Option<craft_model::catalog::PartialCaps> = v
+        .get("caps")
+        .and_then(|c| serde_json::from_value(c.clone()).ok());
+    let caps = craft_model::catalog::merge_caps_public(partial_caps.as_ref());
     serde_json::from_value(json!({
         "id": v.get("id").cloned().unwrap_or(Value::Null),
         "name": v.get("name").cloned().unwrap_or(Value::Null),
         "contextK": v.get("contextK").cloned().unwrap_or(json!(0)),
         "maxTokens": v.get("maxTokens").cloned().unwrap_or(json!(0)),
-        "caps": v.get("caps").cloned().unwrap_or(serde_json::to_value(craft_model::types::DEFAULT_CAPS).unwrap_or(Value::Null)),
+        "caps": serde_json::to_value(caps).unwrap_or(Value::Null),
         "cost": v.get("cost").cloned().unwrap_or(Value::Null),
         "status": v.get("status").cloned().unwrap_or(json!("")),
         "canonicalId": "", "releaseDate": "",

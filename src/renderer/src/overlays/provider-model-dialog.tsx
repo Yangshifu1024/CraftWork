@@ -48,7 +48,9 @@ export function ProviderModelDialog({
   const [name, setName] = useState(editing && model.name !== model.id ? model.name : "");
   const [contextK, setContextK] = useState(String(model?.contextK ?? 32));
   const [maxTokens, setMaxTokens] = useState(String(model?.maxTokens ?? 0));
+  // stream 无勾选项（协议层恒启用），落库时补全完整 Capabilities
   const [caps, setCaps] = useState({
+    stream: true,
     tools: model?.caps.tools ?? true,
     vision: model?.caps.vision ?? false,
     reasoning: model?.caps.reasoning ?? false,
