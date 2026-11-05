@@ -29,9 +29,14 @@ impl Tool for ShellExec {
         }
         let timeout_sec = ctx.int_arg("timeout", 120).clamp(1, 600);
         let started = std::time::Instant::now();
+        // Windows 走 cmd /C；Unix 走 /bin/sh -c（Windows 实机验证属 D7 排期）
+        #[cfg(unix)]
+        let (shell_file, shell_args): (&str, Vec<String>) = ("/bin/sh", vec!["-c".into(), command.clone()]);
+        #[cfg(windows)]
+        let (shell_file, shell_args): (&str, Vec<String>) = ("cmd", vec!["/C".into(), command.clone()]);
         let result = run(RunSpec {
-            file: "/bin/sh".into(),
-            args: vec!["-c".into(), command.clone()],
+            file: shell_file.into(),
+            args: shell_args,
             dir: if ctx.target.is_empty() { Some(ctx.workspace.clone()) } else { Some(ctx.target.clone()) },
             timeout_ms: Some(timeout_sec as u64 * 1000),
             output_limit: None,
@@ -351,6 +356,7 @@ mod tests {
         (dir, ctx)
     }
 
+    #[cfg(unix)]
     #[test]
     fn shell_exec_捕获输出与退出码() {
         let (_dir, ctx) = make_ctx(json!({"command": "echo hello; exit 3"}), vec!["/tmp".to_string()]);
@@ -360,12 +366,14 @@ mod tests {
         assert!(result.output.contains("[退出码 3"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn shell_exec_空命令拒绝() {
         let (_dir, ctx) = make_ctx(json!({"command": "  "}), vec!["/tmp".to_string()]);
         assert!(ShellExec.execute(&ctx).is_error);
     }
 
+    #[cfg(unix)]
     #[test]
     fn shell_exec_超时杀进程() {
         let (_dir, ctx) = make_ctx(json!({"command": "sleep 30", "timeout": 1}), vec!["/tmp".to_string()]);
