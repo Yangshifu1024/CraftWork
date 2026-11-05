@@ -101,6 +101,7 @@ pub fn default_settings() -> Settings {
         panel_width: 320,
         approval_level: "graded".into(),
         default_model: String::new(),
+        reasoning_level: String::new(),
         fallback_model: String::new(),
         active_workspace: String::new(),
         language: "zh-CN".into(),
@@ -130,6 +131,9 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     let mut merged: Settings = serde_json::from_value(settings_get(state)?).unwrap_or_else(|_| default_settings());
     if let Some(theme) = next.get("theme").and_then(Value::as_str).filter(|t| ["system", "dark", "light"].contains(t)) {
         merged.theme = theme.into();
+    }
+    if let Some(level) = next.get("reasoningLevel").and_then(Value::as_str) {
+        merged.reasoning_level = level.into();
     }
     if let Some(mode) = next.get("mode").and_then(Value::as_str).filter(|m| ["code", "work"].contains(m)) {
         merged.mode = mode.into();
@@ -217,6 +221,7 @@ pub fn thread_create(state: &AppState, mode: &str, workspace_id: &str, title: &s
             title: if title.is_empty() { "新对话" } else { title },
             title_auto: title.is_empty(),
             model_id: "",
+            reasoning_level: "",
             workspace_id,
             status: "idle",
             archived: false,
@@ -239,6 +244,13 @@ pub fn thread_set_model(state: &AppState, id: &str, model_ref: &str) -> SvcResul
         .map(|n| n.reference)
         .unwrap_or_else(|| model_ref.to_string());
     threads::set_thread_model(&state.db.lock_conn(), id, &normalized).map_err(|e| e.to_string())?;
+    Ok(json!(null))
+}
+
+/// 会话级思考档位（与模型选择同构：随会话记忆，下一条消息生效）。
+/// 档位合法性由渲染层按模型元数据约束；空串=清除（不发 reasoning 参数）。
+pub fn thread_set_reasoning(state: &AppState, id: &str, level: &str) -> SvcResult {
+    threads::set_thread_reasoning(&state.db.lock_conn(), id, level).map_err(|e| e.to_string())?;
     Ok(json!(null))
 }
 
@@ -569,7 +581,7 @@ pub fn workspace_git_statuses(state: &AppState) -> SvcResult {
 
 /// 原子首发（services/chat.ts 的 chatCreateAndStart 等价）：
 /// 模型校验 → 创建会话 → 写用户消息事件 → 启动 Run。失败零落库。
-pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, text: &str, attachments: &[Value], model_ref: &str) -> SvcResult {
+pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, text: &str, attachments: &[Value], model_ref: &str, reasoning_level: &str) -> SvcResult {
     if state.models.resolve(model_ref).is_none() {
         return err("模型不存在或已被删除，请重新选择模型");
     }
@@ -592,6 +604,7 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
             title: &title,
             title_auto: true,
             model_id: model_ref,
+            reasoning_level,
             workspace_id,
             status: "idle",
             archived: false,

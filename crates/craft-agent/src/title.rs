@@ -164,6 +164,9 @@ pub fn auto_title(db: &Db, input: AutoTitleInput<'_>) {
         messages: vec![craft_model::types::Message::new("user", prompt)],
         tools: vec![],
         max_tokens: TITLE_MAX_TOKENS,
+        // sidecar 起标题不需要思考档位
+        reasoning_kind: String::new(),
+        reasoning_level: String::new(),
     };
     let mut generated = String::new();
     // sidecar 流消费（无整体超时依赖：客户端层有 600s 上限；失败静默放弃）

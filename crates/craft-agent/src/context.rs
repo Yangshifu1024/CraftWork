@@ -174,6 +174,9 @@ pub fn run_compression_with(args: CompressionArgs<'_>, messages: Vec<Message>) -
             messages: vec![Message::new("user", format!("请压缩以下早期对话：\n\n{transcript}"))],
             tools: vec![],
             max_tokens: SUMMARY_MAX_TOKENS,
+            // 上下文压缩 sidecar 不需要思考档位
+            reasoning_kind: String::new(),
+            reasoning_level: String::new(),
         };
         // 阻塞消费流
         let mut summary = String::new();

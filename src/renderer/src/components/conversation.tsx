@@ -4,7 +4,7 @@ import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
 import { Popover, ToggleGroup } from "radix-ui";
 import { ModelPicker } from "./model-picker";
-import { useApp, draftSlot, effectiveModelRef, EMPTY_DRAFT } from "../store/app";
+import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -835,11 +835,12 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
       // 草稿首发：创建并首发原子路径。创建前失败（如未配置模型）还原草稿；
       // 创建成功即视为发送成功——会话立即入栏并选中，Run 启动失败经 run.failed 在时间线展示，不还原草稿。
       // 工作区传当前草稿槽归属：临时槽空串（主进程回落 conversation 工作区），项目槽传项目 id（会话落入该项目分组）。
-      // 模型取当前草稿槽引用（草稿态选择过），取不到回落全局默认。
+      // 模型取当前草稿槽引用（草稿态选择过），取不到回落全局默认；思考档位同理。
       const state = useApp.getState();
       const modelRef = effectiveModelRef(state, mode);
+      const reasoningLevel = effectiveReasoningLevel(state, mode);
       void api
-        .chatCreateAndStart(mode, state.draftWsId[mode], clean, sendAttachments, modelRef)
+        .chatCreateAndStart(mode, state.draftWsId[mode], clean, sendAttachments, modelRef, reasoningLevel)
         .then(async ({ threadId }) => {
           await refreshThreads(mode);
           // 首发飞行中切走模式时不抢选：新会话留在原模式侧栏

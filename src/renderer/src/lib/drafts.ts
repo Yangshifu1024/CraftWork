@@ -34,6 +34,8 @@ export function loadDrafts(): DraftTable {
           attachments: attachments.filter((a): a is string => typeof a === "string"),
           // 旧版本槽无此字段：缺失/非字符串回落空串（空 = 首发用全局默认模型）
           modelRef: typeof record["modelRef"] === "string" ? record["modelRef"] : "",
+          // 思考档位同理（旧版本槽缺失回落空串 = 未选择）
+          reasoningLevel: typeof record["reasoningLevel"] === "string" ? record["reasoningLevel"] : "",
         };
       }
     }

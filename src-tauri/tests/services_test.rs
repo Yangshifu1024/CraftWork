@@ -134,7 +134,7 @@ fn first_message_atomic_path_no_model_failure_persists_nothing() {
     let ws_id = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
 
     // 模型不存在：失败且不产生会话
-    let err = services::chat_create_and_start(&state, "code", &ws_id, "你好", &[], "nope/model").unwrap_err();
+    let err = services::chat_create_and_start(&state, "code", &ws_id, "你好", &[], "nope/model", "").unwrap_err();
     assert!(err.contains("模型不存在"));
     let threads = services::thread_list(&state, "code", false).unwrap();
     assert_eq!(threads.as_array().unwrap().len(), 0, "失败首发零落库");
@@ -157,7 +157,7 @@ fn thread_creation_and_snapshot_chain() {
     assert!(services::provider_list(&state).unwrap().to_string().contains("\"stub/m1\""));
 
     // 首发：模型解析通过（连接 stub 端点会失败——run 的失败路径写 error 事件，不阻断首发本身）
-    let result = services::chat_create_and_start(&state, "code", &ws_id, "帮我看看这个项目", &[], "stub/m1").unwrap();
+    let result = services::chat_create_and_start(&state, "code", &ws_id, "帮我看看这个项目", &[], "stub/m1", "").unwrap();
     let thread_id = result["threadId"].as_str().unwrap().to_string();
     assert!(result["runId"].as_str().is_some());
 

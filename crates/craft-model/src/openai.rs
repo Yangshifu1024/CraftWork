@@ -116,6 +116,11 @@ pub fn build_openai_body(model_id: &str, req: &Request) -> Value {
     if req.max_tokens > 0 {
         body["max_tokens"] = json!(req.max_tokens);
     }
+    // 思考档位：effort 型直传枚举（gpt/o 系与认 reasoning_effort 的兼容网关）；
+    // budget 型不经此路径（openai 协议不认预算字段）；未选择不发，请求体与既有行为一致。
+    if req.reasoning_kind == "effort" && !req.reasoning_level.is_empty() && req.reasoning_level != "off" {
+        body["reasoning_effort"] = json!(req.reasoning_level);
+    }
     if !req.tools.is_empty() {
         body["tools"] = Value::Array(
             req.tools
@@ -369,6 +374,8 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "读文件".into(), schema: serde_json::json!({"type": "object"}) }],
             max_tokens: 1024,
+            reasoning_kind: String::new(),
+            reasoning_level: String::new(),
         }
     }
 
@@ -393,6 +400,25 @@ mod tests {
         assert_eq!(body["tools"][0]["function"]["name"], "read");
         // 字节稳定：两次构造完全一致
         assert_eq!(serde_json::to_string(&body).unwrap(), serde_json::to_string(&build_openai_body("gpt-4o", &sample_request())).unwrap());
+    }
+
+    #[test]
+    fn reasoning_effort_injection_only_for_effort_models() {
+        // effort 型：非 off 档位注入 reasoning_effort
+        let mut req = sample_request();
+        req.reasoning_kind = "effort".into();
+        req.reasoning_level = "high".into();
+        let body = build_openai_body("gpt-5", &req);
+        assert_eq!(body["reasoning_effort"], "high");
+
+        // off / 未选择 / 非 effort 类型：均不注入，请求体与既有一致
+        for (kind, level) in [("effort", "off"), ("effort", ""), ("budget", "high"), ("", "high")] {
+            let mut req = sample_request();
+            req.reasoning_kind = kind.into();
+            req.reasoning_level = level.into();
+            let body = build_openai_body("gpt-5", &req);
+            assert!(body.get("reasoning_effort").is_none(), "{kind}/{level} 不应注入");
+        }
     }
 
     #[test]

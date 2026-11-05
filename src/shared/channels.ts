@@ -65,6 +65,8 @@ export interface CraftworkApi {
   threadCreate(mode: string, workspaceId: string, title: string): Promise<ThreadView>;
   threadRename(threadId: string, title: string): Promise<void>;
   threadSetModel(threadId: string, modelId: string): Promise<void>;
+  /** 会话级思考档位（空串=清除，不发 reasoning 参数） */
+  threadSetReasoning(threadId: string, level: string): Promise<void>;
   threadArchive(threadId: string, archived: boolean): Promise<void>;
   threadDelete(threadId: string): Promise<void>;
   threadSnapshot(threadId: string): Promise<Snapshot>;
@@ -77,6 +79,7 @@ export interface CraftworkApi {
     text: string,
     attachments: string[],
     modelRef: string,
+    reasoningLevel: string,
   ): Promise<{ threadId: string; runId: string }>;
   chatSend(threadId: string, text: string, attachments: string[]): Promise<string>;
   chatSteer(threadId: string, text: string, attachments: string[]): Promise<{ queued: boolean; runId?: string }>;

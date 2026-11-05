@@ -22,6 +22,8 @@ export interface ThreadView {
   title: string;
   modelId: string;
   modelName: string;
+  /** 思考档位（空串=未选择） */
+  reasoningLevel: string;
   workspaceId: string;
   status: string; // idle | running | awaiting | error
   archived: boolean;
@@ -141,6 +143,8 @@ export interface Settings {
   panelWidth: number;
   approvalLevel: PolicyLevel;
   defaultModel: string;
+  /** 全局默认思考档位（空串=未选择） */
+  reasoningLevel: string;
   fallbackModel: string;
   activeWorkspace: string;
   language: string;

@@ -10,7 +10,7 @@ pub use craft_core::bus::now_millis;
 
 /// 当前 schema 版本。历史版本与已移除的 Electron 版（Node）双向兼容——老库原位可读；
 /// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -229,7 +229,13 @@ pub const SCHEMA_V8: &str = r#"
 ALTER TABLE runs ADD COLUMN trigger_seq INTEGER;
 "#;
 
-const MIGRATIONS: [&str; 9] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8];
+/// V9：会话级思考档位（与 model_id 同生命周期：随会话记忆，threadSetReasoning 更新）。
+/// 空串 = 未选择（请求不发任何 reasoning 参数，行为与 V8 一致）。
+pub const SCHEMA_V9: &str = r#"
+ALTER TABLE threads ADD COLUMN reasoning_level TEXT NOT NULL DEFAULT '';
+"#;
+
+const MIGRATIONS: [&str; 10] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9];
 
 fn migrate(conn: &Connection) -> StoreResult<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);

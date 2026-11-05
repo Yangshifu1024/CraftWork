@@ -12,6 +12,8 @@ pub struct ThreadRow {
     pub title: String,
     pub title_auto: bool,
     pub model_id: String,
+    /// 思考档位（空串=未选择，请求不发 reasoning 参数）
+    pub reasoning_level: String,
     pub workspace_id: String,
     pub status: String,
     pub archived: bool,
@@ -20,7 +22,7 @@ pub struct ThreadRow {
     pub updated_at: i64,
 }
 
-const COLS: &str = "id, mode, title, title_auto, model_id, workspace_id, status, archived, tokens, created_at, updated_at";
+const COLS: &str = "id, mode, title, title_auto, model_id, reasoning_level, workspace_id, status, archived, tokens, created_at, updated_at";
 
 fn to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
     Ok(ThreadRow {
@@ -29,6 +31,7 @@ fn to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         title: row.get("title")?,
         title_auto: row.get::<_, i64>("title_auto")? == 1,
         model_id: row.get("model_id")?,
+        reasoning_level: row.get("reasoning_level")?,
         workspace_id: row.get("workspace_id")?,
         status: row.get("status")?,
         archived: row.get::<_, i64>("archived")? == 1,
@@ -44,6 +47,7 @@ pub struct NewThread<'a> {
     pub title: &'a str,
     pub title_auto: bool,
     pub model_id: &'a str,
+    pub reasoning_level: &'a str,
     pub workspace_id: &'a str,
     pub status: &'a str,
     pub archived: bool,
@@ -52,13 +56,14 @@ pub struct NewThread<'a> {
 pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadRow> {
     let now = now_millis();
     conn.execute(
-        &format!("INSERT INTO threads ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)"),
+        &format!("INSERT INTO threads ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)"),
         rusqlite::params![
             t.id,
             t.mode,
             t.title,
             t.title_auto as i64,
             t.model_id,
+            t.reasoning_level,
             t.workspace_id,
             t.status,
             t.archived as i64,
@@ -73,6 +78,7 @@ pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadR
         title: t.title.to_string(),
         title_auto: t.title_auto,
         model_id: t.model_id.to_string(),
+        reasoning_level: t.reasoning_level.to_string(),
         workspace_id: t.workspace_id.to_string(),
         status: t.status.to_string(),
         archived: t.archived,
@@ -172,6 +178,15 @@ pub fn set_thread_model(conn: &Connection, id: &str, model_id: &str) -> StoreRes
     conn.execute(
         "UPDATE threads SET model_id = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![model_id, now_millis(), id],
+    )
+    .map_err(other_err)?;
+    Ok(())
+}
+
+pub fn set_thread_reasoning(conn: &Connection, id: &str, level: &str) -> StoreResult<()> {
+    conn.execute(
+        "UPDATE threads SET reasoning_level = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![level, now_millis(), id],
     )
     .map_err(other_err)?;
     Ok(())

@@ -66,6 +66,7 @@ pub fn to_thread_view(conn: &Connection, row: &ThreadRow) -> StoreResult<ThreadV
         title: row.title.clone(),
         model_id: row.model_id.clone(),
         model_name: model_name_for(conn, &row.model_id),
+        reasoning_level: row.reasoning_level.clone(),
         workspace_id: row.workspace_id.clone(),
         status: row.status.clone(),
         archived: row.archived,

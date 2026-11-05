@@ -34,6 +34,7 @@ fn thread(id: &str) -> NewThread<'_> {
         title: "新对话",
         title_auto: true,
         model_id: "",
+        reasoning_level: "",
         workspace_id: "",
         status: "idle",
         archived: false,

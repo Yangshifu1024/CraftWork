@@ -66,6 +66,9 @@ pub struct ThreadView {
     pub title: String,
     pub model_id: String,
     pub model_name: String,
+    /// 思考档位（空串=未选择）
+    #[serde(default)]
+    pub reasoning_level: String,
     pub workspace_id: String,
     /// idle | running | awaiting | error
     pub status: String,
@@ -188,6 +191,9 @@ pub struct Settings {
     /// graded | strict | readonly | free
     pub approval_level: String,
     pub default_model: String,
+    /// 全局默认思考档位（空串=未选择；与会话级 threads.reasoning_level 同语义）
+    #[serde(default)]
+    pub reasoning_level: String,
     pub fallback_model: String,
     pub active_workspace: String,
     pub language: String,
@@ -362,6 +368,7 @@ mod tests {
             title: "t".into(),
             model_id: "m".into(),
             model_name: "m".into(),
+            reasoning_level: String::new(),
             workspace_id: "w".into(),
             status: "idle".into(),
             archived: false,
@@ -417,6 +424,7 @@ mod tests {
             panel_width: 320,
             approval_level: "graded".into(),
             default_model: String::new(),
+            reasoning_level: String::new(),
             fallback_model: String::new(),
             active_workspace: String::new(),
             language: String::new(),

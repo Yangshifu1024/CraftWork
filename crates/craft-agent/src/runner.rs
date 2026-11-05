@@ -521,6 +521,9 @@ impl Runner {
                     messages: history.clone(),
                     tools: specs.clone(),
                     max_tokens: if session.info.max_tokens > 0 { session.info.max_tokens } else { 0 },
+                    // 思考档位随会话记忆（threads.reasoning_level）；档位类型由模型元数据决定
+                    reasoning_kind: session.info.reasoning_kind.clone(),
+                    reasoning_level: thread.reasoning_level.clone(),
                 };
                 let mut stream = session.client.stream(&req);
                 loop {

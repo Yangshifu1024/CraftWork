@@ -114,6 +114,17 @@ pub fn build_anthropic_body(model_id: &str, req: &Request) -> Value {
         "messages": messages,
         "stream": true,
     });
+    // 思考档位：budget 型映射 thinking 预算（跟随 ZCode 的固定映射值，档位归一 off/low/high）。
+    // Anthropic 要求 max_tokens > budget_tokens，启用思考时抬高 max_tokens；off/未选择不发，
+    // 请求体与既有行为一致。
+    if req.reasoning_kind == "budget" && !req.reasoning_level.is_empty() && req.reasoning_level != "off" {
+        let budget: i64 = if req.reasoning_level == "high" { 31999 } else { 4096 };
+        body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
+        let current = body["max_tokens"].as_i64().unwrap_or(4096);
+        if current <= budget {
+            body["max_tokens"] = json!(budget + 8192);
+        }
+    }
     if !system.is_empty() {
         body["system"] = Value::Array(system);
     }
@@ -402,7 +413,44 @@ mod tests {
             ],
             tools: vec![ToolSpec { name: "read".into(), description: "读".into(), schema: serde_json::json!({"type": "object"}) }],
             max_tokens: 2048,
+            reasoning_kind: String::new(),
+            reasoning_level: String::new(),
         }
+    }
+
+    #[test]
+    fn thinking_budget_injection_and_max_tokens_lift() {
+        // budget 型 low/high 注入 thinking 预算，max_tokens 抬到 budget 之上
+        let mut req = sample_request();
+        req.reasoning_kind = "budget".into();
+        req.reasoning_level = "low".into();
+        let body = build_anthropic_body("claude-x", &req);
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 4096);
+        assert_eq!(body["max_tokens"], 12288); // 4096 + 8192
+
+        req.reasoning_level = "high".into();
+        let body = build_anthropic_body("claude-x", &req);
+        assert_eq!(body["thinking"]["budget_tokens"], 31999);
+        assert_eq!(body["max_tokens"], 40191);
+
+        // max_tokens 本就大于预算时不改动
+        req.max_tokens = 64000;
+        req.reasoning_level = "high".into();
+        let body = build_anthropic_body("claude-x", &req);
+        assert_eq!(body["max_tokens"], 64000);
+
+        // off / 未选择：不发 thinking，行为与既有一致
+        for level in ["off", ""] {
+            req.reasoning_level = level.into();
+            let body = build_anthropic_body("claude-x", &req);
+            assert!(body.get("thinking").is_none());
+        }
+        // effort 型模型不经 budget 路径
+        req.reasoning_kind = "effort".into();
+        req.reasoning_level = "high".into();
+        let body = build_anthropic_body("claude-x", &req);
+        assert!(body.get("thinking").is_none());
     }
 
     #[test]

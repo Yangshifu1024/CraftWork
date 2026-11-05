@@ -24,11 +24,13 @@ export interface ChatState {
   lastSeq: number;
 }
 
-/** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容；modelRef 为草稿态选定的模型引用（空 = 用全局默认）。 */
+/** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容；modelRef 为草稿态选定的模型引用（空 = 用全局默认）；
+ * reasoningLevel 为草稿态选定的思考档位（空 = 未选择）。 */
 export interface DraftState {
   text: string;
   attachments: string[];
   modelRef: string;
+  reasoningLevel: string;
 }
 
 interface AppState {
@@ -67,7 +69,7 @@ function emptyChat(): ChatState {
 }
 
 /** 稳定空草稿槽：槽尚无内容时的回落（引用恒定，避免 zustand selector 每次返回新对象触发重渲染）。 */
-export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "" };
+export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "", reasoningLevel: "" };
 
 /** 当前模式的草稿槽（draftWsId 指向归属）；槽尚无内容时为 undefined。 */
 export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
@@ -77,6 +79,11 @@ export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
 /** 草稿态生效模型引用：槽选定引用优先，回落全局默认。 */
 export function effectiveModelRef(state: AppState, mode: Mode): string {
   return draftSlot(state, mode)?.modelRef || state.settings.defaultModel;
+}
+
+/** 草稿态生效思考档位：槽选定档位优先，回落全局默认（空 = 未选择）。 */
+export function effectiveReasoningLevel(state: AppState, mode: Mode): string {
+  return draftSlot(state, mode)?.reasoningLevel || state.settings.reasoningLevel || "";
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -93,6 +100,7 @@ export const useApp = create<AppState>((set, get) => ({
     panelWidth: 320,
     approvalLevel: "graded",
     defaultModel: "",
+    reasoningLevel: "",
     fallbackModel: "",
     activeWorkspace: "",
     language: "zh-CN",

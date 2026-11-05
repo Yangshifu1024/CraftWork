@@ -214,6 +214,10 @@ pub struct Request {
     pub messages: Vec<Message>,
     pub tools: Vec<ToolSpec>,
     pub max_tokens: i64,
+    /// 思考档位类型（effort | budget，来自 ModelInfo.reasoning_kind；空=模型不支持）
+    pub reasoning_kind: String,
+    /// 思考档位（空串=未选择，请求不带任何 reasoning 参数）
+    pub reasoning_level: String,
 }
 
 // ---------- 流 ----------
