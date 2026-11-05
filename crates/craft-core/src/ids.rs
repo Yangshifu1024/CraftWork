@@ -27,6 +27,7 @@ pub mod id_prefix {
     pub const MESSAGE: &str = "msg";
     pub const PART: &str = "part";
     pub const APPROVAL: &str = "ap";
+    pub const PLAN: &str = "plan";
     pub const TOOL_CALL: &str = "call";
     pub const ATTACHMENT: &str = "att";
     pub const BACKUP: &str = "bk";

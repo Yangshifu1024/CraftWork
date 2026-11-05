@@ -18,6 +18,10 @@ pub struct ThreadRow {
     /// 思考档位（空串=未选择，请求不发 reasoning 参数）
     pub reasoning_level: String,
     pub workspace_id: String,
+    /// 绑定的 git worktree 目录（空串 = 未绑定）；绑定后该会话所有 run 以它为主要目录
+    pub worktree_path: String,
+    /// 绑定的 worktree 分支名（craftwork/<会话id 短码>；与 worktree_path 同步落库）
+    pub worktree_branch: String,
     pub status: String,
     pub archived: bool,
     pub tokens: i64,
@@ -25,7 +29,7 @@ pub struct ThreadRow {
     pub updated_at: i64,
 }
 
-const COLS: &str = "id, mode, title, title_auto, model_id, reasoning_level, workspace_id, status, archived, tokens, created_at, updated_at";
+const COLS: &str = "id, mode, title, title_auto, model_id, reasoning_level, workspace_id, worktree_path, worktree_branch, status, archived, tokens, created_at, updated_at";
 
 fn to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
     Ok(ThreadRow {
@@ -36,6 +40,8 @@ fn to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
         model_id: row.get("model_id")?,
         reasoning_level: row.get("reasoning_level")?,
         workspace_id: row.get("workspace_id")?,
+        worktree_path: row.get("worktree_path")?,
+        worktree_branch: row.get("worktree_branch")?,
         status: row.get("status")?,
         archived: row.get::<_, i64>("archived")? == 1,
         tokens: row.get("tokens")?,
@@ -57,11 +63,12 @@ pub struct NewThread<'a> {
     pub archived: bool,
 }
 
-/// 创建会话（created_at = updated_at = 当前时间，tokens 归零）。
+/// 创建会话（created_at = updated_at = 当前时间，tokens 归零；worktree 未绑定走列默认空串）。
 pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadRow> {
     let now = now_millis();
     conn.execute(
-        &format!("INSERT INTO threads ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)"),
+        "INSERT INTO threads (id, mode, title, title_auto, model_id, reasoning_level, workspace_id, status, archived, tokens, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)",
         rusqlite::params![
             t.id,
             t.mode,
@@ -85,6 +92,8 @@ pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadR
         model_id: t.model_id.to_string(),
         reasoning_level: t.reasoning_level.to_string(),
         workspace_id: t.workspace_id.to_string(),
+        worktree_path: String::new(),
+        worktree_branch: String::new(),
         status: t.status.to_string(),
         archived: t.archived,
         tokens: 0,
@@ -117,6 +126,18 @@ pub fn list_threads(conn: &Connection, mode: &str, include_archived: bool) -> St
     let mut stmt = conn.prepare(&sql).map_err(other_err)?;
     let rows = stmt
         .query_map([mode], to_thread)
+        .map_err(other_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(other_err)?;
+    Ok(rows)
+}
+
+/// 列出工作区下全部会话（含归档；项目删除前快照用，供逐会话清理绑定的 worktree）。
+pub fn list_threads_by_workspace(conn: &Connection, workspace_id: &str) -> StoreResult<Vec<ThreadRow>> {
+    let sql = format!("SELECT {COLS} FROM threads WHERE deleted_at IS NULL AND workspace_id = ?1 ORDER BY updated_at DESC");
+    let mut stmt = conn.prepare(&sql).map_err(other_err)?;
+    let rows = stmt
+        .query_map([workspace_id], to_thread)
         .map_err(other_err)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(other_err)?;
@@ -195,6 +216,16 @@ pub fn set_thread_reasoning(conn: &Connection, id: &str, level: &str) -> StoreRe
     conn.execute(
         "UPDATE threads SET reasoning_level = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![level, now_millis(), id],
+    )
+    .map_err(other_err)?;
+    Ok(())
+}
+
+/// 绑定 git worktree（路径与分支同步落库；绑定后不可解绑，删除会话时清理）。
+pub fn set_thread_worktree(conn: &Connection, id: &str, path: &str, branch: &str) -> StoreResult<()> {
+    conn.execute(
+        "UPDATE threads SET worktree_path = ?1, worktree_branch = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![path, branch, now_millis(), id],
     )
     .map_err(other_err)?;
     Ok(())

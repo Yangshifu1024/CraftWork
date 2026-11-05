@@ -5,11 +5,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use craft_store::db::{Db, StoreError, SCHEMA_VERSION};
-use craft_store::events::{append_event, latest_context_summary, record_event, snapshot, EventRecord};
+use craft_store::events::{append_event, latest_context_summary, plan_mode_for_trigger, record_event, snapshot, EventRecord};
 use craft_store::records::{add_audit, get_setting, list_audit, set_setting};
 use craft_store::runs::{create_approval, create_run, finish_run, get_approval, resolve_approval};
 use craft_store::threads::{
-    auto_title_thread, create_thread, delete_thread, get_thread, list_threads, rename_thread, search_threads, NewThread,
+    auto_title_thread, create_thread, delete_thread, get_thread, list_threads, rename_thread, search_threads, set_thread_worktree,
+    NewThread,
 };
 use craft_store::workspaces::{default_conversation_workspace_id, get_workspace, replace_workspace_folders, upsert_workspace};
 
@@ -525,5 +526,103 @@ fn startup_interrupt_cleanup_writes_canceled_terminal_event_for_pending_approval
         .expect("快照应有审批卡片");
     assert_eq!(card.payload["status"], "canceled");
     drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// worktree 绑定读写往返：落库后读取一致，重开库不丢（V10 迁移列的持久性）。
+#[test]
+fn worktree_binding_roundtrip_and_survives_reopen() {
+    let (dir, db) = tmp_db("worktree");
+    create_thread(&db.lock_conn(), thread("th_wt1")).unwrap();
+    set_thread_worktree(&db.lock_conn(), "th_wt1", "/tmp/cw-wt/th_wt1", "craftwork/a1b2c3d4").unwrap();
+    let row = get_thread(&db.lock_conn(), "th_wt1").unwrap();
+    assert_eq!(row.worktree_path, "/tmp/cw-wt/th_wt1");
+    assert_eq!(row.worktree_branch, "craftwork/a1b2c3d4");
+    // 未绑定的会话字段为空串
+    create_thread(&db.lock_conn(), thread("th_wt2")).unwrap();
+    let plain = get_thread(&db.lock_conn(), "th_wt2").unwrap();
+    assert!(plain.worktree_path.is_empty() && plain.worktree_branch.is_empty());
+    drop(db);
+    let reopened = Db::open(&dir.join("test.db")).unwrap();
+    let again = get_thread(&reopened.lock_conn(), "th_wt1").unwrap();
+    assert_eq!(again.worktree_branch, "craftwork/a1b2c3d4");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 计划模式标记还原：trigger_seq 命中读该事件；None 读最新一条用户消息；无事件/无标记 = false。
+#[test]
+fn plan_mode_for_trigger_reads_seq_or_latest_user_message() {
+    let (dir, db) = tmp_db("planmode");
+    create_thread(&db.lock_conn(), thread("th_pm")).unwrap();
+    // 第一条：planMode=false；第二条：planMode=true
+    let (_, seq1) = record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_pm".into(),
+            message_id: "msg_pm1".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "一", "attachments": [], "planMode": false }),
+        },
+    )
+    .unwrap();
+    let (_, seq2) = record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_pm".into(),
+            message_id: "msg_pm2".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "二", "attachments": [], "planMode": true }),
+        },
+    )
+    .unwrap();
+    assert!(plan_mode_for_trigger(&db.lock_conn(), "th_pm", Some(seq2)).unwrap());
+    assert!(!plan_mode_for_trigger(&db.lock_conn(), "th_pm", Some(seq1)).unwrap());
+    // regenerate（None）：最新一条用户消息带标记
+    assert!(plan_mode_for_trigger(&db.lock_conn(), "th_pm", None).unwrap());
+    // 老数据无 planMode 字段：false
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_pm".into(),
+            message_id: "msg_pm3".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "三", "attachments": [] }),
+        },
+    )
+    .unwrap();
+    assert!(!plan_mode_for_trigger(&db.lock_conn(), "th_pm", None).unwrap());
+    // 无任何用户消息的会话：false
+    create_thread(&db.lock_conn(), thread("th_pm_empty")).unwrap();
+    assert!(!plan_mode_for_trigger(&db.lock_conn(), "th_pm_empty", None).unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 快照重建透传 user_message 的 planMode（与 via 同款白名单），前端「批准并执行」依赖它。
+#[test]
+fn snapshot_user_message_part_carries_plan_mode() {
+    let (dir, db) = tmp_db("snapplan");
+    create_thread(&db.lock_conn(), thread("th_sp")).unwrap();
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_sp".into(),
+            message_id: "msg_sp1".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "出个计划", "attachments": [], "planMode": true }),
+        },
+    )
+    .unwrap();
+    let snap = snapshot(&db.lock_conn(), "th_sp", 0, 0).unwrap();
+    let part = snap
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .find(|p| p.kind == "text")
+        .expect("快照应有 user 文本部件");
+    assert_eq!(part.payload["planMode"], true);
     let _ = std::fs::remove_dir_all(&dir);
 }

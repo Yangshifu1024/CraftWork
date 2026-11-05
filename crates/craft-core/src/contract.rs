@@ -17,6 +17,7 @@ pub mod event_type {
     pub const TOOL_COMPLETED: &str = "tool.completed";
     pub const APPROVAL_REQUESTED: &str = "approval.requested";
     pub const APPROVAL_RESOLVED: &str = "approval.resolved";
+    pub const PLAN_CREATED: &str = "plan.created";
     pub const TODO_UPDATED: &str = "todo.updated";
     pub const USER_MESSAGE: &str = "user.message";
     pub const NOTICE: &str = "notice";
@@ -71,6 +72,12 @@ pub struct ThreadView {
     #[serde(default)]
     pub reasoning_level: String,
     pub workspace_id: String,
+    /// 绑定的 git worktree 目录（空串 = 未绑定）
+    #[serde(default)]
+    pub worktree_path: String,
+    /// 绑定的 worktree 分支名（空串 = 未绑定）
+    #[serde(default)]
+    pub worktree_branch: String,
     /// idle | running | awaiting | error
     pub status: String,
     pub archived: bool,
@@ -111,6 +118,23 @@ pub struct WorkspaceView {
 /// 部件 kind（text/reasoning/tool/approval/todo/error/notice/draft/callout）。
 pub type PartKind = String;
 
+/// 计划数据（计划模式产物）：关联会话与生成它的 run，落盘文件与批准状态。
+/// file_path 为空表示计划尚未生成（run 中断/失败/未完成）——前端提示条以此为准。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanInfo {
+    pub id: String,
+    pub thread_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    pub file_path: String,
+    pub approved: bool,
+    /// 用户点过「忽略」：提示条不再出现（等待用户直接输入继续）。
+    #[serde(default)]
+    pub ignored: bool,
+    pub updated_at: i64,
+}
+
 /// 消息内单个部件的快照形态；payload 为该部件 kind 的原始 JSON。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartSnapshot {
@@ -137,6 +161,10 @@ pub struct MessageSnapshot {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_duration_ms: Option<i64>,
+    /// 回复完成时刻（毫秒；= 所属 run 的 finished_at，事件流取终态信封 ts）。
+    /// 界面消息时间戳显示它而非 created_at（用户关心「什么时候答完」）；运行中缺省不显示。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
 }
 
 /// 待审批卡片（快照恢复用，载荷与事件中的审批部件一致）。
@@ -385,6 +413,8 @@ mod tests {
             model_name: "m".into(),
             reasoning_level: String::new(),
             workspace_id: "w".into(),
+            worktree_path: String::new(),
+            worktree_branch: String::new(),
             status: "idle".into(),
             archived: false,
             tokens: 0,
@@ -408,6 +438,7 @@ mod tests {
             seq: 0,
             created_at: 0,
             work_duration_ms: Some(1),
+            finished_at: None,
         };
         let card = ApprovalCard {
             part_id: "p".into(),
@@ -503,6 +534,7 @@ mod tests {
             seq: 0,
             created_at: 0,
             work_duration_ms: None,
+            finished_at: None,
         };
         assert_no_snake_keys("MessageSnapshot", &serde_json::to_value(ms).unwrap());
         for (name, v) in samples {

@@ -10,7 +10,7 @@ pub use craft_core::bus::now_millis;
 
 /// 当前 schema 版本。历史版本与已移除的 Electron 版（Node）双向兼容——老库原位可读；
 /// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// 存储层错误：NotFound 承载业务「不存在」（渲染层按静默/提示处理），Other 为可读中文错误串。
 #[derive(Debug)]
@@ -239,8 +239,37 @@ pub const SCHEMA_V9: &str = r#"
 ALTER TABLE threads ADD COLUMN reasoning_level TEXT NOT NULL DEFAULT '';
 "#;
 
+/// V10：会话绑定的 git worktree（composer 勾选 worktree 发送时创建并绑定）。
+/// 空串 = 未绑定；绑定后该会话所有 run 的工作目录切换到工作树，删除会话时一并清理。
+pub const SCHEMA_V10: &str = r#"
+ALTER TABLE threads ADD COLUMN worktree_path TEXT NOT NULL DEFAULT '';
+ALTER TABLE threads ADD COLUMN worktree_branch TEXT NOT NULL DEFAULT '';
+"#;
+
+/// V11：计划数据（计划模式产物）。发送计划模式消息时插入（approved=0、file_path 空），
+/// 计划 run 正常完成后把最终正文写入 ~/.craftwork/plans/ 并回填 file_path；
+/// 前端「批准并执行」提示条以 file_path 非空且未批准为准（中断/失败不出现）。
+pub const SCHEMA_V11: &str = r#"
+CREATE TABLE plans (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  run_id TEXT,
+  file_path TEXT NOT NULL DEFAULT '',
+  approved INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX idx_plans_thread ON plans(thread_id, created_at);
+"#;
+
+/// V12：计划的「忽略」标记（提示条「忽略」按钮）：用户明确不想现在处理该计划，
+/// 提示条不再出现（与 approved 互不影响；批准依旧走 approved）。
+pub const SCHEMA_V12: &str = r#"
+ALTER TABLE plans ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// 迁移链：下标即目标版本号，[0] 为占位空串（使 MIGRATIONS[v] 对应版本 v）。
-const MIGRATIONS: [&str; 10] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9];
+const MIGRATIONS: [&str; 13] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12];
 
 /// 逐版本应用迁移：每个版本在独立事务内执行 SQL 并推进 user_version（原子生效或回滚）。
 /// 已是最新版本时为 no-op；注意 user_version 大于 SCHEMA_VERSION 的库（更新版本产物）会静默放行。

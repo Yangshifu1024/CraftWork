@@ -5,6 +5,7 @@
 
 pub mod db;
 pub mod events;
+pub mod plans;
 pub mod recorder;
 pub mod records;
 pub mod runs;

@@ -116,6 +116,33 @@ pub fn latest_context_summary(conn: &Connection, thread_id: &str) -> StoreResult
     Ok(Some((summary, until_seq)))
 }
 
+/// 解析触发消息的计划模式标记（append 时随 payload 落库，run 启动时按 trigger 还原）：
+/// trigger_seq 有值读该事件（普通发送 / steer 接力传首条引导消息 seq），
+/// None 读最新一条用户消息（regenerate 重跑上一轮）。缺事件或无标记一律 false。
+pub fn plan_mode_for_trigger(conn: &Connection, thread_id: &str, trigger_seq: Option<i64>) -> StoreResult<bool> {
+    let payload: Option<String> = match trigger_seq {
+        Some(seq) => conn
+            .query_row(
+                "SELECT payload FROM events WHERE thread_id = ?1 AND seq = ?2 AND kind = 'user_message'",
+                rusqlite::params![thread_id, seq],
+                |row| row.get(0),
+            )
+            .ok(),
+        None => conn
+            .query_row(
+                "SELECT payload FROM events WHERE thread_id = ?1 AND kind = 'user_message' ORDER BY seq DESC LIMIT 1",
+                [thread_id],
+                |row| row.get(0),
+            )
+            .ok(),
+    };
+    let Some(payload) = payload else {
+        return Ok(false);
+    };
+    let parsed: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+    Ok(parsed.get("planMode").and_then(Value::as_bool).unwrap_or(false))
+}
+
 // ---------- 快照重建 ----------
 
 /// 快照重建跳过的事件 kind：run 生命周期与压缩元数据只服务内部逻辑，不产生可见部件。
@@ -244,6 +271,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                     seq: 0,
                     created_at,
                     work_duration_ms: None,
+                    finished_at: None,
                 },
             );
         }
@@ -286,8 +314,10 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             payload = serde_json::json!({});
         }
         if ev.kind == "user_message" {
-            // user_message 只保留 text 与 attachments（via=steer 透传：前端「待送达」标记）
+            // user_message 只保留 text 与 attachments（via=steer 透传：前端「待送达」标记；
+            // planMode 透传：计划 run 完成后前端展示「批准并执行」）
             let via = payload.get("via").cloned();
+            let plan_mode = payload.get("planMode").cloned();
             payload = serde_json::json!({
                 "text": payload.get("text").cloned().unwrap_or(Value::String(String::new())),
                 "attachments": payload.get("attachments").cloned().unwrap_or(Value::Array(vec![])),
@@ -295,18 +325,28 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             if let Some(via) = via {
                 payload["via"] = via;
             }
+            if let Some(plan_mode) = plan_mode {
+                payload["planMode"] = plan_mode;
+            }
         }
 
         let role = if ev.kind == "user_message" { "user" } else { "assistant" };
         let msg = ensure_message(&mut order, &mut messages, &ev.message_id, role, ev.created_at);
         // part.id 优先取 payload.partId：渲染层按 partId 归属后续增量事件（text.delta 等），
         // 用事件行 id 会导致快照恢复后的流式事件永远找不到归属消息。
-        let part_id = payload
+        // 审批部件加 approval_ 前缀：审批请求复用工具调用的 partId，同一消息内两个部件
+        // 同 id 会撞 key；前端事件流（app.ts）同规则，快照与实时流才能在同一键上合并。
+        let base_part_id = payload
             .get("partId")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| ev.id.clone());
+        let part_id = if kind == "approval" {
+            format!("approval_{base_part_id}")
+        } else {
+            base_part_id
+        };
         msg.parts.push(PartSnapshot {
             id: part_id,
             kind: kind.to_string(),
@@ -338,6 +378,8 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             if run.finished_at.is_some_and(|f| f > run.started_at) {
                 msg.work_duration_ms = Some(run.finished_at.unwrap() - run.started_at);
             }
+            // 回复完成时刻 = run 的 finished_at（界面时间戳显示它而非 created_at）
+            msg.finished_at = run.finished_at;
         } else if !run.message_id.is_empty() && (run.status == "running" || run.status == "error") {
             // 补消息的 seq 取该 run 名下最早事件的 seq；run 尚无任何部件事件（运行中刚启动、
             // 或失败 run 无部件）时，回退到「run 启动前已落库事件的最大 seq」——即触发它的
@@ -380,6 +422,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                         .finished_at
                         .filter(|f| *f > run.started_at)
                         .map(|f| f - run.started_at),
+                    finished_at: run.finished_at,
                 },
             );
         }

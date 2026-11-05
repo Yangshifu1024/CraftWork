@@ -193,6 +193,7 @@ mod tests {
             seq: 3,
             created_at: 0,
             work_duration_ms: None,
+            finished_at: None,
         };
         let caps = Capabilities { stream: true, tools: true, vision: false, reasoning: false, structured: false };
         let messages = message_from_snapshot(&msg, "", "", &caps);
@@ -228,6 +229,7 @@ mod tests {
             seq: 1,
             created_at: 0,
             work_duration_ms: None,
+            finished_at: None,
         };
         let caps = Capabilities { stream: true, tools: true, vision: false, reasoning: false, structured: false };
         let messages = message_from_snapshot(&msg, &dir.to_string_lossy(), &dir.to_string_lossy(), &caps);
