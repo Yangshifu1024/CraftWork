@@ -75,6 +75,8 @@ function normalizeProvider(id, provider) {
         reasoning: m.reasoning === true,
         structured: m.structured_output === true,
       },
+      // 思考档位元数据原样保留（effort 枚举 / toggle / budget_tokens），Rust 侧归一化
+      reasoningOptions: Array.isArray(m.reasoning_options) ? m.reasoning_options : [],
       cost: m.cost
         ? {
             input: m.cost.input,

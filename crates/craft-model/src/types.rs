@@ -50,6 +50,12 @@ pub struct ModelInfo {
     pub source: String,
     pub env_vars: Vec<String>,
     pub key_required: bool,
+    /// 思考档位类型：effort（枚举直传 reasoning_effort）| budget（Anthropic 预算映射）；空=不支持档位选择
+    #[serde(default)]
+    pub reasoning_kind: String,
+    /// 思考档位取值集（空=无档位 UI）
+    #[serde(default)]
+    pub reasoning_levels: Vec<String>,
 }
 
 pub fn model_ref(provider_id: &str, model_id: &str) -> String {
@@ -80,6 +86,12 @@ pub struct PersistedModel {
     /// 旧数据无此字段时缺省视为启用（读取侧补 true）
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 思考档位类型：effort | budget；空=不支持档位选择（旧数据/手动模型缺省空）
+    #[serde(default)]
+    pub reasoning_kind: String,
+    /// 思考档位取值集（空=无档位 UI）
+    #[serde(default)]
+    pub reasoning_levels: Vec<String>,
 }
 
 fn default_true() -> bool {

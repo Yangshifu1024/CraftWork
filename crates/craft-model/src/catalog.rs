@@ -27,12 +27,43 @@ pub struct CatalogModel {
     pub caps: Option<PartialCaps>,
     #[serde(default)]
     pub cost: Option<RawCost>,
+    #[serde(default)]
+    pub reasoning_options: Vec<RawReasoningOption>,
     #[serde(default, rename = "status")]
     pub status: Option<String>,
     #[serde(default, rename = "releaseDate")]
     pub release_date: Option<String>,
     #[serde(default, rename = "canonicalId")]
     pub canonical_id: Option<String>,
+}
+
+/// models.dev reasoning_options 元素：effort 型带 values；budget_tokens 型带 min/max；toggle 无载荷。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawReasoningOption {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub values: Option<Vec<String>>,
+    #[serde(default)]
+    pub min: Option<i64>,
+    #[serde(default)]
+    pub max: Option<i64>,
+}
+
+/// reasoning_options → (kind, levels)：
+/// effort 型档位取 values 原样；含 budget_tokens（toggle 组合或单置）归 budget、档位 off/low/high；
+/// 纯 toggle / 未知类型不支持（空），UI 不出档位。
+pub fn normalize_reasoning(options: &[RawReasoningOption]) -> (String, Vec<String>) {
+    if let Some(effort) = options
+        .iter()
+        .find(|o| o.kind == "effort" && o.values.as_ref().is_some_and(|v| !v.is_empty()))
+    {
+        return ("effort".into(), effort.values.clone().unwrap_or_default());
+    }
+    if options.iter().any(|o| o.kind == "budget_tokens") {
+        return ("budget".into(), vec!["off".into(), "low".into(), "high".into()]);
+    }
+    (String::new(), Vec::new())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -121,6 +152,7 @@ pub fn builtin_catalog() -> &'static CatalogDataset {
 // ---------- 内置目录 → 持久化形状（从内置目录导入时） ----------
 
 pub fn catalog_model_to_persisted(m: &CatalogModel, source: &str) -> PersistedModel {
+    let (reasoning_kind, reasoning_levels) = normalize_reasoning(&m.reasoning_options);
     PersistedModel {
         id: m.id.clone(),
         name: m.name.clone(),
@@ -138,6 +170,8 @@ pub fn catalog_model_to_persisted(m: &CatalogModel, source: &str) -> PersistedMo
         release_date: m.release_date.clone().unwrap_or_default(),
         source: source.into(),
         enabled: true,
+        reasoning_kind,
+        reasoning_levels,
     }
 }
 
@@ -307,10 +341,52 @@ fn to_model_info(p: &PersistedProvider, m: &PersistedModel) -> ModelInfo {
         source: m.source.clone(),
         env_vars: p.env_vars.clone(),
         key_required: p.key_required,
+        reasoning_kind: m.reasoning_kind.clone(),
+        reasoning_levels: m.reasoning_levels.clone(),
     }
 }
 
 /// store/view 引用的规范化入口（Arc<Db> 版）。
 pub fn normalize_model_ref(catalog: &Catalog, ref_or_id: &str) -> Option<NormalizedRef> {
     catalog.normalize(ref_or_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opt(kind: &str, values: Option<Vec<&str>>) -> RawReasoningOption {
+        RawReasoningOption {
+            kind: kind.into(),
+            values: values.map(|v| v.into_iter().map(String::from).collect()),
+            min: None,
+            max: None,
+        }
+    }
+
+    #[test]
+    fn reasoning_options_normalization() {
+        // effort 型：档位取 values 原样（models.dev 实测形态，gpt/deepseek 系）
+        let (kind, levels) = normalize_reasoning(&[
+            opt("effort", Some(vec!["minimal", "low", "medium", "high"])),
+        ]);
+        assert_eq!(kind, "effort");
+        assert_eq!(levels, vec!["minimal", "low", "medium", "high"]);
+
+        // toggle + budget_tokens 组合：归 budget、固定 off/low/high（anthropic 系）
+        let (kind, levels) =
+            normalize_reasoning(&[opt("toggle", None), opt("budget_tokens", None)]);
+        assert_eq!(kind, "budget");
+        assert_eq!(levels, vec!["off", "low", "high"]);
+
+        // 纯 toggle（GLM/Qwen 等兼容网关开关）：不支持档位选择
+        let (kind, levels) = normalize_reasoning(&[opt("toggle", None)]);
+        assert_eq!(kind, "");
+        assert!(levels.is_empty());
+
+        // 空元数据：不支持
+        let (kind, levels) = normalize_reasoning(&[]);
+        assert_eq!(kind, "");
+        assert!(levels.is_empty());
+    }
 }

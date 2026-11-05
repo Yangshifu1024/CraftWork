@@ -742,6 +742,7 @@ fn provider_view_json(state: &AppState, p: &craft_model::types::PersistedProvide
                 "caps": m.caps, "cost": m.cost,
                 "status": m.status, "canonicalId": m.canonical_id,
                 "releaseDate": m.release_date, "source": m.source,
+                "reasoningKind": m.reasoning_kind, "reasoningLevels": m.reasoning_levels,
                 "enabled": m.enabled, "available": !m.status.is_empty() && m.status != "alpha",
             })
         })
@@ -1178,6 +1179,8 @@ pub fn provider_fetch_models(state: &AppState, provider_id: &str) -> SvcResult {
             release_date: String::new(),
             source: "fetched".into(),
             enabled: true,
+            reasoning_kind: String::new(),
+            reasoning_levels: Vec::new(),
         });
         added.push(id.to_string());
     }

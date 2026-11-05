@@ -46,6 +46,8 @@ fn model(id: &str, enabled: bool) -> PersistedModel {
         release_date: String::new(),
         source: "manual".into(),
         enabled,
+        reasoning_kind: String::new(),
+        reasoning_levels: Vec::new(),
     }
 }
 

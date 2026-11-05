@@ -188,6 +188,10 @@ export interface ModelView {
   /** 启用状态：禁用后不进模型选择器 */
   enabled: boolean;
   available: boolean;
+  /** 思考档位类型：effort（枚举直传）| budget（Anthropic 预算映射）；空=不支持档位选择 */
+  reasoningKind: string;
+  /** 思考档位取值集（空=无档位 UI） */
+  reasoningLevels: string[];
 }
 
 export interface ProviderView {
