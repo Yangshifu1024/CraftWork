@@ -13,12 +13,16 @@ fn golden_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/craftwork-golden.db")
 }
 
+/// 副本目录序号：进程内单调递增，避免两个测试并行时纳秒时钟分辨率不足
+/// 拿到同一路径——曾导致两连接同时迁移同一 v7 副本，V8 加列撞 duplicate column name。
+static COPY_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn copy_to_tmp() -> PathBuf {
     // 不改动 fixtures 原件：拷贝到临时目录再打开（打开会建 WAL 文件）
     let tmp = std::env::temp_dir().join(format!(
         "cw-golden-copy-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()
+        COPY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let dest = tmp.join("craftwork-golden.db");
