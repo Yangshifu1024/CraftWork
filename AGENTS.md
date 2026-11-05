@@ -165,7 +165,7 @@ docs/                    arch.md（架构文档：分层、主流程图、安全
 
 ### 6.4 界面约定
 
-- 深浅两套主题（zai-light / zai-dark）都定义在 `styles.css`；语义色 token 经 `@theme inline` 映射，**新增颜色必须两套同改**。
+- 深浅两套主题（craft-light / craft-dark）都定义在 `styles.css`；语义色 token 经 `@theme inline` 映射，**新增颜色必须两套同改**。
 - 设置项必须立即生效；未接线的控件要禁用并标注里程碑，不要做「看起来能改但无效果」的控件。
 - 动效遵循 `prefers-reduced-motion`；运行态统一用文字扫光（`animated-gradient-text`），不旋转图标。
 - 窗口级快捷键集中在 `src/renderer/src/hooks/shortcuts.ts`；Esc 退出链为「浮层一层 → 输入框不拦截」。
@@ -189,7 +189,7 @@ docs/                    arch.md（架构文档：分层、主流程图、安全
 Tauri 与工具链：
 
 - 渲染层构建产物经 `tauri://` 加载，`vite.config.ts` 的 `base` 必须是 `"./"`，否则白屏。
-- Tailwind v4 的语义色必须经 `@theme inline` 映射（token 值用 `var(--zai-*)`），直接在普通选择器里定义 `--color-*` 不会生成工具类。
+- Tailwind v4 的语义色必须经 `@theme inline` 映射（token 值用 `var(--craft-*)`），直接在普通选择器里定义 `--color-*` 不会生成工具类。
 - Tauri 的窗口拖拽是逐元素命中：`data-tauri-drag-region` 只对直接挂载的元素生效，子元素天然不可拖（与 Electron 的矩形减法合成完全不同，不要套用旧心智）。
 - `craftwork_invoke` 的同步领域操作在 `spawn_blocking` 里跑；`Runner::run` 在无 tokio reactor 的线程上会自动起 current-thread 运行时（见 runner.rs 的 spawn 双路径）。
 - 包名不能与 Rust 内置 crate 同名：`core` 会遮蔽内置 crate 且 `::core::` 绝对路径连带 derive 宏一起失效（实测 E0432，决策 D3 用 craft- 前缀的原因）。

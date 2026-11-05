@@ -61,7 +61,7 @@ interface AppState {
   plans: Record<string, PlanInfo | undefined>;
   sidebarVisible: boolean;
   /** 已解析主题类（system 偏好下随系统亮暗变化更新）。 */
-  themeResolved: "theme-zai-light" | "theme-zai-dark";
+  themeResolved: "theme-craft-light" | "theme-craft-dark";
 
   /** 启动装配：并行拉取设置/两模式会话/工作区，回放字号与主题，恢复各槽草稿并选中最近会话。 */
   boot(): Promise<void>;
@@ -146,7 +146,7 @@ export const useApp = create<AppState>((set, get) => ({
   chats: {},
   plans: {},
   sidebarVisible: true,
-  themeResolved: "theme-zai-dark",
+  themeResolved: "theme-craft-dark",
 
   async boot() {
     const [settings, threadsCode, threadsWork, workspaces] = await Promise.all([

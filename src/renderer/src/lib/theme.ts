@@ -6,14 +6,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type ThemePref = "system" | "light" | "dark";
-export type ResolvedTheme = "theme-zai-light" | "theme-zai-dark";
+export type ResolvedTheme = "theme-craft-light" | "theme-craft-dark";
 
-// 主题底色（与 styles.css 的 --zai-background 两套值一致）：
+// 主题底色（与 styles.css 的 --craft-background 两套值一致）：
 // 同步到原生窗口背景，窗口 resize 时 WKWebView 重绘滞后露出的填充区域与内容同色，
 // 避免最大化/分屏时出现突兀的色块（Electron 时代窗口背景由 Chromium 自动处理）。
 const THEME_WINDOW_BACKGROUND: Record<ResolvedTheme, { red: number; green: number; blue: number; alpha: number }> = {
-  "theme-zai-light": { red: 0xf8, green: 0xf8, blue: 0xf8, alpha: 255 },
-  "theme-zai-dark": { red: 0x16, green: 0x16, blue: 0x16, alpha: 255 },
+  "theme-craft-light": { red: 0xf8, green: 0xf8, blue: 0xf8, alpha: 255 },
+  "theme-craft-dark": { red: 0x16, green: 0x16, blue: 0x16, alpha: 255 },
 };
 
 function syncWindowBackground(resolved: ResolvedTheme): void {
@@ -28,21 +28,22 @@ const darkMql = window.matchMedia("(prefers-color-scheme: dark)");
 
 /** 偏好 → 实际主题类；system 按系统当前亮暗解析。 */
 export function resolveTheme(pref: ThemePref): ResolvedTheme {
-  if (pref === "light") return "theme-zai-light";
-  if (pref === "dark") return "theme-zai-dark";
-  return darkMql.matches ? "theme-zai-dark" : "theme-zai-light";
+  if (pref === "light") return "theme-craft-light";
+  if (pref === "dark") return "theme-craft-dark";
+  return darkMql.matches ? "theme-craft-dark" : "theme-craft-light";
 }
 
 /** 把偏好应用到文档根类，返回解析结果。 */
 export function applyTheme(pref: ThemePref): ResolvedTheme {
   const resolved = resolveTheme(pref);
-  document.documentElement.classList.remove("theme-zai-light", "theme-zai-dark");
+  document.documentElement.classList.remove("theme-craft-light", "theme-craft-dark");
   document.documentElement.classList.add(resolved);
   syncWindowBackground(resolved);
   return resolved;
 }
 
-/** 读启动缓存偏好；兼容旧版本写入的解析值（zai-light/zai-dark）。缺省跟随系统。 */
+/** 读启动缓存偏好；兼容旧版本写入的解析值（主题类改名前的 `light`/`dark` 解析值）。
+ *  这两条只做历史 localStorage 值的迁移，与当前主题类名无关，改名时不可一并删除。 */
 export function loadThemePref(): ThemePref {
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === "light" || saved === "dark" || saved === "system") return saved;

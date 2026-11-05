@@ -74,7 +74,7 @@ export function CommandPalette(): React.JSX.Element {
                 onSelect={() =>
                   run(() => {
                     // 切到当前生效主题的反面（显式偏好）；解析与应用统一走 lib/theme
-                    const next = resolveTheme(settings.theme) === "theme-zai-light" ? "dark" : "light";
+                    const next = resolveTheme(settings.theme) === "theme-craft-light" ? "dark" : "light";
                     void saveSettings({ theme: next });
                     saveThemePref(next);
                     applyTheme(next);

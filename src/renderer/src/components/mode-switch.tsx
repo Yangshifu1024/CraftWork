@@ -1,5 +1,5 @@
 // 模式切换：侧栏顶部 Code / Work 两段 pill（radix ToggleGroup，方向键切换；single 模式防取消选中）。
-// 选中段按各自模式着色（Code 蓝 / Work 亮黄），与全局模式主色（--zai-brand 覆写，见 styles.css
+// 选中段按各自模式着色（Code 蓝 / Work 亮黄），与全局模式主色（--craft-brand 覆写，见 styles.css
 // 「模式主色命名空间」）同源；轨道与「新建对话」按钮同规格（h-8 圆角浅底）。
 import { ToggleGroup } from "radix-ui";
 import { useApp } from "../store/app";

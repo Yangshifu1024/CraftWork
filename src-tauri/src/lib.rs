@@ -50,7 +50,7 @@ fn dirs_home() -> PathBuf {
 }
 
 /// 启动窗口装配：按持久化主题偏好设底色，最大化后显示（conf 的 visible:false）。
-/// 底色与渲染层 styles.css 的 --zai-background 两套值一致（theme.ts 的
+/// 底色与渲染层 styles.css 的 --craft-background 两套值一致（theme.ts 的
 /// syncWindowBackground 首帧后接管，值相同无跳变）；system 偏好按系统当前外观解析。
 /// 顺序固定为设底色 → maximize → show：底色先就位，最大化露出的填充区域与内容同色；
 /// maximize 在 show 前，窗口以最大化形态首现，避免先小后大的跳动。
