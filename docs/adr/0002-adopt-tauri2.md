@@ -13,4 +13,4 @@
 
 - 分层纪律平移：`crates/*` 不依赖 Tauri（可 cargo test），仅 `src-tauri` 接触 Tauri API，等价于既有「只有 index.ts / ipc.ts / services 部分文件接触 Electron」。
 - 数据层双向兼容：SQLite schema 与 `~/.craftwork` 目录不变，Electron 版与 Tauri 版互读，回滚不丢数据。
-- 全部工作在 `tauri-migration` 分支按 `docs/tauri-migration/issues/01~10` 顺序执行，P9 演练回滚后合回 `main`；决策细节与未决项见 plan.md D1~D7。
+- 全部工作在 `tauri-migration` 分支按 `docs/tauri-migration/issues/01~10` 顺序执行，P9 演练回滚后合回 `main`；决策细节与未决项见 plan.md D1~D7。（执行实况注记：实际经 `feature/*` 分支逐票合入 `main`，未建同名分支，见 git 历史。）

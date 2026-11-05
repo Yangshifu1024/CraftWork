@@ -243,18 +243,8 @@ async function main() {
   };
   writeFileSync(join(root, "assets/catalog/catalog.manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  // 重新内嵌为 TS 模块
-  const b64 = gz.toString("base64");
-  const ts =
-    "// 由 scripts/modelsync.mjs 从 assets/catalog/catalog.json.gz 生成，请勿手改。\n" +
-    "// models.dev 目录快照（构建期内嵌，运行时只读）。\n" +
-    "const LINES = [\n" +
-    base64Lines(b64)
-      .map((l) => `  "${l}",`)
-      .join("\n") +
-    "\n];\n\n" +
-    'export const CATALOG_GZ_BASE64 = LINES.join("");\n';
-  writeFileSync(join(root, "src/main/model/catalogdata.ts"), ts);
+  // 目录快照由 Rust 侧 include_bytes! 直接嵌入 assets/catalog/catalog.json.gz
+  // （Electron 期的 TS 内嵌模块 catalogdata.ts 已随 src/main 删除，勿再生成）。
 
   // 渲染层 logo 资产模块：providerId → data:image/svg+xml;base64 URL
   const assetsDir = join(root, "src/renderer/src/assets");

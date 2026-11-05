@@ -1,6 +1,7 @@
 # 3: 供应商详情卡：连接配置与启停
 
 **labels:** [ready-for-agent]
+**status:** done
 **Blocked by:** 2（设置页主从布局与供应商列表）
 
 **What to build:** 右栏详情卡完整可操作：端点常显编辑（blur/Enter 保存、服务端校验错误内联红字、空端点必填 warning 态）；协议创建后只读展示（改协议等于删除重建）；密钥 masked 展示 + 设置（明文/密文切换）/清除（需确认）；测试连接按钮 + 内联结果反馈（绿字 + 延迟 / 红字 + 归因文案，进行中 loading 防重复点击）；供应商启用开关（服务端 PersistedProvider 新增 enabled 字段、旧数据缺省读为 true，新增 providerSetEnabled，禁用后状态点转灰、详情区降透明度）；名称内联改名（Enter 提交 / Esc 取消、IME composing 不触发，新增 providerRename）；⋯菜单（测试连接 / 删除，删除走确认并提示连带密钥与模型数）。所有 mutation 返回刷新后的 ProviderView（免二次拉取）。交互细节见 spec §6、§8、§10。

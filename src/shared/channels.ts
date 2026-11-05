@@ -1,5 +1,6 @@
-// IPC 通道表：通道名集中定义，避免跨进程 channel 字符串散落。
-// renderer 经 preload 暴露的 window.craftwork 调用；main 侧 ipcMain.handle 一一对应。
+// IPC 通道表：通道名集中定义，避免跨进程字符串散落。
+// 渲染层经 tauri-bridge 暴露的 window.craftwork 调用；src-tauri 的 craftwork_invoke 按
+// 方法名一一分发（三处接线：本文件签名 / tauri-bridge / src-tauri/src/lib.rs dispatch）。
 import type {
   AppInfo,
   ApprovalScope,

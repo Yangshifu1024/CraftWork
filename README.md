@@ -18,7 +18,7 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 
 三条产品原则：
 
-- **本地内核**：Agent、工具、策略、存储、终端、密钥全部由本机主进程执行。
+- **本地内核**：Agent、工具、策略、存储、密钥全部由本机进程执行（Rust 领域内核）。
 - **本地优先**：会话、密钥、文件与日志保存在本机，不收集遥测。
 - **可审计、可撤销**：写文件、执行命令、修改文档都先经过审批，并留下审计记录与备份。
 
@@ -27,6 +27,7 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 ### 工作区会话与临时会话
 
 - 工作区会话：绑定你添加的项目目录，文件、命令与 Git 都工作在该目录内。
+- 创建项目：对话框内命名（留空自动从目录名推导、重名自动加序号）、多源文件夹（首个为主要目录）、提交前逐次信任确认。
 - 临时会话：无需先选择工作区，开箱即聊；会话能力完整，产生的文件保存在应用内置的临时目录（`~/.craftwork/workspace/default`），目录被删除后重启自动重建。
 - 会话列表按归属分组：临时会话置顶，其余按工作区分组。
 
@@ -34,7 +35,7 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 
 - 读文件、写文件、精确替换、`apply_patch` 补丁预演与逐块应用、Glob / Grep、Shell。
 - Git 工具：状态、差异、提交记录与提交（默认不推送）。
-- 面板终端：xterm.js 渲染、真实 PTY（node-pty，独立进程组管理）。
+- 右侧面板：项目文件树浏览与 Word / Excel / PDF 文档预览。
 
 ### Work 模式
 
@@ -43,8 +44,9 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 
 ### 对话与工具
 
-- 流式文本、推理折叠、工具卡片、任务清单、错误卡片与运行中引导。
-- 停止生成、重新生成。
+- 流式文本、推理折叠、工具卡片、任务清单、错误卡片与运行中引导（引导消息带「待送达」标记）。
+- 消息附件：图片缩略图与放大预览、非图片文件清单；支持粘贴上传（截图直接进对话）。
+- 停止生成（再次点击按钮或双击 Esc 确认）、重新生成。
 - 多提供商：OpenAI、Anthropic 与 OpenAI 兼容服务；应用不内置任何提供商，从模型目录导入或手动创建。
 - 模型目录：models.dev 快照随应用离线可用；提供商 logo 在构建期下载清洗后内嵌为本地资产，多数提供商导入即预填端点，导入时自动带出上下文、最大输出、能力与价格。
 - 模型管理：设置页「模型与提供商」为主从两栏布局（左侧供应商列表 + 右侧详情卡）；支持供应商与模型两级启停、模型增删改、从服务端点拉取模型清单（按 ID 去重合并）；聊天模型选择器只列启用的提供商与模型，调用停用项会得到可读提示。
@@ -61,16 +63,17 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 | R3 | 网络或越界 | 每次询问，不提供永久允许 |
 | R4 | 破坏性 | 阻止 |
 
-- 三档审批：分级 / 严格 / 只读（另有「自由」档需显式确认）。
+- 四档审批：分级 / 严格 / 只读 / 自由；切「自由」须经能力清单与「我已了解风险」勾选确认，档位切换即时生效。
+- 系统通知：审批待决、完成与失败在窗口失焦时提醒（可在设置关闭）。
 - 受限工作区直接拒绝网络访问，不提供任何永久授权。
 - 写文件前自动备份，可在数据面板恢复。
 - 审批决定、工具调用、文件写入全部落本地审计。
 
 ### 本地优先
 
-- SQLite（WAL，`node:sqlite`）保存会话、事件、审批、审计、用量与设置；事件表按会话 `seq` 单调递增，是消息与部件的唯一事实源。
+- SQLite（WAL，rusqlite bundled 静态编译）保存会话、事件、审批、审计、用量与设置；事件表按会话 `seq` 单调递增，是消息与部件的唯一事实源。
 - 密钥保存在 `~/.craftwork/keys.json`（0600），只存在于主进程。
-- 渲染进程开启 `contextIsolation`、关闭 `nodeIntegration`，不加载任何远程页面；外链经确认后交给系统浏览器。
+- 界面运行在系统 WebView 中，CSP 与 capabilities 权限清单保持开启，不加载任何远程页面；外链仅允许 http/https 并交系统浏览器。
 - 工具子进程运行在清洗后的环境中（白名单变量 + 敏感词剔除），独立进程组、超时杀树、输出截断。
 - 不收集遥测，不上传代码或文档。
 
@@ -81,24 +84,27 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 │ 渲染层  src/renderer（React 19 + zustand + Tailwind v4）  │
 │ 侧栏（会话分组） · 对话流（卡片体系） · 右侧面板 · 浮层    │
 └───────────────┬──────────────────────────────────────────┘
-                │ contextBridge（集中通道表，preload 只做桥）
+                │ invoke（craftwork_invoke，集中通道表 channels.ts）
 ┌───────────────▼──────────────────────────────────────────┐
-│ 主进程  src/main（领域内核，普通 TypeScript 模块）        │
-│ services 编排 · agent Run 循环 · tools 工具 · policy 策略 │
-│ model 提供商接入 · store SQLite · secret 密钥 · doc 文档  │
+│ 应用壳  src-tauri（Tauri 2：窗口、装配、统一分发）        │
+│ lib.rs 装配与分派 · services 编排 · system 对话框/外链    │
+└───────────────┬──────────────────────────────────────────┘
+┌───────────────▼──────────────────────────────────────────┐
+│ 领域内核  crates/craft-*（普通 Rust 模块，不依赖 Tauri）  │
+│ agent Run 循环 · tools 工具 · policy 策略 · model 接入    │
+│ store SQLite 与事件 · core 总线/契约/密钥 · doc 文档      │
 └───────────────┬──────────────────────────────────────────┘
                 │
-   SQLite（node:sqlite） / 文件系统 / PTY（node-pty） / keys.json
+   SQLite（rusqlite bundled） / 文件系统 / keys.json
 ```
 
 | 层 | 目录 | 职责 |
 | --- | --- | --- |
-| 入口 | `src/main/index.ts` | 单实例、数据目录、服务装配、窗口、通知 |
-| 桥 | `src/preload` | contextBridge 暴露集中通道表 |
-| 界面 | `src/renderer` | React 界面；事件驱动状态壳（zustand） |
-| 领域 | `src/main/services`、`agent`、`tools`、`policy`、`model` | 参数校验与编排、Run 循环、工具、风险分级、模型接入 |
-| 基础设施 | `src/main/store`、`core`、`doc` | SQLite、事件总线、原子写/环境清洗/子进程、密钥、行级 diff、文档处理 |
-| 共享 | `src/shared` | 事件契约、类型、IPC 通道表 |
+| 应用壳 | `src-tauri` | Tauri 2 窗口与装配、`craftwork_invoke` 统一分发、系统服务（对话框 / 外链 / 剪贴板 / 通知） |
+| 界面 | `src/renderer` | React 界面；事件驱动状态壳（zustand）；tauri-bridge 提供 `window.craftwork` 调用面 |
+| 领域 | `crates/craft-agent`、`craft-tools`、`craft-policy`、`craft-model` | Run 循环与审批状态机、工具、风险分级、模型接入 |
+| 基础设施 | `crates/craft-store`、`craft-core`、`craft-doc` | SQLite 与事件、总线 / 契约 / 原子写 / 环境清洗 / 密钥、行级 diff、文档处理 |
+| 共享 | `src/shared` | 事件契约、类型、通道表（与 Rust 契约金样对拍防漂移） |
 
 ### 关键设计
 
@@ -108,13 +114,13 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 - **审批必须显式决定**：请求 → 卡片 → 用户决定 → 执行/跳过；决定一经写入不可更改，拒绝一律只授权一次。
 - **深浅两套主题**：语义色 token 经 Tailwind v4 `@theme inline` 映射，跟随系统或手动切换即时生效。
 
-更完整的技术细节见 [架构规格](docs/specs/architecture.md)，设计决策的背景与取舍见 [docs/adr/](docs/adr/)。
+更完整的开发细节见 [AGENTS.md](AGENTS.md)，各特性的行为规格在 `docs/<feature>/spec.md`，设计决策的背景与取舍见 [docs/adr/](docs/adr/)。
 
 ## 快速开始
 
 ### 环境要求
 
-- Node.js ≥ 24（`node:sqlite` 为稳定内置模块）
+- Node.js ≥ 20（渲染层构建与模型目录同步脚本）
 - pnpm（包管理）
 - macOS（当前实测平台；Windows / Linux 待实机验证）
 
@@ -152,7 +158,7 @@ node scripts/modelsync.mjs --check  # 只检查是否与上游一致
 ### 开始之前
 
 1. 阅读 [AGENTS.md](AGENTS.md)：里面有命令、代码结构、审批 / 安全 / 界面约定，以及 Agent skills 协作约定（issue tracker、triage 标签、领域文档）。
-2. 阅读 [架构规格](docs/specs/architecture.md)；涉及决策取舍时查 [docs/adr/](docs/adr/)。
+2. 涉及决策取舍时查 [docs/adr/](docs/adr/)；改动行为先看对应 `docs/<feature>/spec.md`。
 
 ### 流程
 
@@ -177,14 +183,12 @@ pnpm dist:dir      # 打包冒烟（.app 可启动）
 - Word / Excel / PDF 的结构化解析与写入（当前为文本级）。
 - MCP（stdio 客户端接入内置工具注册表）。
 - 真实密钥验收：配置 OpenAI、Anthropic 或任意 OpenAI 兼容网关的密钥后跑通工具调用闭环。
-- 跨平台：Windows（ConPTY 终端）与 Linux 打包的实机验证。
+- 跨平台：Windows 与 Linux 打包的实机验证。
 
 ## 文档
 
-- [产品规格](docs/specs/product.md)：定位、范围、非功能指标与验收
-- [功能规格](docs/specs/features.md)：功能编号、优先级与验收要点
-- [架构规格](docs/specs/architecture.md)：分层、事件流、Agent 内核、策略与存储
-- [系统提示词契约](docs/specs/prompt-contract.md)：提示词分节与缓存分层
+- 行为规格：按特性存放在 `docs/<feature>/`（`spec.md` + `issues/` 本地票据），现有 draft-session、model-settings 等
+- [迁移对账](docs/migration-parity/spec.md)：历代形态迁移的设计对账、损坏/丢失清单与票据
 - [决策记录（ADR）](docs/adr/)：架构与选型决策的背景与取舍
 - [术语表](GLOSSARY.md)：仓库领域词汇基准
 - [Agent skills 约定](docs/agents/)：issue tracker（本地 markdown）、triage 标签与领域文档消费规则

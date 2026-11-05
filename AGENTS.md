@@ -10,7 +10,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 
 - Tauri 应用壳（`src-tauri/`）承载入口、窗口与 IPC 接线；全部领域逻辑在 cargo workspace 的领域 crate（`crates/craft-*`），不依赖 Tauri、可独立测试。
 - 领域逻辑为 Rust：Agent 循环（craft-agent）、工具（craft-tools）、策略（craft-policy）、SQLite（craft-store）、模型客户端（craft-model）、文档处理（craft-doc）、基础能力（craft-core）。
-- 渲染层 React 19 + zustand + Tailwind CSS v4；经 `tauri-bridge`（与 preload 同名的 `window.craftwork` 调用面）与统一 invoke 入口通信，渲染层不持有任何 Node 能力。
+- 渲染层 React 19 + zustand + Tailwind CSS v4；经 `tauri-bridge` 提供的 `window.craftwork` 调用面与统一 invoke 入口（craftwork_invoke）通信，渲染层不持有任何 Node 能力。
 - SQLite 使用 rusqlite（bundled 静态编译，零系统依赖）；交互式终端已移除（决策 D1，见 `docs/tauri-migration/plan.md`），Agent 的命令执行走 `shell_exec` 工具。
 - 提供商与模型完全由用户添加；目录来自 models.dev 的构建期快照（`include_bytes` 编译期嵌入），应用不内置任何提供商。
 
@@ -229,7 +229,7 @@ pnpm build            # tauri build
 
 ## 10. 当前留桩
 
-- 自动更新：updater 链路配置备好，签名密钥与更新服务器待凭据（决策 D6）。
+- 自动更新：updater 链路未接线（tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存），签名密钥与更新服务器待凭据后另立项接线（决策 D6；见 docs/migration-parity/issues/19）。
 - 沙箱与 MCP（stdio 客户端）：设置页可存储服务器配置，连接能力留桩（决策 D5）。
 - Work 模式限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
 - 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。

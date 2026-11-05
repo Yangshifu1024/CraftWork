@@ -61,13 +61,13 @@
 1. 字段兼容：`endpoint = ENDPOINT_OVERRIDES[id] ?? provider.api ?? provider.baseUrl ?? ""`（新字段优先，旧字段兜底）。
 2. 坏值防御：端点含 `${` / 非 http(s) / URL 解析失败 → 置空，按「无端点」处理。
 3. 覆盖表扩充（`rules.json` `endpointOverrides`）：为无 `api` 字段且端点公开固定的服务补齐——本期至少补 `salad-cloud`、`aihubmix`、`gitlab`、`vercel`、`watsonx`、`sap-ai-core` 中可确认官方地址者；其余（cloudflare-ai-gateway、qvac 等网关/私有网关）保持空，走 UI 引导。
-4. D1 修复后重新生成快照：提供商 193 → 约 229，提交 `.json.gz` + manifest + `catalogdata.ts` + `logos/` + `provider-logos.ts`。
+4. D1 修复后重新生成快照：提供商 193 → 约 229，提交 `.json.gz` + manifest + `logos/` + `provider-logos.ts`。（2026-11-05 注记：快照 `.json.gz` 现由 Rust include_bytes 嵌入；`catalogdata.ts` 为 Electron 期生成物，已随迁移消失。）
 
 ### 3.2 消费侧（UI）
 
 - 目录浏览器（CatalogBrowser）提供商行：端点为空时显示 warning 徽标「需填写端点」，右侧模型勾选与导入按钮保持可用（导入后详情卡端点区高亮必填）。
 - 详情卡端点区：空端点显示必填态（warning 条「请填写服务端点后才能调用」），输入框聚焦；有效后 warning 消失。
-- 请求前兜底保持现状（`openai.ts:114` / `anthropic.ts:136` 的 `missingEndpointError`）。
+- 请求前兜底保持现状（现位于 craft-model 适配器：缺失端点抛归一化配置错误；`openai.ts`/`anthropic.ts` 为 Electron 期路径）。
 
 ## 4. 布局
 
@@ -118,7 +118,7 @@
 
 - **持久化**（`catalog.ts`）：`PersistedProvider`、`PersistedModel` 各加 `enabled: boolean`（旧数据缺省读为 `true`）；`PersistedModel.source` 新增取值 `"fetched"`。
 - **共享类型**：`ProviderView` + `enabled` / `source` / `docUrl`；`ModelView` + `enabled`；新增 `FetchedModelsResult`；删除 `CraftworkApi.catalogLogo`。
-- **通道表**（channels/preload/ipc 三处同步）新增 7 个方法，全部返回刷新后的 `ProviderView`：
+- **通道表**新增 7 个方法，全部返回刷新后的 `ProviderView`（三处同步接线，现形态：channels.ts + tauri-bridge + src-tauri dispatch；原文 preload/ipc 为 Electron 期措辞）：
 
   `providerSetEnabled` / `providerSetModelEnabled` / `providerAddModel` / `providerUpdateModel` / `providerRemoveModel` / `providerRename` / `providerFetchModels`
 
@@ -143,6 +143,8 @@
 - 导入后未配密钥：warning 条 + [设置密钥] 高亮；端点为空：必填态（§3.2）。
 
 ## 12. 测试
+
+> 2026-11-05 注记：本节的 vitest 单测随 Electron 形态移除，等效保障收敛为 cargo test（services_test.rs 等）。
 
 - `modelsync`：本仓脚本无测试基建，以「重新生成 + diff 审查」验证：提供商数恢复 ~229、anthropic/xai 回归且端点正确、嵌入模型（text-embedding-3-small）不进目录、logo 192 个清洗后无 `<script`。
 - `tests/`（vitest）扩展：
@@ -172,4 +174,4 @@
 4. 导入无端点提供商（如 cloudflare-ai-gateway）→ 目录徽标 + 详情必填态引导。
 5. logo 走查：目录导入组显示真 logo，手动添加组字母头像，断网状态无网络请求。
 6. 其余：增删改模型、启停联动选择器、删除确认、双主题、缩窗。
-7. `pnpm typecheck && pnpm test && pnpm build && pnpm dist:dir`。
+7. 验证（现约定）：`pnpm typecheck && pnpm test:rust && pnpm lint:rust && pnpm build`。

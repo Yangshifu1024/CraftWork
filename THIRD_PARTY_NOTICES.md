@@ -32,15 +32,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## 随应用分发的核心第三方运行时
+## 随应用分发的核心第三方组件
 
-以下组件以 npm 依赖形式随应用构建产物分发，均采用 MIT License；许可全文见各项目仓库或 npm 包内声明。
+以下组件随应用构建产物分发；许可全文见各项目仓库或包内声明。
 
 | 组件 | 用途 | 许可 | 项目 |
 | --- | --- | --- | --- |
-| Electron | 桌面外壳（主进程 / 渲染进程 / 预加载桥） | MIT | https://github.com/electron/electron |
-| node-pty | 终端面板的真实 PTY（原生模块） | MIT | https://github.com/microsoft/node-pty |
-| @xterm/xterm | 终端前端渲染 | MIT | https://github.com/xtermjs/xterm.js |
-| @xterm/addon-fit | 终端尺寸自适应插件 | MIT | https://github.com/xtermjs/xterm.js |
+| Tauri | 桌面应用壳（Rust 侧，随二进制分发） | MIT / Apache-2.0 | https://github.com/tauri-apps/tauri |
+| tauri-plugin-dialog | 系统对话框 | MIT / Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
+| tauri-plugin-clipboard-manager | 剪贴板 | MIT / Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
+| tauri-plugin-notification | 系统通知 | MIT / Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
+| React / react-dom | 界面框架（随 webview 资源分发） | MIT | https://github.com/facebook/react |
 
-其余 npm 依赖的完整清单见根目录 `package.json`，各自的许可以其 npm 包声明为准。
+Rust 侧依赖的完整清单见根目录 `Cargo.lock`，npm 侧见 `package.json`；各自的许可以其包内声明为准。

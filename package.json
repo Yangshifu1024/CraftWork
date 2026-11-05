@@ -7,7 +7,7 @@
   "type": "module",
   "packageManager": "pnpm@12.16.1",
   "author": "CraftWork",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "tauri dev",
     "dev:web": "vite --port 5173 --strictPort",

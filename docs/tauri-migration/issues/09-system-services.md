@@ -19,3 +19,5 @@ depends: 06
 - capabilities 清单与通道表一一对应，无未授权/过宽授权。
 
 ## 进展
+
+- 2026-11-05 复核注记：任务 1 实际落地与描述有出入——外链经自研 `src-tauri/src/system.rs::open_external`（协议白名单校验后交系统浏览器），**未引入 opener 插件**；single-instance 与 window-state 未接线。notification 插件 2026-11-05 补齐接入（审批待决/完成/失败三类、失焦才发、设置开关门控，提交 b983121）；dialog、clipboard-manager 已接。任务文本保留作历史，勿按插件名单找代码。

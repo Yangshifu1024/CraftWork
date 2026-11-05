@@ -2,7 +2,7 @@
 
 感谢你愿意改进 CraftWork。本文件说明如何准备环境、修改代码、运行检查并提交改动。
 
-写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、审批、安全、界面与数据的硬性约束，以及 Agent skills 协作约定（issue tracker / triage 标签 / 领域文档）。行为规格见 [docs/specs/](docs/specs/)（产品 / 功能 / 架构 / 提示词契约），决策背景与取舍见 [docs/adr/](docs/adr/)，术语以仓库根 [GLOSSARY.md](GLOSSARY.md) 为准。
+写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、审批、安全、界面与数据的硬性约束，以及 Agent skills 协作约定（issue tracker / triage 标签 / 领域文档）。行为规格按特性存放在 `docs/<feature>/spec.md`（配 `issues/` 本地票据），决策背景与取舍见 [docs/adr/](docs/adr/)，术语以仓库根 [GLOSSARY.md](GLOSSARY.md) 为准。
 
 ## 环境准备
 
@@ -32,7 +32,7 @@ node scripts/modelsync.mjs
 node scripts/modelsync.mjs --check   # 只检查是否与上游一致
 ```
 
-数据目录默认 `~/.craftwork`（数据库、密钥、备份、附件与内置临时会话目录），`CRAFTWORK_HOME` 可整体隔离；测试与冒烟必须使用隔离目录。注意 dev 与打包产物同时运行会因单实例锁互踢，测试前先清理残留进程。
+数据目录默认 `~/.craftwork`（数据库、密钥、备份、附件与内置临时会话目录），`CRAFTWORK_HOME` 可整体隔离；测试与冒烟必须使用隔离目录。多实例并存没有互斥，测试前先清理残留进程。
 
 ## 提交前检查
 
@@ -49,7 +49,7 @@ pnpm dist:dir     # 打包冒烟（.app 可启动）
 
 - `CRAFTWORK_HOME=/tmp/cw-<主题> pnpm dev` 隔离目录冒烟。
 - 在 1440×900 窗口尺寸确认三栏布局与深浅主题。
-- 完整走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 发送消息 → 工具调用 → 审批允许 / 拒绝 → 终端 → 数据面板 → 深浅主题切换。
+- 完整走一遍：首次启动空状态 → 从模型目录添加提供商 → 配置密钥 → 发送消息 → 工具调用 → 审批允许 / 拒绝 → 创建项目对话框 → 数据面板 → 深浅主题切换。
 
 ## CI 检查内容
 
@@ -57,8 +57,8 @@ Pull Request 会运行 `.github/workflows/ci.yml`，包括：
 
 | 任务 | 内容 |
 | --- | --- |
-| 类型检查与单元测试 | `pnpm typecheck`、`pnpm test`（ubuntu） |
-| 桌面构建冒烟 | macOS runner 上 `pnpm dist:dir`，产物（`dist/mac-arm64/`）上传为 artifact |
+| 渲染层类型检查 | `pnpm typecheck`（macOS runner） |
+| Rust 检查矩阵 | macOS / Ubuntu / Windows 三平台 `cargo check / test / clippy`（非 macOS 允许失败） |
 
 CI 未通过时不要在 PR 中直接合并。
 
@@ -67,8 +67,8 @@ CI 未通过时不要在 PR 中直接合并。
 完整约束见 [AGENTS.md](AGENTS.md) 第 6 节，这里列出最容易踩错的几条：
 
 - **分层**：领域 crate（`craft-core`、`craft-store`、`craft-policy`、`craft-agent`、`craft-model`、`craft-tools`、`craft-doc`）保持普通 Rust 模块、不依赖 Tauri（保证可 `cargo test`）；`src-tauri/src/services.rs` 只做参数校验、编排与错误转换。只有 `src-tauri` 允许接触 Tauri API。
-- **事件**：事件写入与广播统一走 `core/record.Recorder`（`seq` 分配与插入同事务）；渲染层状态壳只做「事件应用 + 动作」，`applyBatch` 是唯一事件入口。
-- **通道**：渲染层一切系统操作经 `window.craftwork`（集中通道表）；新增能力在 `channels.ts`、`preload`、`ipc.ts` 三处同步接线，渲染层不使用 Node API。
+- **事件**：事件写入与广播统一走 `craft-store` 的 `recorder::Recorder`（`seq` 分配与插入同事务）；渲染层状态壳只做「事件应用 + 动作」，`applyBatch` 是唯一事件入口。
+- **通道**：渲染层一切系统操作经 `window.craftwork`（集中通道表）；新增能力在 `src/shared/channels.ts`（签名）、`src/renderer/src/lib/tauri-bridge.ts`（invoke 实现）与 `src-tauri/src/lib.rs`（dispatch 分支）三处同步接线，渲染层不使用 Node API。
 - **审批**：审批必须由用户显式决定，不允许在后端侧静默放行；审批决定与工具执行都要写入审计。
 - **安全**：路径校验（词法 + 符号链接真实路径）、命令分级、密钥读取、外链白名单都在 Rust 内核完成，不信任渲染层传入的路径或命令；密钥只存 Rust 进程与 `~/.craftwork/keys.json`（0600）。
 - **数据**：SQLite 是事实源；修改表结构要新增迁移版本，不要改已有迁移；写文件前先备份；rusqlite 走 bundled 静态编译。
@@ -111,10 +111,7 @@ PR 描述至少包含：
 
 | 改动 | 需要同步 |
 | --- | --- |
-| 技术栈、分层、事件流、安全机制 | `docs/specs/architecture.md` |
-| 产品定位、范围、非功能指标、验收 | `docs/specs/product.md` |
-| 功能与验收要点、工具与规则 | `docs/specs/features.md` |
-| 系统提示词分节、缓存层级 | `docs/specs/prompt-contract.md` |
+| 行为规格（所属特性的行为变化） | 对应 `docs/<feature>/spec.md`（及其 issues 进展） |
 | 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 协作约定（issue tracker / triage 标签 / 领域文档） | `docs/agents/` 对应文件 |

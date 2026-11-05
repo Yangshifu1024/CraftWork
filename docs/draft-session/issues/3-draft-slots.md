@@ -1,6 +1,7 @@
 # 3: 草稿槽按归属分桶与持久化
 
 **labels:** [ready-for-agent]
+**status:** done
 **Blocked by:** 2（渲染层草稿态最小闭环）
 
 **What to build:** 草稿从单一草稿位改为按归属（工作区）分槽：临时会话与每个项目各自一个槽，槽内容为文本、附件与模型引用；持久化在渲染层本地存储，按模式 + 工作区分 key。切换到已有会话再切回任一草稿槽，内容原样恢复互不覆盖；启动时恢复草稿文本但不自动进入草稿态（有会话选中最近会话，无会话自然落在临时草稿态）；删除项目时同步清除其草稿槽。
@@ -17,4 +18,4 @@
 
 已实现（`92090d3`）。`drafts: Record<Mode, Record<string, DraftState>>` 按工作区分桶（空串 key = 临时槽），`draftWsId` 记录草稿槽归属，`newDraft(workspaceId)` 支持项目槽；持久化经 `lib/drafts.ts`（key `craftwork-drafts`，逐字段容错，参照 theme.ts 先例）；boot 读入但不动「选中最近会话」的启动逻辑。删项目清槽挂在 `workspace.updated { removed: true }` 事件（载荷已含 workspaceId，主进程零改动）。
 
-**冒烟已走查（2026-11-04）**：临时 + 项目甲/乙三槽互不覆盖 ✓、项目槽草稿跨重启恢复 ✓、Code/Work 独立 ✓、启动选中最近会话不自动进草稿态 ✓、深浅主题下正常 ✓。另发现并修复：`CRAFTWORK_HOME` 隔离未接管 userData，dev/冒烟实例共享 localStorage 致草稿槽互相污染（`4c7d0d7`）；空项目（无会话）不显示分组致无法进入其草稿槽（`5ee97a5`，分组改以工作区为主序）。删项目清槽因渲染层无删除 UI 仍未走查（事件路径已接通，待删除 UI 落地）。
+**冒烟已走查（2026-11-04）**：临时 + 项目甲/乙三槽互不覆盖 ✓、项目槽草稿跨重启恢复 ✓、Code/Work 独立 ✓、启动选中最近会话不自动进草稿态 ✓、深浅主题下正常 ✓。另发现并修复：`CRAFTWORK_HOME` 隔离未接管 userData，dev/冒烟实例共享 localStorage 致草稿槽互相污染（`4c7d0d7`）；空项目（无会话）不显示分组致无法进入其草稿槽（`5ee97a5`，分组改以工作区为主序）。删项目清槽因渲染层无删除 UI 仍未走查（事件路径已接通，待删除 UI 落地）。（2026-11-05 注记：项目删除 UI 已落地——sidebar 经 workspaceRemove 删除并级联清会话；后端 workspace_remove 现已广播 workspace.updated {removed:true}，清槽链路已激活，实机走查补做。）

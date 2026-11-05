@@ -1,7 +1,7 @@
 # 10 打包分发与切换清理（P9）
 
 labels: [needs-triage]
-status: done
+status: done（签名/公证与 updater 余项除外，由 docs/migration-parity/issues/19 承接）
 depends: 06、07、08、09 全部完成
 
 ## 任务
@@ -20,3 +20,5 @@ depends: 06、07、08、09 全部完成
 - 文档三处同步完成，无 Electron 与终端残留表述。
 
 ## 进展
+
+- 2026-11-05 复核注记：实际产出为**未签名** .app / dmg（tauri.conf.json 无签名/公证/updater 配置）；任务 1 的签名公证与任务 2 的 updater 链路均未实施（无 tauri-plugin-updater 依赖、无密钥），「链路备好待凭据」为计划期误判——实况是从未接线。余项由 docs/migration-parity/issues/19 承接，凭据到位后另立项。回滚演练无记录留存（进展小节此前为空），且 Electron 依赖已移除，单提交 revert 不足以复活 Electron 版——以 git 历史回溯为准。
