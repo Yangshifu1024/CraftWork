@@ -102,6 +102,33 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         data_dir: data_dir.to_string_lossy().to_string(),
     }));
 
+    // 系统通知：审批待决/完成/失败三类（Runner 内置钩子），仅窗口失焦时发（聚焦时应用内已有
+    // 完整反馈），受设置「系统通知」开关门控（实时读设置，改开关立即生效）。此前从未装配。
+    runner.set_notifier(Box::new({
+        let app = app.clone();
+        move |_thread_id, title, message| {
+            if app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false) {
+                return;
+            }
+            let enabled = app
+                .try_state::<Arc<AppState>>()
+                .map(|s| {
+                    s.db
+                        .with(|conn| get_setting(conn, "app"))
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.get("notifications").and_then(Value::as_bool))
+                        .unwrap_or(true)
+                })
+                .unwrap_or(true);
+            if !enabled {
+                return;
+            }
+            use tauri_plugin_notification::NotificationExt;
+            let _ = app.notification().builder().title(title).body(message).show();
+        }
+    }));
+
     // 失败转移解析：按当前设置的 fallbackModel 取备用模型引用（空/无效/停用时 factory 返回空串即不转移）。
     // 此前从未装配，设置里的备用模型存而不用（migration-parity 票 04）。
     models.set_fallback_resolver({
@@ -293,6 +320,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let state = build_app_state(&app.handle().clone()).map_err(std::io::Error::other)?;
             // 启动确保内置临时会话目录

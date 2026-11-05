@@ -29,3 +29,4 @@ craft-model = { path = "../crates/craft-model" }
 craft-policy = { path = "../crates/craft-policy" }
 craft-store = { path = "../crates/craft-store" }
 craft-tools = { path = "../crates/craft-tools" }
+tauri-plugin-notification = "2"
