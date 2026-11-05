@@ -18,4 +18,4 @@
 - [ ] `pnpm test:rust`、`pnpm lint:rust` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 3703d7b）。settings_save 后 engine.set_level 即时生效（测试覆盖，含非法值回落）；set_fallback_resolver / set_max_iterations_resolver 装配；plan_compression 窗口 0 守卫（测试覆盖）；GUI 走查（失败转移实机触发）待实机

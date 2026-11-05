@@ -16,4 +16,4 @@
 - [ ] `pnpm typecheck`、`pnpm build` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 a7cee87）。overflow-title-track 基准类补齐（根因：选择器要求的类从未挂载）；死 CSS 两段删除（tool-call-progress-indeterminate + collapsible-up）；markdown 注释改为实际 sanitize 行为；跑马灯滚动实机走查待做

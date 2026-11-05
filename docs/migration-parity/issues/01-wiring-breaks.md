@@ -20,4 +20,4 @@
 - [ ] `pnpm typecheck`、`pnpm test:rust`、`pnpm lint:rust` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 16857b4）。面板点击文件出预览（dispatch 分支已补，失败出 toast）；目录导入/手动新增提供商后端语义修正（services 测试覆盖）；返回类型对齐编译验证；workspace.updated 已广播；GUI 走查（删除项目后草稿槽清理）待实机

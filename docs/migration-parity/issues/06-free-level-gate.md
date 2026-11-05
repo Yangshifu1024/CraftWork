@@ -18,4 +18,4 @@
 - [ ] 深浅主题走查；`pnpm typecheck` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 0efd499）。FreeLevelDialog 落地（能力清单三卡 + 勾选门 + Enter 不直通 + 每次打开重置）；三入口统一走确认门；shortcuts dialogOpen 纳入；深浅主题走查待实机

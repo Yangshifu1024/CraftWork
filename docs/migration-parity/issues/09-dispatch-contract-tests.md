@@ -15,4 +15,4 @@
 - [ ] `pnpm test:rust`、`pnpm lint:rust` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 96cc41b）。dispatch_test.rs：channels 全方法 → dispatch 臂对拍（白名单三项显式登记）；contract 金样：全部对外结构递归断言无 snake_case；补 WorkspaceFolder rename_all

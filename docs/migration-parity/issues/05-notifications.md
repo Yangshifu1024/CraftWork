@@ -17,4 +17,4 @@
 - [ ] `pnpm test:rust`、`pnpm lint:rust` 通过
 
 ## 进展
-
+- 2026-11-05：完成（提交 b983121）。tauri-plugin-notification 依赖 + capabilities 授权 + 插件注册；notifier 装配：失焦才发、开关实时读设置；实机通知收发待走查（macOS 通知权限首次弹窗需用户确认）

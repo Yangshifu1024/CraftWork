@@ -22,4 +22,4 @@
 - [ ] `pnpm test:rust`、`pnpm lint:rust` 通过（含新增审批落库/审计/命名测试）
 
 ## 进展
-
+- 2026-11-05：完成（提交 92eb85c）。resolved/canceled 落库+广播（approval_resolved 部件事件映射），快照回填测试通过；interrupt_stale_runs 补审批取消终态事件（测试覆盖）；审计三缺口补齐（取消路径/decide/退出挂钩 cancel_all_runs）；cancels 回收（仅移除仍归属本 run 的令牌）；auto_title 写回条件修复并翻转 title_auto（测试覆盖）；GUI 走查（重启卡片状态、Esc/退出审计）待实机

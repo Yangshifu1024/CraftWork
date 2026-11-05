@@ -22,4 +22,4 @@
 - [ ] `pnpm typecheck` 通过；深浅主题走查
 
 ## 进展
-
+- 2026-11-05：完成（提交 309bd5d）。附件渲染（缩略图懒加载/失败降级 chip）+ 图片预览浮层；粘贴上传（lib/paste.ts 纯逻辑 + savePastedAttachment 接通）；workDurationMs 事件流合并（run 终态 durationMs）；字号 boot 回放；Esc 双击停止（与停止按钮共享 armed 态，title 修正）；steer via=steer 落库/快照透传/徽标/run.started 清除；粘贴图片/放大预览/主题走查待实机
