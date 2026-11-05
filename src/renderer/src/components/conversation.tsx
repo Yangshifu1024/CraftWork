@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
-import { Popover, ToggleGroup } from "radix-ui";
+import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
 import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT } from "../store/app";
 import { useOverlays } from "../store/overlays";
@@ -55,7 +55,14 @@ function WorkspaceHeader({ title, status, mode }: { title: string; status: strin
       <div className="flex h-12 min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden p-2">
         <div className="flex min-w-0 items-center gap-2 pl-1">
           <span className="truncate text-ui-base font-medium text-foreground">{title}</span>
-          <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-ui-xs text-foreground-subtle">
+          {/* 模式徽章：浅色模式色底 + 对应文字色（与侧栏切换器同源 token） */}
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-ui-xs ${
+              mode === "work"
+                ? "bg-mode-work-soft text-mode-work-soft-foreground"
+                : "bg-mode-code-soft text-mode-code-soft-foreground"
+            }`}
+          >
             {mode === "work" ? "Work" : "Code"}
           </span>
           {status === "running" && <span className="animated-gradient-text shrink-0 text-ui-xs">运行中</span>}
@@ -668,30 +675,6 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   );
 }
 
-/** 模式切换：Code / Work 两段 pill（radix ToggleGroup，方向键切换；single 模式防取消选中）。 */
-function ModeSwitch(): React.JSX.Element {
-  const mode = useApp((s) => s.mode);
-  const setMode = useApp((s) => s.setMode);
-  return (
-    <ToggleGroup.Root
-      type="single"
-      value={mode}
-      onValueChange={(v) => { if (v) setMode(v as "code" | "work"); }}
-      className="flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-surface p-0.5"
-    >
-      {(["code", "work"] as const).map((m) => (
-        <ToggleGroup.Item
-          key={m}
-          value={m}
-          className="h-6 rounded-md px-2 text-ui-xs transition-colors outline-none data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-xs data-[state=off]:text-foreground-subtlest hover:text-foreground-subtle"
-        >
-          {m === "code" ? "Code" : "Work"}
-        </ToggleGroup.Item>
-      ))}
-    </ToggleGroup.Root>
-  );
-}
-
 /** 审批档位 chip：点击在按钮上方弹出档位选择浮层；切到「自由」先弹危险确认。
  *  对齐 ZCode 模式切换：档位图标 + ChevronDown；「自由」为高权限警示态（text-warning 常驻）。 */
 function LevelChip(): React.JSX.Element {
@@ -945,7 +928,6 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
               >
                 <Plus className="size-4" />
               </button>
-              <ModeSwitch />
               <LevelChip />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>

@@ -12,7 +12,7 @@ import type {
 } from "../../../shared/types";
 import type { ApprovalPart } from "../../../shared/events";
 import { api } from "../lib/api";
-import { applyTheme, saveThemePref, watchSystemTheme } from "../lib/theme";
+import { applyModeTheme, applyTheme, saveModePref, saveThemePref, watchSystemTheme } from "../lib/theme";
 import { emptyDraftTable, loadDrafts, saveDrafts } from "../lib/drafts";
 import type { DraftTable } from "../lib/drafts";
 
@@ -147,11 +147,15 @@ export const useApp = create<AppState>((set, get) => ({
       () => useApp.getState().settings.theme,
       (resolved) => useApp.setState({ themeResolved: resolved }),
     );
+    // 模式主色 class 以 settings 为事实源校准（localStorage 缓存已在 main.tsx 预应用，防闪烁）
+    const mode: "code" | "work" = settings.mode === "work" ? "work" : "code";
+    applyModeTheme(mode);
+    saveModePref(mode);
     set({
       booted: true,
       settings,
       themeResolved,
-      mode: settings.mode === "work" ? "work" : "code",
+      mode,
       threads: { code: threadsCode, work: threadsWork },
       workspaces,
       // 启动恢复各槽草稿文本与附件；槽归属不恢复（恒为临时槽），
@@ -168,6 +172,9 @@ export const useApp = create<AppState>((set, get) => ({
 
   setMode(mode) {
     set({ mode });
+    // 模式主色 class 与启动缓存同步收口：所有切换入口（侧栏 / ⌘K / 设置页）都经此生效
+    applyModeTheme(mode);
+    saveModePref(mode);
     const active = get().activeThreadId[mode];
     if (active) void get().selectThread(active);
     void api.settingsSave({ ...get().settings, mode }).then((s) => set({ settings: s }));
@@ -478,6 +485,13 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       if (next.theme !== get().settings.theme) {
         saveThemePref(next.theme);
         set({ themeResolved: applyTheme(next.theme) });
+      }
+      // 界面模式同理：重放模式主色 class 并同步启动缓存
+      if (next.mode !== get().settings.mode) {
+        const mode: "code" | "work" = next.mode === "work" ? "work" : "code";
+        applyModeTheme(mode);
+        saveModePref(mode);
+        set({ mode });
       }
       set({ settings: next });
       break;

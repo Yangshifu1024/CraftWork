@@ -70,6 +70,14 @@
   --color-destructive: var(--zai-destructive);
   --color-destructive-surface: var(--zai-destructive-surface);
   --color-destructive-surface-foreground: var(--zai-destructive-surface-foreground);
+  --color-mode-code: var(--zai-mode-code);
+  --color-mode-code-foreground: var(--zai-mode-code-foreground);
+  --color-mode-code-soft: var(--zai-mode-code-soft);
+  --color-mode-code-soft-foreground: var(--zai-mode-code-soft-foreground);
+  --color-mode-work: var(--zai-mode-work);
+  --color-mode-work-foreground: var(--zai-mode-work-foreground);
+  --color-mode-work-soft: var(--zai-mode-work-soft);
+  --color-mode-work-soft-foreground: var(--zai-mode-work-soft-foreground);
   --color-icon-blue: var(--zai-icon-blue);
   --color-diff-added: var(--zai-diff-added);
   --color-diff-removed: var(--zai-diff-removed);
@@ -168,6 +176,17 @@
   --zai-destructive: #e03131;
   --zai-destructive-surface: rgba(224, 49, 49, 0.1);
   --zai-destructive-surface-foreground: #b42020;
+
+  /* 模式主色：Code 蓝 / Work 亮黄（soft 为浅底，soft-foreground 为浅底上的文字） */
+  --zai-mode-code: #0066dd;
+  --zai-mode-code-foreground: #ffffff;
+  --zai-mode-code-soft: rgba(0, 102, 221, 0.1);
+  --zai-mode-code-soft-foreground: #0066dd;
+  --zai-mode-work: #f5c211;
+  --zai-mode-work-foreground: #1c1917;
+  --zai-mode-work-soft: rgba(245, 194, 17, 0.16);
+  --zai-mode-work-soft-foreground: #a16207;
+
   --zai-icon-blue: #0066dd;
 
   --zai-diff-added: #1e8a3e;
@@ -233,6 +252,17 @@
   --zai-destructive: #ff5c5c;
   --zai-destructive-surface: rgba(255, 92, 92, 0.16);
   --zai-destructive-surface-foreground: #ff8585;
+
+  /* 模式主色：Code 蓝 / Work 亮黄（暗主题延续「亮底深字」的单色反转结构） */
+  --zai-mode-code: #80beff;
+  --zai-mode-code-foreground: #0d0d0d;
+  --zai-mode-code-soft: rgba(128, 190, 255, 0.14);
+  --zai-mode-code-soft-foreground: #80beff;
+  --zai-mode-work: #ffd43b;
+  --zai-mode-work-foreground: #1c1917;
+  --zai-mode-work-soft: rgba(255, 212, 59, 0.15);
+  --zai-mode-work-soft-foreground: #ffd43b;
+
   --zai-icon-blue: #80beff;
 
   --zai-diff-added: #46bf72;
@@ -290,6 +320,28 @@
   --zai-terminal-bright-white: #f8f8f8;
   --zai-terminal-selection: rgba(64, 153, 255, 0.28);
   --zai-terminal-cursor: #f8f8f8;
+}
+
+/* ---------- 模式主色命名空间 ----------
+   html 上随模式挂 mode-code / mode-work class（lib/theme.ts 的 applyModeTheme），
+   覆写事实主色 brand 及其反色文字：所有 bg-brand / text-foreground-inverse 主按钮
+   （发送、保存、确认、开关选中态、选中描边）随 Code 蓝 / Work 黄整体切换。
+   组合选择器（双 class）优先级高于单 class 主题块，深浅 × 模式四组合各自取值。 */
+.theme-zai-light.mode-code {
+  --zai-brand: var(--zai-mode-code);
+  --zai-foreground-inverse: var(--zai-mode-code-foreground);
+}
+.theme-zai-light.mode-work {
+  --zai-brand: var(--zai-mode-work);
+  --zai-foreground-inverse: var(--zai-mode-work-foreground);
+}
+.theme-zai-dark.mode-code {
+  --zai-brand: var(--zai-mode-code);
+  --zai-foreground-inverse: var(--zai-mode-code-foreground);
+}
+.theme-zai-dark.mode-work {
+  --zai-brand: var(--zai-mode-work);
+  --zai-foreground-inverse: var(--zai-mode-work-foreground);
 }
 
 /* ---------- 全局基础 ---------- */

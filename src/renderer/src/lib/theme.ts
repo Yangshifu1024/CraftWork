@@ -1,6 +1,8 @@
 // 主题偏好与应用的收口：三态偏好（system/light/dark）解析为实际主题类；
 // system 跟随系统配色并监听变化。settings.theme 是事实源，
 // localStorage 只作启动防闪烁缓存（存偏好本身，兼容旧版本写入的解析值）。
+// 同文件收口界面模式（code/work）的主色 class：与主题 class 同机制，
+// html 上挂 mode-code / mode-work，styles.css「模式主色命名空间」据此覆写事实主色 brand。
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -61,4 +63,27 @@ export function watchSystemTheme(getPref: () => ThemePref, onApply?: (resolved: 
   };
   darkMql.addEventListener("change", onChange);
   return () => darkMql.removeEventListener("change", onChange);
+}
+
+// ---------- 界面模式（code / work）主色 ----------
+
+export type UiMode = "code" | "work";
+
+const MODE_KEY = "craftwork-mode";
+
+/** 把模式应用到文档根类：mode-code / mode-work 二选一，驱动全局模式主色。 */
+export function applyModeTheme(mode: UiMode): void {
+  const root = document.documentElement;
+  root.classList.toggle("mode-code", mode === "code");
+  root.classList.toggle("mode-work", mode === "work");
+}
+
+/** 读启动缓存模式；缺省 code（与 settings.mode 的缺省一致）。 */
+export function loadModePref(): UiMode {
+  return localStorage.getItem(MODE_KEY) === "work" ? "work" : "code";
+}
+
+/** 写启动缓存模式（与 settings.mode 同构）。 */
+export function saveModePref(mode: UiMode): void {
+  localStorage.setItem(MODE_KEY, mode);
 }
