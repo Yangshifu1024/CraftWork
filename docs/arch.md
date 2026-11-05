@@ -218,7 +218,7 @@ schema 变更只在 `craft-store/src/db.rs` 的 `MIGRATIONS` 追加版本，已�
 | 机制 | 实现 |
 | --- | --- |
 | 风险分级 | R0 读 / R1 写工作区 / R2 执行 / R3 网络或越界 / R4 破坏性；参数可提升风险 |
-| 审批档位 | graded / strict / readonly / free；free 是唯一放行一切的档位，切换需「能力清单 + 风险勾选」确认门；档位切换即时生效 |
+| 审批档位 | graded / free；free 是唯一放行一切的档位，切换需「能力清单 + 风险勾选」确认门；档位切换即时生效。历史档位 strict/readonly 已移除，旧存储值回落 graded |
 | 授权范围 | once / session / workspace；`allowPermanent=false`、R3、R4、受限工作区一律不给永久授权 |
 | 受限工作区 | R3 直接拒绝、R1/R2 逐次审批、已有授权不生效、不提供永久授权 |
 | 路径安全 | `craft-policy::resolve`：词法校验（越界 / 反斜杠 / 双斜杠）→ 符号链接真实路径解析 → 必须落在工作区根内 |
@@ -262,6 +262,8 @@ flowchart LR
 | D5 | MCP（stdio 客户端）留桩 | 设置页可存服务器配置，连接能力不实现；rmcp 接入单独立项 |
 | D6 | 先出未签名包；updater 链路未接线 | tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存；凭据到位后另立项接线 |
 | D7 | 仅保障 macOS 实测 | Win / Linux 实机走查单独立项（D1 后打包障碍已消失，配置已备） |
+| D8 | 计划模式 = 提示词 + 审批硬约束双保险 | 「计划模式」是随消息落库的发送选项（user_message payload 的 planMode，run 启动按 trigger 还原；regenerate 跟随上一轮、steer 接力取首条引导），不是会话级档位：系统提示词 dynamic 段注入计划指令之外，run_tool 对 R1+ 风险强制 Ask、跳过已授权缓存、禁用永久授权——不依赖模型自觉，任何审批档位下都不可绕过；确认执行走前端「批准并执行」按钮（取消勾选 + 发送固定确认消息），零新增后端协议 |
+| D9 | worktree 由后端编排、会话级绑定 | 勾选 worktree 发送时由服务层 `ensure_thread_worktree` 直跑 git（platform::run，环境清洗 + 超时杀树），不走 Agent 工具/审批——它是发送编排动作，发生在 run 之前，失败回滚保持「失败零落库」；目录固定在 `<数据目录>/worktrees/<会话id>`（随 CRAFTWORK_HOME 隔离），绑定落 threads 表（V10）后 RunEnv 主要目录切换，fs/命令/Git 全部跟随；不可解绑（避免主目录与工作树状态分裂），删除会话/项目时级联清理 |
 
 ## 8. 已知留桩与限制
 
