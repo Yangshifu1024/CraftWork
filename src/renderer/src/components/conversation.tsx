@@ -920,14 +920,15 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
                 <Plus className="size-4" />
               </button>
               <ModeSwitch />
+              <LevelChip />
+            </div>
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
+              {/* 模型选择器贴发送簇左侧（对齐 ZCode：模型/思考簇紧挨停止/发送） */}
               <ModelPicker
                 open={picker === "model"}
                 onOpenChange={(o) => (o ? openPicker("model") : closePicker())}
                 trigger={<ModelChip />}
               />
-              <LevelChip />
-            </div>
-            <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
               {running ? (
                 <button
                   type="button"
