@@ -360,3 +360,30 @@ fn append_event便捷入口_经record_event验证() {
     assert_eq!(seq, 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn 快照运行中run占位消息排在触发它的用户消息之后() {
+    let (dir, db) = tmp_db("run-order");
+    create_thread(&db.lock_conn(), thread("th_order")).unwrap();
+    // 用户消息先落库（快照里 seq 更小）
+    record_event(&db, &user_message("th_order", "msg_u1", "你好")).unwrap();
+    // 创建运行：running 且尚无任何部件事件 → 快照补占位消息
+    let run = create_run(&db.lock_conn(), "th_order", "model-x").unwrap();
+    let snap = snapshot(&db.lock_conn(), "th_order", 0, 0).unwrap();
+    let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["msg_u1", run.message_id.as_str()],
+        "运行中 run 的占位消息必须排在触发它的用户消息之后"
+    );
+    // 失败且无部件的 run 同理
+    finish_run(&db.lock_conn(), &run.id, "error", "", "模型调用失败").unwrap();
+    record_event(&db, &user_message("th_order", "msg_u2", "再来")).unwrap();
+    let run2 = create_run(&db.lock_conn(), "th_order", "model-x").unwrap();
+    finish_run(&db.lock_conn(), &run2.id, "error", "", "模型调用失败").unwrap();
+    let snap = snapshot(&db.lock_conn(), "th_order", 0, 0).unwrap();
+    let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["msg_u1", run.message_id.as_str(), "msg_u2", run2.message_id.as_str()]);
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}

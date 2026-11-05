@@ -3,6 +3,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* streamdown 组件输出的 Tailwind 类名在 node_modules 内，默认不在 v4 自动扫描范围；
+   不加 @source 时表格、代码块等渲染为裸 HTML（无边框与间距）。 */
+@source "../../../node_modules/streamdown/dist";
+
 @theme {
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei",
@@ -322,14 +326,14 @@
   }
 }
 
-/* 全局滚动条：14px 透明轨道 + 圆角 thumb（3px 透明边制造视觉留白） */
+/* 全局滚动条：8px 透明轨道 + 圆角 thumb（2px 透明边制造视觉留白） */
 * {
-  scrollbar-width: auto;
+  scrollbar-width: thin;
   scrollbar-color: var(--zai-border) transparent;
 }
 *::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -337,18 +341,56 @@
 *::-webkit-scrollbar-thumb {
   min-height: 32px;
   min-width: 32px;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 9999px;
   background: var(--zai-border);
   background-clip: padding-box;
 }
 
-/* Electron 拖拽区标注（配合 -webkit-app-region） */
-.app-region-drag {
-  -webkit-app-region: drag;
+/* ---------- Markdown 正文（streamdown）----------
+   streamdown 输出 Tailwind 绝对字号（text-3xl/2xl/xl…），不随 --ui-font-size 缩放；
+   按元素映射到 UI 字号约束体系（正文基准 text-ui-base=14px 由组件容器给定，
+   表格与行内代码的 text-sm 数值恰为 14px，与基准一致无需处理）。 */
+.markdown-body h1 {
+  font-size: var(--text-ui-xl);
+  line-height: 1.4;
 }
-.app-region-no-drag {
-  -webkit-app-region: no-drag;
+.markdown-body h2 {
+  font-size: var(--text-ui-lg);
+  line-height: 1.45;
+}
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: var(--text-ui-base);
+  line-height: 1.5;
+}
+
+/* 表格去卡片外框：wrapper 是 streamdown 自带的容器（边框/底色/内边距+工具按钮行，
+   按钮已由 controls 关闭），时间线内表格直接贴内容流，只保留 table 自身的行分隔。 */
+.markdown-body [data-streamdown="table-wrapper"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* 代码块去卡片外框：外层是 streamdown 的卡片容器（边框/底色/内边距），内层 body 自带
+   边框构成代码块本体——双层框只保留内层；悬浮工具按钮浮于右上角不受影响。 */
+.markdown-body [data-streamdown="code-block"] {
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* 代码块复制按钮：按钮容器是 code-block 的直接子级（header 的兄弟，absolute 定位），
+   默认 top-2 悬在 header 行内、底部压过 body 顶边框——对齐到 body 内右上悬浮。 */
+.markdown-body [data-streamdown="code-block"] > .pointer-events-none.absolute {
+  top: calc(2rem + 8px);
+  right: 8px;
 }
 
 /* 运行态扫光文字（统一语言：不旋转图标，用文字扫光） */

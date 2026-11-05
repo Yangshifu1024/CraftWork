@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import {
   MessageCirclePlus,
   Search,
+  Copy,
   Pencil,
   Trash2,
   LoaderCircle,
@@ -96,9 +97,19 @@ function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.
             }}
           />
           <div
-            className="fixed z-[60] flex min-w-32 flex-col gap-0.5 overflow-hidden rounded-lg border border-popover-border bg-menu p-1 shadow-md"
+            className="fixed z-[60] flex min-w-32 max-w-64 flex-col gap-0.5 overflow-hidden rounded-lg border border-popover-border bg-menu p-1 shadow-md"
             style={{ left: menu.x, top: menu.y }}
           >
+            <button
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-ui-base hover:bg-menu-hover"
+              onClick={() => {
+                void api.clipboardWrite(thread.id);
+                setMenu(null);
+              }}
+              title={thread.id}
+            >
+              <Copy className="size-3.5 shrink-0" /> 复制会话 ID
+            </button>
             <button
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-ui-base hover:bg-menu-hover"
               onClick={() => {
@@ -332,11 +343,11 @@ export function Sidebar(): React.JSX.Element {
       }`}
     >
       <aside className="flex h-full min-h-0 select-none flex-col overflow-hidden">
-        <div className="h-12 shrink-0 app-region-drag" data-tauri-drag-region />
+        <div className="h-12 shrink-0" data-tauri-drag-region />
         <div className="relative min-h-0 flex-1 overflow-clip">
           <div className="absolute inset-0 flex min-h-0 flex-col">
             {/* 导航区 */}
-            <div className="flex flex-col gap-1 px-2 py-3 app-region-no-drag">
+            <div className="flex flex-col gap-1 px-2 py-3">
               <div
                 className="group inline-flex h-8 w-full shrink-0 cursor-pointer items-center justify-stretch gap-2 overflow-hidden rounded-lg pl-2.5 pr-2.5 hover:bg-surface-hover hover:text-foreground"
                 onClick={() => newDraft()}

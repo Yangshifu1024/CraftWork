@@ -17,6 +17,7 @@ use craft_model::factory::ModelFactory;
 use craft_policy::engine::Engine;
 use craft_policy::resolve::resolve_existing;
 use craft_store::db::Db;
+use craft_store::recorder::Recorder;
 use craft_store::records::{get_setting, list_audit, list_backups, set_setting, usage_summary};
 use craft_store::threads;
 use craft_store::workspaces;
@@ -37,6 +38,9 @@ pub struct AppState {
     pub registry: Arc<Registry>,
     pub runner: Arc<Runner>,
     pub approvals: Arc<Approvals>,
+    /// 事件写入与广播的唯一出口：落库事件必须经它广播到渲染层
+    /// （直接调 record_event 只落库，界面收不到事件——用户消息曾因此不显示）。
+    pub recorder: Recorder,
     pub data_dir: String,
     pub attachment_dir: String,
     pub backup_dir: String,
@@ -484,6 +488,15 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
     if state.models.resolve(model_ref).is_none() {
         return err("模型不存在或已被删除，请重新选择模型");
     }
+    // 草稿槽空串（内置临时会话）回落到 conversation 工作区：侧栏「临时会话」分组按 workspaceId 匹配，
+    // 原样落空串会把会话挤进「其他」分组。
+    let ws_id_owned;
+    let workspace_id = if workspace_id.is_empty() {
+        ws_id_owned = craft_store::workspaces::default_conversation_workspace_id(&state.db.lock_conn());
+        ws_id_owned.as_str()
+    } else {
+        workspace_id
+    };
     let title = craft_agent::title::derive_title(text, &[]);
     let id = craft_core::ids::new_id(craft_core::ids::id_prefix::THREAD);
     threads::create_thread(
@@ -507,17 +520,18 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
 
 fn append_user_message(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> Result<String, String> {
     let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
-    let (_, seq) = craft_store::events::record_event(
-        &state.db,
-        &craft_store::events::EventRecord {
+    // 经 Recorder 落库并广播 user.message：直接调 record_event 只写库不发事件，
+    // 渲染层时间线将看不到这条用户消息（首轮对话靠首发快照掩盖了该缺陷）。
+    let (_, seq) = state
+        .recorder
+        .append(&craft_store::events::EventRecord {
             thread_id: thread_id.to_string(),
             message_id: message_id.clone(),
             run_id: None,
             kind: "user_message".into(),
             payload: json!({ "text": text, "attachments": attachments }),
-        },
-    )
-    .map_err(|e| e.to_string())?;
+        })
+        .map_err(|e| e.to_string())?;
     let _ = seq;
     Ok(message_id)
 }

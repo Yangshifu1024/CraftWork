@@ -93,7 +93,7 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
 
     let runner = Arc::new(Runner::new(RunnerDeps {
         db: Arc::clone(&db),
-        records: recorder,
+        records: recorder.clone(),
         registry: Arc::clone(&registry),
         engine: Arc::clone(&engine),
         approvals: Arc::clone(&approvals),
@@ -111,6 +111,7 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         registry,
         runner,
         approvals,
+        recorder,
         data_dir: data_dir_str,
         attachment_dir: data_dir.join("attachments").to_string_lossy().to_string(),
         backup_dir,

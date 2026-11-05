@@ -1,5 +1,5 @@
 // 对话区：顶栏 + 消息流 + 输入区。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
 import { Popover, ToggleGroup } from "radix-ui";
@@ -30,19 +30,26 @@ export function Conversation(): React.JSX.Element {
     <div className="flex min-h-0 min-w-[320px] flex-1 flex-col">
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xs">
         <WorkspaceHeader title={title} status={thread?.status ?? "idle"} mode={mode} />
-        <Timeline activeId={activeId} chat={chat ? { messages: chat.messages, running: chat.running } : undefined} />
-        <Composer activeId={activeId} chat={chat ? { running: chat.running } : { running: false }} />
+        {/* 输入区以 sticky 沉底浮在消息流上：滚动区贯穿到容器底，滚动条贴底=贴窗口底 */}
+        <Timeline
+          activeId={activeId}
+          chat={chat ? { messages: chat.messages, running: chat.running } : undefined}
+          footer={<Composer activeId={activeId} chat={chat ? { running: chat.running } : { running: false }} />}
+        />
       </div>
     </div>
   );
 }
 
 function WorkspaceHeader({ title, status, mode }: { title: string; status: string; mode: string }): React.JSX.Element {
+  // "deep"：子树内任意点击均可拖拽/双击最大化。裸属性只匹配直接命中的元素本身，
+  // 而内层 div 铺满标题栏，点击永远落不到外层上；按钮等可点击元素会自动阻断，无需单独排除。
+  // select-none：macOS 双击最大化时 drag.js 不拦截默认行为（以支持移动取消），需禁用选字。
   return (
-    <div className="relative flex w-full shrink-0 border-b border-border/50 app-region-drag" data-tauri-drag-region>
+    <div className="relative flex w-full shrink-0 select-none border-b border-border/50" data-tauri-drag-region="deep">
       <div className="flex h-12 min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden p-2">
         <div className="flex min-w-0 items-center gap-2 pl-1">
-          <span className="truncate text-ui-base font-medium text-foreground app-region-no-drag">{title}</span>
+          <span className="truncate text-ui-base font-medium text-foreground">{title}</span>
           <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-ui-xs text-foreground-subtle">
             {mode === "work" ? "Work" : "Code"}
           </span>
@@ -57,38 +64,82 @@ function WorkspaceHeader({ title, status, mode }: { title: string; status: strin
 
 // ---------- 消息流 ----------
 
-function Timeline({ activeId, chat }: { activeId: string; chat?: { messages: MessageSnapshot[]; running: boolean } }): React.JSX.Element {
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom();
+function Timeline({
+  activeId,
+  chat,
+  footer,
+}: {
+  activeId: string;
+  chat?: { messages: MessageSnapshot[]; running: boolean };
+  footer?: React.ReactNode;
+}): React.JSX.Element {
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom, stopScroll } = useStickToBottom();
   const messages = chat?.messages ?? [];
 
   useEffect(() => {
-    // 切换会话时贴底
-    scrollToBottom();
-  }, [activeId, scrollToBottom]);
+    // 切换会话时贴底：instant 直达。默认弹簧动画下，内容高度骤变引发的 scrollTop 钳制
+    // 会被库误判为「用户向上滚」（escape）并在下一帧取消动画，贴底会停在顶部附近。
+    stopScroll();
+    scrollToBottom("instant");
+  }, [activeId, scrollToBottom, stopScroll]);
+
+  // 用户发送新消息（user 消息数增加）时立即贴底：发送者必然想看到刚发出的消息，
+  // 即使正翻在历史里也要拉回底部，否则会被误认为发送失败。
+  // 助手流式回复不走这里——翻历史阅读时保持 use-stick-to-bottom 的「不打断」行为。
+  const prevUserCount = useRef(0);
+  useLayoutEffect(() => {
+    const count = messages.reduce((n, m) => (m.role === "user" ? n + 1 : n), 0);
+    if (count > prevUserCount.current) {
+      stopScroll();
+      scrollToBottom("instant");
+    }
+    prevUserCount.current = count;
+  }, [messages, scrollToBottom, stopScroll]);
 
   return (
     <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
-      <div ref={contentRef} className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 pb-8 pt-6">
-        {messages.length === 0 && (
-          <div className="flex flex-1 items-center justify-center py-24 text-ui-sm text-foreground-subtlest">
-            开始你的第一条消息
+      {/* min-h-full：消息少时也占满滚动视口，footer 始终沉底；footer 参与内容流，
+          输入区增减高度会触发内容 resize，贴底状态由 use-stick-to-bottom 自动保持。 */}
+      <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-6 pb-4 pt-6">
+          {messages.length === 0 && (
+            <div className="flex flex-1 items-center justify-center py-24 text-ui-sm text-foreground-subtlest">
+              开始你的第一条消息
+            </div>
+          )}
+          {messages.map((message) => (
+            <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} />
+          ))}
+        </div>
+        {footer && (
+          // 外壳 pointer-events-none：全宽 sticky 层不挡消息（滚入输入区背后的消息仍可点选），
+          // 只有输入列与按钮恢复命中——与 zcode ConversationTimeline 的 composer dock 同款处理。
+          <div className="pointer-events-none sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-background via-background to-transparent pt-6">
+            <div className="pointer-events-auto relative">
+              {!isAtBottom && (
+                <button
+                  className="absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-md hover:bg-menu-hover"
+                  onClick={() => scrollToBottom()}
+                >
+                  <ChevronDown className="inline size-3.5" /> 回到底部
+                </button>
+              )}
+              {footer}
+            </div>
           </div>
         )}
-        {messages.map((message) => (
-          <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} />
-        ))}
-        <div />
       </div>
-      {!isAtBottom && (
-        <button
-          className="sticky bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-md hover:bg-menu-hover"
-          onClick={() => scrollToBottom()}
-        >
-          <ChevronDown className="inline size-3.5" /> 回到底部
-        </button>
-      )}
     </div>
   );
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** 消息时间："yyyy-MM-dd HH:mm:ss"（本地时区）；ts 无效（0 = 未知，如旧数据）返回空串。 */
+function fmtDateTime(ts: number): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function MessageRow({
@@ -98,8 +149,6 @@ function MessageRow({
   message: MessageSnapshot;
   chatRunning: boolean;
 }): React.JSX.Element {
-  const activeId = useApp((s) => s.activeThreadId[s.mode]);
-
   if (message.role === "user") {
     return (
       <div className="group/msg flex w-full flex-col items-end gap-1">
@@ -113,18 +162,23 @@ function MessageRow({
             ))}
         </div>
         {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动 */}
-        <button
-          className="mr-1 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest opacity-0 transition-opacity duration-150 hover:bg-surface-hover group-hover/msg:opacity-100"
-          onClick={() => {
-            const text = message.parts
-              .filter((p) => p.kind === "text")
-              .map((p) => String(p.payload["text"] ?? ""))
-              .join("\n");
-            void api.clipboardWrite(text);
-          }}
-        >
-          <Copy className="size-3" /> 复制
-        </button>
+        <div className="mr-1 flex items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
+          {message.createdAt > 0 && (
+            <span className="select-none text-ui-xs text-foreground-subtlest">{fmtDateTime(message.createdAt)}</span>
+          )}
+          <button
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
+            onClick={() => {
+              const text = message.parts
+                .filter((p) => p.kind === "text")
+                .map((p) => String(p.payload["text"] ?? ""))
+                .join("\n");
+              void api.clipboardWrite(text);
+            }}
+          >
+            <Copy className="size-3" /> 复制
+          </button>
+        </div>
       </div>
     );
   }
@@ -133,8 +187,8 @@ function MessageRow({
   return (
     <div className="group/msg flex w-full flex-col gap-2">
       <TurnBody message={message} chatRunning={chatRunning} />
-      {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动；复制/重新生成由可见性控制 */}
-      <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
+      {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动 */}
+      <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
         <button
           className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
           onClick={() => {
@@ -147,13 +201,8 @@ function MessageRow({
         >
           <Copy className="size-3" /> 复制
         </button>
-        {!chatRunning && (
-          <button
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-xs text-foreground-subtlest hover:bg-surface-hover"
-            onClick={() => void api.chatRegenerate(activeId)}
-          >
-            <RefreshCw className="size-3" /> 重新生成
-          </button>
+        {message.createdAt > 0 && (
+          <span className="select-none text-ui-xs text-foreground-subtlest">{fmtDateTime(message.createdAt)}</span>
         )}
       </div>
     </div>

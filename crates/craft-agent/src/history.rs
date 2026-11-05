@@ -189,6 +189,7 @@ mod tests {
             ],
             status: "complete".into(),
             seq: 3,
+            created_at: 0,
             work_duration_ms: None,
         };
         let caps = Capabilities { stream: true, tools: true, vision: false, reasoning: false, structured: false };
@@ -223,6 +224,7 @@ mod tests {
             }],
             status: "complete".into(),
             seq: 1,
+            created_at: 0,
             work_duration_ms: None,
         };
         let caps = Capabilities { stream: true, tools: true, vision: false, reasoning: false, structured: false };

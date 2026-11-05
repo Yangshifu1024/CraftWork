@@ -102,6 +102,7 @@ export interface MessageSnapshot {
   parts: PartSnapshot[];
   status: "complete" | "streaming" | "incomplete" | "error";
   seq: number; // 最后部件 seq（翻页游标）
+  createdAt: number; // 消息起始时刻（毫秒）；0 = 未知（旧事件流未携带）
   workDurationMs?: number;
 }
 

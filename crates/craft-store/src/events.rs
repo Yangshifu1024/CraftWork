@@ -217,6 +217,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         messages: &'m mut std::collections::HashMap<String, MessageSnapshot>,
         message_id: &str,
         role: &str,
+        created_at: i64,
     ) -> &'m mut MessageSnapshot {
         if !messages.contains_key(message_id) {
             order.push(message_id.to_string());
@@ -228,6 +229,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                     parts: Vec::new(),
                     status: "complete".into(),
                     seq: 0,
+                    created_at,
                     work_duration_ms: None,
                 },
             );
@@ -279,9 +281,17 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         }
 
         let role = if ev.kind == "user_message" { "user" } else { "assistant" };
-        let msg = ensure_message(&mut order, &mut messages, &ev.message_id, role);
+        let msg = ensure_message(&mut order, &mut messages, &ev.message_id, role, ev.created_at);
+        // part.id 优先取 payload.partId：渲染层按 partId 归属后续增量事件（text.delta 等），
+        // 用事件行 id 会导致快照恢复后的流式事件永远找不到归属消息。
+        let part_id = payload
+            .get("partId")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| ev.id.clone());
         msg.parts.push(PartSnapshot {
-            id: ev.id.clone(),
+            id: part_id,
             kind: kind.to_string(),
             seq: ev.seq,
             payload: payload.clone(),
@@ -311,15 +321,26 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                 msg.work_duration_ms = Some(run.finished_at.unwrap() - run.started_at);
             }
         } else if !run.message_id.is_empty() && (run.status == "running" || run.status == "error") {
-            // 补消息的 seq 取该 run 名下最早事件的 seq：失败 run 往往没有任何部件，
-            // 若落 seq=0 会排到触发它的用户消息（seq 更大）之前，时间线顺序颠倒。
+            // 补消息的 seq 取该 run 名下最早事件的 seq；run 尚无任何部件事件（运行中刚启动、
+            // 或失败 run 无部件）时，回退到「run 启动前已落库事件的最大 seq」——即触发它的
+            // 用户消息的 seq。若落 seq=0 会排到触发它的用户消息之前，时间线顺序颠倒。
             let run_first_seq = events
                 .iter()
                 .filter(|e| e.run_id.as_deref() == Some(run.id.as_str()))
                 .map(|e| e.seq)
                 .filter(|s| *s > 0)
                 .min()
-                .unwrap_or(0);
+                .unwrap_or_else(|| {
+                    // +1 保证严格排在触发它的用户消息之后（即便两者同毫秒）；
+                    // 后续真实部件事件的 seq 归属同一消息，不与该占位值冲突。
+                    events
+                        .iter()
+                        .filter(|e| e.created_at <= run.started_at)
+                        .map(|e| e.seq)
+                        .max()
+                        .map(|s| s + 1)
+                        .unwrap_or(0)
+                });
             order.push(run.message_id.clone());
             messages.insert(
                 run.message_id.clone(),
@@ -329,6 +350,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                     parts: vec![],
                     status: run_message_status(&run.status).to_string(),
                     seq: run_first_seq,
+                    created_at: run.started_at,
                     work_duration_ms: run
                         .finished_at
                         .filter(|f| *f > run.started_at)
@@ -343,7 +365,14 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         .filter_map(|id| messages.get(id).cloned())
         .filter(|m| !m.parts.is_empty() || m.status != "complete")
         .collect();
-    list.sort_by(|a, b| a.seq.cmp(&b.seq).then_with(|| a.id.cmp(&b.id)));
+    // seq 相同（如运行中 run 的占位消息兜底 seq == 触发它的用户消息 seq）时按消息起始时刻定序：
+    // id 是随机的，用 id 定序会以随机顺序呈现同 seq 消息。
+    list.sort_by(|a, b| {
+        a.seq
+            .cmp(&b.seq)
+            .then_with(|| a.created_at.cmp(&b.created_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 
     let mut has_more = false;
     if before_seq > 0 {

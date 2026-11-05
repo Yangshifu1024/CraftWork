@@ -171,7 +171,9 @@ export const useApp = create<AppState>((set, get) => ({
         chats: {
           ...state.chats,
           [id]: {
-            messages: snap.messages,
+            // 快照与在途事件流合并：快照查询期间流式增量可能已写入 chats（run.started/text.delta 先于快照返回），
+            // 整体覆盖会丢掉已累积的流式内容。快照为序的权威，事件流独有的 streaming 消息追加到尾部。
+            messages: mergeStreamedMessages(snap.messages, state.chats[id]?.messages ?? []),
             running: snap.thread.status === "running" || snap.thread.status === "awaiting",
             lastSeq: snap.lastSeq,
           },
@@ -243,11 +245,12 @@ function upsertPart(
   partId: string,
   kind: PartSnapshot["kind"],
   payload: Record<string, unknown>,
+  ts = 0,
 ): MessageSnapshot[] {
   const messages = [...chat.messages];
   let target = messages.find((m) => m.id === messageId);
   if (!target) {
-    target = { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0 };
+    target = { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: ts };
     messages.push(target);
   }
   const parts = [...target.parts];
@@ -301,7 +304,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
         running: true,
         messages: chat.messages.some((m) => m.id === messageId)
           ? chat.messages
-          : [...chat.messages, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0 }],
+          : [...chat.messages, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: event.ts }],
       });
       break;
     }
@@ -338,7 +341,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const messageId = findMessageIdForPart(chat, partId);
       if (!messageId) break;
       const kind = event.type === "text.completed" ? "text" : "reasoning";
-      const messages = upsertPart(chat, messageId, partId, kind, data);
+      const messages = upsertPart(chat, messageId, partId, kind, data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -346,7 +349,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? "");
       const messageId = lastStreamingId(chat);
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "tool", data);
+      const messages = upsertPart(chat, messageId, partId, "tool", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -354,7 +357,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? "");
       const messageId = findMessageIdForPart(chat, partId) ?? lastStreamingId(chat);
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "tool", data);
+      const messages = upsertPart(chat, messageId, partId, "tool", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -362,7 +365,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? "");
       const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id;
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "approval", data);
+      const messages = upsertPart(chat, messageId, partId, "approval", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -375,7 +378,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
         status: data["status"],
         decision: data["decision"],
         scope: data["scope"],
-      });
+      }, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -383,14 +386,14 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? "");
       const messageId = lastStreamingId(chat);
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "todo", data);
+      const messages = upsertPart(chat, messageId, partId, "todo", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
     case "error": {
       const partId = String(data["partId"] ?? "");
       const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id ?? "";
-      const messages = upsertPart(chat, messageId, partId, "error", data);
+      const messages = upsertPart(chat, messageId, partId, "error", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -399,7 +402,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? event.seq);
       const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id ?? "";
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "notice", { text: data["text"] ?? data["summary"] ?? "" });
+      const messages = upsertPart(chat, messageId, partId, "notice", { text: data["text"] ?? data["summary"] ?? "" }, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
@@ -419,6 +422,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
         ],
         status: "complete",
         seq: 0,
+        createdAt: event.ts,
       };
       setChat(set, threadId, { ...chat, messages: [...chat.messages, message] });
       break;
@@ -484,4 +488,21 @@ function upsertAppend(
 
 function setChat(set: SetFn, threadId: string, chat: ChatState): void {
   set((state) => ({ chats: { ...state.chats, [threadId]: chat } }));
+}
+
+/** 快照与在途事件流的消息合并：快照为序的权威；同 id 消息快照 parts 为空（run 占位）而
+ * 事件流已累积增量时保留事件流 parts；事件流独有的 streaming 消息（事件尚未落库）追加到尾部。 */
+function mergeStreamedMessages(snapshot: MessageSnapshot[], streamed: MessageSnapshot[]): MessageSnapshot[] {
+  if (streamed.length === 0) return snapshot;
+  const streamedById = new Map(streamed.map((m) => [m.id, m]));
+  const known = new Set(snapshot.map((m) => m.id));
+  const merged = snapshot.map((m) => {
+    const s = streamedById.get(m.id);
+    if (!s) return m;
+    if (m.parts.length === 0 && s.parts.length > 0) return { ...m, parts: s.parts };
+    if (m.createdAt === 0 && s.createdAt > 0) return { ...m, createdAt: s.createdAt };
+    return m;
+  });
+  const extras = streamed.filter((m) => !known.has(m.id) && (m.status === "streaming" || m.parts.length > 0));
+  return [...merged, ...extras];
 }

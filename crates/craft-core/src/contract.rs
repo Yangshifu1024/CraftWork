@@ -29,7 +29,10 @@ pub mod event_type {
 }
 
 /// 事件信封：seq 为会话内单调递增（总线序，用于前端去重排序）。
+/// 字段名必须与 src/shared/events.ts 的 Envelope 契约一致（camelCase）：
+/// 一旦漂移，渲染层读不到 threadId，所有事件回落到活动会话应用，出现乱序与串会话。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Envelope {
     pub seq: i64,
     #[serde(rename = "type")]
@@ -44,6 +47,7 @@ pub struct Envelope {
 
 /// 一次批量推送（craftwork:events 通道的载荷）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Batch {
     pub v: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +113,7 @@ pub struct PartSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageSnapshot {
     pub id: String,
     /// user | assistant
@@ -118,6 +123,9 @@ pub struct MessageSnapshot {
     pub status: String,
     /// 最后部件 seq（翻页游标）
     pub seq: i64,
+    /// 消息起始时刻（毫秒；快照取消息名下最早事件，事件流取信封 ts；0 = 未知）
+    #[serde(default)]
+    pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_duration_ms: Option<i64>,
 }
@@ -290,4 +298,39 @@ pub struct AppInfo {
     pub platform: String,
     pub arch: String,
     pub data_dir: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 对拍 src/shared/events.ts：信封字段必须序列化为 camelCase（type 除外）。
+    /// 漂移后果：渲染层读不到 threadId/runId，事件回落到活动会话，乱序且串会话。
+    #[test]
+    fn 事件信封序列化为前端契约的驼峰字段() {
+        let env = Envelope {
+            seq: 3,
+            event_type: event_type::TEXT_DELTA.to_string(),
+            thread_id: Some("th_x".into()),
+            run_id: Some("run_x".into()),
+            ts: 1234,
+            data: serde_json::json!({ "partId": "p1", "text": "hi" }),
+        };
+        let v = serde_json::to_value(&env).unwrap();
+        assert_eq!(v["seq"], 3);
+        assert_eq!(v["type"], "text.delta");
+        assert_eq!(v["threadId"], "th_x");
+        assert_eq!(v["runId"], "run_x");
+        assert_eq!(v["ts"], 1234);
+        assert!(v.get("thread_id").is_none());
+
+        let batch = Batch {
+            v: 1,
+            thread_id: Some("th_x".into()),
+            events: vec![env],
+        };
+        let bv = serde_json::to_value(&batch).unwrap();
+        assert_eq!(bv["threadId"], "th_x");
+        assert!(bv.get("thread_id").is_none());
+    }
 }

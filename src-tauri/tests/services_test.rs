@@ -34,7 +34,7 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
     ));
     let runner = Arc::new(craft_agent::runner::Runner::new(craft_agent::runner::RunnerDeps {
         db: Arc::clone(&db),
-        records: recorder,
+        records: recorder.clone(),
         registry: Arc::clone(&registry),
         engine: Arc::clone(&engine),
         approvals: Arc::clone(&approvals),
@@ -54,6 +54,7 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
             registry,
             runner,
             approvals,
+            recorder,
             attachment_dir,
             data_dir,
             backup_dir,
