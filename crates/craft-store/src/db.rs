@@ -12,6 +12,7 @@ pub use craft_core::bus::now_millis;
 /// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
 pub const SCHEMA_VERSION: i64 = 9;
 
+/// 存储层错误：NotFound 承载业务「不存在」（渲染层按静默/提示处理），Other 为可读中文错误串。
 #[derive(Debug)]
 pub enum StoreError {
     NotFound(String),
@@ -40,6 +41,7 @@ impl From<rusqlite::Error> for StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
+/// 构造 NotFound 错误的便捷入口。
 pub fn not_found<T>(msg: impl Into<String>) -> StoreResult<T> {
     Err(StoreError::NotFound(msg.into()))
 }
@@ -57,6 +59,7 @@ pub struct Db {
 }
 
 impl Db {
+    /// 打开库：建目录（0700）→ WAL + 外键 PRAGMA → busy_timeout 5s → 跑迁移链。
     pub fn open(path: &Path) -> StoreResult<Db> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| StoreError::Other(format!("创建数据目录失败：{e}")))?;
@@ -104,6 +107,7 @@ impl Db {
         }
     }
 
+    /// 关闭并释放连接（消费 self，防止关闭后继续使用）。
     pub fn close(self) -> StoreResult<()> {
         let conn = self.conn.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
         conn.close().map_err(|(_, e)| StoreError::Other(e.to_string()))
@@ -235,8 +239,11 @@ pub const SCHEMA_V9: &str = r#"
 ALTER TABLE threads ADD COLUMN reasoning_level TEXT NOT NULL DEFAULT '';
 "#;
 
+/// 迁移链：下标即目标版本号，[0] 为占位空串（使 MIGRATIONS[v] 对应版本 v）。
 const MIGRATIONS: [&str; 10] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9];
 
+/// 逐版本应用迁移：每个版本在独立事务内执行 SQL 并推进 user_version（原子生效或回滚）。
+/// 已是最新版本时为 no-op；注意 user_version 大于 SCHEMA_VERSION 的库（更新版本产物）会静默放行。
 fn migrate(conn: &Connection) -> StoreResult<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);
     if version >= SCHEMA_VERSION {

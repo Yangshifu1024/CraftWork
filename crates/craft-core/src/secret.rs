@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::platform::write_file_atomic_str;
 
+/// keys.json 的磁盘形态：providers 以 providerID 为键（providerID/modelID 引用中的 provider 部分）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct KeysFile {
     version: i32,
@@ -24,6 +25,7 @@ impl Default for KeysFile {
     }
 }
 
+/// 密钥存储句柄：内存态 + 每次变更全量落盘；读多写少，Mutex 足够。
 pub struct SecretStore {
     file_path: PathBuf,
     data: std::sync::Mutex<KeysFile>,
@@ -44,6 +46,8 @@ impl SecretStore {
         set_dir_mode_0700(dir);
     }
 
+    /// 打开（不存在则空库启动）：先收紧文件权限，再解析内容；
+    /// 读取或解析失败不阻断启动，降级为空库并记入 warnings（由壳层提示用户重填）。
     pub fn open(dir: &Path) -> SecretStore {
         let file_path = dir.join("keys.json");
         let store = SecretStore::new(file_path.clone());
@@ -76,10 +80,12 @@ impl SecretStore {
         SecretStore::new(dir.join("keys.json"))
     }
 
+    /// 打开期间的降级/权限告警（一次性取出给壳层展示）。
     pub fn warnings(&self) -> Vec<String> {
         self.warnings.lock().unwrap().clone()
     }
 
+    /// 取文件中存储的密钥；未配置返回空串（不回退环境变量）。
     pub fn get(&self, provider_id: &str) -> String {
         self.data.lock().unwrap().providers.get(provider_id).cloned().unwrap_or_default()
     }
@@ -99,6 +105,7 @@ impl SecretStore {
         String::new()
     }
 
+    /// 密钥来源（仅文件口径）："file" 或空串（未配置）。
     pub fn source(&self, provider_id: &str) -> String {
         if self.get(provider_id).is_empty() {
             String::new()
@@ -107,6 +114,7 @@ impl SecretStore {
         }
     }
 
+    /// 密钥来源："file" > "env" > 空串，与 get_for 的回退链一致。
     pub fn source_for(&self, provider_id: &str, env_names: &[&str]) -> String {
         if !self.get(provider_id).is_empty() {
             return "file".into();
@@ -132,6 +140,7 @@ impl SecretStore {
         format!("{}…{}", chars[..5].iter().collect::<String>(), &key[key.len() - 4..])
     }
 
+    /// 写入密钥并落盘；value 为空串等价于删除该提供商的密钥。
     pub fn set(&self, provider_id: &str, value: &str) {
         let mut data = self.data.lock().unwrap();
         if value.is_empty() {
@@ -143,6 +152,7 @@ impl SecretStore {
         self.persist();
     }
 
+    /// 删除密钥并落盘。
     pub fn delete(&self, provider_id: &str) {
         self.data.lock().unwrap().providers.remove(provider_id);
         self.persist();

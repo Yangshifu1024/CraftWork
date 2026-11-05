@@ -5,6 +5,8 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::db::{not_found, now_millis, other_err, Db, StoreError, StoreResult};
 use craft_core::ids::{id_prefix, new_id};
 
+/// workspaces 一行；trust 取 trusted | restricted（受限工作区：R3 直接拒绝、无永久授权、
+/// 已有授权不生效），purpose 取 project | conversation（内置临时会话目录）。
 #[derive(Debug, Clone)]
 pub struct WorkspaceRow {
     pub id: String,
@@ -16,6 +18,7 @@ pub struct WorkspaceRow {
     pub last_opened_at: i64,
 }
 
+/// 工作区名下一个源文件夹（position 决定顺序，首条为主目录）。
 #[derive(Debug, Clone)]
 pub struct WorkspaceFolderRow {
     pub id: String,
@@ -24,6 +27,7 @@ pub struct WorkspaceFolderRow {
     pub position: i64,
 }
 
+/// 工作区 + 其文件夹列表的组合读取形态。
 #[derive(Debug, Clone)]
 pub struct WorkspaceWithFolders {
     pub workspace: WorkspaceRow,
@@ -31,6 +35,7 @@ pub struct WorkspaceWithFolders {
 }
 
 fn to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRow> {
+    // trust/purpose 列允许 NULL（历史行）：回退保守默认 restricted/project
     Ok(WorkspaceRow {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -89,6 +94,7 @@ pub fn upsert_workspace(conn: &Connection, name: &str, path: &str, trust: &str, 
     })
 }
 
+/// 全部工作区（last_opened_at DESC），逐个带文件夹列表。
 pub fn list_workspaces(conn: &Connection) -> StoreResult<Vec<WorkspaceWithFolders>> {
     let mut stmt = conn.prepare("SELECT * FROM workspaces ORDER BY last_opened_at DESC").map_err(other_err)?;
     let rows = stmt
@@ -104,6 +110,7 @@ pub fn list_workspaces(conn: &Connection) -> StoreResult<Vec<WorkspaceWithFolder
     Ok(result)
 }
 
+/// 按 id 读取单个工作区（含文件夹；不存在返回 NotFound）。
 pub fn get_workspace(conn: &Connection, id: &str) -> StoreResult<WorkspaceWithFolders> {
     let ws = conn
         .query_row("SELECT * FROM workspaces WHERE id = ?1", [id], to_workspace)
@@ -167,6 +174,7 @@ pub fn replace_workspace_folders(db: &Db, workspace_id: &str, paths: &[String]) 
     })
 }
 
+/// 更新信任状态（受限 ↔ 受信切换的唯一入口；策略影响见 craft-policy）。
 pub fn update_workspace_trust(conn: &Connection, id: &str, trust: &str) -> StoreResult<()> {
     let changes = conn
         .execute("UPDATE workspaces SET trust = ?1 WHERE id = ?2", rusqlite::params![trust, id])
@@ -177,6 +185,7 @@ pub fn update_workspace_trust(conn: &Connection, id: &str, trust: &str) -> Store
     Ok(())
 }
 
+/// 重命名工作区（仅显示名，不影响 path 唯一键与路径解析）。
 pub fn update_workspace_name(conn: &Connection, id: &str, name: &str) -> StoreResult<()> {
     let changes = conn
         .execute("UPDATE workspaces SET name = ?1 WHERE id = ?2", rusqlite::params![name, id])
@@ -187,6 +196,7 @@ pub fn update_workspace_name(conn: &Connection, id: &str, name: &str) -> StoreRe
     Ok(())
 }
 
+/// 更新用途标记（project ↔ conversation；upsert 之外改写 purpose 的唯一入口）。
 pub fn update_workspace_purpose(conn: &Connection, id: &str, purpose: &str) -> StoreResult<()> {
     conn.execute("UPDATE workspaces SET purpose = ?1 WHERE id = ?2", rusqlite::params![purpose, id])
         .map_err(other_err)?;
@@ -213,6 +223,7 @@ pub fn default_conversation_workspace_id(conn: &Connection) -> String {
     .unwrap_or_default()
 }
 
+/// 事务内删除工作区及其文件夹；名下会话由调用方先经 delete_threads_by_workspace 清理。
 pub fn delete_workspace(db: &Db, id: &str) -> StoreResult<()> {
     db.transaction(|conn| {
         conn.execute("DELETE FROM workspace_folders WHERE workspace_id = ?1", [id]).map_err(other_err)?;

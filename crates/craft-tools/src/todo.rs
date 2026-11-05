@@ -1,4 +1,7 @@
 //! todo_write 内置工具（任务清单，纯展示输出）。
+//!
+//! 只把清单渲染为带状态符号的文本，不落库、不持久化——任务进度由事件流呈现给用户，
+//! 模型通过再次调用本工具更新清单。
 
 use serde_json::{json, Value};
 
@@ -6,6 +9,7 @@ use craft_policy::PolicyRisk;
 
 use crate::registry::{Tool, ToolCtx, ToolResult, ToolSpec};
 
+/// 更新任务清单（R0，Work 模式可用）。
 pub struct TodoWrite;
 
 impl Tool for TodoWrite {
@@ -20,11 +24,12 @@ impl Tool for TodoWrite {
         }
         let lines: Vec<String> = items
             .iter()
-            .take(50)
+            .take(50) // 条数上限，防超长清单刷屏
             .map(|raw| {
                 let text = raw.get("text").and_then(Value::as_str).unwrap_or_default();
-                let text: String = text.chars().take(200).collect();
+                let text: String = text.chars().take(200).collect(); // 单条文本截断（按字符，不切坏多字节）
                 let status = raw.get("status").and_then(Value::as_str).unwrap_or("pending");
+                // 未知状态回退 pending（○）
                 let mark = match status {
                     "active" => "◐",
                     "done" => "●",

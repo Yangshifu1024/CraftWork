@@ -14,6 +14,8 @@ import { useApp, effectiveModelRef, effectiveReasoningLevel } from "../store/app
 import { useOverlays } from "../store/overlays";
 import type { ProviderView } from "../../../shared/types";
 
+/** 模型选择浮层（受控）：open/onOpenChange 由调用方接 overlays store 的 picker 排他态（与审批档位互斥），
+ *  trigger 为锚定元素（composer 的模型 chip）；目录与选中逻辑见文件头说明。 */
 export function ModelPicker({
   open,
   onOpenChange,

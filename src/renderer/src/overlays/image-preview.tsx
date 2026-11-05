@@ -4,12 +4,14 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { useOverlays } from "../store/overlays";
 
+/** 图片放大预览浮层：全屏遮罩 + 居中原图 + 文件名；由消息流附件缩略图点击打开。 */
 export function ImagePreview(): React.JSX.Element | null {
   const preview = useOverlays((s) => s.imagePreview);
   const close = useOverlays((s) => s.closeImagePreview);
 
   useEffect(() => {
     if (!preview) return;
+    // 捕获阶段拦截 Esc 并阻断传播：这一次按键只关预览，不再落入全局 Esc 退出链把底层浮层一并退掉
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape" && !e.isComposing) {
         e.stopPropagation();

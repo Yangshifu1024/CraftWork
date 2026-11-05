@@ -57,6 +57,7 @@ pub struct Batch {
 
 // ---------- 会话与工作区 ----------
 
+/// 会话对外视图（列表与详情共用；用量推导见 craft-store::view）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadView {
@@ -81,6 +82,7 @@ pub struct ThreadView {
     pub updated_at: i64,
 }
 
+/// 工作区下的一个源文件夹（首条约定为主目录）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceFolder {
@@ -89,6 +91,7 @@ pub struct WorkspaceFolder {
     pub position: i64,
 }
 
+/// 工作区对外视图（含按打开序排列的文件夹列表）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceView {
@@ -108,6 +111,7 @@ pub struct WorkspaceView {
 /// 部件 kind（text/reasoning/tool/approval/todo/error/notice/draft/callout）。
 pub type PartKind = String;
 
+/// 消息内单个部件的快照形态；payload 为该部件 kind 的原始 JSON。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartSnapshot {
     pub id: String,
@@ -116,6 +120,7 @@ pub struct PartSnapshot {
     pub payload: Value,
 }
 
+/// 快照重建出的一条消息：部件有序，seq 为最后部件的事件序（翻页与排序游标）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageSnapshot {
@@ -161,12 +166,14 @@ pub struct ApprovalCard {
     pub scope: Option<String>,
 }
 
+/// 审批卡片上的一条事实项（label/value 成对展示）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalFact {
     pub label: String,
     pub value: String,
 }
 
+/// 会话快照：渲染层装载会话的完整载荷（消息列表 + 待决定审批 + 翻页游标）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -180,6 +187,7 @@ pub struct Snapshot {
 
 // ---------- 设置 ----------
 
+/// 应用设置（settings 表 `app` 键的 JSON 形态）；字段即时生效由壳层保证。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -208,6 +216,7 @@ pub struct Settings {
 
 // ---------- 审计 / 用量 / 备份 ----------
 
+/// audit_log 一行：一次审批决定或工具执行的审计记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditEntry {
@@ -222,6 +231,7 @@ pub struct AuditEntry {
     pub detail: String,
 }
 
+/// 一段时间窗的 token 与费用合计（cost_micros 为微元，避免浮点累加误差）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenTotals {
@@ -248,6 +258,7 @@ pub struct UsageByDay {
     pub cost_micros: i64,
 }
 
+/// 用量汇总视图（今天/近7天/近30天/按模型/按天，窗口口径见 usage_summary）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSummary {
@@ -258,6 +269,7 @@ pub struct UsageSummary {
     pub by_day: Vec<UsageByDay>,
 }
 
+/// backups 一行：一次写前备份的登记（hash 为原文件 SHA-256，外部修改检测用）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Backup {
@@ -280,12 +292,14 @@ pub struct DiffLine {
     pub text: String,
 }
 
+/// 一个差异块：unified 风格 header（@@ -a,b +c,d @@）+ 有序行。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiffHunk {
     pub header: String,
     pub lines: Vec<DiffLine>,
 }
 
+/// 行级差异结果；truncated 为真时 hunks 只含一条占位块，仅有统计意义。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffResult {
@@ -297,6 +311,7 @@ pub struct DiffResult {
 
 // ---------- 应用信息 ----------
 
+/// 关于页展示的应用基本信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {

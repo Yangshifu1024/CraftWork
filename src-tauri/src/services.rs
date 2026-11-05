@@ -1,5 +1,7 @@
 //! 服务层：统一 invoke 分发（与 Electron 版 ipc.ts + services/* 等价）。
 //! 只做参数校验、编排与错误转换；领域逻辑全部在 crates/craft-*。
+//! 各服务函数由 lib.rs 的 dispatch 按方法名接线（签名对应 channels.ts 声明）；
+//! Err 为可读中文字符串，经 invoke 拒绝直达渲染层 toast。
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -23,8 +25,11 @@ use craft_store::threads;
 use craft_store::workspaces;
 use craft_tools::registry::Registry;
 
+/// 应用名与版本（getInfo 返回值）。注意版本与 `src-tauri/tauri.conf.json` 双源维护：
+/// 发布产物版本以 tauri.conf.json 为事实源，发版时两处需同步修改。
 pub const APP_NAME: &str = "CraftWork";
 pub const APP_VERSION: &str = "0.1.0";
+/// 用户提供商在 settings 中的存储键
 const CUSTOM_PROVIDERS_KEY: &str = "model.custom_providers";
 
 /// 全部共享服务（tauri State 管理）。
@@ -73,6 +78,7 @@ impl<'a> Args<'a> {
     }
 }
 
+/// 服务返回值：Ok 为 JSON 载荷，Err 为可读中文错误（渲染层 toast 直接展示）。
 pub type SvcResult = Result<Value, String>;
 
 fn err<T>(msg: impl Into<String>) -> Result<T, String> {
@@ -94,6 +100,7 @@ pub fn get_info(state: &AppState) -> SvcResult {
 
 // ---------- 设置 ----------
 
+/// 默认设置：无持久化设置或反序列化失败时的整体兜底（不做字段级部分合并）。
 pub fn default_settings() -> Settings {
     Settings {
         theme: "system".into(),
@@ -126,6 +133,7 @@ pub fn settings_get(state: &AppState) -> SvcResult {
     serde_json::to_value(merged).map_err(|e| e.to_string())
 }
 
+/// 保存设置：白名单字段逐项校验合并（越界值回落默认），返回合并后的完整设置。
 pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     // 白名单字段校验合并（services/settings.ts 校验规则直译）
     let mut merged: Settings = serde_json::from_value(settings_get(state)?).unwrap_or_else(|_| default_settings());
@@ -259,11 +267,15 @@ pub fn thread_set_archived(state: &AppState, id: &str, archived: bool) -> SvcRes
     Ok(json!(null))
 }
 
+/// 彻底删除会话：事务内物理移除事件、审批、运行与线程行，不可恢复。
+/// 当前对运行中/等待审批的会话无删除守卫（GLOSSARY 已知限制）。
 pub fn thread_delete(state: &AppState, id: &str) -> SvcResult {
     threads::delete_thread(&state.db, id).map_err(|e| e.to_string())?;
     Ok(json!(null))
 }
 
+/// 会话快照：读事件按 message_id 归组重建消息流（时间线装载的唯一入口）。
+/// limit=0 不限条数；before_seq>0 只保留 seq 小于游标的事件（向上翻页）。
 pub fn thread_snapshot(state: &AppState, id: &str, limit: i64, before_seq: i64) -> SvcResult {
     let snap = craft_store::events::snapshot(&state.db.lock_conn(), id, limit.max(0) as usize, before_seq)
         .map_err(|e| e.to_string())?;
@@ -432,6 +444,7 @@ pub fn workspace_remove(state: &AppState, id: &str) -> SvcResult {
     Ok(json!({ "removedThreads": count }))
 }
 
+/// 列工作区目录：相对路径经路径安全解析（越界报错）；目录优先、名称升序，最多 500 项。
 pub fn workspace_list_dir(state: &AppState, workspace_id: &str, _folder_id: &str, rel: &str) -> SvcResult {
     let roots = workspace_roots(state, workspace_id)?;
     let resolved = resolve_existing(&roots, rel).map_err(|_| "路径超出工作区".to_string())?;
@@ -462,6 +475,8 @@ pub fn workspace_list_dir(state: &AppState, workspace_id: &str, _folder_id: &str
     Ok(json!(nodes))
 }
 
+/// 读工作区文件：超 8MB 拒绝；二进制内容不返回文本（binary 标记）；超过 MAX_READ_BYTES
+/// 截断（truncated 标记）；hash 为全文 SHA-256，保存时作 expectedHash 乐观锁比对。
 pub fn workspace_read_file(state: &AppState, workspace_id: &str, folder_id: &str, rel: &str) -> SvcResult {
     let roots = workspace_roots(state, workspace_id)?;
     let resolved = resolve_existing(&roots, rel).map_err(|_| "路径超出工作区".to_string())?;
@@ -524,6 +539,8 @@ pub fn workspace_write_file(state: &AppState, workspace_id: &str, folder_id: &st
     Ok(json!(null))
 }
 
+/// 文档预览（docx/xlsx/pdf 文本层）：格式不支持返回 supported=false；解析失败仍返回
+/// supported=true、错误信息进 note（界面展示「为何打不开」而非空白）。
 pub fn document_preview(state: &AppState, workspace_id: &str, folder_id: &str, rel: &str) -> SvcResult {
     let _ = folder_id;
     let roots = workspace_roots(state, workspace_id)?;
@@ -558,6 +575,7 @@ pub fn workspace_compute_diff(_state: &AppState, old_text: &str, new_text: &str)
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
+/// 各项目工作区的 git status 摘要：仅 purpose=project；单工作区 5s 超时，失败返回空串。
 pub fn workspace_git_statuses(state: &AppState) -> SvcResult {
     let list = workspaces::list_workspaces(&state.db.lock_conn()).map_err(|e| e.to_string())?;
     let mut statuses = serde_json::Map::new();
@@ -842,6 +860,7 @@ pub fn provider_set_enabled(state: &AppState, id: &str, enabled: bool) -> SvcRes
     provider_list(state)
 }
 
+/// 保存提供商密钥：只写 SecretStore（keys.json，0600），不进设置、数据库、日志与渲染层。
 pub fn provider_set_key(state: &AppState, id: &str, key: &str) -> SvcResult {
     state.secrets.set(id, key);
     Ok(json!(null))
@@ -948,6 +967,8 @@ pub fn catalog_models(state: &AppState, provider_id: &str) -> SvcResult {
     Ok(json!(views))
 }
 
+/// 从内置模型目录导入：all 或按 modelIds 选中，经目录归一后合并进已存提供商
+/// （按模型 ID 去重，保留已有启用状态），不覆盖端点与密钥配置。
 pub fn catalog_import(state: &AppState, provider_id: &str, all: bool, model_ids: &[Value]) -> SvcResult {
     let Some(p) = state.catalog.builtin_provider(provider_id) else {
         return err("目录提供商不存在");
@@ -1014,6 +1035,8 @@ pub fn audit_backups(state: &AppState, limit: i64) -> SvcResult {
     serde_json::to_value(backups).map_err(|e| e.to_string())
 }
 
+/// 粘贴附件落盘：文件名只保留字母数字与 .-_（剥离路径分隔符等危险字符），再加 att_ ID
+/// 前缀保证唯一；返回服务端文件名，后续经 readAttachment 取回。
 pub fn save_pasted_attachment(state: &AppState, name: &str, base64_data: &str) -> SvcResult {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
@@ -1027,6 +1050,7 @@ pub fn save_pasted_attachment(state: &AppState, name: &str, base64_data: &str) -
     Ok(json!(file_name))
 }
 
+/// 读附件：返回 base64 内容与按扩展名推断的 mime（未识别扩展名回落 octet-stream）。
 pub fn read_attachment(state: &AppState, name: &str) -> SvcResult {
     let path = Path::new(&state.attachment_dir).join(name);
     let bytes = std::fs::read(&path).map_err(|e| format!("附件读取失败：{e}"))?;
@@ -1248,6 +1272,7 @@ pub fn provider_warnings(state: &AppState) -> SvcResult {
 
 // ---------- 审计恢复 ----------
 
+/// 从备份恢复文件：恢复前先把当前内容再备份一次（可回退），随后原子写回原路径。
 pub fn audit_restore(state: &AppState, backup_id: &str) -> SvcResult {
     let backup = craft_store::records::get_backup(&state.db.lock_conn(), backup_id).map_err(|e| e.to_string())?;
     let current = std::fs::read(&backup.path);
@@ -1263,6 +1288,7 @@ pub fn audit_restore(state: &AppState, backup_id: &str) -> SvcResult {
 }
 
 impl AppState {
+    /// 构造写前备份用的 ToolEnv（备份目录 + DB），审计恢复与工具执行共用同一备份链路。
     pub fn registry_backup_env(&self) -> craft_tools::ToolEnv {
         craft_tools::ToolEnv { backup_dir: self.backup_dir.clone(), db: Arc::clone(&self.db) }
     }

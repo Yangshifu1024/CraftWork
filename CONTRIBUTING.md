@@ -2,7 +2,7 @@
 
 感谢你愿意改进 CraftWork。本文件说明如何准备环境、修改代码、运行检查并提交改动。
 
-写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、审批、安全、界面与数据的硬性约束，以及 Agent skills 协作约定（issue tracker / triage 标签 / 领域文档）。行为规格按特性存放在 `docs/<feature>/spec.md`（配 `issues/` 本地票据），决策背景与取舍见 [docs/adr/](docs/adr/)，术语以仓库根 [GLOSSARY.md](GLOSSARY.md) 为准。
+写代码之前请先阅读 [AGENTS.md](AGENTS.md)：它列出了仓库分层、审批、安全、界面与数据的硬性约束，以及 Agent skills 协作约定（issue tracker / triage 标签 / 领域文档）。行为规格按特性存放在 `docs/<feature>/spec.md`（配 `issues/` 本地票据），架构与决策背景见 [docs/arch.md](docs/arch.md)，术语以仓库根 [GLOSSARY.md](GLOSSARY.md) 为准。
 
 ## 环境准备
 
@@ -112,7 +112,7 @@ PR 描述至少包含：
 | 改动 | 需要同步 |
 | --- | --- |
 | 行为规格（所属特性的行为变化） | 对应 `docs/<feature>/spec.md`（及其 issues 进展） |
-| 推翻或新增架构与选型决策 | `docs/adr/` 新增编号并标注被取代的旧 ADR |
+| 推翻或新增架构与选型决策 | `docs/arch.md` 的架构章节与决策摘要同步更新 |
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 协作约定（issue tracker / triage 标签 / 领域文档） | `docs/agents/` 对应文件 |
 | 使用方式、功能、架构、贡献流程 | `README.md`、本文件 |

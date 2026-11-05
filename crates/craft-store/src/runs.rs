@@ -1,4 +1,7 @@
 //! runs + approvals 表读写。
+//! runs 记录一次 Agent 运行循环的生命周期（running → done/error/canceled/interrupted），
+//! 创建时即分配 message_id 作为快照中占位回复消息的锚点；
+//! approvals 记录审批请求与决定，决定列非空即终态。
 
 use rusqlite::Connection;
 
@@ -38,6 +41,8 @@ fn to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
     })
 }
 
+/// 创建 running 状态的 run：新分配 message_id（快照占位回复消息的锚点），
+/// trigger_seq（触发消息事件 seq）透传落库供 V8 定序。
 pub fn create_run(
     conn: &Connection,
     thread_id: &str,
@@ -74,6 +79,7 @@ pub fn get_run(conn: &Connection, id: &str) -> StoreResult<RunRow> {
         })
 }
 
+/// 结束 run：落 finished_at 与终态；code/message 为空串时存 NULL。
 pub fn finish_run(conn: &Connection, id: &str, status: &str, code: &str, message: &str) -> StoreResult<()> {
     conn.execute(
         "UPDATE runs SET status = ?1, finished_at = ?2, error_code = ?3, error_message = ?4 WHERE id = ?5",
@@ -208,6 +214,7 @@ fn find_approval_event(conn: &rusqlite::Connection, thread_id: &str, approval_id
 
 // ---------- 审批 ----------
 
+/// approvals 一行；decision/scope 为 None 表示等待决定。
 #[derive(Debug, Clone)]
 pub struct ApprovalRow {
     pub id: String,
@@ -221,6 +228,7 @@ pub struct ApprovalRow {
     pub requested_at: i64,
 }
 
+/// 创建审批的入参（risk 为 R0~R4 风险等级字符串）。
 pub struct NewApproval<'a> {
     pub thread_id: &'a str,
     pub run_id: &'a str,
@@ -229,6 +237,7 @@ pub struct NewApproval<'a> {
     pub risk: &'a str,
 }
 
+/// 登记一次审批请求（decision/scope 留空等待决定）。
 pub fn create_approval(conn: &Connection, input: NewApproval<'_>) -> StoreResult<ApprovalRow> {
     let id = new_id(id_prefix::APPROVAL);
     conn.execute(
@@ -283,6 +292,7 @@ pub fn get_approval(conn: &Connection, id: &str) -> StoreResult<ApprovalRow> {
     })
 }
 
+/// 取消会话下全部待决定审批（run 取消/用户中断时调用；已决定的行不受影响）。
 pub fn cancel_thread_approvals(conn: &Connection, thread_id: &str) -> StoreResult<()> {
     conn.execute(
         "UPDATE approvals SET decision = 'canceled', decided_at = ?1 WHERE thread_id = ?2 AND decision IS NULL",

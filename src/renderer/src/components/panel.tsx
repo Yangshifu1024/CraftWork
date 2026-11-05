@@ -1,4 +1,5 @@
-// 右侧面板：文件树 / 文档预览 两个视图。
+// 右侧面板：文件树 / 文档预览 两个视图（radix Tabs，非活动视图卸载）。
+// 收起时退化为窄图标列，点击图标展开对应视图；文件树按工作区浏览，文件点击做文本级预览。
 import { useEffect, useState } from "react";
 import { Tabs } from "radix-ui";
 import { FolderOpen, FileText } from "lucide-react";
@@ -19,6 +20,7 @@ function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads
   return (found ?? workspaces.find((w) => w.purpose === "conversation"))?.id ?? "";
 }
 
+/** 右侧面板：收起时是窄图标列，展开后按 Tabs 切换文件树 / 文档预览视图。 */
 export function SidePane(): React.JSX.Element {
   const [tab, setTab] = useState<PanelTab>("files");
   const [open, setOpen] = useState(false);
@@ -87,6 +89,7 @@ function PaneButton({ label, active, onClick, children }: { label: string; activ
 
 // ---------- 文件树 ----------
 
+/** 文件树视图：顶部工作区下拉（默认跟随当前归属，手动选择后尊重手动值）+ 懒加载目录树。 */
 function FilesView(): React.JSX.Element {
   const workspaces = useApp((s) => s.workspaces);
   const mode = useApp((s) => s.mode);
@@ -120,6 +123,7 @@ function FilesView(): React.JSX.Element {
   );
 }
 
+/** 目录节点：懒加载——首次展开（nodes === null）才请求子项；根节点默认展开。 */
 function DirNode({ workspaceId, folderId, rel, depth, name }: { workspaceId: string; folderId: string; rel: string; depth: number; name: string }): React.JSX.Element {
   const [open, setOpen] = useState(depth === 0);
   const [nodes, setNodes] = useState<FileNode[] | null>(null);
@@ -152,6 +156,7 @@ function DirNode({ workspaceId, folderId, rel, depth, name }: { workspaceId: str
   );
 }
 
+/** 文件叶子：点击做文本级预览（docx / xlsx / pdf 提取文本层），再次点击收起。 */
 function FileLeaf({ workspaceId, folderId, node, depth }: { workspaceId: string; folderId: string; node: FileNode; depth: number }): React.JSX.Element {
   const [preview, setPreview] = useState<string | null>(null);
   const pushToast = useToasts((s) => s.push);
@@ -184,6 +189,7 @@ function FileLeaf({ workspaceId, folderId, node, depth }: { workspaceId: string;
 
 // ---------- 文档预览 ----------
 
+/** 文档预览视图：当前为静态引导文案（预览入口在文件树，此处留作后续扩展）。 */
 function DocView(): React.JSX.Element {
   const [text, setText] = useState("在文件树中点击文件可预览；docx / xlsx / pdf 提取文本层。");
   return (

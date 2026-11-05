@@ -6,12 +6,14 @@ use crate::xml::{xml_escape, xml_unescape};
 use crate::zipio;
 use crate::{DocEdit, DocResult, MAX_TEXT_BYTES};
 
+/// 工作表：名称与其 sheet XML 在 zip 内的路径。
 #[derive(Debug, Clone)]
 struct XlsxSheet {
     name: String,
     path: String,
 }
 
+/// 列字母 → 序号（A=1、Z=26、AA=27，26 进制）。
 fn col_to_number(col: &str) -> i64 {
     let mut n: i64 = 0;
     for ch in col.chars() {
@@ -20,6 +22,7 @@ fn col_to_number(col: &str) -> i64 {
     n
 }
 
+/// 序号 → 列字母（与 col_to_number 互逆）。
 fn number_to_col(n: i64) -> String {
     let mut s = String::new();
     let mut n = n;
@@ -31,12 +34,16 @@ fn number_to_col(n: i64) -> String {
     s
 }
 
+/// 一次加载的解析产物：zip 条目、共享字符串表与工作表清单。
 struct Loaded {
     entries: std::collections::HashMap<String, Vec<u8>>,
     shared: Vec<String>,
     sheets: Vec<XlsxSheet>,
 }
 
+/// 解析 workbook.xml、rels 与 sharedStrings：
+/// 共享字符串把 <si> 内多个 <t> 片段拼接为完整字符串；
+/// 工作表经「sheet 名 → r:id → rels Target」映射到 zip 内的 sheet XML 路径。
 fn load(raw: &[u8]) -> Result<Loaded, String> {
     let entries = zipio::load_entries(raw)?;
     let workbook = entries
@@ -66,7 +73,7 @@ fn load(raw: &[u8]) -> Result<Loaded, String> {
                     continue;
                 }
                 if !tag.starts_with("<t>") && !tag.contains("xml:space") && !tag.ends_with("<t") {
-                    // 仅匹配 <t...> 开标签
+                    // 空分支：无任何过滤效果（历史遗留，见问题清单）
                 }
                 let Some(close_rel) = rest[tag_end..].find("</t>") else { break };
                 let close = tag_end + close_rel;
@@ -116,7 +123,8 @@ fn extract_blocks(xml: &str, open: &str, close: &str) -> Vec<String> {
     blocks
 }
 
-/// 轻量属性提取（替代 TS 的正则）：扫描自闭合/开标签的 key="value" 对。
+/// 轻量属性提取（替代 TS 的正则）：扫描自闭合/开标签的 key="value" 对，
+/// 返回每个命中的 `tag_prefix` 标签的属性表。
 fn regex_like_attrs(xml: &str, tag_prefix: &str) -> Vec<std::collections::HashMap<String, String>> {
     let mut results = Vec::new();
     let bytes = xml.as_bytes();
@@ -153,6 +161,8 @@ fn find_from(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .map(|p| p + from)
 }
 
+/// 读取工作簿：每个工作表输出「工作表：<名>」标题行，
+/// 数据行格式为 `<列字母><行号>: <值>`、单元格间 tab 分隔；公式以 `=` 原文展示（不计算）。
 pub fn read(raw: &[u8]) -> Result<DocResult, String> {
     let loaded = load(raw)?;
     if loaded.sheets.is_empty() {
@@ -176,13 +186,16 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
                     .unwrap_or((cells.len() + 1) as i64);
                 let cell_type = attrs.get("t").cloned().unwrap_or_default();
                 let text = if let Some(formula) = extract_inner_tag(&inner, "<f", "</f>") {
+                    // 公式：保留原文（本模块不计算公式）
                     format!("={}", xml_unescape(&formula))
                 } else if cell_type == "s" {
+                    // t="s"：共享字符串索引
                     extract_inner_tag(&inner, "<v", "</v>")
                         .and_then(|v| v.trim().parse::<usize>().ok())
                         .map(|idx| loaded.shared.get(idx).cloned().unwrap_or_default())
                         .unwrap_or_default()
                 } else if cell_type == "inlineStr" {
+                    // 内联字符串：拼接全部 <t> 文本
                     let mut texts = Vec::new();
                     let mut rest = inner.as_str();
                     while let Some(start) = rest.find("<t") {
@@ -198,6 +211,7 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
                     }
                     texts.join("")
                 } else if cell_type == "b" {
+                    // 布尔单元格：1 → TRUE，其余 FALSE
                     let v = extract_inner_tag(&inner, "<v", "</v>").unwrap_or_default();
                     if v.trim() == "1" { "TRUE".into() } else { "FALSE".into() }
                 } else if let Some(v) = extract_inner_tag(&inner, "<v", "</v>") {
@@ -290,6 +304,7 @@ fn cells_of(row_body: &str) -> Vec<(std::collections::HashMap<String, String>, S
     cells
 }
 
+/// 解析标签文本中的 key="value" 属性对（与 regex_like_attrs 同一套手写解析）。
 fn parse_attrs(tag_text: &str) -> std::collections::HashMap<String, String> {
     let mut attrs = std::collections::HashMap::new();
     let mut rest = tag_text;
@@ -306,6 +321,7 @@ fn parse_attrs(tag_text: &str) -> std::collections::HashMap<String, String> {
     attrs
 }
 
+/// 取 `<open ...>...</close>` 的内部文本；自闭合标签返回空串。
 fn extract_inner_tag(inner: &str, open: &str, close: &str) -> Option<String> {
     let start = inner.find(open)?;
     let tag_end = inner[start..].find('>').map(|p| start + p)?;
@@ -331,6 +347,7 @@ fn build_cell_xml(value: &str) -> String {
     format!("<is><t xml:space=\"preserve\">{}</t></is>", xml_escape(value))
 }
 
+/// 是否按数字写入 `<v>`：可选负号 + 整数/小数；不支持正号与科学计数法（"+1"、"1e5" 按文本写）。
 fn is_plain_number(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -355,10 +372,12 @@ fn is_plain_number(s: &str) -> bool {
         return false;
     }
 
-    // 科学计数
     true
 }
 
+/// 更新单元格：解析工作表（名称或从 1 序号）与单元格引用后写入，
+/// 三种落点——原位替换已有 <c>、行内按列序插入、新建行按行号插入 sheetData；
+/// 清空值写成自闭合 <c/>。重写 zip 写回，写前备份由调用方负责。
 pub fn replace(path: &str, edit: &DocEdit) -> Result<(), String> {
     if edit.kind != "cell" {
         return Err("xlsx 只支持单元格更新".into());

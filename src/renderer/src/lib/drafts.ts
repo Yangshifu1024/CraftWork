@@ -52,6 +52,6 @@ export function saveDrafts(drafts: DraftTable): void {
   try {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
   } catch {
-    // 忽略写入失败
+    // 存储不可用（配额满/隐私模式）：草稿持久化是尽力而为，放弃本次写入
   }
 }

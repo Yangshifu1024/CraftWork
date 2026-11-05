@@ -114,7 +114,7 @@ CraftWork 是一个完全本地运行的桌面 Agent。它在你的工作区里�
 - **审批必须显式决定**：请求 → 卡片 → 用户决定 → 执行/跳过；决定一经写入不可更改，拒绝一律只授权一次。
 - **深浅两套主题**：语义色 token 经 Tailwind v4 `@theme inline` 映射，跟随系统或手动切换即时生效。
 
-更完整的开发细节见 [AGENTS.md](AGENTS.md)，各特性的行为规格在 `docs/<feature>/spec.md`，设计决策的背景与取舍见 [docs/adr/](docs/adr/)。
+更完整的开发细节见 [AGENTS.md](AGENTS.md)，架构与主业务流程见 [docs/arch.md](docs/arch.md)，行为规格与本地票据约定见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)。
 
 ## 快速开始
 
@@ -158,7 +158,7 @@ node scripts/modelsync.mjs --check  # 只检查是否与上游一致
 ### 开始之前
 
 1. 阅读 [AGENTS.md](AGENTS.md)：里面有命令、代码结构、审批 / 安全 / 界面约定，以及 Agent skills 协作约定（issue tracker、triage 标签、领域文档）。
-2. 涉及决策取舍时查 [docs/adr/](docs/adr/)；改动行为先看对应 `docs/<feature>/spec.md`。
+2. 涉及决策取舍时查 [docs/arch.md](docs/arch.md) 的决策摘要；改动行为先看对应行为 spec（按 `docs/<feature>/spec.md` 约定存放）。
 
 ### 流程
 
@@ -187,9 +187,8 @@ pnpm dist:dir      # 打包冒烟（.app 可启动）
 
 ## 文档
 
-- 行为规格：按特性存放在 `docs/<feature>/`（`spec.md` + `issues/` 本地票据），现有 draft-session、model-settings 等
-- [迁移对账](docs/migration-parity/spec.md)：历代形态迁移的设计对账、损坏/丢失清单与票据
-- [决策记录（ADR）](docs/adr/)：架构与选型决策的背景与取舍
+- [架构文档](docs/arch.md)：分层架构、主业务流程（含流程图 / 泳道图）、安全模型与决策摘要
+- 行为规格：按特性存放在 `docs/<feature>/`（`spec.md` + `issues/` 本地票据），约定见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)
 - [术语表](GLOSSARY.md)：仓库领域词汇基准
 - [Agent skills 约定](docs/agents/)：issue tracker（本地 markdown）、triage 标签与领域文档消费规则
 - [贡献指南](CONTRIBUTING.md)

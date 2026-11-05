@@ -23,7 +23,8 @@ export function isImageName(name: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg)$/i.test(name);
 }
 
-/** 按总量上限选取文件：超出后丢弃后续（整批语义由调用方提示）。 */
+/** 按总量上限选取文件：单个放不下的跳过（后续更小的仍可入选），空文件（size 0）同样跳过；
+ * 超限提示由调用方负责。 */
 export function selectPastedFiles(files: ArrayLike<File>, maxTotal = MAX_PASTE_TOTAL_BYTES): File[] {
   const out: File[] = [];
   let total = 0;

@@ -9,10 +9,15 @@ use craft_store::db::Db;
 use craft_store::events::{record_event, EventRecord};
 use craft_store::recorder::Recorder;
 
+/// 压缩触发阈值：历史估算 token 超过模型窗口的该比例时压缩。
 pub const COMPRESSION_THRESHOLD: f64 = 0.7;
+/// 压缩后保留的近期消息预算（占窗口比例）
 const KEEP_WINDOW_RATIO: f64 = 0.3;
+/// 保留窗最少消息数（避免压缩后几乎没有近期上下文）
 const MIN_KEEP_MESSAGES: usize = 4;
+/// 摘要生成的 max_tokens 上限
 const SUMMARY_MAX_TOKENS: i64 = 1024;
+/// 送入摘要模型的对话转写总字符上限（超出部分以省略标记截断）
 const MAX_TRANSCRIPT_CHARS: usize = 24000;
 
 fn summary_system_prompt() -> &'static str {
@@ -44,6 +49,7 @@ pub fn estimate_message_tokens(msg: &Message) -> usize {
     tokens.ceil() as usize
 }
 
+/// 整段历史的 token 估算求和。
 pub fn estimate_history_tokens(messages: &[Message]) -> usize {
     messages.iter().map(estimate_message_tokens).sum()
 }
@@ -143,20 +149,23 @@ fn transcript_of(messages: &[Message]) -> String {
     lines.join("\n\n")
 }
 
-/// 压缩历史：调会话模型生成摘要，落库 context_summary 与 context_compressed 事件 + notice 部件。
-/// 返回新历史（摘要 user 消息 + 保留的近期消息）；任何失败返回原历史。
-/// 同步执行（调用方放阻塞线程）；流消费内部起当前线程运行时。
+/// 压缩 sidecar 调用的参数包：目标库、事件出口、会话快照与模型信息。
 pub struct CompressionArgs<'a> {
     pub db: &'a Db,
     pub recorder: &'a Recorder,
+    /// 当前会话快照（context_summary 的 untilSeq 从中取值）
     pub snap: &'a Snapshot,
     pub thread_id: &'a str,
     pub run_id: &'a str,
     pub client: &'a dyn Client,
     pub model_id: &'a str,
+    /// 模型上下文窗口（K tokens）；0 表示窗口未知，跳过压缩
     pub context_k: i64,
 }
 
+/// 压缩历史：估算超阈值时调会话模型生成摘要，落库 context_summary 与
+/// context_compressed 事件 + notice 部件。返回新历史（摘要 user 消息 + 保留的近期消息）；
+/// 任何失败返回原历史。同步执行（调用方放阻塞线程）；流消费内部起当前线程运行时。
 #[allow(clippy::too_many_arguments)]
 pub fn run_compression_with(args: CompressionArgs<'_>, messages: Vec<Message>) -> Vec<Message> {
     let CompressionArgs { db, recorder, snap, thread_id, run_id, client, model_id, context_k } = args;

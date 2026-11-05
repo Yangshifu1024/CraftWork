@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::errors::ModelError;
 
+/// 单行长度上限：超过即截断保留尾部，防异常超长行撑爆内存。
 const MAX_SSE_LINE_BYTES: usize = 4 * 1024 * 1024;
 
 /// 按 SSE 帧拆行（容忍超长行截断；跨 chunk 缓冲拼接）。
@@ -104,6 +105,7 @@ struct ToolCallItem {
 }
 
 impl ToolCallBuilder {
+    /// 累积一个增量：id / name 取最后一个非空值，参数按到达顺序串接。
     pub fn add(&mut self, index: i64, id: &str, name: &str, args_delta: &str) {
         let item = self.items.entry(index).or_default();
         if !id.is_empty() {
@@ -137,9 +139,11 @@ impl ToolCallBuilder {
     }
 }
 
-/// 建立流（reqwest）：非 2xx 抛 ModelError；成功返回响应（字节流由调用方消费）。
+/// 建立流（reqwest）：非 2xx 读取错误体（截断 8192 字符）归一化为 ModelError；
+/// 成功返回响应，字节流由调用方消费。
 pub async fn open_sse(builder: reqwest::RequestBuilder, provider: &str) -> Result<reqwest::Response, ModelError> {
     let resp = builder
+        // reqwest 的整请求超时语义：从建连覆盖到响应体读完（超长流也会被掐断）
         .timeout(std::time::Duration::from_secs(600))
         .send()
         .await

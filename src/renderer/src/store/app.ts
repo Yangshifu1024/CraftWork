@@ -1,5 +1,6 @@
-// 全局状态：会话、消息、设置与界面偏好。
-// 事件驱动的会话状态转移都在这里完成（渲染层唯一状态壳）。
+// 渲染层唯一状态壳（zustand）：会话列表、消息流、草稿槽、设置与界面偏好。
+// 数据流 = 快照装载 + 事件流更新：切会话时经 threadSnapshot 装载消息，此后一切变化
+// 由 applyBatch 应用后端推送的事件批次（渲染层唯一事件入口）；系统操作全部经 lib/api（通道表）。
 import { create } from "zustand";
 import type { Batch, Envelope } from "../../../shared/events";
 import type {
@@ -15,6 +16,7 @@ import { applyTheme, saveThemePref, watchSystemTheme } from "../lib/theme";
 import { emptyDraftTable, loadDrafts, saveDrafts } from "../lib/drafts";
 import type { DraftTable } from "../lib/drafts";
 
+/** 工作模式：Code（开发者工作台）/ Work（文档处理工作台）。 */
 export type Mode = "code" | "work";
 
 /** 消息 + 部件的运行时可变视图（快照结构 + 流式增量）。 */
@@ -35,9 +37,12 @@ export interface DraftState {
 }
 
 interface AppState {
+  /** 启动装配完成（settings/threads/workspaces 已就绪）；false 时根组件显示启动态。 */
   booted: boolean;
   mode: Mode;
+  /** 各模式会话列表（仅元数据；消息内容走 chats）。 */
   threads: Record<Mode, ThreadView[]>;
+  /** 各模式活动会话 id；空串 = 该模式处于草稿态。 */
   activeThreadId: Record<Mode, string>;
   /** 草稿槽按归属分桶：key 为工作区 id，空串 "" 为内置临时会话槽；持久化经 lib/drafts。 */
   drafts: Record<Mode, Record<string, DraftState>>;
@@ -45,22 +50,28 @@ interface AppState {
   draftWsId: Record<Mode, string>;
   workspaces: WorkspaceView[];
   settings: Settings;
+  /** 已装载会话的运行时消息流（按需装载，不常驻全部历史）。 */
   chats: Record<string, ChatState>;
   sidebarVisible: boolean;
+  /** 已解析主题类（system 偏好下随系统亮暗变化更新）。 */
   themeResolved: "theme-zai-light" | "theme-zai-dark";
 
+  /** 启动装配：并行拉取设置/两模式会话/工作区，回放字号与主题，恢复各槽草稿并选中最近会话。 */
   boot(): Promise<void>;
   setMode(mode: Mode): void;
   refreshThreads(mode?: Mode): Promise<void>;
   refreshWorkspaces(): Promise<void>;
+  /** 选中会话：登记活动 id 并确保 chat 存在；本地无消息时拉快照（与在途事件流合并，见 mergeStreamedMessages）。 */
   selectThread(id: string): Promise<void>;
   /** 进入当前模式的草稿态：活动会话置空并切到 workspaceId 槽（缺省临时槽），不创建线程、不覆盖槽内容。 */
   newDraft(workspaceId?: string): void;
   /** 写当前草稿槽（按 mode + draftWsId 归属），并同步落本地存储。 */
   setDraft(mode: Mode, patch: Partial<DraftState>): void;
+  /** 删除会话（后端物理删除）；删的是活动会话时改选列表第一个，列表空则回草稿态。 */
   deleteThread(id: string): Promise<void>;
   renameThread(id: string, title: string): Promise<void>;
   applyBatch(batch: Batch): void;
+  /** 合并保存设置：以服务端返回的完整值为准覆盖本地。 */
   saveSettings(next: Partial<Settings>): Promise<void>;
   toggleSidebar(): void;
 }
@@ -87,6 +98,7 @@ export function effectiveReasoningLevel(state: AppState, mode: Mode): string {
   return draftSlot(state, mode)?.reasoningLevel || state.settings.reasoningLevel || "";
 }
 
+/** 全局状态壳 store：字段为可渲染状态，方法为动作；组件经 selector 订阅。 */
 export const useApp = create<AppState>((set, get) => ({
   booted: false,
   mode: "code",
@@ -252,6 +264,7 @@ export const useApp = create<AppState>((set, get) => ({
 type SetFn = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
 type GetFn = () => AppState;
 
+/** 在目标消息上创建或合并 part（payload 浅合并，保留既有字段）；消息不存在则新建占位。 */
 function upsertPart(
   chat: ChatState,
   messageId: string,
@@ -284,6 +297,8 @@ function findMessageIdForPart(chat: ChatState, partId: string): string | null {
   return null;
 }
 
+/** 单事件应用：消息类事件先定位目标消息（partId 反查 → 最近 streaming 消息 → 尾部兜底），
+ * 再创建/合并 part 并整体替换 chats；threadId 缺省回落当前活动会话，仍为空则丢弃（草稿态不积压事件）。 */
 function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
   // workspace.updated 与会话无关（threadId 为空）：草稿态（无活动会话）下也会到达，
   // 必须在 threadId 短路之前处理，否则删项目清槽事件会被丢弃。
@@ -394,6 +409,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const partId = String(data["partId"] ?? "");
       const messageId = findMessageIdForPart(chat, partId);
       if (!messageId) break;
+      // 决策事件只更新决策字段（status/decision/scope），保留原请求 payload（标题/风险/参数）供卡片继续展示
       const messages = upsertPart(chat, messageId, partId, "approval", {
         ...approvalPayloadOf(chat, partId),
         status: data["status"],

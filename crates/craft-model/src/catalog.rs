@@ -11,10 +11,12 @@ use craft_store::db::Db;
 use craft_store::records::get_setting;
 use crate::types::{Capabilities, Cost, ModelInfo, PersistedModel, PersistedProvider, DEFAULT_CAPS};
 
+/// settings 键：用户提供商数组（PersistedProvider JSON，可调用提供商的唯一事实源）。
 pub const CUSTOM_PROVIDERS_KEY: &str = "model.custom_providers";
 
 // ---------- 内置目录（models.dev 快照） ----------
 
+/// 内置目录中的模型条目（models.dev 快照原始形状，字段可缺省，经归一化后转持久化形状）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
@@ -66,6 +68,7 @@ pub fn normalize_reasoning(options: &[RawReasoningOption]) -> (String, Vec<Strin
     (String::new(), Vec::new())
 }
 
+/// 目录能力标记的稀疏形状：未声明字段回退 DEFAULT_CAPS。
 #[derive(Debug, Clone, Deserialize)]
 pub struct PartialCaps {
     #[serde(default)]
@@ -80,6 +83,7 @@ pub struct PartialCaps {
     pub structured: Option<bool>,
 }
 
+/// 目录价格原始形状（美元 / 百万 token，字段可缺省）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawCost {
     #[serde(default)]
@@ -92,6 +96,7 @@ pub struct RawCost {
     pub cache_write: Option<f64>,
 }
 
+/// 内置目录中的提供商条目：仅是「可添加候选」，未添加前不可调用。
 #[derive(Debug, Clone, Deserialize)]
 pub struct CatalogProvider {
     pub id: String,
@@ -110,6 +115,7 @@ pub struct CatalogProvider {
     pub models: Vec<CatalogModel>,
 }
 
+/// 目录快照顶层结构（schema 只认 1，见 load_dataset 的校验）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct CatalogDataset {
     pub schema: i64,
@@ -127,6 +133,9 @@ pub struct CatalogDataset {
 
 static BUILTIN: OnceLock<CatalogDataset> = OnceLock::new();
 
+/// 解压并解析内置快照（进程内单例，首次访问时加载）。
+/// 损坏 / schema 不支持 / 空目录直接 panic：快照是编译期产物，出错属构建缺陷，
+/// 宁可启动失败也不带病运行。
 fn load_dataset() -> CatalogDataset {
     static GZ: &[u8] = include_bytes!("../../../assets/catalog/catalog.json.gz");
     let mut decoder = flate2::read::GzDecoder::new(GZ);
@@ -145,12 +154,14 @@ fn load_dataset() -> CatalogDataset {
     data
 }
 
+/// 内置目录单例入口（只读候选列表）。
 pub fn builtin_catalog() -> &'static CatalogDataset {
     BUILTIN.get_or_init(load_dataset)
 }
 
 // ---------- 内置目录 → 持久化形状（从内置目录导入时） ----------
 
+/// 目录模型条目 → 持久化形状（用户从目录添加模型时调用，默认启用）。
 pub fn catalog_model_to_persisted(m: &CatalogModel, source: &str) -> PersistedModel {
     let (reasoning_kind, reasoning_levels) = normalize_reasoning(&m.reasoning_options);
     PersistedModel {
@@ -180,6 +191,7 @@ pub fn merge_caps_public(partial: Option<&PartialCaps>) -> Capabilities {
     merge_caps(partial)
 }
 
+/// 稀疏能力标记与缺省基线合并：未声明的字段取 DEFAULT_CAPS。
 fn merge_caps(partial: Option<&PartialCaps>) -> Capabilities {
     let mut caps = DEFAULT_CAPS;
     if let Some(p) = partial {
@@ -215,7 +227,7 @@ pub struct Catalog {
     custom: std::sync::Mutex<Vec<PersistedProvider>>,
 }
 
-/// Arc 版本：持久化提供商标记 serde 需要的字段已由 PersistedProvider 承担。
+/// 规范化引用：规范 `providerID/modelID` 与模型显示名（序列化给渲染层）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NormalizedRef {
@@ -249,16 +261,19 @@ impl Catalog {
         self.custom.lock().unwrap().clone()
     }
 
+    /// 按 ID 查用户提供商（快照内查找）。
     pub fn find_provider(&self, id: &str) -> Option<PersistedProvider> {
         self.custom.lock().unwrap().iter().find(|p| p.id == id).cloned()
     }
 
+    /// 按提供商 ID + 模型 ID 精确查找（模型引用解析的内层步骤）。
     pub fn find_model(&self, provider_id: &str, model_id: &str) -> Option<ModelInfo> {
         let p = self.find_provider(provider_id)?;
         let m = p.models.iter().find(|x| x.id == model_id)?;
         Some(to_model_info(&p, m))
     }
 
+    /// 按模型引用查找：取第一个斜杠切分（提供商 ID 不含斜杠而模型 ID 可含）。
     pub fn find_model_by_ref(&self, reference: &str) -> Option<ModelInfo> {
         let idx = reference.find('/')?;
         if idx == 0 {
@@ -295,6 +310,7 @@ impl Catalog {
 
     // ---------- 内置候选目录查询 ----------
 
+    /// 内置目录元信息：(生成时间, 版本, 提供商数, 模型数)。
     pub fn builtin_meta(&self) -> (String, String, usize, usize) {
         let data = builtin_catalog();
         let model_count: usize = data.providers.iter().map(|p| p.models.len()).sum();
@@ -306,14 +322,17 @@ impl Catalog {
         )
     }
 
+    /// 内置目录全部候选提供商（只读）。
     pub fn builtin_providers(&self) -> &[CatalogProvider] {
         &builtin_catalog().providers
     }
 
+    /// 按 ID 查内置候选提供商。
     pub fn builtin_provider(&self, id: &str) -> Option<&CatalogProvider> {
         builtin_catalog().providers.iter().find(|p| p.id == id)
     }
 
+    /// 按 ID / 名称子串过滤候选提供商（空查询返回全部；大小写不敏感）。
     pub fn search_builtin_providers(&self, query: &str) -> Vec<&CatalogProvider> {
         let q = query.trim().to_lowercase();
         let all = self.builtin_providers();
@@ -326,6 +345,7 @@ impl Catalog {
     }
 }
 
+/// 持久化形状 → 解析结果（附带提供商的密钥环境变量与是否必需密钥）。
 fn to_model_info(p: &PersistedProvider, m: &PersistedModel) -> ModelInfo {
     ModelInfo {
         id: m.id.clone(),
@@ -346,7 +366,7 @@ fn to_model_info(p: &PersistedProvider, m: &PersistedModel) -> ModelInfo {
     }
 }
 
-/// store/view 引用的规范化入口（Arc<Db> 版）。
+/// 引用规范化的自由函数入口（壳层 store / view 使用，内部走 Catalog::normalize）。
 pub fn normalize_model_ref(catalog: &Catalog, ref_or_id: &str) -> Option<NormalizedRef> {
     catalog.normalize(ref_or_id)
 }

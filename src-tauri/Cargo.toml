@@ -1,5 +1,5 @@
 # Tauri 应用壳：入口、窗口、托盘、IPC 接线、capabilities。唯一的 Tauri API 使用方；
-# 领域逻辑一律放在 crates/craft-* 中保持可独立测试（分层依据 docs/tauri-migration/plan.md §1.2）。
+# 领域逻辑一律放在 crates/craft-* 中保持可独立测试（分层依据见 docs/arch.md）。
 [package]
 name = "craftwork"
 version.workspace = true

@@ -20,10 +20,12 @@ pub struct Recorder {
 }
 
 impl Recorder {
+    /// 装配：db 与 bus 均以 Arc 共享，壳层与 Runner 持有同一实例。
     pub fn new(db: Arc<Db>, bus: Arc<Bus>) -> Self {
         Self { db, bus }
     }
 
+    /// 底层总线（纯广播场景直接使用）。
     pub fn bus(&self) -> &Arc<Bus> {
         &self.bus
     }

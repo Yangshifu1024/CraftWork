@@ -1,4 +1,4 @@
-//! OpenAI / OpenAI-compatible 适配器。
+//! OpenAI / OpenAI-compatible 协议适配器（两种协议共用同一请求体与解码路径）。
 //! 请求体拼接规则固定不增减空白——前缀缓存依赖字节稳定。
 
 use futures_core::stream::BoxStream;
@@ -9,6 +9,7 @@ use crate::errors::{missing_endpoint_error, stream_error, ModelError};
 use crate::sse::{open_sse, line_to_event, LineReader, SseEvent, ToolCallBuilder};
 use crate::types::{attachment_prompt_text, Chunk, Client, Message, Request, SystemBlock, ToolSpec, Usage};
 
+/// 端点 → chat/completions 完整地址（容忍端点尾部斜杠）。
 fn join_url(endpoint: &str) -> String {
     let trimmed = endpoint.trim_end_matches('/');
     format!("{trimmed}/chat/completions")
@@ -23,12 +24,15 @@ fn join_system(blocks: &[SystemBlock]) -> String {
         .join("\n\n")
 }
 
+/// 用户消息内容的两种协议形态：纯文本，或含图片时的多 parts（文本 + image_url）。
 #[derive(Debug, Clone, PartialEq)]
 enum ContentPart {
     Text(String),
     Parts(Vec<Value>),
 }
 
+/// 用户消息 → 协议内容：无图片时附件文本经防注入包装并入纯文本；
+/// 有图片时输出多 parts（文本块在前，图片按 base64 data URL 追加），跳过项忽略。
 fn user_content(msg: &Message) -> ContentPart {
     let has_images = msg.attachments.iter().any(|a| !a.data.is_empty() && a.skipped.is_empty());
     if !has_images {
@@ -69,6 +73,8 @@ fn user_content(msg: &Message) -> ContentPart {
     ContentPart::Parts(parts)
 }
 
+/// 拼装 OpenAI 协议请求体：system 合并为一条消息；max_tokens 为 0 / 无工具时省略对应字段
+/// （省略优于传零，兼容不认这些字段的网关）；思考档位注入规则见行内注释。
 pub fn build_openai_body(model_id: &str, req: &Request) -> Value {
     let mut messages: Vec<Value> = Vec::new();
     if !req.system.is_empty() {
@@ -134,6 +140,7 @@ pub fn build_openai_body(model_id: &str, req: &Request) -> Value {
     body
 }
 
+/// OpenAI 协议客户端（openai 与 openai-compatible 提供商共用）。
 #[derive(Clone)]
 pub struct OpenAICompatClient {
     http: reqwest::Client,
@@ -143,6 +150,7 @@ pub struct OpenAICompatClient {
 }
 
 impl OpenAICompatClient {
+    /// 创建客户端；api_key 为空时不发 Authorization 头（无密钥提供商）。
     pub fn new(endpoint: &str, api_key: &str, provider_name: &str) -> Self {
         Self {
             http: reqwest::Client::new(),
@@ -254,6 +262,7 @@ impl Client for OpenAICompatClient {
                 }
             }
 
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记
             for call in tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }
@@ -275,7 +284,7 @@ fn decode_openai_event(
     text_seen: &mut bool,
 ) -> Option<Result<Option<Chunk>, ModelError>> {
     let Ok(event) = serde_json::from_str::<Value>(payload) else {
-        return None; // 心跳/非标注释直接忽略
+        return None; // 非 JSON 载荷（心跳 / 注释行）直接忽略
     };
     if let Some(err) = event.get("error") {
         let message = err.get("message").and_then(Value::as_str).unwrap_or_default();

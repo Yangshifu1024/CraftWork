@@ -10,8 +10,9 @@ use crate::retry::RetryClient;
 use crate::types::{Client, ModelInfo};
 use crate::errors;
 
-/// 密钥来源（craft_core::secret::SecretStore 实现；测试用 stub）。
+/// 密钥来源抽象（生产为 craft_core::secret::SecretStore 适配，测试注入 stub）。
 pub trait KeyProvider: Send + Sync {
+    /// 读取提供商密钥：env_names 为目录带入的候选环境变量名；无密钥返回空串。
     fn get_for(&self, provider_id: &str, env_names: &[String]) -> String;
 }
 
@@ -27,8 +28,10 @@ impl KeyProvider for SecretKeyProvider {
     }
 }
 
+/// 失败转移候选的实时解析器（每次读设置，改设置免重启；未设置时无候选）。
 type FallbackResolver = Box<dyn Fn() -> String + Send>;
 
+/// 模型客户端工厂：目录解析 → 停用拦截 → 密钥校验 → 按协议构造客户端（统一包重试）。
 pub struct ModelFactory {
     pub catalog: Arc<Catalog>,
     keys: Box<dyn KeyProvider>,
@@ -36,6 +39,7 @@ pub struct ModelFactory {
 }
 
 impl ModelFactory {
+    /// 创建工厂（keys 通常为 SecretKeyProvider，测试可注入 stub）。
     pub fn new(catalog: Arc<Catalog>, keys: Box<dyn KeyProvider>) -> Self {
         Self {
             catalog,
@@ -64,6 +68,8 @@ impl ModelFactory {
         *self.fallback_resolver.lock().unwrap() = Some(f);
     }
 
+    /// 构造可调用客户端：解析引用 → 提供商/模型停用拦截 → 密钥校验 → 按协议构造并包重试。
+    /// 不存在、停用、缺密钥等配置问题在此返回可读 ModelError，不发起网络请求。
     pub fn client(&self, ref_or_id: &str) -> Result<Box<dyn Client>, ModelError> {
         let info = self
             .catalog
@@ -112,10 +118,12 @@ impl ModelFactory {
             // openai 与 openai-compatible 共用 OpenAI 协议适配器
             Box::new(OpenAICompatClient::new(&provider.endpoint, &key, &display_name))
         };
+        // 重试参数：3 次尝试、700ms 基础退避、5s 上限
         Ok(Box::new(RetryClient::new(inner, &display_name, 3, 700, 5000)))
     }
 
-    /// 备用模型引用：存在、与当前不同、可解析、未停用、需要密钥时密钥可得。
+    /// 失败转移候选：备用引用存在、与当前不同、可解析、未停用、需要密钥时密钥可得，
+    /// 才返回候选引用；任一条件不满足返回空串（空串 = 本次不转移）。
     pub fn fallback_model(&self, ref_or_id: &str) -> String {
         let candidate = {
             let guard = self.fallback_resolver.lock().unwrap();

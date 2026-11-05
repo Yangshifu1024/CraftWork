@@ -99,6 +99,7 @@ fn message_from_snapshot(
     out
 }
 
+/// 模型不支持视觉输入时，把图片附件（data 非空）标记为 skipped，避免发给不支持图片的模型。
 fn filter_attachments(attachments: Vec<Attachment>, caps: &Capabilities) -> Vec<Attachment> {
     attachments
         .into_iter()
@@ -114,6 +115,8 @@ fn filter_attachments(attachments: Vec<Attachment>, caps: &Capabilities) -> Vec<
         .collect()
 }
 
+/// 历史重建结果：messages 与 seqs 一一对应，seqs[i] 为 messages[i] 来源快照消息的
+/// 事件 seq（摘要占位消息为 0）。
 pub struct HistoryResult {
     pub messages: Vec<Message>,
     pub seqs: Vec<i64>,

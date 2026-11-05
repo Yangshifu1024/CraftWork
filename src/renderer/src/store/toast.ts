@@ -2,6 +2,7 @@
 // 超时 / 右滑 / 手动关闭统一走 dismiss 清数据。
 import { create } from "zustand";
 
+/** 单条 toast：tone 决定视图层配色（info/ok/warn/danger）。 */
 export interface ToastItem {
   id: number;
   tone: "info" | "ok" | "warn" | "danger";
@@ -12,7 +13,9 @@ export interface ToastItem {
 
 interface ToastState {
   items: ToastItem[];
+  /** 入队一条 toast；队列上限 3 条，超出挤掉最旧。 */
   push(tone: ToastItem["tone"], title: string, message?: string): void;
+  /** 按 id 移除；超时 / 右滑 / 手动关闭统一走这里。 */
   dismiss(id: number): void;
 }
 

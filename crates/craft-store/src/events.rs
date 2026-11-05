@@ -11,6 +11,7 @@ use crate::view::to_thread_view;
 use craft_core::contract::{ApprovalCard, ApprovalFact, MessageSnapshot, PartSnapshot, Snapshot, ThreadView};
 use craft_core::ids::{id_prefix, new_id};
 
+/// events 表一行的读取形态（payload 为 JSON 字符串，读取侧按需解析）。
 #[derive(Debug, Clone)]
 pub struct EventRow {
     pub id: String,
@@ -23,6 +24,7 @@ pub struct EventRow {
     pub created_at: i64,
 }
 
+/// 待写入的一条事件（写入入参；id/seq/created_at 由存储层分配）。
 #[derive(Debug, Clone)]
 pub struct EventRecord {
     pub thread_id: String,
@@ -32,6 +34,9 @@ pub struct EventRecord {
     pub payload: Value,
 }
 
+/// 在连接上追加一条事件：分配会话内单调 seq（MAX+1）→ 插入 → 顺带推进 threads.updated_at。
+/// 前提：调用方必须持锁并在事务内调用（seq 分配与插入同事务，否则并发下 seq 会错重）；
+/// 无事务的便捷入口用 record_event。返回 (事件 id, 分配的 seq)。
 pub fn append_event(conn: &Connection, rec: &EventRecord) -> StoreResult<(String, i64)> {
     let seq: i64 = conn
         .query_row(
@@ -65,6 +70,7 @@ pub fn record_event(db: &Db, rec: &EventRecord) -> StoreResult<(String, i64)> {
     db.transaction(|conn| append_event(conn, rec))
 }
 
+/// 全量读取会话事件（seq 升序）；快照重建与历史回放的基础查询。
 pub fn list_events(conn: &Connection, thread_id: &str) -> StoreResult<Vec<EventRow>> {
     let mut stmt = conn
         .prepare("SELECT * FROM events WHERE thread_id = ?1 ORDER BY seq ASC")
@@ -88,6 +94,7 @@ pub fn list_events(conn: &Connection, thread_id: &str) -> StoreResult<Vec<EventR
     Ok(rows)
 }
 
+/// 最近一次上下文压缩的摘要：返回 (summary, untilSeq)；无记录或摘要为空返回 None。
 pub fn latest_context_summary(conn: &Connection, thread_id: &str) -> StoreResult<Option<(String, i64)>> {
     let mut stmt = conn
         .prepare("SELECT payload, seq FROM events WHERE thread_id = ?1 AND kind = 'context_summary' ORDER BY seq DESC LIMIT 1")
@@ -111,6 +118,7 @@ pub fn latest_context_summary(conn: &Connection, thread_id: &str) -> StoreResult
 
 // ---------- 快照重建 ----------
 
+/// 快照重建跳过的事件 kind：run 生命周期与压缩元数据只服务内部逻辑，不产生可见部件。
 const SKIPPED_KINDS: [&str; 3] = ["run_started", "run_finished", "context_summary"];
 
 /// DB kind → 快照部件 kind（approval_resolved 不产生部件，回填用）。
@@ -160,6 +168,7 @@ fn list_runs(conn: &Connection, thread_id: &str) -> StoreResult<Vec<RunInfo>> {
     Ok(rows)
 }
 
+/// run 状态 → 消息状态映射（快照重建用）。
 fn run_message_status(run_status: &str) -> &'static str {
     match run_status {
         "running" => "streaming",
@@ -169,6 +178,8 @@ fn run_message_status(run_status: &str) -> &'static str {
     }
 }
 
+/// 快照的待决定审批：以 approvals 表（decision IS NULL）为准，而非事件流。
+/// 富文本字段（target/detail/facts/args）在表里没有列，重建时留空——卡片回显仅保证可操作。
 fn pending_approvals(conn: &Connection, thread_id: &str) -> StoreResult<Vec<ApprovalCard>> {
     let mut stmt = conn
         .prepare(

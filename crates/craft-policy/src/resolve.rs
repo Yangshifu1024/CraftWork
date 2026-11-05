@@ -1,9 +1,10 @@
-//! 路径安全解析。
-//! 核心不变量：词法校验拒绝 ../ 越界 + 真实路径（符号链接解析后）二次校验拒绝链接逃逸。
+//! 路径安全解析：所有路径校验在后端完成，不信任渲染层传来的路径。
+//! 核心不变量：词法校验拒绝 `..` 越界与 UNC 写法 + 真实路径（符号链接解析后）二次校验拒绝链接逃逸。
+//! 单根解析走 [`resolve_at`] / [`lexical_at`]；多根（主要目录 + 附加目录）走 [`resolve_any`] / [`resolve_existing`]。
 
 use std::path::{Component, Path, PathBuf, MAIN_SEPARATOR};
 
-/// 路径超出工作区及附加目录。
+/// 路径超出工作区及附加目录；词法越界与符号链接逃逸统一报此错。
 #[derive(Debug, Clone)]
 pub struct ErrOutsideWorkspace;
 
@@ -17,6 +18,8 @@ impl std::error::Error for ErrOutsideWorkspace {}
 
 pub type ResolveResult<T> = Result<T, ErrOutsideWorkspace>;
 
+/// 多根解析结果：`root_index` 命中的根下标、`root` 该根原文、`abs` 目标真实绝对路径、
+/// `rel` 展示用相对路径（目标即根时为 "."）。
 #[derive(Debug, Clone)]
 pub struct Resolved {
     pub root_index: usize,
@@ -47,6 +50,7 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// `std::fs::canonicalize` 的 Option 化封装：目标不存在或不可达时返回 None。
 fn eval_symlinks(path: &Path) -> Option<PathBuf> {
     std::fs::canonicalize(path).ok()
 }
@@ -112,8 +116,8 @@ pub fn resolve_at(lex_root: &str, rel: &str) -> ResolveResult<(String, String)> 
     Ok((real.to_string_lossy().to_string(), rel_out))
 }
 
-/// 词法校验拼接（不触盘）：新建文件（父目录缺失）场景由调用方负责建目录。
-/// 安全语义与 resolve_at 的词法段一致：绝对路径归一、UNC 拒绝、越界拒绝。
+/// 纯词法校验（不触盘，不解析符号链接）：绝对路径归一、拒绝 `//` 与 `\` 开头、越界拒绝。
+/// 供目标尚不存在、canonicalize 必然失败的预检场景（如新建文件前）；建目录由调用方负责。
 pub fn lexical_at(root: &str, rel: &str) -> ResolveResult<(String, String)> {
     let root_path = Path::new(root);
     let rel_path = Path::new(rel);

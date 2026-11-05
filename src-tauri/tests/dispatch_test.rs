@@ -1,4 +1,4 @@
-//! dispatch 接线全量对拍（migration-parity 票 09）：
+//! dispatch 接线全量对拍：
 //! 渲染层 channels.ts 声明的每个方法都必须在 craftwork_invoke 的 dispatch 有对应分支。
 //! 背景：documentPreview / catalogImport / workspaceAddProject 等断线正是「实现存在、
 //! 缺 dispatch 臂 / 参数形状错」且被现有测试盲区放过（services_test 直调函数绕过分发）。
@@ -7,9 +7,11 @@
 use std::path::Path;
 
 /// 声明存在但渲染层未接（死通道）白名单：登记去向，勿静默新增
-/// （去留决策见 docs/migration-parity/issues/16）。
+/// （死代码清理时决定去留或接线）。
 const UNWIRED_ALLOWLIST: [&str; 3] = ["catalogLookup", "workspaceSetActive", "workspaceLocateFile"];
 
+/// 对拍规则：channels.ts 声明的方法（两空格缩进签名解析）必须在 lib.rs 出现同名分支字符串；
+/// 白名单通道允许缺席，但一旦接线必须移出白名单（防清单失真）。
 #[test]
 fn channels_all_methods_have_dispatch_branches() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));

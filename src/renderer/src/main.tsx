@@ -1,4 +1,5 @@
-// 渲染层入口：主题类挂载（localStorage 缓存快速应用，boot 后以 settings 为准校准）+ 根组件。
+// 渲染层入口：安装桥（window.craftwork 调用面，先于任何 store 动作）→
+// 主题类快速应用（localStorage 缓存防闪烁；boot 后以 settings 为准校准）→ 挂载根组件。
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

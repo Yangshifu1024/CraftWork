@@ -1,6 +1,7 @@
-//! Anthropic 适配器。
-//! 关键点：三个 cache_control 断点（系统稳定块 / 系统动态块 / 历史最后一块）、
-//! 连续同角色合并、tool 结果以 user 身份回传。
+//! Anthropic 协议适配器。
+//! 关键点：三个 cache_control 断点（系统稳定块 / 系统动态块 / 历史最后一块，配合
+//! 系统提示词缓存层命中增量前缀）、连续同角色合并（协议要求 user/assistant 交替）、
+//! tool 结果以 user 身份回传、思考档位按 thinking 预算映射。
 
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
@@ -106,6 +107,8 @@ pub fn build_anthropic_messages(req: &Request) -> (Vec<Value>, Vec<Value>) {
     (system, messages)
 }
 
+/// 拼装 Anthropic 协议请求体：budget 型思考档位映射 thinking 预算并抬高 max_tokens；
+/// 工具 schema 为空对象时回退最小合法 schema；零 max_tokens 回退 4096。
 pub fn build_anthropic_body(model_id: &str, req: &Request) -> Value {
     let (system, messages) = build_anthropic_messages(req);
     let mut body = json!({
@@ -149,6 +152,7 @@ pub fn build_anthropic_body(model_id: &str, req: &Request) -> Value {
     body
 }
 
+/// Anthropic 协议客户端（密钥经 x-api-key 头发送，协议版本固定 2023-06-01）。
 #[derive(Clone)]
 pub struct AnthropicClient {
     http: reqwest::Client,
@@ -158,6 +162,7 @@ pub struct AnthropicClient {
 }
 
 impl AnthropicClient {
+    /// 创建客户端；endpoint 为 base 地址（含 /v1 前缀也可，拼接时自动去重）。
     pub fn new(endpoint: &str, api_key: &str, provider_name: &str) -> Self {
         Self {
             http: reqwest::Client::new(),
@@ -219,6 +224,8 @@ impl AnthropicStreamState {
                     if !id.is_empty() && !name.is_empty() {
                         let index = event.get("index").and_then(Value::as_i64).unwrap_or(0);
                         self.pending.insert(index, (id.clone(), name.clone()));
+                        // content_block_start 自带 input（部分模型直接给全量参数）：
+                        // 非空时序列化后作为参数首段并入聚合，后续增量接着拼
                         let input = block.and_then(|b| b.get("input")).cloned().unwrap_or(json!({}));
                         let raw = serde_json::to_string(&input).unwrap_or_default();
                         if raw != "{}" {
@@ -269,6 +276,7 @@ impl AnthropicStreamState {
                     if let Some(output) = u.get("output_tokens").and_then(Value::as_i64) {
                         self.usage.output_tokens = output;
                     }
+                    // message_delta 通常只带 output_tokens；input_tokens 为 0（缺失）时不覆盖
                     if let Some(input) = u.get("input_tokens").and_then(Value::as_i64).filter(|v| *v != 0) {
                         self.usage.input_tokens = input;
                     }
@@ -367,6 +375,7 @@ impl Client for AnthropicClient {
                 }
             }
 
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记
             for call in state.tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }

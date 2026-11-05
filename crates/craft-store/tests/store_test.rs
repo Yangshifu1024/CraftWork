@@ -51,6 +51,7 @@ fn user_message(thread_id: &str, message_id: &str, text: &str) -> EventRecord {
     }
 }
 
+/// 新库直迁当前版本，关闭重开后版本稳定（迁移幂等）。
 #[test]
 fn migrate_to_current_version_and_reopen() {
     let (dir, db) = tmp_db("migrate");
@@ -67,6 +68,7 @@ fn migrate_to_current_version_and_reopen() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// V7 迁移语义直验：重放迁移 SQL，只清「空 + 自动命名 + 新对话」的会话。
 #[test]
 fn v7_empty_thread_cleanup_semantics_delete_empty_auto_named_keep_thread_with_events_and_manual_rename() {
     let (dir, db) = tmp_db("v7");
@@ -134,6 +136,7 @@ fn auto_title_conditional_update_only_applies_to_auto_named_threads_and_flips_fl
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 同会话事件 seq 连续递增；快照按 messageId 分组重建出用户/助手两条消息。
 #[test]
 fn event_seq_monotonically_increasing_and_snapshot_rebuilds_messages() {
     let (dir, db) = tmp_db("events");
@@ -161,6 +164,7 @@ fn event_seq_monotonically_increasing_and_snapshot_rebuilds_messages() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 审批决定幂等保护：首个决定生效，重复决定返回 NotFound（WHERE decision IS NULL）。
 #[test]
 fn approval_concurrency_protection_and_repeated_decision_rejected() {
     let (dir, db) = tmp_db("approvals");
@@ -179,6 +183,7 @@ fn approval_concurrency_protection_and_repeated_decision_rejected() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 启动收尾主路径：遗留 running 的 run 标记 interrupted，会话拿到可重试的 error 部件。
 #[test]
 fn startup_finalization_marks_stale_runs_interrupted_and_writes_error_event() {
     let (dir, db) = tmp_db("stale");

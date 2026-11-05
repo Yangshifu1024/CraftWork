@@ -1,7 +1,9 @@
-// 任务清单卡片（todo 部件）。
+// 任务清单卡片（todo 部件）：对话流卡片体系的一员，由消息流的 WorkPart 分发渲染。
+// 只读展示：顶部完成进度条 + 分状态符号的条目列表，不承载任何操作。
 import { ListTodo } from "lucide-react";
 import type { TodoItem } from "../../../shared/events";
 
+/** 任务清单卡片：完成进度条 + 条目列表（待办 ○ / 进行中 ◐ / 完成 ●，完成项划线弱化）。 */
 export function TodoCard({ items }: { items: TodoItem[] }): React.JSX.Element {
   const done = items.filter((i) => i.status === "done").length;
   const mark = { pending: "○", active: "◐", done: "●" } as const;

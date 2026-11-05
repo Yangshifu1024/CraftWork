@@ -25,6 +25,7 @@ import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
 import { OverflowTitle } from "./overflow-title";
 
+/** 相对时间：刚刚 / N 分钟 / N 小时 / N 天前，超过 30 天回退「M/D」。 */
 function relativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60000);
@@ -38,13 +39,14 @@ function relativeTime(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** 导航按钮（ghost lg 变体）：h-8 rounded-lg px-2.5 justify-start gap-2。 */
+/** 会话行 props。 */
 interface ThreadRowProps {
   thread: ReturnType<typeof useApp.getState>["threads"]["code"][number];
   active: boolean;
   onSelect(): void;
 }
 
+/** 会话行：状态槽（运行中旋转 / 等待审批黄点 / 出错红点）+ 标题 + 相对时间；右键弹菜单（复制 ID / 重命名 / 删除）。 */
 function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.Element {
   const deleteThread = useApp((s) => s.deleteThread);
   const renameThread = useApp((s) => s.renameThread);
@@ -265,6 +267,7 @@ function ProjectGroup({
   );
 }
 
+/** 会话侧栏：新建对话入口 + 分组列表（临时会话置顶、项目分组可折叠、每组超 5 条折叠为「显示更多」）+ 底部 footer。 */
 export function Sidebar(): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const threads = useApp((s) => s.threads[mode]);

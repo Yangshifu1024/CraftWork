@@ -1,9 +1,11 @@
-//! 模型错误归一化：错误码字符串直接传前端，文案中文可展示。
-//! 状态码映射 + 关键词二次修正。
+//! 模型错误归一化：任何提供商 / 传输层错误都收敛为带错误码的 ModelError——错误码字符串
+//! 直接传前端，文案中文可展示，不向界面抛原始 HTTP 错误。
+//! 归一化分两步：先按 HTTP 状态码定基础码，再按文案关键词二次修正（很多提供商把上下文
+//! 溢出 / 限流也用 400/401 返回）。
 
 use std::fmt;
 
-/// 错误码常量。
+/// 错误码常量（错误码字符串直接透传给渲染层展示）。
 pub mod code {
     pub const AUTH: &str = "auth";
     pub const RATE_LIMIT: &str = "rate_limit";
@@ -15,11 +17,13 @@ pub mod code {
     pub const UNKNOWN: &str = "unknown";
 }
 
-/// 可重试错误码：仅这三个。
+/// 可重试错误码：仅这三个（重试装饰器的判定基础）。
 pub fn retryable_code(code: &str) -> bool {
     matches!(code, code::RATE_LIMIT | code::TIMEOUT | code::PROVIDER_UNAVAILABLE)
 }
 
+/// 归一化后的模型错误：code 取 code 模块常量之一，message 为可展示中文文案，
+/// status 为 HTTP 状态码（非 HTTP 错误为 0），provider 为界面归因用的提供商标识。
 #[derive(Debug, Clone)]
 pub struct ModelError {
     pub code: String,
@@ -29,6 +33,7 @@ pub struct ModelError {
 }
 
 impl ModelError {
+    /// 构造错误（code 一律取 code 模块常量，不要自造字符串）。
     pub fn new(code: &str, provider: &str, message: impl Into<String>, status: u16) -> Self {
         Self {
             code: code.into(),
@@ -38,6 +43,7 @@ impl ModelError {
         }
     }
 
+    /// 是否属于可重试错误码（rate_limit / timeout / provider_unavailable）。
     pub fn retryable(&self) -> bool {
         retryable_code(&self.code)
     }
@@ -51,6 +57,7 @@ impl fmt::Display for ModelError {
 
 impl std::error::Error for ModelError {}
 
+/// HTTP 状态码 → 基础错误码（关键词二次修正前的基础映射）。
 fn code_for_status(status: u16) -> &'static str {
     match status {
         401 | 403 => code::AUTH,
@@ -63,6 +70,7 @@ fn code_for_status(status: u16) -> &'static str {
     }
 }
 
+/// 上下文溢出关键词（修正 400 类基础码；含中文「上下文」兜底中转错误文案）。
 const OVERFLOW_KEYWORDS: &[&str] = &[
     "context length",
     "context_length_exceeded",
@@ -78,6 +86,7 @@ const OVERFLOW_KEYWORDS: &[&str] = &[
     "上下文",
 ];
 
+/// 限流关键词（修正 400/401 类基础码——部分网关用非 429 状态报配额问题）。
 const RATE_LIMIT_KEYWORDS: &[&str] = &[
     "rate limit",
     "rate_limit",
@@ -87,6 +96,7 @@ const RATE_LIMIT_KEYWORDS: &[&str] = &[
     "resource_exhausted",
 ];
 
+/// 认证失败关键词（流内错误分类用——HTTP 已 200，无状态码可依）。
 const AUTH_KEYWORDS: &[&str] = &[
     "authentication",
     "unauthorized",
@@ -98,8 +108,10 @@ const AUTH_KEYWORDS: &[&str] = &[
     "credentials",
 ];
 
+/// 超时关键词（流内错误分类用）。
 const TIMEOUT_KEYWORDS: &[&str] = &["timeout", "timed out", "deadline", "deadline_exceeded"];
 
+/// 服务不可用关键词（流内错误分类用）。
 const UNAVAILABLE_KEYWORDS: &[&str] = &[
     "overloaded",
     "unavailable",
@@ -110,6 +122,7 @@ const UNAVAILABLE_KEYWORDS: &[&str] = &[
     "service_unavailable",
 ];
 
+/// 文本（小写化后）是否包含任一关键词。
 fn contains_any(text: &str, keywords: &[&str]) -> bool {
     let lower = text.to_lowercase();
     keywords.iter().any(|k| lower.contains(k))

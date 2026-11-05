@@ -1,5 +1,6 @@
 // 根组件：布局外壳 + 事件接线。
-// 布局：左侧会话侧栏（可收起）+ 拖拽分隔 + 主区行（对话列 + 右侧面板，含终端/文件/文档）。
+// 布局：左侧会话侧栏（可收起）+ 主区行（对话列 + 右侧面板：文件树/文档预览）；
+// 全屏浮层（命令面板/设置）与独立对话框层（确认/输入/创建项目/图片预览）挂载在布局之上。
 import { useEffect, useRef } from "react";
 import { useApp } from "./store/app";
 import { onEvents, onToast } from "./lib/api";
@@ -16,6 +17,7 @@ import { ImagePreview } from "./overlays/image-preview";
 import { useOverlays } from "./store/overlays";
 import { useShortcuts } from "./hooks/shortcuts";
 
+/** 应用根组件：一次性启动装配（boot），订阅事件/toast 推送并接入 applyBatch 与 toast 队列，组装布局与浮层。 */
 export default function App(): React.JSX.Element {
   const boot = useApp((s) => s.boot);
   const applyBatch = useApp((s) => s.applyBatch);
@@ -46,6 +48,8 @@ export default function App(): React.JSX.Element {
     );
   }
 
+  // 布局主体。注意：role="separator" 的分隔条目前只是视觉占位——拖拽调宽未接线，
+  // settings.panelWidth 也未被任何布局消费，不是可交互控件。
   return (
     <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-background">
       <Sidebar />

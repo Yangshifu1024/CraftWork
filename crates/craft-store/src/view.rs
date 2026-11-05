@@ -7,6 +7,7 @@ use crate::db::other_err;
 use crate::threads::ThreadRow;
 use craft_core::contract::ThreadView;
 
+/// 会话最近一次用量行的投影（上下文占用与速度推导的原始数据）。
 #[derive(Debug, Clone)]
 pub struct LatestUsage {
     pub input_tokens: i64,
@@ -52,6 +53,8 @@ pub fn model_name_for(_conn: &Connection, model_id: &str) -> String {
     "模型不可用".into()
 }
 
+/// 视图投影入口：ThreadRow + 最近一次用量 → ThreadView（context_speed 为最近一次
+/// 输出速度 tokens/s；用量行缺失时上下文字段归零，不阻断视图）。
 pub fn to_thread_view(conn: &Connection, row: &ThreadRow) -> StoreResult<ThreadView> {
     // ContextTokens 是「覆盖口径」：最近一次用量的 input+output，与累计 Tokens 不同
     let usage = latest_usage_by_thread(conn, &row.id).ok();

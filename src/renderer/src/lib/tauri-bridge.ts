@@ -1,6 +1,6 @@
-// Tauri 环境下的 window.craftwork / window.craftworkPush 桥。
-// Electron 版由 preload 的 contextBridge 提供同名 API；Tauri 版在渲染层入口安装本桥：
-// 调用面（CraftworkApi）完全不变，组件零改动；事件订阅走 Tauri event 的 craftwork:* 通道。
+// 桥（tauri-bridge）：把通道表（shared/channels 的 CraftworkApi）实现为 Tauri invoke，
+// 由渲染层入口（main.tsx）安装为 window.craftwork / window.craftworkPush 调用面，不含业务逻辑。
+// 调用面签名与 Electron 时代一致，组件零改动；事件订阅走 Tauri event 的 craftwork:* 通道。
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { CraftworkApi } from "../../../shared/channels";
@@ -19,10 +19,11 @@ function listenAdapter(channel: string, callback: (payload: unknown) => void): (
   };
 }
 
+/** 安装 window.craftwork / window.craftworkPush；已存在则跳过（幂等，热重载安全）。 */
 export function installTauriBridge(): void {
   if (typeof window === "undefined" || window.craftwork) return;
 
-  // 全部方法转发到 Rust 侧统一入口 craftwork_invoke（P2 起按方法名分发到领域服务）。
+  // 全部方法转发到 Rust 侧统一分发入口 craftwork_invoke（src-tauri 按方法名分发到服务层）。
   const api = new Proxy(
     {},
     {

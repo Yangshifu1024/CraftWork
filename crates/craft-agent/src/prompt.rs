@@ -29,17 +29,21 @@ fn stable_content() -> String {
 pub struct PromptInput<'a> {
     /// code | work
     pub mode: &'a str,
+    /// 主要目录（会话工作目录）；空串表示未绑定工作区
     pub workspace: &'a str,
+    /// 附加目录（工作区除主要目录外的源文件夹）
     pub additional_folders: &'a [String],
     /// project | conversation
     pub workspace_purpose: &'a str,
+    /// 工作区是否受限（未信任）
     pub restricted: bool,
+    /// 环境上下文快照；无工作区时为 None
     pub env: Option<&'a EnvContextSnapshot>,
 }
 
 pub struct PromptResult {
     pub blocks: Vec<SystemBlock>,
-    /// (name, chars)
+    /// 各块字符数统计：(identity | stable | dynamic, chars)
     pub stats: Vec<(String, usize)>,
 }
 
@@ -107,6 +111,8 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
         }
     }
 
+    // 缓存分层：identity 无缓存标记；stable（跨会话字节一致）与 dynamic（会话内一致）
+    // 各打一个前缀缓存断点
     let blocks = vec![
         SystemBlock { content: IDENTITY.to_string(), cache_control: false },
         SystemBlock { content: stable_content(), cache_control: true },

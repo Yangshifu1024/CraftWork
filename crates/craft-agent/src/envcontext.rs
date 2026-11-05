@@ -9,14 +9,18 @@ const GIT_OUTPUT_LIMIT: usize = 64 * 1024;
 const MAX_INSTRUCTION_LINES: usize = 200;
 const MAX_INSTRUCTION_CHARS: usize = 25000;
 
+/// 一份指令文件（AGENTS.md）的内容：scope 标明层级，超长时截断并标记。
 #[derive(Debug, Clone)]
 pub struct EnvInstruction {
     pub path: String,
+    /// 指令层级："global"（用户全局）/ "project"（项目）
     pub scope: &'static str,
     pub body: String,
+    /// 因超行/超字被截断时为 true（截断标记会随内容一起写入提示词）
     pub truncated: bool,
 }
 
+/// Git 工作区摘要（分支 / 未提交变更 / 最近提交）；各字段采集失败时为空串。
 #[derive(Debug, Clone, Default)]
 pub struct GitSnapshot {
     pub branch: String,
@@ -24,11 +28,13 @@ pub struct GitSnapshot {
     pub commits: String,
 }
 
+/// 环境上下文快照：注入系统提示词动态块；各步失败降级省略，字段可能为空。
 #[derive(Debug, Clone, Default)]
 pub struct EnvContextSnapshot {
     pub today: String,
     pub platform: String,
     pub shell: String,
+    /// Git 摘要；不在 Git 工作区内为 None
     pub git: Option<GitSnapshot>,
     pub instructions: Vec<EnvInstruction>,
 }
@@ -84,6 +90,7 @@ pub fn collect_env_context(data_dir: &str, workspace: &str) -> EnvContextSnapsho
     snapshot
 }
 
+/// 读取单个指令文件：缺失/空文件/目录返回 None；超行数或超字数时截断并标记 truncated。
 fn read_instruction(path: &std::path::Path, scope: &'static str) -> Option<EnvInstruction> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() == 0 {

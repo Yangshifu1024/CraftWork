@@ -3,6 +3,7 @@
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
+/// 生成 `<prefix>_<16位十六进制>` 形式的 ID（降级语义见模块注释）。
 pub fn new_id(prefix: &str) -> String {
     let mut bytes = [0u8; 8];
     let ok = getrandom::fill(&mut bytes).is_ok();

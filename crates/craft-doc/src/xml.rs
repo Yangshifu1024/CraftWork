@@ -1,5 +1,8 @@
 //! XML 转义工具（doc/index.ts 的 xmlEscape/xmlUnescape 直译）。
+//! 供 docx/xlsx 的文本级替换使用：替换前对 old/new 转义、读取时对提取文本反转义，
+//! 保证子串替换只命中正文文本而不会破坏标签结构。
 
+/// XML 转义五个保留字符；`&` 必须最先替换，避免把后续已生成实体的 `&` 再转义一次。
 pub fn xml_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -8,6 +11,8 @@ pub fn xml_escape(text: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+/// 反转义：命名实体（lt/gt/quot/apos/amp）与 `&#十进制;` / `&#x十六进制;` 数字实体；
+/// 未知实体或 `&` 后无分号时原样保留，不报错。
 pub fn xml_unescape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;

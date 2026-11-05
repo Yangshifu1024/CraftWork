@@ -8,6 +8,7 @@ use craft_core::ids::{id_prefix, new_id};
 
 // ---------- 审计 ----------
 
+/// 待写入的一条审计记录；ts 为 None 时取当前时间，空串可选项统一存 NULL。
 pub struct AuditRecord<'a> {
     pub ts: Option<i64>,
     pub thread_id: Option<&'a str>,
@@ -19,6 +20,7 @@ pub struct AuditRecord<'a> {
     pub detail: Option<&'a str>,
 }
 
+/// 写入审计（审批决定与工具执行都必须落审计，见 AGENTS.md 审批约束）。
 pub fn add_audit(conn: &Connection, rec: AuditRecord<'_>) -> StoreResult<()> {
     conn.execute(
         "INSERT INTO audit_log (ts, thread_id, run_id, tool, risk, decision, scope, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -37,6 +39,7 @@ pub fn add_audit(conn: &Connection, rec: AuditRecord<'_>) -> StoreResult<()> {
     Ok(())
 }
 
+/// 最近审计列表（ts DESC）；limit 非法（<=0）或超上限（>500）时回落默认 200。
 pub fn list_audit(conn: &Connection, limit: i64) -> StoreResult<Vec<AuditEntry>> {
     let n = if limit <= 0 || limit > 500 { 200 } else { limit };
     let mut stmt = conn
@@ -64,6 +67,7 @@ pub fn list_audit(conn: &Connection, limit: i64) -> StoreResult<Vec<AuditEntry>>
 
 // ---------- 用量 ----------
 
+/// 待写入的一条用量行（ts 取当前时间；thread_id 空串存 NULL）。
 pub struct UsageRecord<'a> {
     pub thread_id: Option<&'a str>,
     pub model_id: &'a str,
@@ -172,6 +176,7 @@ pub fn usage_summary(conn: &Connection) -> StoreResult<UsageSummary> {
 
 // ---------- 设置 ----------
 
+/// 读取设置的 JSON 值；键不存在或值损坏（非法 JSON）一律返回 None，由调用方用默认值兜底。
 pub fn get_setting(conn: &Connection, key: &str) -> StoreResult<Option<serde_json::Value>> {
     let row: Option<String> = conn
         .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| row.get(0))
@@ -201,6 +206,7 @@ pub fn delete_setting(conn: &Connection, key: &str) -> StoreResult<()> {
 
 // ---------- 备份 ----------
 
+/// 待登记的一次写前备份（hash 为原文件 SHA-256；备份文件本体由调用方落盘）。
 pub struct BackupRecord<'a> {
     pub path: &'a str,
     pub backup_path: &'a str,
@@ -237,6 +243,7 @@ fn to_backup(row: &rusqlite::Row<'_>) -> rusqlite::Result<Backup> {
     })
 }
 
+/// 最近备份列表（created_at DESC）；limit 非法（<=0）或超上限（>200）时回落默认 50。
 pub fn list_backups(conn: &Connection, limit: i64) -> StoreResult<Vec<Backup>> {
     let n = if limit <= 0 || limit > 200 { 50 } else { limit };
     let mut stmt = conn

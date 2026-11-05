@@ -31,6 +31,7 @@ const inputCls = "h-8 w-full rounded-lg border border-border bg-input px-2.5 tex
 const ghostBtnCls = "h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover";
 const primaryBtnCls = "h-8 rounded-lg bg-brand px-4 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40";
 
+/** 创建项目对话框：表单 → 信任确认两视图切换（同一浮层内部分流，不嵌套浮层）；每次打开重置，Esc / 点遮罩行为随视图分流。 */
 export function CreateProjectDialog(): React.JSX.Element | null {
   const open = useOverlays((s) => s.createProject);
   const close = useOverlays((s) => s.closeCreateProject);

@@ -1,4 +1,5 @@
-// 对话区：顶栏 + 消息流 + 输入区。
+// 对话区：工作区标题栏 + 消息流（Timeline）+ 沉底输入区（Composer）。
+// 滚动贴底与「回到底部」由 use-stick-to-bottom 托管；发送 / 引导（steer）/ 停止（armed 二次确认）编排收在 Composer。
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X } from "lucide-react";
@@ -17,6 +18,7 @@ import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
 import { Markdown } from "./markdown";
 import { TodoCard } from "./cards";
 
+/** 对话区整体：标题取活动会话，草稿态（无活动会话）显示草稿槽归属的工作区名。 */
 export function Conversation(): React.JSX.Element {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
@@ -43,6 +45,7 @@ export function Conversation(): React.JSX.Element {
   );
 }
 
+/** 会话顶栏：标题 + 模式徽章 + 运行状态（运行中=文字扫光 / 等待审批 / 出错）。 */
 function WorkspaceHeader({ title, status, mode }: { title: string; status: string; mode: string }): React.JSX.Element {
   // "deep"：子树内任意点击均可拖拽/双击最大化。裸属性只匹配直接命中的元素本身，
   // 而内层 div 铺满标题栏，点击永远落不到外层上；按钮等可点击元素会自动阻断，无需单独排除。
@@ -66,6 +69,7 @@ function WorkspaceHeader({ title, status, mode }: { title: string; status: strin
 
 // ---------- 消息流 ----------
 
+/** 消息流滚动区：贴底状态由 use-stick-to-bottom 托管；footer（输入区）以 sticky 沉底、不挡消息点击。 */
 function Timeline({
   activeId,
   chat,
@@ -231,6 +235,7 @@ function CopyButton({ getText }: { getText: () => string }): React.JSX.Element {
   );
 }
 
+/** 单条消息：用户=右对齐气泡（附件缩略图 + 待送达标记 + hover 操作条）；助手=工作折叠块 + 最终正文。 */
 function MessageRow({
   message,
   chatRunning,
@@ -412,6 +417,7 @@ function WorkFold({
   );
 }
 
+/** 工作部件分发：推理纯文本 / 工具卡 / 审批卡 / 任务清单卡片，其余部件忽略。 */
 function WorkPart({ part, threadId }: { part: PartSnapshot; threadId: string }): React.JSX.Element | null {
   switch (part.kind) {
     case "reasoning":
@@ -433,6 +439,7 @@ function WorkPart({ part, threadId }: { part: PartSnapshot; threadId: string }):
 
 // ---------- 卡片 ----------
 
+/** 工具调用卡片：状态色条 + 工具名 + 摘要 + 耗时，点击展开输出；失败默认展开。 */
 export function ToolCard({ part }: { part: ToolCallPart }): React.JSX.Element {
   const [open, setOpen] = useState(part.status === "error");
   const running = part.status === "running";
@@ -474,6 +481,7 @@ const RISK_LABELS: Record<string, string> = {
   R4: "破坏性",
 };
 
+/** 审批卡片：风险徽章 + 目标 + 事实 + 决定按钮组（拒绝 / 允许一次 / 本会话 / 本工作区，永久授权按 allowPermanent 与风险等级显隐）。 */
 export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId: string }): React.JSX.Element {
   const waiting = part.status === "waiting";
   const [busy, setBusy] = useState(false);
@@ -572,6 +580,7 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
   );
 }
 
+/** 错误卡片：错误码 + 原始信息 + 分类处置建议（hints 按 craft-model 错误码给出）+ 重试。 */
 function ErrorCard({ part, threadId }: { part: PartSnapshot; threadId: string }): React.JSX.Element {
   const code = String(part.payload["code"] ?? "");
   const message = String(part.payload["message"] ?? "");
@@ -607,6 +616,7 @@ function ErrorCard({ part, threadId }: { part: PartSnapshot; threadId: string })
   );
 }
 
+/** 流式输出光标：脉冲竖条。 */
 function StreamCaret(): React.JSX.Element {
   return <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-foreground" />;
 }
@@ -753,6 +763,7 @@ function LevelChip(): React.JSX.Element {
   );
 }
 
+/** 输入区：草稿态读写当前草稿槽（内容随槽保留）、会话态用本地 state；运行中发送转为引导（steer），停止走 armed 二次确认（与双击 Esc 共享状态）。 */
 function Composer({ activeId, chat }: { activeId: string; chat: { running: boolean } }): React.JSX.Element {
   // 输入态分流：草稿态（活动会话为空）读写当前草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽，
   // 内容随槽保留互不覆盖）；会话态回到组件本地 state（切会话丢输入的既有行为），打字不写草稿槽。

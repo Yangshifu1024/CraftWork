@@ -11,7 +11,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 - Tauri 应用壳（`src-tauri/`）承载入口、窗口与 IPC 接线；全部领域逻辑在 cargo workspace 的领域 crate（`crates/craft-*`），不依赖 Tauri、可独立测试。
 - 领域逻辑为 Rust：Agent 循环（craft-agent）、工具（craft-tools）、策略（craft-policy）、SQLite（craft-store）、模型客户端（craft-model）、文档处理（craft-doc）、基础能力（craft-core）。
 - 渲染层 React 19 + zustand + Tailwind CSS v4；经 `tauri-bridge` 提供的 `window.craftwork` 调用面与统一 invoke 入口（craftwork_invoke）通信，渲染层不持有任何 Node 能力。
-- SQLite 使用 rusqlite（bundled 静态编译，零系统依赖）；交互式终端已移除（决策 D1，见 `docs/tauri-migration/plan.md`），Agent 的命令执行走 `shell_exec` 工具。
+- SQLite 使用 rusqlite（bundled 静态编译，零系统依赖）；交互式终端已移除（决策 D1，摘要见 `docs/arch.md`），Agent 的命令执行走 `shell_exec` 工具。
 - 提供商与模型完全由用户添加；目录来自 models.dev 的构建期快照（`include_bytes` 编译期嵌入），应用不内置任何提供商。
 
 ## 1.1 技术栈
@@ -31,7 +31,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 - **不要擅自安装或升级工具**；需要新工具或新的大版本依赖时先向用户提出请求。
 - 包管理只用 pnpm；构建脚本许可在 `pnpm-workspace.yaml`。
 - Rust 侧 crate 分层纪律：`crates/*` 一律不依赖 Tauri；只有 `src-tauri` 允许接触 Tauri API。
-- `docs/tauri-migration/plan.md` 记录已定决策 D1~D7（移除终端、Agent 侧自研、craft- 前缀等），改动与决策冲突时先显式提出。
+- `docs/arch.md` 第 7 节记录已定决策摘要（D1~D7：移除终端、Agent 侧自研、craft- 前缀等），改动与决策冲突时先显式提出。
 
 ### 数据目录
 
@@ -73,7 +73,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 src/shared/              跨进程共享：事件契约（events.ts）、类型（types.ts）、
                          通道表（channels.ts）、ID 生成（ids.ts）——与 Rust serde
                          类型（craft-core::contract）经契约序列化测试与
-                         dispatch 接线对拍测试防漂移（migration-parity 票 09）
+                         dispatch 接线对拍测试防漂移
 src/renderer/            React 界面：主题（styles.css）、侧栏、对话流、右侧面板、
                          浮层（命令面板/设置/数据/对话框/toast）、zustand 状态壳；
                          lib/tauri-bridge 在 Tauri 环境提供 window.craftwork 调用面
@@ -97,15 +97,16 @@ crates/
 tests/fixtures/          golden 数据库样本（Node 版生成，Rust 侧兼容测试用）
 scripts/                 modelsync.mjs（拉取 models.dev 目录）
 assets/catalog/          models.dev 快照（catalog.json.gz + manifest + rules；Rust include_bytes）
-docs/                    adr（决策记录）、<feature>/（spec.md + issues/ 本地票据）、
-                         migration-parity（迁移设计对账）、tauri-migration（迁移计划）
+docs/                    arch.md（架构文档：分层、主流程图、安全模型、决策摘要）、
+                         handoff.md（交接与问题记录）、agents/（协作约定）、
+                         <feature>/（spec.md + issues/ 本地票据）
 ```
 
 新增能力优先落到对应领域 crate；`src-tauri/src/services.rs` 只做参数校验、编排与错误转换，渲染层不得绕过通道表直接假设服务实现。
 
 ## 5. 改动流程
 
-1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/<feature>/spec.md`（行为规格，本地票据见 `docs/agents/issue-tracker.md`）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
+1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/<feature>/spec.md`（行为规格，本地票据见 `docs/agents/issue-tracker.md`）、`docs/arch.md`（架构与决策摘要）；改动与既有决策冲突时先显式提出，不要静默推翻。
 2. **改后端**：领域 crate 保持普通 Rust 模块，不 import Tauri（全部 `crates/*` 可 cargo test；只有 `src-tauri` 允许接触 Tauri API）。
 3. **改界面**：状态壳（zustand）只做事件应用与动作；观感取值一律走 `src/renderer/src/styles.css` 的语义色 token，不写死色值。
 4. **补测试**：核心逻辑（策略、路径、diff、存储、Agent、工具、模型层）必须有 cargo test。测试函数名一律用英文 snake_case，按下划线分段描述被测行为（如 `single_root_symlink_escape_rejected`）；不用中文或中英混合标识符——触发 non_snake_case 编译警告，也不利于测试输出与 CI 日志检索。
@@ -224,11 +225,12 @@ pnpm build            # tauri build
 | --- | --- |
 | 术语或概念定义 | 仓库根 `GLOSSARY.md` |
 | 使用方式、功能、架构、贡献流程 | `README.md`、`CONTRIBUTING.md` |
+| 架构结构、主流程、决策记录 | `docs/arch.md` |
 | 开发约定、命令、陷阱 | 本文件 |
 
 ## 10. 当前留桩
 
-- 自动更新：updater 链路未接线（tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存），签名密钥与更新服务器待凭据后另立项接线（决策 D6；见 docs/migration-parity/issues/19）。
+- 自动更新：updater 链路未接线（tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存），签名密钥与更新服务器待凭据后另立项接线（决策 D6）。
 - 沙箱与 MCP（stdio 客户端）：设置页可存储服务器配置，连接能力留桩（决策 D5）。
 - Work 模式限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
 - 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。
@@ -239,7 +241,7 @@ pnpm build            # tauri build
 - 提交信息使用中文，一次提交只做一件逻辑上的事。
 - 提交前运行第 8 节的检查；不要提交 `out/`、`dist/`、`target/`、`node_modules/`。
 - 贡献使用 DCO：`git commit -s`。
-- 界面视觉与交互的变更先更新受影响的行为 spec（`docs/<feature>/spec.md` 或对应 issue 的行为约定），再改实现；决策变更走 `docs/adr/`。
+- 界面视觉与交互的变更先更新受影响的行为 spec（`docs/<feature>/spec.md` 或对应 issue 的行为约定），再改实现；决策变更同步 `docs/arch.md` 的决策摘要。
 
 ## Agent skills
 
@@ -253,4 +255,4 @@ pnpm build            # tauri build
 
 ### Domain docs
 
-single-context：根目录 `GLOSSARY.md` + `docs/adr/`。See `docs/agents/domain.md`.
+single-context：根目录 `GLOSSARY.md` + `docs/arch.md`。See `docs/agents/domain.md`.

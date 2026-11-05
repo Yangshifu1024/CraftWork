@@ -1,4 +1,9 @@
 //! shell_exec / git_* 内置工具。
+//!
+//! shell_exec 是 Agent 执行命令的唯一通道，不是交互式终端（终端已随决策 D1 移除，
+//! 禁止重新引入 PTY）：子进程由 craft_core::platform::run 统一保证独立进程组、
+//! 环境白名单清洗（防模型密钥泄漏给子进程）、超时杀整组与输出有界缓冲。
+//! git_* 家族只作用于主要目录仓库，且默认不推送。
 
 use serde_json::{json, Value};
 
@@ -14,6 +19,7 @@ fn err_result(message: impl Into<String>) -> ToolResult {
 
 // ---------- shell_exec ----------
 
+/// 在工作区内执行 shell 命令（R2 执行类；cwd 缺省为工作区根）。
 pub struct ShellExec;
 
 impl Tool for ShellExec {
@@ -41,6 +47,7 @@ impl Tool for ShellExec {
             output_limit: None,
         });
         let duration = started.elapsed();
+        // 超时由 run 超时杀整组（进程组 SIGKILL），部分输出仍随结果带回
         if result.timed_out {
             return ToolResult {
                 output: format!("命令超时（{}s）：{}", duration.as_secs(), result.output),
@@ -49,6 +56,7 @@ impl Tool for ShellExec {
                 meta: Some(json!({ "exitCode": -1, "timedOut": true })),
             };
         }
+        // run 的约定：exit_code < 0 仅表示进程未能启动（spawn 失败），error 字段才有值
         let spawn_error = (result.exit_code < 0).then(|| result.error.clone()).flatten();
         if let Some(error) = spawn_error {
             return err_result(format!("执行命令失败：{error}"));
@@ -91,6 +99,8 @@ impl ShellExec {
 
 // ---------- git_* ----------
 
+/// git 子命令统一执行出口：固定在主要目录（ctx.workspace）运行，继承 run 的
+/// 环境清洗与超时杀树；git 凭据/身份由用户本机 Git 配置提供，工具不注入。
 fn git(ctx: &ToolCtx, args: &[&str], timeout_sec: u64) -> (craft_core::platform::RunResult, String) {
     let result = run(RunSpec {
         file: "git".into(),
@@ -103,6 +113,7 @@ fn git(ctx: &ToolCtx, args: &[&str], timeout_sec: u64) -> (craft_core::platform:
     (result, output)
 }
 
+/// 查看主要目录 Git 状态（R0 只读）。
 pub struct GitStatus;
 
 impl Tool for GitStatus {
@@ -143,6 +154,7 @@ impl GitStatus {
     }
 }
 
+/// 查看 Git 差异，默认未暂存、staged=true 查看已暂存（R0 只读）。
 pub struct GitDiff;
 
 impl Tool for GitDiff {
@@ -194,6 +206,7 @@ impl GitDiff {
     }
 }
 
+/// 查看提交记录，oneline + 修饰（R0 只读）。
 pub struct GitLog;
 
 impl Tool for GitLog {
@@ -243,6 +256,7 @@ impl GitLog {
     }
 }
 
+/// 提交代码（R1 写工作区）；默认不推送——推送永远由用户手动执行。
 pub struct GitCommit;
 
 impl Tool for GitCommit {
@@ -255,6 +269,7 @@ impl Tool for GitCommit {
         if message.is_empty() {
             return err_result("message 不能为空");
         }
+        // \0 是 exec 参数的硬限制；2000 字节防异常长信息
         if message.contains('\0') || message.len() > 2000 {
             return err_result("提交信息无效（为空、含空字符或超过 2000 字节）");
         }
@@ -264,6 +279,7 @@ impl Tool for GitCommit {
             .and_then(Value::as_array)
             .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
             .unwrap_or_default();
+        // 指定路径经 resolve_extra 解析：仅允许主要目录（与 git_ 工具的目录约束一致）
         let mut paths: Vec<String> = Vec::new();
         for p in &paths_arg {
             match ctx.env.resolve_extra(&ctx.roots, p) {
@@ -272,6 +288,7 @@ impl Tool for GitCommit {
             }
         }
         if !paths.is_empty() {
+            // 指定路径：先 add 再按路径提交（可包含未跟踪文件）
             let add_refs: Vec<&str> = std::iter::once("add")
                 .chain(std::iter::once("--"))
                 .chain(paths.iter().map(String::as_str))
@@ -291,6 +308,7 @@ impl Tool for GitCommit {
                 return err_result(format!("提交失败: {}", commit.output.trim()));
             }
         } else {
+            // 未指定路径：-am 只提交全部已跟踪文件的改动（新文件不在内）
             let (commit, _) = git(ctx, &["commit", "-am", &message], 30);
             if commit.exit_code != 0 {
                 return err_result(format!("提交失败: {}", commit.output.trim()));

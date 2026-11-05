@@ -6,6 +6,7 @@
 // 表格工具按钮（controls），外框样式在 CSS 层移除。
 import { Streamdown } from "streamdown";
 
+/** 流式 Markdown 视图：streaming 时套渐入动画类；安全与字号策略见文件头。 */
 export function Markdown({ text, streaming }: { text: string; streaming: boolean }): React.JSX.Element {
   return (
     <div className={`markdown-body select-text break-words text-ui-base ${streaming ? "stream-fade-in" : ""}`}>

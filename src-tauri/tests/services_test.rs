@@ -9,6 +9,8 @@ use serde_json::{json, Value};
 // 直接复用壳层 crate 的服务函数（lib 目标）
 use craftwork_lib::services;
 
+/// 最小装配 AppState（与启动装配 build_app_state 同构，但无 Tauri AppHandle 依赖）：
+/// 隔离临时目录、空密钥存根、Bus 丢弃事件（本测试直接查返回值，不验证广播）。
 fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
     let dir = tempdir::TempDir::new(tag).unwrap();
     let data_dir = dir.path().to_string_lossy().to_string();
@@ -62,6 +64,7 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
     )
 }
 
+/// 恒返回空串的密钥提供者：真实网络调用会失败，不影响配置面（设置/会话/提供商 CRUD）测试。
 fn stub_keys() -> impl craft_model::factory::KeyProvider {
     struct Stub;
     impl craft_model::factory::KeyProvider for Stub {

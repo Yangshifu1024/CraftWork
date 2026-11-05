@@ -2,6 +2,7 @@
 // 随机源失败时返回全 0 后缀，靠数据库唯一约束暴露问题而不是静默重试。
 const HEX = "0123456789abcdef";
 
+/** 生成「前缀_16位hex」ID（与 Rust craft_core::ids 同构）。 */
 export function newId(prefix: string): string {
   try {
     const bytes = new Uint8Array(8);

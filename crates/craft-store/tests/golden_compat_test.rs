@@ -26,6 +26,7 @@ fn copy_to_tmp() -> PathBuf {
     dest
 }
 
+/// 兼容性总检：样本库版本恰为当前 SCHEMA_VERSION，会话/工作区/设置全部原位可读。
 #[test]
 fn golden_db_version_matches_and_thread_list_readable() {
     let path = copy_to_tmp();
@@ -54,6 +55,8 @@ fn golden_db_version_matches_and_thread_list_readable() {
     assert_eq!(settings["theme"], "dark");
 }
 
+/// 快照重建与 Node 侧基准逐字段对拍：消息分组、部件类型、run 状态回填、
+/// 上下文占用推导、已决定审批不进 pending，任一漂移即红。
 #[test]
 fn golden_db_snapshot_rebuild_matches_node_baseline() {
     let path = copy_to_tmp();

@@ -8,6 +8,7 @@ const MARQUEE_GAP = 24;
 /** 滚动速度（px/s）。 */
 const SPEED = 40;
 
+/** 侧栏长标题：溢出时右侧渐隐，hover 走马灯滚动展示全文；速度/时长/停顿由 styles.css 的 keyframes 承担。 */
 export function OverflowTitle({ text, className }: { text: string; className?: string }): React.JSX.Element {
   const boxRef = useRef<HTMLSpanElement>(null);
   const trackRef = useRef<HTMLSpanElement>(null);

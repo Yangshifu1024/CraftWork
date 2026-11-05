@@ -16,6 +16,8 @@ use craft_store::events::EventRecord;
 use craft_store::recorder::Recorder;
 use craft_store::runs::{create_approval, get_approval, resolve_approval};
 
+/// 审批授权范围：once（仅本次）/ session（本会话，内存缓存）/ workspace（本工作区，持久化）。
+/// R3/R4 与受限工作区不提供永久授权；allow_permanent=false 时 session/workspace 一律按 once 处理。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalScope {
     Once,
@@ -24,6 +26,7 @@ pub enum ApprovalScope {
 }
 
 impl ApprovalScope {
+    /// 范围的小写字符串形式（事件载荷与审计记录用）。
     pub fn as_str(&self) -> &'static str {
         match self {
             ApprovalScope::Once => "once",
@@ -33,12 +36,14 @@ impl ApprovalScope {
     }
 }
 
+/// 审批卡片上的事实条目（label-value 对）：向用户解释操作的风险、目标与原因。
 #[derive(Debug, Clone)]
 pub struct ApprovalFact {
     pub label: String,
     pub value: String,
 }
 
+/// 一次审批请求的完整载荷：approvals.request 的入参，同时是渲染层审批卡片（ApprovalPart）的数据源。
 #[derive(Debug, Clone)]
 pub struct ApprovalRequest {
     pub part_id: String,
@@ -53,17 +58,21 @@ pub struct ApprovalRequest {
     pub detail: String,
     pub facts: Vec<ApprovalFact>,
     pub args: Value,
+    /// 是否允许用户选择 session/workspace 永久授权（由审批档位与风险等级决定）
     pub allow_permanent: bool,
     /// shell_exec 授权前缀（grants 键用，与展示 target 可不同）
     pub grant_target: Option<String>,
 }
 
+/// 审批结果：status 面向流程（卡片状态），decision 面向审计记录，两者取值体系不同。
 #[derive(Debug, Clone)]
 pub struct ApprovalOutcome {
     pub allow: bool,
     /// approved | denied | canceled
     pub status: String,
+    /// allow | deny | canceled（审计记录用语）
     pub decision: String,
+    /// 用户选择的授权范围：once | session | workspace（canceled 时为 once 占位）
     pub scope: String,
 }
 
@@ -78,16 +87,21 @@ impl ApprovalOutcome {
     }
 }
 
+/// 等待中的审批：oneshot 发送端 + 该请求是否允许永久授权（decide 时校验用）。
 struct PendingEntry {
     resolve: oneshot::Sender<ApprovalOutcome>,
     permanent: bool,
 }
 
+/// 审批状态机的载体：登记等待中的请求，把用户决定经 oneshot 回传给 Run 循环，
+/// 决定与状态变化全部落库并广播。
 pub struct Approvals {
     db: Arc<Db>,
     recorder: Recorder,
     grants: Arc<Grants>,
+    /// approval_id → 等待方；决定写入或取消后移除并唤醒
     pending: Mutex<HashMap<String, PendingEntry>>,
+    /// approval_id → (tool, 授权目标)：决定为允许且范围非 once 时写入授权缓存
     grant_keys: Mutex<HashMap<String, (String, String)>>,
 }
 

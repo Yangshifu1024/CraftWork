@@ -12,8 +12,10 @@ use serde_json::Value;
 
 use crate::contract::{Batch, Envelope};
 
+/// 微批窗口宽度：连续 emit 在窗口内合并为一批，避免逐条跨 IPC 推送。
 const FLUSH_MS: u64 = 30;
 
+/// 当前 Unix 毫秒时间戳；系统时钟早于纪元时回落 0（仅用于事件 ts，不参与定序）。
 pub fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -22,10 +24,13 @@ pub fn now_millis() -> i64 {
 }
 
 struct BusState {
+    /// 每会话内存内 seq 游标（与 events 表的 seq 是两套独立计数）
     seqs: HashMap<String, i64>,
+    /// 待冲刷缓冲；冲刷线程到点整批取走
     pending: Vec<Envelope>,
     /// 最早冲刷时刻（首个 pending 进入时设置）
     flush_at: Option<Instant>,
+    /// 关闭后不再接收新事件（emit 直接丢弃）
     closed: bool,
 }
 
@@ -44,6 +49,7 @@ pub struct Bus {
 }
 
 impl Bus {
+    /// 创建总线并启动后台冲刷线程；`push` 由壳层提供（负责把 Batch 推到渲染层）。
     pub fn new(push: impl Fn(Batch) + Send + Sync + 'static) -> Self {
         let shared = Arc::new(BusShared {
             state: Mutex::new(BusState {

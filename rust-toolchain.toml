@@ -1,3 +1,3 @@
-# Tauri 2.12 起要求 MSRV 1.90（见 docs/tauri-migration/plan.md §0）；锁定具体版本保证构建可重现。
+# Tauri 2.12 起要求 MSRV 1.90；锁定具体版本保证构建可重现。
 [toolchain]
 channel = "1.99.1"

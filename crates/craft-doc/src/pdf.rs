@@ -6,6 +6,8 @@ use std::io::Read;
 
 use crate::{DocResult, MAX_TEXT_BYTES};
 
+/// 读取 PDF 文本层：不渲染、不 OCR；加密件报错，
+/// 无文本层（疑似扫描件）返回空文本 + note，超限按字符边界截断。
 pub fn read(raw: &[u8]) -> Result<DocResult, String> {
     let head_len = raw.len().min(4096);
     let head = String::from_utf8_lossy(&raw[..head_len]).to_string();
@@ -16,10 +18,13 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
         return Err("PDF 已加密，无法读取".into());
     }
 
+    // latin1 逐字节映射：ASCII 结构关键字（stream/字典）可按字节搜索，且 bytes 往返无损
     let latin = raw.iter().map(|b| *b as char).collect::<String>();
     let latin_bytes = latin.clone().into_bytes();
     let mut chunks: Vec<String> = Vec::new();
     let mut i = 0usize;
+    // 启发式扫描：以 "stream"/"endstream" 字样定界（不解析 xref）；
+    // 压缩数据中偶现同名字节会误判边界，属于该实现的已知近似取舍。
     while let Some(stream_start) = find_from(&latin_bytes, i, b"stream") {
         // 向前找最近的 << 字典判 FlateDecode
         let dict_start = rfind_before(&latin_bytes, stream_start, b"<<");
@@ -44,6 +49,7 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
                 Err(_) => chunks.push(raw[data_start.min(raw.len())..stream_end.min(raw.len())].iter().map(|b| *b as char).collect()),
             }
         } else if !dict.contains("/Image") && !dict.contains("/XObject") {
+            // 未压缩流：跳过图片/XObject，其余原样收为候选内容流
             chunks.push(raw[data_start.min(raw.len())..stream_end.min(raw.len())].iter().map(|b| *b as char).collect());
         }
         i = stream_end + "endstream".len();
@@ -71,10 +77,12 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
     Ok(DocResult { kind: "pdf".into(), text: out, note: String::new(), truncated })
 }
 
+/// 从头查找子串首次出现位置。
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     find_from(haystack, 0, needle)
 }
 
+/// 在 haystack[from..] 中查找子串首次出现位置。
 fn find_from(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
     if from > haystack.len() || needle.is_empty() {
         return None;
@@ -85,6 +93,7 @@ fn find_from(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .map(|p| p + from)
 }
 
+/// 在 haystack[..before] 中反向查找子串最后出现位置。
 fn rfind_before(haystack: &[u8], before: usize, needle: &[u8]) -> Option<usize> {
     let end = before.min(haystack.len());
     if end < needle.len() {
@@ -95,6 +104,7 @@ fn rfind_before(haystack: &[u8], before: usize, needle: &[u8]) -> Option<usize> 
         .rposition(|w| w == needle)
 }
 
+/// zlib 解压一段 stream 数据。
 fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut decoder = ZlibDecoder::new(data);
     let mut out = Vec::new();
@@ -102,7 +112,9 @@ fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// 解析 PDF 内容流中的文本操作。
+/// 解析 PDF 内容流中的文本操作：
+/// `(...)` 字面量与 `<hex>` 字符串取文本，Td/TD/T*/ET/'/" 转换行，
+/// TJ 数组中的负数间距近视为词间空格，最后逐行压缩空白。
 fn extract_pdf_text(content: &str) -> String {
     let chars: Vec<char> = content.chars().collect();
     let n = chars.len();
@@ -223,6 +235,7 @@ fn extract_pdf_text(content: &str) -> String {
         .join("\n")
 }
 
+/// 追加一段文本；pending_space 表示此前判定出词间空格，落笔前补一个空格。
 fn append_text(out: &mut String, pending_space: &mut bool, s: &str) {
     if *pending_space && !out.is_empty() && !out.ends_with(|c: char| c.is_whitespace()) {
         out.push(' ');

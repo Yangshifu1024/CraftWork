@@ -1,6 +1,7 @@
 // IPC 通道表：通道名集中定义，避免跨进程字符串散落。
-// 渲染层经 tauri-bridge 暴露的 window.craftwork 调用；src-tauri 的 craftwork_invoke 按
-// 方法名一一分发（三处接线：本文件签名 / tauri-bridge / src-tauri/src/lib.rs dispatch）。
+// 渲染层系统操作唯一出口：经 tauri-bridge 暴露的 window.craftwork 调用；src-tauri 的
+// craftwork_invoke 按方法名一一分发（三处同步接线：本文件签名 / tauri-bridge / src-tauri/src/lib.rs
+// dispatch；接线完整性由 src-tauri/tests/dispatch_test.rs 对拍保证）。
 import type {
   AppInfo,
   ApprovalScope,
@@ -29,21 +30,23 @@ import type {
   WorkspaceView,
 } from "./types";
 
-/** main → renderer 的事件推送通道 */
+/** 后端 → 渲染层的事件推送通道（tauri event listen 订阅） */
 export const PushChannels = {
-  /** 会话事件批量推送（Envelope[]） */
+  /** 会话事件批量推送（Batch 载荷，渲染层 applyBatch 是唯一事件入口） */
   Events: "craftwork:events",
-  /** 全局 toast 提示（main 主动，如密钥文件损坏警告） */
+  /** 全局 toast 提示（后端主动，如密钥文件损坏警告） */
   Toast: "craftwork:toast",
 } as const;
 
+/** craftwork:toast 通道的载荷 */
 export interface ToastPayload {
   tone: "info" | "ok" | "warn" | "danger";
   title: string;
   message?: string;
 }
 
-/** renderer → main 的全部请求通道与签名（preload 按此实现 window.craftwork）。 */
+/** 渲染层 → 后端的全部请求通道与签名（tauri-bridge 据此以 Proxy 实现 window.craftwork，
+ *  全部转发到统一入口 craftwork_invoke）。 */
 export interface CraftworkApi {
   // ---------- 应用 ----------
   getInfo(): Promise<AppInfo>;
@@ -114,6 +117,7 @@ export interface CraftworkApi {
   catalogMeta(): Promise<CatalogMeta>;
   catalogProviders(query: string): Promise<CatalogProviderView[]>;
   catalogModels(providerId: string): Promise<CatalogModelView[]>;
+  /** 死通道：dispatch 未接线（调用报「尚未接线」），登记于 dispatch_test 的 UNWIRED_ALLOWLIST，死代码清理时决定去留或接线 */
   catalogLookup(providerId: string, modelId: string): Promise<CatalogModelView>;
   catalogImport(input: CatalogImportInput): Promise<ProviderView>;
 
@@ -121,12 +125,14 @@ export interface CraftworkApi {
   workspaceList(): Promise<WorkspaceView[]>;
   workspaceAdd(path: string, trust: string): Promise<WorkspaceView[]>;
   workspaceAddProject(name: string, folders: string[], trust: string): Promise<WorkspaceView>;
+  /** 死通道：dispatch 未接线（调用报「尚未接线」），登记于 dispatch_test 的 UNWIRED_ALLOWLIST，死代码清理时决定去留或接线 */
   workspaceSetActive(workspaceId: string): Promise<WorkspaceView>;
   workspaceSetTrust(workspaceId: string, trust: string): Promise<void>;
   workspaceRename(workspaceId: string, name: string): Promise<WorkspaceView[]>;
   workspaceRemove(workspaceId: string): Promise<void>;
   workspaceListDir(workspaceId: string, folderId: string, rel: string): Promise<FileNode[]>;
   workspaceReadFile(workspaceId: string, folderId: string, rel: string): Promise<FileContent>;
+  /** 死通道：dispatch 未接线（调用报「尚未接线」），登记于 dispatch_test 的 UNWIRED_ALLOWLIST，死代码清理时决定去留或接线 */
   workspaceLocateFile(workspaceId: string, rel: string): Promise<LocatedFile>;
   workspaceWriteFile(
     workspaceId: string,
@@ -153,7 +159,9 @@ export interface CraftworkApi {
   mcpDisconnect(serverId: string): Promise<void>;
 }
 
-/** CraftworkApi 的通道名映射：方法名 → "craftwork:<camel>"，供 preload/main 共用。 */
+/** 方法名 → 通道名映射（"craftwork:<method>"）。当前无调用方：Tauri 版统一入口
+ *  craftwork_invoke 按方法名分发，tauri-bridge 以 Proxy 直接转发，无需按通道调用
+ *  （Electron 版按通道 invoke 的遗留助手，去留待定）。 */
 export function channelOf(method: string): string {
   return `craftwork:${method}`;
 }

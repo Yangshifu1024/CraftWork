@@ -6,8 +6,11 @@ use crate::xml::{xml_escape, xml_unescape};
 use crate::zipio;
 use crate::{DocEdit, DocResult, MAX_TEXT_BYTES};
 
+/// 正文 XML 在包内的固定路径；页眉页脚、批注等其他条目不在处理范围。
 const DOCUMENT_XML: &str = "word/document.xml";
 
+/// 读取 docx 字节流：流式扫描正文 XML，段落成行、表格按行展开；
+/// 缺少正文条目时返回空文本 + note 而非报错。
 pub fn read(raw: &[u8]) -> Result<DocResult, String> {
     let entries = zipio::load_entries(raw)?;
     let Some(xml_bytes) = entries.get(DOCUMENT_XML) else {
@@ -42,6 +45,7 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
                     break;
                 }
                 if next_open < next_close {
+                    // 注意："<w:p" 前缀也会命中 <w:pPr、<w:proofErr 等派生标签，depth 会随之 +1
                     if starts_with_at(bytes, next_open, b"<w:p") {
                         depth += 1;
                     }
@@ -96,6 +100,7 @@ pub fn read(raw: &[u8]) -> Result<DocResult, String> {
     Ok(DocResult { kind: "docx".into(), text, note: String::new(), truncated })
 }
 
+/// 在 haystack[from..] 中查找子串首次出现位置。
 fn find_byte(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
     if from > haystack.len() {
         return None;
@@ -106,6 +111,7 @@ fn find_byte(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .map(|pos| pos + from)
 }
 
+/// 判断 haystack 从 at 起是否以 needle 开头。
 fn starts_with_at(haystack: &[u8], at: usize, needle: &[u8]) -> bool {
     haystack.len() >= at + needle.len() && &haystack[at..at + needle.len()] == needle
 }
@@ -147,6 +153,7 @@ fn extract_paragraph_text(body: &str) -> String {
 }
 
 /// 找配对的闭合标签（处理同名嵌套），返回闭合结束位置。
+/// 注意：open_tag 按前缀匹配（如 "<w:tc" 也会命中 "<w:tcPr"），派生标签会使 depth 漂移。
 fn find_balanced(xml: &str, from: usize, open_tag: &str, close_tag: &str) -> Option<usize> {
     let bytes = xml.as_bytes();
     let mut depth = 0i32;
@@ -172,6 +179,7 @@ fn find_balanced(xml: &str, from: usize, open_tag: &str, close_tag: &str) -> Opt
 }
 
 /// 表格提取：行内单元格多段落 \n 连接，单元格间 \t 连接。
+/// 行扫描每次从 body 开头 find 再用 `max(i)` 对齐游标（历史写法），实际前进由 `i = tr_end` 保证。
 fn extract_table(body: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut i = 0usize;
@@ -201,6 +209,9 @@ fn extract_table(body: &str) -> Vec<String> {
     lines
 }
 
+/// 文本替换：old/new 经 XML 转义后在正文上做恰好一次替换，
+/// 0 命中或多于 1 处命中都拒绝，避免误伤；原文被拆进多个格式片段（run）时无法命中。
+/// 重写 zip 写回，写前备份由调用方负责。
 pub fn replace(path: &str, edit: &DocEdit) -> Result<(), String> {
     if edit.kind != "text" {
         return Err("docx 只支持文本替换".into());

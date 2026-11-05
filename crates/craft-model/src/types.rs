@@ -1,10 +1,13 @@
-//! 统一模型客户端类型。
+//! 统一模型客户端的公共类型：目录 / 提供商持久化形状、消息与请求、流式片段与客户端 trait。
+//! serde 形状统一 camelCase，与渲染层契约对齐；可调用模型一律经 `providerID/modelID` 引用
+//! （同一模型 ID 可出现在多个提供商下）。
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // ---------- 目录与提供商 ----------
 
+/// 模型能力标记（目录快照与用户提供商共有）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
@@ -15,6 +18,7 @@ pub struct Capabilities {
     pub structured: bool,
 }
 
+/// 缺省能力基线：仅流式默认开启，其余能力需目录数据显式声明。
 pub const DEFAULT_CAPS: Capabilities = Capabilities {
     stream: true,
     tools: false,
@@ -33,6 +37,7 @@ pub struct Cost {
     pub cache_write_per_m_tok: f64,
 }
 
+/// 可调用模型的解析结果：目录 / 用户数据 + 所属提供商信息（密钥环境变量、是否必需密钥）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
@@ -58,6 +63,7 @@ pub struct ModelInfo {
     pub reasoning_levels: Vec<String>,
 }
 
+/// 拼接模型引用 `providerID/modelID`（精确引用；原始模型 ID 仅兼容旧数据时回退使用）。
 pub fn model_ref(provider_id: &str, model_id: &str) -> String {
     format!("{provider_id}/{model_id}")
 }
@@ -98,6 +104,7 @@ fn default_true() -> bool {
     true
 }
 
+/// 用户提供商的持久化形状（settings 表 model.custom_providers 数组的元素）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedProvider {
@@ -127,6 +134,7 @@ pub struct PersistedProvider {
 
 // ---------- 消息与请求 ----------
 
+/// 一次工具调用（模型输出）：提供商侧调用 ID、工具名与参数（JSON 对象）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolCall {
     pub id: String,
@@ -134,6 +142,7 @@ pub struct ToolCall {
     pub args: Value,
 }
 
+/// 消息附件：文本内容注入模型输入（经防指令注入包装），图片以 base64 发给支持视觉的模型。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
     pub name: String,
@@ -159,6 +168,8 @@ pub const ROLE_USER: Role = "user";
 pub const ROLE_ASSISTANT: Role = "assistant";
 pub const ROLE_TOOL: Role = "tool";
 
+/// 对话消息：`tool` 角色经 tool_call_id 关联发起方，`assistant` 的调用记录在 tool_calls；
+/// 附件与文本同走 content / attachments，由适配器按协议能力转换。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Message {
     pub role: String,
@@ -183,6 +194,7 @@ impl Message {
     }
 }
 
+/// 工具声明：发给模型的名称 / 描述 / JSON Schema。
 #[derive(Debug, Clone)]
 pub struct ToolSpec {
     pub name: String,
@@ -197,6 +209,7 @@ pub struct SystemBlock {
     pub cache_control: bool,
 }
 
+/// 便捷构造：单一系统块（不打缓存标记）。
 pub fn single_system(text: &str) -> Vec<SystemBlock> {
     vec![SystemBlock {
         content: text.to_string(),
@@ -204,6 +217,7 @@ pub fn single_system(text: &str) -> Vec<SystemBlock> {
     }]
 }
 
+/// 一次模型请求（协议无关形状）：适配器负责按协议拼请求体与缓存标记。
 #[derive(Debug, Clone)]
 pub struct Request {
     /// 提供商侧模型 ID
@@ -222,6 +236,7 @@ pub struct Request {
 
 // ---------- 流 ----------
 
+/// 一次请求的 token 用量（缓存读 / 写与推理分列，供用量统计与费用估算）。
 #[derive(Debug, Clone, Default)]
 pub struct Usage {
     pub input_tokens: i64,
@@ -237,6 +252,7 @@ impl Usage {
     }
 }
 
+/// 流式片段：一次至多携带一种载荷（文本 / 推理 / 工具调用 / 用量），done 标记流结束。
 #[derive(Debug, Clone, Default)]
 pub struct Chunk {
     pub text: Option<String>,
@@ -246,6 +262,7 @@ pub struct Chunk {
     pub done: bool,
 }
 
+// 错误类型重导出：调用方统一从 types 取。
 pub use errors::ModelError;
 
 pub mod errors {

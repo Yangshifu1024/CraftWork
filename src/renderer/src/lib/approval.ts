@@ -5,6 +5,7 @@ import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import type { PolicyLevel } from "../../../shared/types";
 
+/** 审批档位清单（设置页与 composer 档位浮层共用）：id 与 PolicyLevel 对齐。 */
 export const APPROVAL_LEVELS = [
   { id: "graded", name: "分级", desc: "只读自动放行；写入与执行每次询问；可本会话/本工作区授权" },
   { id: "strict", name: "严格", desc: "全部逐次询问，不提供永久授权" },
@@ -25,6 +26,7 @@ export const APPROVAL_LEVEL_ICONS: Record<PolicyLevel, LucideIcon> = {
   free: ShieldAlert,
 };
 
+/** ⌘⇧M 的档位循环顺序。 */
 const LEVEL_ORDER: readonly PolicyLevel[] = ["graded", "strict", "readonly", "free"];
 
 type SaveSettings = (next: { approvalLevel: PolicyLevel }) => Promise<unknown>;

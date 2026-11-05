@@ -1,4 +1,5 @@
-// 命令面板（⌘K）：命令搜索与会话跳转。遮罩 / Esc / 焦点圈定由 radix Dialog 承担。
+// 命令面板（⌘K）：cmdk 命令搜索 + 会话跳转。遮罩 / Esc / 焦点圈定由 radix Dialog 承担。
+// 会话组只列当前模式前 8 条（更早的会话从侧栏进入）；命令执行前先关面板再运行动作。
 import { useMemo, useState } from "react";
 import { Command } from "cmdk";
 import { Dialog } from "radix-ui";
@@ -6,6 +7,7 @@ import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { applyTheme, resolveTheme, saveThemePref } from "../lib/theme";
 
+/** 命令面板（⌘K）：会话跳转 + 全局命令（新建 / 设置 / 侧栏 / 主题 / 模式 / 用量）。 */
 export function CommandPalette(): React.JSX.Element {
   const close = useOverlays((s) => s.close);
   const open = useOverlays((s) => s.open);

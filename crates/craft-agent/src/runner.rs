@@ -35,39 +35,57 @@ use crate::title::auto_title;
 
 /// 单次模型请求（含流式接收全程）的整体超时。
 pub const MODEL_REQUEST_TIMEOUT_MS: u64 = 3 * 60 * 1000;
+
+/// 单会话运行中引导（steer）消息的排队上限，超过即拒绝入队。
 pub const MAX_STEER_QUEUE: usize = 10;
 
-/// 会话内不允许超过迭代上限时统一走 fail 路径。
+/// 单次运行的模型调用轮数上限（每轮一次模型请求）；达到上限统一走 fail 路径结束。
 pub const DEFAULT_MAX_ITERATIONS: i64 = 300;
 
+/// 运行环境（值对象）：运行开始时从会话绑定的工作区一次性解析，沿调用图下发，
+/// 不做全局查询；无工作区绑定的会话为默认空值。
 #[derive(Debug, Clone, Default)]
 pub struct RunEnv {
+    /// 主要目录（会话工作目录）；空串表示未绑定工作区
     pub workspace_path: String,
+    /// 可访问的源文件夹：首项为主要目录，其余为附加目录
     pub roots: Vec<String>,
+    /// 工作区是否受限（未信任）：高风险直接拒绝、已有授权不生效、不提供永久授权
     pub restricted: bool,
+    /// 工作区用途：project | conversation
     pub purpose: String,
 }
 
+/// 运行中引导（steer）：已落事件表、排队等待并入下一次模型请求的用户消息。
 #[derive(Debug, Clone)]
 pub struct SteerItem {
+    /// 引导消息 id：投递时按它去重（接力 run 重建的历史可能已包含该消息）
     pub message_id: String,
+    /// 用户输入文本
     pub text: String,
+    /// 附件路径（投递时经 load_attachments 重新解析加载）
     pub attachments: Vec<String>,
     /// 该引导消息的事件 seq：队列剩余项进入接力 run 时作为其 trigger_seq。
     pub trigger_seq: i64,
 }
 
+/// Runner 的依赖装配：存储、策略引擎、审批、模型工厂与工具注册表。
 pub struct RunnerDeps {
     pub db: Arc<Db>,
+    /// 事件写入与广播的唯一出口
     pub records: Recorder,
     pub registry: Arc<Registry>,
+    /// 审批档位策略引擎：档位 × 风险 → allow / ask / deny
     pub engine: Arc<Mutex<Engine>>,
     pub approvals: Arc<Approvals>,
     pub models: Arc<ModelFactory>,
+    /// 附件目录：对话附件的存取根（附件路径解析先于工作区）
     pub attachment_dir: String,
+    /// 数据目录：读取全局 AGENTS.md 等环境上下文用
     pub data_dir: String,
 }
 
+/// 已建立的模型会话：客户端实例 + 模型元数据（能力/上下文窗口/计价）。
 struct Session {
     client: Box<dyn Client>,
     info: craft_model::types::ModelInfo,
@@ -76,6 +94,7 @@ struct Session {
 /// 费用估算（微美元）：token × 美元/百万 token；Anthropic 的输入计数不含缓存 token。
 pub fn estimate_cost_micros(usage: &Usage, info: &craft_model::types::ModelInfo, provider_kind: &str) -> i64 {
     let Some(cost) = &info.cost else { return 0 };
+    // cache_tokens 为缓存 token 总数（读+写），写部分取与 cache_write_tokens 的较小值防越界
     let cache_write = usage.cache_write_tokens.min(usage.cache_tokens);
     let cache_read = usage.cache_tokens - cache_write;
     let mut uncached = usage.input_tokens - usage.cache_tokens;
@@ -92,14 +111,22 @@ pub fn estimate_cost_micros(usage: &Usage, info: &craft_model::types::ModelInfo,
     (total.max(0.0)).round() as i64
 }
 
+/// 桌面通知回调：(thread_id, title, message)；由壳层注册，仅窗口失焦时由壳层自身门控。
 type NotifyFn = Box<dyn Fn(&str, &str, &str) + Send + Sync>;
 
+/// Run 循环执行器：登记在途运行与取消令牌、steer 队列与运行参数，
+/// 驱动会话串行执行（同会话同时只允许一个 run）。
 pub struct Runner {
     deps: RunnerDeps,
+    /// 会话 → 待投递 steer 队列（运行中引导）
     steers: Mutex<HashMap<String, Vec<SteerItem>>>,
+    /// 会话 → 在途运行取消令牌；键存在即「有在途运行」（单 run 登记表，新运行覆盖旧键）
     cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// 桌面通知回调
     notifier: Mutex<Option<NotifyFn>>,
+    /// 迭代上限解析器（未注册时用 DEFAULT_MAX_ITERATIONS）
     max_iterations: Mutex<Option<Box<dyn Fn() -> i64 + Send + Sync>>>,
+    /// 正在生成自动命名的会话 id（防并发重复起名）
     title_pending: Mutex<HashSet<String>>,
 }
 
@@ -115,14 +142,17 @@ impl Runner {
         }
     }
 
+    /// 注册桌面通知回调（通知的门控与展示在壳层实现）。
     pub fn set_notifier(&self, f: NotifyFn) {
         *self.notifier.lock().unwrap() = Some(f);
     }
 
+    /// 注册迭代上限解析器（每次运行开始时求值，便于设置即时生效）。
     pub fn set_max_iterations_resolver(&self, f: Box<dyn Fn() -> i64 + Send + Sync>) {
         *self.max_iterations.lock().unwrap() = Some(f);
     }
 
+    /// 会话是否有在途运行（cancels 登记表是否命中）。
     pub fn is_running(&self, thread_id: &str) -> bool {
         self.cancels.lock().unwrap().contains_key(thread_id)
     }
@@ -175,6 +205,7 @@ impl Runner {
         Ok(run.id)
     }
 
+    /// 取消会话的在途运行（触发取消令牌）；返回是否确有在途运行被取消。
     pub fn cancel(&self, thread_id: &str) -> bool {
         match self.cancels.lock().unwrap().get(thread_id) {
             Some(token) => {
@@ -212,6 +243,7 @@ impl Runner {
         Ok(true)
     }
 
+    /// 取出会话的全部待投递 steer（无待投递时返回空 Vec）。
     fn take_steers(&self, thread_id: &str) -> Vec<SteerItem> {
         let mut steers = self.steers.lock().unwrap();
         match steers.remove(thread_id) {
@@ -223,6 +255,7 @@ impl Runner {
         }
     }
 
+    /// 是否还有待投递的 steer（主循环据此决定是否接力新 run）。
     fn has_steers(&self, thread_id: &str) -> bool {
         self.steers
             .lock()
@@ -243,6 +276,8 @@ impl Runner {
 
     // ---------- 主循环 ----------
 
+    /// 主循环：执行单轮运行，正常结束后消费 steer 队列接力新 run，直至无引导或取消/失败。
+    /// 收尾统一在此处：丢弃未消费的排队 steer、回收仍归属本次运行的取消令牌。
     async fn execute(
         self: Arc<Self>,
         token: CancellationToken,
@@ -398,6 +433,7 @@ impl Runner {
         let prompt_result = build_prompt(crate::prompt::PromptInput {
             mode,
             workspace: &env.workspace_path,
+            // roots 首项是主要目录（已由 workspace 字段承载），附加目录从第二项起
             additional_folders: &env.roots[env.roots.len().min(1)..],
             workspace_purpose: &env.purpose,
             restricted: env.restricted,
@@ -421,8 +457,8 @@ impl Runner {
         let mut compression_checked = false;
 
         for iteration in 0.. {
+            // 迭代上限：limit <= 0 视为不限制（配置异常兜底），达到上限即退出走 fail
             if limit <= 0 || iteration < limit as u64 {
-                // 允许继续
             } else {
                 break;
             }
@@ -778,6 +814,7 @@ impl Runner {
                     } else {
                         target.clone()
                     };
+                    // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效
                     let cached = !env.restricted && self.deps.approvals.allowed(&call.name, &grant_target);
                     if cached {
                         scope = "cache".into();
@@ -924,6 +961,7 @@ impl Runner {
 
     // ---------- 结束路径 ----------
 
+    /// 正常收尾：run 置 done、会话切 idle、广播 run.completed、发桌面通知。
     fn complete(&self, thread_id: &str, run_id: &str, started_at: i64) {
         let duration_ms = now_millis() - started_at;
         let _ = finish_run(&self.deps.db.lock_conn(), run_id, "done", "", "");
@@ -937,6 +975,7 @@ impl Runner {
         self.notify(thread_id, "CraftWork", "本轮回复已完成。");
     }
 
+    /// 取消收尾：run 置 canceled、会话切 idle、广播 run.canceled（不发桌面通知）。
     fn canceled(&self, thread_id: &str, run_id: &str, started_at: i64) {
         let duration_ms = now_millis() - started_at;
         let _ = finish_run(&self.deps.db.lock_conn(), run_id, "canceled", "canceled", "用户取消");
@@ -950,6 +989,7 @@ impl Runner {
         // 取消不发通知
     }
 
+    /// 失败收尾：错误部件落库 → run 置 error → 会话切 error → 广播 run.failed → 桌面通知。
     #[allow(clippy::too_many_arguments)]
     fn fail(&self, thread_id: &str, run_id: &str, message_id: &str, code: &str, message: &str, retryable_flag: bool, started_at: i64) {
         // 错误部件先落库再切状态（等待方以「会话进入 error」为完成信号读快照）
@@ -985,6 +1025,8 @@ impl Runner {
 
     // ---------- 用量 ----------
 
+    /// 用量落库（usage 表 + 会话 token 累计）并广播 usage.updated。
+    /// `sidecar=true` 表示自动命名等辅助调用：不带上下文水位字段，避免小请求覆盖「当前上下文占用」。
     fn record_usage(&self, thread_id: &str, run_id: &str, info: &craft_model::types::ModelInfo, usage: &Usage, duration_ms: i64, sidecar: bool) {
         let kind = self.deps.models.provider_kind(&info.provider);
         let cost_micros = estimate_cost_micros(usage, info, &kind);
@@ -1018,6 +1060,7 @@ impl Runner {
     }
 }
 
+/// `grants::command_prefix` 的本地别名包装（shell_exec 的授权粒度推导）。
 fn command_prefix_of(command: &str) -> String {
     crate::grants::command_prefix(command)
 }

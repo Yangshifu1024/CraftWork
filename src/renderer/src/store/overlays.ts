@@ -2,11 +2,15 @@
 // 出现在设置页等全屏浮层之上，不顶掉底层浮层）+ composer 配置 picker（排他）。
 import { create } from "zustand";
 
+/** 全屏浮层种类：命令面板 / 设置（互斥，同一时刻至多一个）。 */
 export type OverlayKind = "none" | "palette" | "settings";
+/** composer 配置 picker 种类（模型 / 思考档位）。 */
 export type PickerKind = "model" | "level";
+/** 设置页分区（打开设置时可直达）。 */
 export type SettingsSection = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
 interface OverlaysState {
+  /** 当前打开的全屏浮层；none = 关闭。 */
   overlay: OverlayKind;
   /** composer 配置 picker（模型 / 审批档位），同一时刻只开一个。 */
   picker: PickerKind | null;
@@ -34,6 +38,7 @@ interface OverlaysState {
   closeFreeLevel(): void;
   openImagePreview(src: string, name: string): void;
   closeImagePreview(): void;
+  /** 设置运行中停止的 armed 态（Esc 退出链与停止按钮共用，800ms 自动解除）。 */
   setStopArmed(armed: boolean): void;
   openConfirm(opts: { title: string; message: string; danger?: boolean; onOk(): void }): void;
   openPrompt(opts: { title: string; message: string; value: string; onOk(value: string): void }): void;

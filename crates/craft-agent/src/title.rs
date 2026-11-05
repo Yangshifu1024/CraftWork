@@ -1,4 +1,5 @@
-//! 会话自动命名：首条消息可短名直用时直接用；否则调模型起标题（sidecar 调用计用量）。
+//! 会话自动命名：首条消息可短名直用时直接用；否则调模型起标题（sidecar 调用，
+//! 无输出或输出不可用时回退本地兜底；sidecar 用量当前为 best-effort，未记账）。
 
 use craft_model::types::{single_system, Client};
 use craft_store::db::Db;
@@ -33,6 +34,7 @@ pub fn normalize_title(text: &str) -> String {
     s.trim().to_string()
 }
 
+/// 是否含有效内容字符（ASCII 字母数字或中文），过滤纯符号/空白串。
 fn has_content(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c))
 }
@@ -50,6 +52,7 @@ fn is_conversational_output(s: &str) -> bool {
     SELF_INTRO_PHRASES.iter().any(|p| lower.contains(p))
 }
 
+/// 首条消息可直用作短标题时返回规范化结果（不超过 20 字且含有效字符）；否则返回空串。
 pub fn short_title(text: &str) -> String {
     let normalized = normalize_title(text);
     if !has_content(&normalized) {
@@ -116,6 +119,7 @@ pub fn derive_title(text: &str, attachments: &[String]) -> String {
     )
 }
 
+/// 自动命名的输入参数包：模型客户端 + 会话标识 + 首条消息内容与附件。
 pub struct AutoTitleInput<'a> {
     pub client: &'a dyn Client,
     pub model_id: &'a str,

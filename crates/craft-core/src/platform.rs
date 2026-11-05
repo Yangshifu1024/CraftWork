@@ -59,6 +59,7 @@ fn set_mode(_path: &Path, _mode: u32) {
 
 // ---------- 哈希与探测 ----------
 
+/// SHA-256 摘要的小写十六进制串（写前备份与外部修改检测用）。
 pub fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -89,12 +90,15 @@ const ENV_ALLOW: &[&str] = &[
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TERM", "TMPDIR", "TZ", "PWD", "COLORTERM", "SSH_AUTH_SOCK",
 ];
 
+/// 高风险变量词表：命中即剔除。注意当前实现是纯白名单语义——非白名单变量本就
+/// 全部不保留，本表只是对高风险词的显式记录（若未来改为「黑名单 + 补充放行」语义，此表立即生效）。
 const ENV_DENY_SUBSTR: &[&str] = &["API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"];
+/// 云厂商标识前缀，作用同 ENV_DENY_SUBSTR（纯白名单语义下不改变结果）。
 const ENV_DENY_PREFIX: &[&str] = &[
     "AWS_", "GITHUB_", "GH_", "OPENAI_", "ANTHROPIC_", "DEEPSEEK_", "ZHIPU_", "DASHSCOPE_",
 ];
 
-/// 清洗当前进程环境：白名单 + 敏感词剔除 + 云厂商标识前缀剔除。
+/// 清洗当前进程环境：仅放行白名单变量与 LC_* 本地化变量，其余一律不传给子进程。
 /// 目的：防止模型密钥通过环境变量泄漏给工具子进程。
 pub fn sanitized_env() -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = Vec::new();
@@ -111,7 +115,9 @@ pub fn sanitized_env() -> Vec<(String, String)> {
         if ENV_DENY_PREFIX.iter().any(|p| upper.starts_with(p)) {
             continue;
         }
+        // 白名单外变量：静默丢弃（deny 词表命中与否结果相同）
     }
+    // 哨兵变量：子进程可据此感知运行于 CraftWork 环境
     env.push(("CRAFTWORK".to_string(), "1".to_string()));
     env
 }
@@ -129,6 +135,7 @@ pub struct RunSpec {
     pub output_limit: Option<usize>,
 }
 
+/// 子进程执行结果；非零退出码属于正常输出而非错误（error 只承载无法执行类失败）。
 #[derive(Debug)]
 pub struct RunResult {
     pub output: String,
@@ -184,6 +191,7 @@ impl LimitedBuffer {
     }
 }
 
+/// SIGKILL 整个进程组（含孙进程）；组杀失败回落单进程杀。
 fn kill_process_group(pid: u32) {
     #[cfg(unix)]
     {

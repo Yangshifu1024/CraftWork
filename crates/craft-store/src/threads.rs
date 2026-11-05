@@ -1,4 +1,6 @@
 //! threads 表读写。
+//! deleted_at 为软删标记列（历史兼容）：所有读取一律过滤 deleted_at IS NULL；
+//! 当前实现只提供物理删除（delete_thread），没有写入软删标记的路径。
 
 use rusqlite::Connection;
 
@@ -10,6 +12,7 @@ pub struct ThreadRow {
     pub id: String,
     pub mode: String,
     pub title: String,
+    /// 自动命名标记：1 表示标题仍是自动生成（可被 auto_title_thread 覆盖）；手动改名即清零
     pub title_auto: bool,
     pub model_id: String,
     /// 思考档位（空串=未选择，请求不发 reasoning 参数）
@@ -41,6 +44,7 @@ fn to_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
     })
 }
 
+/// 创建会话的入参（tokens/created_at/updated_at 由存储层填充）。
 pub struct NewThread<'a> {
     pub id: &'a str,
     pub mode: &'a str,
@@ -53,6 +57,7 @@ pub struct NewThread<'a> {
     pub archived: bool,
 }
 
+/// 创建会话（created_at = updated_at = 当前时间，tokens 归零）。
 pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadRow> {
     let now = now_millis();
     conn.execute(
@@ -88,6 +93,7 @@ pub fn create_thread(conn: &Connection, t: NewThread<'_>) -> StoreResult<ThreadR
     })
 }
 
+/// 按 id 读取会话（软删行不可见；不存在返回 NotFound）。
 pub fn get_thread(conn: &Connection, id: &str) -> StoreResult<ThreadRow> {
     let row = conn
         .query_row(
@@ -102,6 +108,7 @@ pub fn get_thread(conn: &Connection, id: &str) -> StoreResult<ThreadRow> {
     Ok(row)
 }
 
+/// 列出指定模式的会话（updated_at DESC；include_archived 控制是否含归档）。
 pub fn list_threads(conn: &Connection, mode: &str, include_archived: bool) -> StoreResult<Vec<ThreadRow>> {
     let archived_clause = if include_archived { "" } else { "AND archived = 0" };
     let sql = format!(
@@ -140,6 +147,7 @@ pub fn search_threads(conn: &Connection, mode: &str, query: &str) -> StoreResult
     Ok(rows)
 }
 
+/// 手动改名：置 title_auto=0，此后自动命名不再覆盖。目标不存在返回 NotFound。
 pub fn rename_thread(conn: &Connection, id: &str, title: &str) -> StoreResult<()> {
     let changes = conn
         .execute(

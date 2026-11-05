@@ -19,6 +19,7 @@ struct Op {
     text: String,
 }
 
+/// 全量行差异：剪公共前后缀后对中段求 LCS，超限中段退化为整段删+增。
 fn diff_ops(old_lines: &[String], new_lines: &[String]) -> Vec<Op> {
     // 剪公共前缀
     let mut start = 0usize;
@@ -70,6 +71,7 @@ fn diff_ops(old_lines: &[String], new_lines: &[String]) -> Vec<Op> {
     ops
 }
 
+/// LCS 回溯生成操作序列；n*m 超过 MAX_LCS_CELLS 时返回 None（调用方走退化路径）。
 fn lcs_ops(a: &[String], b: &[String]) -> Option<Vec<Op>> {
     let n = a.len();
     let m = b.len();

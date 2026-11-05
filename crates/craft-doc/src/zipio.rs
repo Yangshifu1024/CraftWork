@@ -22,8 +22,9 @@ pub fn load_entries(raw: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
     Ok(entries)
 }
 
-/// 重写 zip：entries 为替换后的完整条目表；原子写回目标路径。
+/// 重写 zip：entries 为替换后的完整条目表；先写同目录临时文件，再原子 rename 覆盖目标。
 pub fn write_entries(path: &str, entries: &HashMap<String, Vec<u8>>) -> Result<(), String> {
+    // 临时文件与目标同目录，保证 rename 在同一文件系统内原子生效
     let tmp = Path::new(path)
         .parent()
         .unwrap_or(Path::new("."))

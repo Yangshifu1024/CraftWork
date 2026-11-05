@@ -16,6 +16,7 @@ const FREE_CAPABILITIES = [
   { icon: Globe, title: "网络和应用", desc: "访问网络、打开应用与外部链接" },
 ] as const;
 
+/** 全局对话框单例挂载点：自由档确认门 / 确认框 / 输入框三态互斥，按 overlays store 状态择一渲染（优先级从上到下）。 */
 export function Dialogs(): React.JSX.Element | null {
   const confirm = useOverlays((s) => s.confirm);
   const prompt = useOverlays((s) => s.prompt);

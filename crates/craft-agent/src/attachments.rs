@@ -11,7 +11,7 @@ use craft_policy::resolve::resolve_existing;
 pub const TEXT_LIMIT: i64 = 1024 * 1024; // 单文本 1MB
 pub const IMAGE_LIMIT: i64 = 5 * 1024 * 1024; // 单图 5MB
 pub const TOTAL_LIMIT: i64 = 12 * 1024 * 1024; // 总量 12MB
-pub const MAX_ATTACHMENTS: usize = 10;
+pub const MAX_ATTACHMENTS: usize = 10; // 单次最多附件数
 
 fn text_exts() -> &'static HashSet<&'static str> {
     static EXTS: std::sync::OnceLock<HashSet<&'static str>> = std::sync::OnceLock::new();
@@ -36,12 +36,15 @@ fn image_mime(ext: &str) -> Option<&'static str> {
     }
 }
 
+/// 附件加载结果：成功载入与被跳过的条目都在 attachments 里（保序），被跳过的以 skipped 字段说明原因。
 #[derive(Debug, Clone, Default)]
 pub struct LoadResult {
     pub attachments: Vec<Attachment>,
+    /// 成功载入的累计字节数（被跳过的不计）
     pub total_bytes: i64,
 }
 
+/// 构造被跳过附件的占位条目（skipped 写明原因，界面据此解释为何未发送）。
 fn skipped(name: &str, size: i64, reason: &str) -> Attachment {
     Attachment {
         name: name.into(),

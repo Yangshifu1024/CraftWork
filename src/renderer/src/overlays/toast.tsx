@@ -18,6 +18,7 @@ const TONE_CLASS = {
   danger: "text-destructive",
 } as const;
 
+/** Toast 视口：右下角堆叠，图标与配色按语气（info / ok / warn / danger）映射语义 token。 */
 export function ToastViewport(): React.JSX.Element {
   const items = useToasts((s) => s.items);
   const dismiss = useToasts((s) => s.dismiss);

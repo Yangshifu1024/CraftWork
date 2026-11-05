@@ -1,6 +1,7 @@
 // 事件类型全表：存储与前端渲染的共同协议。
 // 这些字符串即协议本身，改动任何一处都属于协议变更。
 
+/** 事件类型全表：值即协议字符串，与 Rust craft-core::contract 的事件类型常量对拍防漂移。 */
 export const EventType = {
   RunStarted: "run.started",
   RunCompleted: "run.completed",
@@ -37,7 +38,7 @@ export interface Envelope<T = unknown> {
   data: T;
 }
 
-/** 一次批量推送（SendEvents 通道的载荷）。 */
+/** 一次批量推送（craftwork:events 通道的载荷；Bus 在后端攒批，渲染层 applyBatch 整批应用）。 */
 export interface Batch {
   v: 1;
   threadId?: string;
@@ -51,6 +52,7 @@ export interface RunStartedData {
   modelId: string;
 }
 
+/** Run 终态（run.completed / run.canceled / run.failed 共用）；code/message 仅失败时携带。 */
 export interface RunFinishedData {
   status: "done" | "canceled" | "error";
   code?: string;
@@ -118,6 +120,7 @@ export interface TodoPart {
   items: TodoItem[];
 }
 
+/** 用户消息事件载荷；via="steer" 表示运行中引导已入队（前端显示「待送达」标记）。 */
 export interface UserMessageData {
   messageId: string;
   text: string;
@@ -208,6 +211,7 @@ export type EventKind =
   | "approval_resolved"
   | "context_compressed";
 
+/** events 表行（落库形态）：快照重建（Snapshot）的输入；与推送 Envelope 是同一事实的两种形态。 */
 export interface StoredEvent {
   id: string;
   threadId: string;

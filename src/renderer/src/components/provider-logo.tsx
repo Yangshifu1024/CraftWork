@@ -2,6 +2,7 @@
 // 全部本地资源，渲染层无网络请求（spec §2.2）。
 import { PROVIDER_LOGOS } from "../assets/provider-logos";
 
+/** 提供商 logo：命中内嵌资产用 <img>，否则回退首字母头像（取 name 首字符大写）。 */
 export function ProviderLogo({
   providerId,
   name,

@@ -7,6 +7,7 @@ import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { cycleApprovalLevel } from "../lib/approval";
 
+/** 注册窗口级快捷键（keydown，组件卸载时解绑）；按键路由规则见文件头注释。 */
 export function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -48,6 +49,7 @@ export function useShortcuts(): void {
         return;
       }
       // ⌘⇧M：循环审批档位（对齐 ZCode cycleSessionMode；切入「自由」走危险确认）。
+      // 必须先于 ⌘M 分支判定，否则带 Shift 的按键会先命中 ⌘M。
       if (meta && e.shiftKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
         if (overlay === "none" && !dialogOpen) cycleApprovalLevel();

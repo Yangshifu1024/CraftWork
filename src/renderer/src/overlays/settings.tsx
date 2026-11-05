@@ -44,6 +44,7 @@ const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: stri
   },
 ];
 
+/** 设置中心全屏浮层：左侧分组导航 + 右侧分区内容；初始分区可由外部入口（overlays store 的 settingsSection，如「管理模型」直达）指定。 */
 export function SettingsOverlay(): React.JSX.Element {
   const close = useOverlays((s) => s.close);
   // 支持外部入口指定初始分区（如模型菜单「管理模型」直达「模型与提供商」）。
@@ -200,6 +201,7 @@ function AppearanceSection(): React.JSX.Element {
   );
 }
 
+/** 模型与提供商分区（主从两栏，spec §4）：左供应商列表（分组 + 状态点）、右详情卡 / 添加页 / 空态引导三态切换。 */
 function ProvidersSection(): React.JSX.Element {
   const [providers, setProviders] = useState<ProviderView[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);

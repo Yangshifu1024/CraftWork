@@ -1,7 +1,9 @@
-//! CraftWork 应用壳（Tauri 2）。
+//! CraftWork 应用壳（Tauri 2）：启动装配与 IPC 接线。
 //!
 //! 分层纪律：本 crate 只做入口、窗口与 IPC 接线；全部领域逻辑在 crates/craft-*（不依赖 Tauri）。
-//! invoke 统一入口 `craftwork_invoke` 按方法名分发到 services（与 Electron 版 ipc.ts 通道表等价）。
+//! 渲染层所有系统操作经统一入口 `craftwork_invoke` 按方法名分发到 services，与 channels.ts
+//! 通道表三处同步接线（本文件 dispatch 缺臂由 tests/dispatch_test.rs 对拍防漏）；会话事件由
+//! Bus 攒批后经 emit `craftwork:events` 广播，applyBatch 是渲染层唯一事件入口。
 
 pub mod services;
 pub mod system;
@@ -75,6 +77,10 @@ fn setup_main_window(window: &tauri::WebviewWindow, db: &Db) {
     let _ = window.show();
 }
 
+/// 装配全部共享服务（AppState），顺序即依赖序：DB → 事件出口（Bus 批次 → emit）→
+/// Recorder（顺带把上次退出遗留的 running 标记落为 interrupted）→ 密钥 → 策略引擎/
+/// 授权/审批 → 模型目录与工厂 → 工具 Registry → Runner；最后挂三个设置驱动钩子
+/// （系统通知 / 失败转移 / 往返上限），均为调用时实时读设置、改开关立即生效。
 fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
     let data_dir = resolve_data_dir();
     let data_dir_str = data_dir.to_string_lossy().to_string();
@@ -198,6 +204,8 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
     })
 }
 
+/// 注册全部内置工具（fs / apply_patch / shell / git / todo / doc）。
+/// MCP 动态工具留桩（决策 D5）：后续接入时经同名 register 覆盖。
 fn register_builtin_tools(registry: &Registry) {
     registry.register(Box::new(craft_tools::fs::FsList));
     registry.register(Box::new(craft_tools::fs::FsRead));
@@ -217,7 +225,7 @@ fn register_builtin_tools(registry: &Registry) {
     registry.register(Box::new(craft_tools::doc::XlsxSetCell));
 }
 
-/// 渲染层统一入口：所有 `window.craftwork.<method>(...)` 经此分发。
+/// 渲染层统一入口：所有 `window.craftwork.<method>(...)` 经此分发（method + 位置参数数组）。
 #[tauri::command]
 async fn craftwork_invoke(
     method: String,
@@ -232,6 +240,9 @@ async fn craftwork_invoke(
         .map_err(|e| format!("任务执行失败：{e}"))?
 }
 
+/// 分发路由：method 与 channels.ts 的 CraftworkApi 方法一一对应，参数按位置取值
+/// （与渲染层桥的 TS 服务签名数组一致）。未声明的方法返回「尚未接线」；
+/// dispatch_test.rs 保证 channels.ts 声明的方法在此不缺臂。
 fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHandle) -> Result<Value, String> {
     use services::*;
     let a = Args::new(args);
@@ -259,6 +270,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "threadSetReasoning" => thread_set_reasoning(state, &a.str_at(0), &a.str_at(1)),
         "threadArchive" => thread_set_archived(state, &a.str_at(0), a.bool_at(1)),
         "threadDelete" => thread_delete(state, &a.str_at(0)),
+        // 快照与翻页共用实现：limit=0 不限条数（全量）；翻页传 limit + beforeSeq 游标（保留最新 limit 条）
         "threadSnapshot" => thread_snapshot(state, &a.str_at(0), 0, 0),
         "threadSnapshotPage" => thread_snapshot(state, &a.str_at(0), a.i64_at(1), a.i64_at(2)),
         // ---------- 对话 ----------
@@ -345,6 +357,9 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
     }
 }
 
+/// 应用入口：注册插件 → 装配 AppState 与内置临时会话目录 → 按主题装配主窗口 → 管理
+/// 共享状态。窗口关闭（CloseRequested）与应用退出（ExitRequested）两处兜底取消在途
+/// 运行并按取消落审计（AGENTS 6.2：不允许静默中断）。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

@@ -1,5 +1,5 @@
-//! 工厂与目录集成测试：custom providers 解析、密钥校验、停用语义、回退链。
-//! 用例语义对应 tests/factory.test.ts / model.test.ts（vitest 版的关键部分）。
+//! 工厂与目录集成测试：custom providers 解析、密钥校验、停用语义、失败转移候选链。
+//! 用例语义对应历史 Node 版（vitest）的 factory.test.ts / model.test.ts 关键用例。
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,6 +11,7 @@ use craft_store::db::Db;
 use craft_store::records::set_setting;
 use craft_model::types::PersistedModel;
 
+/// 密钥桩：按提供商 ID 查表，缺省返回空串。
 struct StubKeys {
     keys: std::collections::HashMap<String, String>,
 }
@@ -21,6 +22,7 @@ impl KeyProvider for StubKeys {
     }
 }
 
+/// 建隔离临时库（目录名含 tag + pid + 纳秒，避免并行冲突）；调用方负责清理目录。
 fn tmp_db(tag: &str) -> (PathBuf, Arc<Db>) {
     let dir = std::env::temp_dir().join(format!(
         "cw-factory-{}-{}-{}",
@@ -33,6 +35,7 @@ fn tmp_db(tag: &str) -> (PathBuf, Arc<Db>) {
     (dir, db)
 }
 
+/// 造一个启用 / 停用的持久化模型条目（其余字段取占位值）。
 fn model(id: &str, enabled: bool) -> PersistedModel {
     PersistedModel {
         id: id.into(),
@@ -51,6 +54,7 @@ fn model(id: &str, enabled: bool) -> PersistedModel {
     }
 }
 
+/// 造一个持久化提供商 JSON（camelCase 字段与 PersistedProvider 的 serde 形状一致）。
 fn provider_json(id: &str, kind: &str, endpoint: &str, key_required: bool, enabled: bool, models: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "id": id, "name": id, "kind": kind, "endpoint": endpoint,
@@ -60,10 +64,12 @@ fn provider_json(id: &str, kind: &str, endpoint: &str, key_required: bool, enabl
     })
 }
 
+/// 把提供商数组写入 settings（经 Catalog::reload 载入）。
 fn install_providers(db: &Db, providers: serde_json::Value) {
     db.with(|conn| set_setting(conn, "model.custom_providers", &providers)).unwrap();
 }
 
+/// 内置快照可加载：元数据非空、规模合理、候选搜索可用。
 #[test]
 fn builtin_catalog_load_and_metadata() {
     let (dir, db) = tmp_db("builtin");
@@ -78,6 +84,7 @@ fn builtin_catalog_load_and_metadata() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 解析优先完整模型引用；找不到再按原始模型 ID 全局匹配（兼容旧数据）；找不到返回 None。
 #[test]
 fn parse_prefers_reference_raw_id_fallback() {
     let (dir, db) = tmp_db("resolve");
@@ -106,6 +113,7 @@ fn parse_prefers_reference_raw_id_fallback() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 工厂构造分支：不存在 / 缺密钥 / 提供商停用 / 模型停用各给出对应错误码与提示，正常路径可构造。
 #[test]
 fn client_construction_missing_key_and_disabled_branches() {
     let (dir, db) = tmp_db("branches");
@@ -148,6 +156,7 @@ fn client_construction_missing_key_and_disabled_branches() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 失败转移候选过滤：无 resolver、空候选、同引用、候选停用（提供商或模型）、缺密钥一律返回空串。
 #[test]
 fn fallback_chain_excludes_disabled_same_reference_and_missing_key_candidates() {
     let (dir, db) = tmp_db("fallback");
@@ -186,6 +195,7 @@ fn fallback_chain_excludes_disabled_same_reference_and_missing_key_candidates() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// provider_kind 供费用估算的缓存口径分支使用：返回协议类型，未知提供商返回空串。
 #[test]
 fn provider_kind_for_cost_branches() {
     let (dir, db) = tmp_db("kind");

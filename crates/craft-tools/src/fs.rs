@@ -1,4 +1,10 @@
-//! fs_* / apply_patch 内置工具：读行号窗口、glob/grep 限额、写前备份、补丁预演与逐块应用。
+//! fs_* / apply_patch 内置工具：fs_list / fs_read / fs_glob / fs_grep /
+//! fs_write / fs_edit / apply_patch。
+//!
+//! 路径解析与越界校验已由 Registry.assess 完成，工具拿到的 ctx.target 是解析后的
+//! 绝对路径，可放心直接访问；写类工具（fs_write / fs_edit / apply_patch）统一
+//! 「先备份原始内容再原子写入」。apply_patch 支持补丁预演（dry_run）与逐块应用，
+//! 逐块匹配容忍行号偏移。
 
 use serde_json::{json, Value};
 
@@ -13,6 +19,7 @@ fn err_result(message: impl Into<String>) -> ToolResult {
 
 // ---------- fs_list ----------
 
+/// 列出目录内容或查看单个文件信息（R0 只读）。
 pub struct FsList;
 
 impl Tool for FsList {
@@ -63,6 +70,8 @@ impl FsList {
     }
 }
 
+/// 递归列目录：目录优先、同类按名称排序；目录跳过隐藏与忽略表，文件跳过隐藏
+/// （保留 .env.example）。输出行数超过 2000 提前止损（深层目录不再展开）。
 fn walk_dir(dir: &str, display_dir: &str, level: usize, depth: usize, lines: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -107,6 +116,7 @@ fn walk_dir(dir: &str, display_dir: &str, level: usize, depth: usize, lines: &mu
 
 // ---------- fs_read ----------
 
+/// 读取文本文件内容，带行号；支持 offset/limit 分页（R0 只读）。
 pub struct FsRead;
 
 impl Tool for FsRead {
@@ -121,6 +131,7 @@ impl Tool for FsRead {
         if meta.is_dir() {
             return err_result(format!("{} 是目录，请使用 fs_list", ctx.display));
         }
+        // 两级限制：8MB 直接拒绝（读前先判大小），MAX_READ_BYTES 截断后分页续读
         if meta.len() > 8 * 1024 * 1024 {
             return err_result(format!("文件过大（{}），超过 8MB 读取上限", human_size(meta.len() as i64)));
         }
@@ -134,6 +145,7 @@ impl Tool for FsRead {
                 json!({ "path": ctx.target, "binary": true }),
             );
         }
+        // 超过字节上限时只读前缀，剩余行靠 offset 分页获取
         let capped: String = if raw.len() > MAX_READ_BYTES {
             String::from_utf8_lossy(&raw[..MAX_READ_BYTES]).to_string()
         } else {
@@ -141,6 +153,7 @@ impl Tool for FsRead {
         };
         let mut lines: Vec<&str> = capped.split('\n').collect();
         if capped.ends_with('\n') {
+            // 去掉结尾换行产生的空行，避免行号比实际多一行
             lines.pop();
         }
         let offset = (ctx.int_arg("offset", 1) - 1).max(0) as usize;
@@ -188,6 +201,8 @@ impl FsRead {
 
 // ---------- fs_glob / fs_grep ----------
 
+/// 深度优先遍历（显式栈），对每个文件回调 (绝对路径, 相对路径)。
+/// 与 walk_dir 不同：隐藏文件/目录一律跳过（含 .env.example），避免 glob/grep 误触敏感文件。
 fn walk_files(root: &str, mut cb: impl FnMut(String, String)) {
     let mut stack: Vec<(String, String)> = vec![(root.to_string(), String::new())];
     while let Some((dir, prefix)) = stack.pop() {
@@ -227,6 +242,8 @@ fn match_glob(pattern: &str, rel: &str) -> bool {
     glob_to_regexp(pattern).map(|re| re.is_match(rel) || re.is_match(rel.rsplit('/').next().unwrap_or(rel))).unwrap_or(false)
 }
 
+/// 极简 glob → 正则翻译：`**` → 任意内容、`*` → 不跨目录、`?` → 单个非目录字符，
+/// 其余字符按字面量（正则元字符转义）。翻译失败返回 None（调用方按不匹配处理）。
 fn glob_to_regexp(glob: &str) -> Option<regex::Regex> {
     let mut source = String::from("^");
     let mut chars = glob.chars().peekable();
@@ -254,6 +271,7 @@ fn glob_to_regexp(glob: &str) -> Option<regex::Regex> {
     regex::Regex::new(&source).ok()
 }
 
+/// 按 glob 模式搜索文件（R0 只读，最多返回 200 条）。
 pub struct FsGlob;
 
 impl Tool for FsGlob {
@@ -268,6 +286,7 @@ impl Tool for FsGlob {
         }
         let mut matches: Vec<String> = Vec::new();
         walk_files(&ctx.target, |_abs, rel| {
+            // 集满 200 条即停，防止大型仓库全量列举
             if matches.len() < 200 && match_glob(&pattern, &rel) {
                 matches.push(rel);
             }
@@ -305,6 +324,7 @@ impl FsGlob {
     }
 }
 
+/// 在工作区内搜索文本，默认子串匹配、可选正则（R0 只读，最多 200 条）。
 pub struct FsGrep;
 
 impl Tool for FsGrep {
@@ -332,6 +352,7 @@ impl Tool for FsGrep {
                 return;
             }
             let Ok(meta) = std::fs::metadata(&abs) else { return };
+            // 跳过超大文件：搜索不做分页，大文件既慢又容易刷爆结果
             if meta.len() > 1024 * 1024 {
                 return;
             }
@@ -388,6 +409,7 @@ impl FsGrep {
 
 // ---------- fs_write / fs_edit ----------
 
+/// 写入（或创建）文件（R1 写工作区）；已存在文件先自动备份。
 pub struct FsWrite;
 
 impl Tool for FsWrite {
@@ -397,6 +419,7 @@ impl Tool for FsWrite {
 
     fn execute(&self, ctx: &ToolCtx) -> ToolResult {
         let content = ctx.str_arg("content");
+        // 写前备份：目标已存在时先备份原内容（读取成功视为存在）
         let mut had_existing = false;
         if let Ok(existing) = std::fs::read(&ctx.target) {
             had_existing = true;
@@ -446,6 +469,8 @@ impl FsWrite {
     }
 }
 
+/// 精确替换文件中的唯一文本片段（R1 写工作区）；old_string 必须恰好出现一次，
+/// 零次或多于一次都拒绝，防止误改。
 pub struct FsEdit;
 
 impl Tool for FsEdit {
@@ -464,6 +489,7 @@ impl Tool for FsEdit {
             Err(err) => return err_result(format!("读取失败：{err}")),
         };
         let text = String::from_utf8_lossy(&raw).to_string();
+        // 唯一性校验：匹配多处时模型补长片段重试，避免改错位置
         let count = text.matches(&old_str).count();
         if count == 0 {
             return err_result("没有找到要替换的内容；请先读取文件确认原文");
@@ -471,6 +497,7 @@ impl Tool for FsEdit {
         if count > 1 {
             return err_result(format!("匹配到 {count} 处相同内容，请提供更长的唯一片段"));
         }
+        // 校验通过才备份并写入（备份失败则不落盘）
         if let Err(err) = ctx.env.backup(&ctx.target, &raw) {
             return err_result(err);
         }
@@ -514,6 +541,7 @@ impl FsEdit {
 
 // ---------- apply_patch ----------
 
+/// 一个补丁块（unified diff 的 @@ hunk）：起止行号 + 带 tag 的内容行。
 #[derive(Debug, Clone)]
 pub struct PatchHunk {
     pub old_start: i64,
@@ -523,6 +551,8 @@ pub struct PatchHunk {
     pub lines: Vec<(char, String)>, // tag: ' ' | '-' | '+'
 }
 
+/// 解析统一 diff 文本为补丁块序列；忽略 @@ 之前的文件头，并校验每块的
+/// 旧/新内容行数与 @@ 声明一致（不符即整体报错，不做部分应用）。
 pub fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
     let normalized = patch.replace("\r\n", "\n");
     let mut lines: Vec<&str> = normalized.split('\n').collect();
@@ -615,6 +645,7 @@ fn apply_hunk(file_lines: &mut Vec<String>, hunk: &PatchHunk, delta: i64) -> Res
     Ok(new_lines.len() as i64 - old_lines.len() as i64)
 }
 
+/// 对已存在的文件应用统一 diff 补丁（R1 写工作区）；只改已有文件，不创建新文件。
 pub struct ApplyPatch;
 
 impl Tool for ApplyPatch {
@@ -641,7 +672,7 @@ impl Tool for ApplyPatch {
             return err_result("补丁中没有可应用的内容块");
         }
 
-        // 选择要应用的块（从 1 起）
+        // 选择要应用的块（从 1 起）；未指定 hunks 时应用全部
         let selected: Vec<i64> = ctx
             .args
             .get("hunks")
@@ -666,6 +697,7 @@ impl Tool for ApplyPatch {
         };
         let text = String::from_utf8_lossy(&original).to_string();
         let mut file_lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+        // delta 累计已应用块造成的行数偏移，供后续块修正匹配位置
         let mut delta: i64 = 0;
         let mut added: i64 = 0;
         let mut removed: i64 = 0;
@@ -680,6 +712,7 @@ impl Tool for ApplyPatch {
             removed += (old_len - new_len).max(0);
         }
 
+        // 预演只校验可应用性，不写盘也不备份
         if ctx.args.get("dry_run").and_then(Value::as_bool).unwrap_or(false) {
             return ToolResult::ok(format!(
                 "补丁预演通过：将应用 {} 个补丁块到 {}。未写入文件。",
@@ -688,6 +721,7 @@ impl Tool for ApplyPatch {
             ));
         }
 
+        // 全部块应用成功后才备份 + 原子写入（任一块失败则文件保持原样）
         if let Err(err) = ctx.env.backup(&ctx.target, &original) {
             return err_result(err);
         }

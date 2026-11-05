@@ -1,4 +1,8 @@
-//! doc_read / doc_edit / xlsx_set_cell 内置工具（经 craft-doc）。
+//! doc_read / doc_edit / xlsx_set_cell 内置工具（经 craft-doc，低层 zip + XML 文本级处理）。
+//!
+//! Work 模式限制（当前留桩）：doc_edit 只支持 Word 同一格式片段内的文本替换；
+//! xlsx_set_cell 只写单元格、不计算公式；doc_read 只读文本层（无 OCR、不可编辑 PDF）。
+//! 写类工具与 fs_* 一致：写前备份，替换失败时文件保持原样。
 
 use serde_json::json;
 
@@ -10,6 +14,7 @@ fn err_result(message: impl Into<String>) -> ToolResult {
     ToolResult::err(message)
 }
 
+/// 读取 Word（docx）/ Excel（xlsx）/ PDF 的文本内容（R0 只读，文本级，无 OCR）。
 pub struct DocRead;
 
 impl Tool for DocRead {
@@ -56,6 +61,8 @@ impl DocRead {
     }
 }
 
+/// 替换 Word / Excel 文档中的一处文本（R1 写工作区）。
+/// 替换语义由 craft-doc 决定：Word 限同一格式片段内匹配，跨片段不命中会报错。
 pub struct DocEdit;
 
 impl Tool for DocEdit {
@@ -75,6 +82,7 @@ impl Tool for DocEdit {
             Ok(raw) => raw,
             Err(err) => return err_result(format!("读取失败：{err}")),
         };
+        // 写前备份（替换失败时文件保持原样）
         if let Err(err) = ctx.env.backup(&ctx.target, &original) {
             return err_result(err);
         }
@@ -118,6 +126,7 @@ impl DocEdit {
     }
 }
 
+/// 更新 Excel 单元格（R1 写工作区）；只写值不计算公式——应用内不重算，由 Excel 打开时求值。
 pub struct XlsxSetCell;
 
 impl Tool for XlsxSetCell {
@@ -137,6 +146,7 @@ impl Tool for XlsxSetCell {
             Ok(raw) => raw,
             Err(err) => return err_result(format!("读取失败：{err}")),
         };
+        // 写前备份
         if let Err(err) = ctx.env.backup(&ctx.target, &original) {
             return err_result(err);
         }

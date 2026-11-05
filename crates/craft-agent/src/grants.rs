@@ -12,8 +12,10 @@ use craft_store::records::{get_setting, set_setting};
 
 const WORKSPACE_GRANTS_KEY: &str = "policy.workspace_grants";
 
+/// 授权缓存：会话级授权只在内存（进程退出失效）；工作区级授权写设置表（重启有效）。
 pub struct Grants {
     db: Arc<Db>,
+    /// 会话级授权键集合：`tool|target` 或 `shell_exec|prefix:<prefix>`
     memory: std::sync::Mutex<HashSet<String>>,
 }
 
@@ -25,6 +27,7 @@ impl Grants {
         }
     }
 
+    /// 读取工作区级授权表（settings 中的 JSON map）；缺失或损坏按空表处理。
     fn workspace_grants(&self) -> std::collections::HashMap<String, bool> {
         self.db
             .with(|conn| get_setting(conn, WORKSPACE_GRANTS_KEY))
@@ -34,6 +37,9 @@ impl Grants {
             .unwrap_or_default()
     }
 
+    /// 是否命中既有授权：先查会话（内存）再查工作区（设置表）。
+    /// 精确键 `tool|target` 直接命中（含 run_tool 传入的 `prefix:<cmd>` 形式）；
+    /// shell_exec 另支持 target 为原始命令时推导前缀、按 `prefix:<cmd>` 键命中。
     pub fn allowed(&self, tool: &str, target: &str) -> bool {
         if !target.is_empty() && self.memory.lock().unwrap().contains(&format!("{tool}|{target}")) {
             return true;
@@ -57,6 +63,7 @@ impl Grants {
         false
     }
 
+    /// 写入一条授权：session 只进内存；workspace 额外持久化到设置表（once 不应到达此处）。
     pub fn grant(&self, tool: &str, target: &str, scope: &str) {
         let key = format!("{tool}|{target}");
         self.memory.lock().unwrap().insert(key.clone());
@@ -68,6 +75,7 @@ impl Grants {
         }
     }
 
+    /// 当前会话级授权键快照（仅内存部分；调试与状态展示用）。
     pub fn snapshot(&self) -> Vec<String> {
         self.memory.lock().unwrap().iter().cloned().collect()
     }

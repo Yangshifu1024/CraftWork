@@ -8,6 +8,7 @@ export type PolicyLevel = "graded" | "strict" | "readonly" | "free";
 export type PolicyAction = "allow" | "ask" | "deny";
 export type ApprovalScope = "once" | "session" | "workspace";
 
+/** 策略评估结果：风险等级 + 判定理由 + 目标（路径/命令），审批卡片据此展示。 */
 export interface Assessment {
   risk: Risk;
   reason: string;
@@ -91,6 +92,7 @@ export type PartKind =
   | "draft"
   | "callout";
 
+/** 消息内部件：payload 形状随 kind 变化（与 events.ts 的事件载荷对应）。 */
 export interface PartSnapshot {
   id: string;
   kind: PartKind;
@@ -291,6 +293,7 @@ export interface CatalogImportInput {
 
 // ---------- 审计 / 用量 / 备份 ----------
 
+/** audit_log 行：每次工具调用与审批决定一条（自由档位下是事后追责的唯一手段）。 */
 export interface AuditEntry {
   id: number;
   ts: number;
@@ -325,6 +328,7 @@ export interface UsageSummary {
   byDay: UsageByDay[];
 }
 
+/** 写前备份记录：backupPath 为备份副本，path 为原文件；hash 为备份时原文件 SHA-256。 */
 export interface Backup {
   id: string;
   path: string;
