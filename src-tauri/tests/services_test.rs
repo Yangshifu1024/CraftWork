@@ -314,3 +314,16 @@ fn 创建项目拒绝内置临时会话目录() {
     let err = services::workspace_add_project(&state, "", json!([conv_path]).as_array().unwrap(), "trusted").unwrap_err();
     assert!(err.contains("临时会话目录"), "实际：{err}");
 }
+
+#[test]
+fn 设置保存档位即时生效无需重启() {
+    let (_dir, state) = test_state("level-hot");
+    // migration-parity 票 04：引擎只在启动时按设置初始化，保存后必须同步热切换
+    services::settings_save(&state, &json!({ "approvalLevel": "readonly" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "readonly");
+    services::settings_save(&state, &json!({ "approvalLevel": "free" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "free");
+    // 非法值回落默认档（graded）
+    services::settings_save(&state, &json!({ "approvalLevel": "bogus" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
+}

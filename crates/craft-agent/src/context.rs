@@ -52,6 +52,11 @@ pub fn estimate_history_tokens(messages: &[Message]) -> usize {
 /// 切分点从最新往前累加到保留预算为止；切在工具链上时向前扩到对应 assistant 调用。
 /// 返回 None 表示无需压缩（或无法安全切分）。
 pub fn plan_compression(messages: &[Message], window_tokens: usize) -> Option<usize> {
+    if window_tokens == 0 {
+        // 窗口未知（如目录拉取的模型 contextK=0）：无法估算占比，跳过压缩——
+        // 否则阈值恒为 0，每轮都会把历史压到只剩保留窗（migration-parity 票 04）
+        return None;
+    }
     let estimate = estimate_history_tokens(messages);
     if (estimate as f64) < window_tokens as f64 * COMPRESSION_THRESHOLD {
         return None;
@@ -274,6 +279,13 @@ mod tests {
         assert!(cut > 0 && cut < messages.len());
         assert_ne!(messages[cut].role, "tool", "切分点不得落在 tool 结果上");
         assert!(messages[cut - 1].tool_calls.is_empty(), "切分点前不得是带调用的 assistant");
+    }
+
+    #[test]
+    fn 窗口未知时跳过压缩() {
+        // contextK=0 的模型窗口为 0：不压缩（否则阈值恒超，每轮压到只剩保留窗）
+        let messages: Vec<Message> = (0..50).map(user).collect();
+        assert!(plan_compression(&messages, 0).is_none());
     }
 
     #[test]

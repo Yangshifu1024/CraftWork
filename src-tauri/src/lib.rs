@@ -102,6 +102,31 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         data_dir: data_dir.to_string_lossy().to_string(),
     }));
 
+    // 失败转移解析：按当前设置的 fallbackModel 取备用模型引用（空/无效/停用时 factory 返回空串即不转移）。
+    // 此前从未装配，设置里的备用模型存而不用（migration-parity 票 04）。
+    models.set_fallback_resolver({
+        let db = Arc::clone(&db);
+        Box::new(move || {
+            db.with(|conn| get_setting(conn, "app"))
+                .ok()
+                .flatten()
+                .and_then(|v| v.get("fallbackModel").and_then(Value::as_str).map(String::from))
+                .unwrap_or_default()
+        })
+    });
+    // 往返上限：读设置即时生效（0 视为默认值）。此前从未装配，恒用常量 300。
+    runner.set_max_iterations_resolver(Box::new({
+        let db = Arc::clone(&db);
+        move || {
+            db.with(|conn| get_setting(conn, "app"))
+                .ok()
+                .flatten()
+                .and_then(|v| v.get("maxIterations").and_then(Value::as_i64))
+                .filter(|n| *n > 0)
+                .unwrap_or(craft_agent::runner::DEFAULT_MAX_ITERATIONS)
+        }
+    }));
+
     Ok(AppState {
         db,
         secrets,

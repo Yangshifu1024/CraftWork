@@ -177,6 +177,8 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
         .db
         .with(|conn| set_setting(conn, "app", &serde_json::to_value(&merged).unwrap_or(Value::Null)))
         .map_err(|e| e.to_string())?;
+    // 档位热切换：引擎仅在启动时按设置初始化，保存必须同步生效（否则切换档位要重启才起作用）
+    state.engine.lock().unwrap().set_level(craft_policy::parse_level(&merged.approval_level));
     settings_get(state)
 }
 
