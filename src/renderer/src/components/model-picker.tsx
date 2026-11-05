@@ -1,14 +1,16 @@
 // 模型选择浮层：cmdk 搜索 + 按提供商分组的模型清单，Popover 锚定在触发按钮旁弹出。
 // 选中即落库：有活动会话时双写（会话模型 + 全局默认）；草稿态只写当前草稿槽的模型引用，
 // 不调 threadSetModel / saveSettings——草稿态选择模型不产生任何写请求，首发时随槽传入。
-// 底部「管理模型」直达设置·模型与提供商；关闭后焦点回 composer 输入框（对齐 ZCode）。
+// 底部思考强度区（当前模型有档位元数据时出现）+「管理模型」直达设置；选档不关浮层（对齐 ZCode）；
+// 关闭后焦点回 composer 输入框。
 import { useEffect, useState } from "react";
 import { Popover } from "radix-ui";
 import { Command } from "cmdk";
 import { Check, Package } from "lucide-react";
 import { api } from "../lib/api";
 import { selectableModels } from "../lib/provider-list";
-import { useApp, effectiveModelRef } from "../store/app";
+import { reasoningLabel } from "../lib/reasoning";
+import { useApp, effectiveModelRef, effectiveReasoningLevel } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import type { ProviderView } from "../../../shared/types";
 
@@ -25,6 +27,7 @@ export function ModelPicker({
   const activeThreadId = useApp((s) => s.activeThreadId[mode]);
   const settings = useApp((s) => s.settings);
   const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
+  const draftLevel = useApp((s) => effectiveReasoningLevel(s, s.mode));
   const setDraft = useApp((s) => s.setDraft);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const openSettings = useOverlays((s) => s.open);
@@ -38,27 +41,55 @@ export function ModelPicker({
     }
   }, [open]);
 
+  const activeThread = activeThreadId
+    ? useApp.getState().threads[mode].find((t) => t.id === activeThreadId)
+    : undefined;
   const current = activeThreadId
-    ? (useApp.getState().threads[mode].find((t) => t.id === activeThreadId)?.modelId || settings.defaultModel)
+    ? (activeThread?.modelId || settings.defaultModel)
     : draftModel;
 
   // 启停联动（spec §9）：只列「启用提供商 × 启用模型」，无可用模型（含全部被禁）时走空态。
   const groups = selectableModels(providers);
 
+  // 当前选中模型的思考档位元数据（无元数据/未选模型时不出档位区）
+  const currentModel = groups.flatMap((g) => g.models).find((m) => m.ref === current);
+  const reasoningLevels = currentModel?.reasoningLevels ?? [];
+  const currentLevel = activeThreadId ? (activeThread?.reasoningLevel || "") : draftLevel;
+
   const pick = async (ref: string): Promise<void> => {
+    // 档位校验：当前档位不属于新模型档位集则清空（避免给不支持档位的模型带档发请求）
+    const nextLevels = groups.flatMap((g) => g.models).find((m) => m.ref === ref)?.reasoningLevels ?? [];
+    const staleLevel = currentLevel !== "" && !nextLevels.includes(currentLevel);
     if (activeThreadId) {
       try {
         await api.threadSetModel(activeThreadId, ref);
+        if (staleLevel) await api.threadSetReasoning(activeThreadId, "");
         await refreshThreads(mode);
       } catch (err) {
         console.warn(err);
       }
-      await useApp.getState().saveSettings({ defaultModel: ref });
+      await useApp.getState().saveSettings(staleLevel ? { defaultModel: ref, reasoningLevel: "" } : { defaultModel: ref });
     } else {
       // 草稿态：模型引用只写入当前草稿槽（纯渲染层状态，随槽持久化），零写请求。
-      setDraft(mode, { modelRef: ref });
+      setDraft(mode, staleLevel ? { modelRef: ref, reasoningLevel: "" } : { modelRef: ref });
     }
     onOpenChange(false);
+  };
+
+  /** 调思考档位：与模型选择同构的双路径落库；不关浮层（对齐 ZCode，方便连选模型与档位）。 */
+  const pickLevel = async (level: string): Promise<void> => {
+    if (activeThreadId) {
+      try {
+        await api.threadSetReasoning(activeThreadId, level);
+        await refreshThreads(mode);
+      } catch (err) {
+        console.warn(err);
+        return;
+      }
+      await useApp.getState().saveSettings({ reasoningLevel: level });
+    } else {
+      setDraft(mode, { reasoningLevel: level });
+    }
   };
 
   return (
@@ -116,6 +147,32 @@ export function ModelPicker({
               ))}
             </Command.List>
           </Command>
+          {/* 思考强度区：当前选中模型有档位元数据时出现；选档不关浮层（ZCode 语义） */}
+          {reasoningLevels.length > 0 && (
+            <div className="border-t border-border px-3 pb-2 pt-2">
+              <div className="flex items-center justify-between pb-1.5">
+                <span className="text-ui-xs text-foreground-subtlest">思考强度</span>
+                <span className="text-ui-xs text-foreground-subtle">
+                  {currentLevel ? reasoningLabel(currentLevel) : "未选择"}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {reasoningLevels.map((level) => (
+                  <button
+                    key={level}
+                    className={`min-w-12 cursor-pointer rounded-lg px-2 py-1 text-ui-xs ${
+                      currentLevel === level
+                        ? "bg-selected text-foreground"
+                        : "text-foreground-subtle hover:bg-menu-hover hover:text-foreground"
+                    }`}
+                    onClick={() => void pickLevel(level)}
+                  >
+                    {reasoningLabel(level)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="border-t border-border p-1">
             <button
               className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-ui-sm text-foreground-subtle hover:bg-menu-hover"

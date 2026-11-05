@@ -11,6 +11,7 @@ import { api } from "../lib/api";
 import { cleanErrorMessage } from "../lib/errors";
 import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from "../lib/paste";
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
+import { reasoningLabel } from "../lib/reasoning";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
 import { Markdown } from "./markdown";
@@ -621,8 +622,10 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   const threads = useApp((s) => s.threads[mode]);
   const settings = useApp((s) => s.settings);
   const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
+  const draftLevel = useApp((s) => effectiveReasoningLevel(s, s.mode));
   const thread = threads.find((t) => t.id === activeId);
   const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
+  const level = activeId === "" ? draftLevel : (thread?.reasoningLevel || "");
   const label = modelId
     ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
       ? thread.modelName
@@ -638,7 +641,10 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
       } ${className ?? ""}`}
       title={modelId || "先在设置中添加提供商并选择模型"}
     >
-      <span className="max-w-40 truncate">{label}</span>
+      <span className="max-w-40 truncate">
+        {label}
+        {modelId && level !== "" && ` · ${reasoningLabel(level)}`}
+      </span>
       <ChevronDown className="size-3.5 shrink-0 text-foreground-subtlest" />
     </button>
   );
