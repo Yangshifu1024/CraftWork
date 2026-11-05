@@ -1,5 +1,6 @@
 // Markdown 渲染：流式安全的 Markdown 视图。
-// 安全策略：不渲染原始 HTML（按文本显示）；代码块高亮。
+// 安全策略：streamdown 经 rehype-raw + rehype-sanitize——良性 HTML 标签按 HTML 渲染，
+// 危险内容（script/事件属性/javascript: 等）被 sanitize 剥除；代码块高亮。
 // 字号与外框：.markdown-body 的字号/表格覆盖见 styles.css——streamdown 用 Tailwind 绝对字号，
 // 按元素映射到 UI 字号约束（--ui-font-size 体系）；表格 wrapper 是它自带的卡片外框，此处关掉
 // 表格工具按钮（controls），外框样式在 CSS 层移除。

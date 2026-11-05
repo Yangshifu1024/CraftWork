@@ -47,7 +47,7 @@ export function OverflowTitle({ text, className }: { text: string; className?: s
     >
       <span
         ref={trackRef}
-        className={`inline-block whitespace-nowrap ${scrolling ? "is-scrolling" : ""}`}
+        className={`overflow-title-track inline-block whitespace-nowrap ${scrolling ? "is-scrolling" : ""}`}
         style={
           scrolling
             ? ({ "--marquee-distance": `-${travel}px`, "--marquee-duration": `${(travel / SPEED).toFixed(2)}s` } as React.CSSProperties)
