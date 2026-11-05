@@ -136,11 +136,12 @@ struct RunInfo {
     status: String,
     started_at: i64,
     finished_at: Option<i64>,
+    trigger_seq: Option<i64>,
 }
 
 fn list_runs(conn: &Connection, thread_id: &str) -> StoreResult<Vec<RunInfo>> {
     let mut stmt = conn
-        .prepare("SELECT id, message_id, status, started_at, finished_at FROM runs WHERE thread_id = ?1 ORDER BY started_at ASC")
+        .prepare("SELECT id, message_id, status, started_at, finished_at, trigger_seq FROM runs WHERE thread_id = ?1 ORDER BY started_at ASC")
         .map_err(other_err)?;
     let rows = stmt
         .query_map([thread_id], |row| {
@@ -150,6 +151,7 @@ fn list_runs(conn: &Connection, thread_id: &str) -> StoreResult<Vec<RunInfo>> {
                 status: row.get(2)?,
                 started_at: row.get(3)?,
                 finished_at: row.get(4)?,
+                trigger_seq: row.get(5)?,
             })
         })
         .map_err(other_err)?
@@ -317,6 +319,7 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
     }
 
     // run 状态覆盖消息状态；没有事件的 run 补一条 assistant 消息
+    let mut placeholder_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     for run in &runs {
         if !run.message_id.is_empty() && messages.contains_key(&run.message_id) {
             let msg = messages.get_mut(&run.message_id).unwrap();
@@ -335,17 +338,24 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                 .filter(|s| *s > 0)
                 .min()
                 .unwrap_or_else(|| {
-                    // +1 保证严格排在触发它的用户消息之后（即便两者同毫秒）；
-                    // 后续真实部件事件的 seq 归属同一消息，不与该占位值冲突。
-                    events
-                        .iter()
-                        .filter(|e| e.created_at <= run.started_at)
-                        .map(|e| e.seq)
-                        .max()
-                        .map(|s| s + 1)
-                        .unwrap_or(0)
+                    // 权威信号：触发本 run 的用户消息 seq（V8 起落库）。+1 保证严格排在
+                    // 触发消息之后；与「下一条消息 seq 同值」的情形由下方排序的占位优先
+                    // 规则定序。不依赖毫秒时间戳——消息落库与 run 创建常落在同一毫秒，
+                    // 时间戳区分不出先后。旧行（trigger_seq 为 NULL）回退时间戳兜底。
+                    if let Some(t) = run.trigger_seq {
+                        t + 1
+                    } else {
+                        events
+                            .iter()
+                            .filter(|e| e.created_at <= run.started_at)
+                            .map(|e| e.seq)
+                            .max()
+                            .map(|s| s + 1)
+                            .unwrap_or(0)
+                    }
                 });
             order.push(run.message_id.clone());
+            placeholder_ids.insert(run.message_id.clone());
             messages.insert(
                 run.message_id.clone(),
                 MessageSnapshot {
@@ -369,13 +379,15 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         .filter_map(|id| messages.get(id).cloned())
         .filter(|m| !m.parts.is_empty() || m.status != "complete")
         .collect();
-    // seq 相同（如运行中 run 的占位消息兜底 seq == 触发它的用户消息 seq）时按消息起始时刻定序：
-    // id 是随机的，用 id 定序会以随机顺序呈现同 seq 消息。
+    // seq 相同（占位兜底 seq 会与下一条消息的 seq 同值）时，占位消息恒排在真实消息前：
+    // 占位属于触发轮次的回复位，语义上先于下一轮用户输入。真实消息之间仍按起始时刻定序；
+    // id 是随机的，只作最后兜底，避免同 seq 消息以随机顺序呈现。
     list.sort_by(|a, b| {
-        a.seq
-            .cmp(&b.seq)
-            .then_with(|| a.created_at.cmp(&b.created_at))
-            .then_with(|| a.id.cmp(&b.id))
+        a.seq.cmp(&b.seq).then_with(|| {
+            let pa = placeholder_ids.contains(&a.id);
+            let pb = placeholder_ids.contains(&b.id);
+            pb.cmp(&pa)
+        }).then_with(|| a.created_at.cmp(&b.created_at)).then_with(|| a.id.cmp(&b.id))
     });
 
     let mut has_more = false;

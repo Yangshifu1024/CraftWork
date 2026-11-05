@@ -598,23 +598,29 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
         },
     )
     .map_err(|e| e.to_string())?;
-    append_user_message(state, &id, text, attachments)?;
-    let run_id = state.runner.run(&id)?;
+    let (_, seq) = append_user_message(state, &id, text, attachments)?;
+    let run_id = state.runner.run(&id, Some(seq))?;
     Ok(json!({ "threadId": id, "runId": run_id }))
 }
 
-fn append_user_message(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> Result<String, String> {
+fn append_user_message(
+    state: &AppState,
+    thread_id: &str,
+    text: &str,
+    attachments: &[Value],
+) -> Result<(String, i64), String> {
     append_user_message_via(state, thread_id, text, attachments, None)
 }
 
 /// 落库并广播用户消息；via 非空时写入载荷（"steer" = 运行中引导，前端显示「待送达」）。
+/// 返回 (message_id, seq)：seq 随 run 启动透传为 trigger_seq，快照占位定序的权威信号。
 fn append_user_message_via(
     state: &AppState,
     thread_id: &str,
     text: &str,
     attachments: &[Value],
     via: Option<&str>,
-) -> Result<String, String> {
+) -> Result<(String, i64), String> {
     let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
     // 经 Recorder 落库并广播 user.message：直接调 record_event 只写库不发事件，
     // 渲染层时间线将看不到这条用户消息（首轮对话靠首发快照掩盖了该缺陷）。
@@ -632,20 +638,19 @@ fn append_user_message_via(
             payload,
         })
         .map_err(|e| e.to_string())?;
-    let _ = seq;
-    Ok(message_id)
+    Ok((message_id, seq))
 }
 
 pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> SvcResult {
-    append_user_message(state, thread_id, text, attachments)?;
-    let run_id = state.runner.run(thread_id)?;
+    let (_, seq) = append_user_message(state, thread_id, text, attachments)?;
+    let run_id = state.runner.run(thread_id, Some(seq))?;
     Ok(json!(run_id))
 }
 
 pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> SvcResult {
     // 预检引导容量再落库：只有确定并入队列的消息才带 via=steer（「待送达」标记）
     let steer = state.runner.can_steer(thread_id)?;
-    let message_id = if steer {
+    let (message_id, seq) = if steer {
         append_user_message_via(state, thread_id, text, attachments, Some("steer"))?
     } else {
         append_user_message(state, thread_id, text, attachments)?
@@ -654,6 +659,7 @@ pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[
         message_id: message_id.clone(),
         text: text.to_string(),
         attachments: attachments.iter().filter_map(Value::as_str).map(String::from).collect(),
+        trigger_seq: seq,
     };
     if steer {
         match state.runner.try_steer(thread_id, item) {
@@ -663,12 +669,13 @@ pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[
             Err(e) => return err(e),
         }
     }
-    let run_id = state.runner.run(thread_id)?;
+    let run_id = state.runner.run(thread_id, Some(seq))?;
     Ok(json!({ "queued": false, "runId": run_id }))
 }
 
 pub fn chat_regenerate(state: &AppState, thread_id: &str) -> SvcResult {
-    let run_id = state.runner.run(thread_id)?;
+    // 重跑上一轮，无新触发消息：trigger_seq 走 NULL（快照按旧兜底定序）
+    let run_id = state.runner.run(thread_id, None)?;
     Ok(json!(run_id))
 }
 

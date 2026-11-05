@@ -17,6 +17,10 @@ pub struct RunRow {
     pub finished_at: Option<i64>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// 触发本 run 的用户消息事件 seq（V8 起；旧行/无消息触发的 run 为 NULL）。
+    /// 快照给无部件 run 的占位消息定序用，是权威先后信号——毫秒时间戳区分不出
+    /// 同一毫秒内「消息落库 → run 创建」的先后。
+    pub trigger_seq: Option<i64>,
 }
 
 fn to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
@@ -30,16 +34,22 @@ fn to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
         finished_at: row.get("finished_at")?,
         error_code: row.get("error_code")?,
         error_message: row.get("error_message")?,
+        trigger_seq: row.get("trigger_seq")?,
     })
 }
 
-pub fn create_run(conn: &Connection, thread_id: &str, model_id: &str) -> StoreResult<RunRow> {
+pub fn create_run(
+    conn: &Connection,
+    thread_id: &str,
+    model_id: &str,
+    trigger_seq: Option<i64>,
+) -> StoreResult<RunRow> {
     let id = new_id(id_prefix::RUN);
     let message_id = new_id(id_prefix::MESSAGE);
     let now = now_millis();
     conn.execute(
-        "INSERT INTO runs (id, thread_id, message_id, status, model_id, started_at) VALUES (?1, ?2, ?3, 'running', ?4, ?5)",
-        rusqlite::params![id, thread_id, message_id, model_id, now],
+        "INSERT INTO runs (id, thread_id, message_id, status, model_id, started_at, trigger_seq) VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6)",
+        rusqlite::params![id, thread_id, message_id, model_id, now, trigger_seq],
     )
     .map_err(other_err)?;
     Ok(RunRow {
@@ -52,6 +62,7 @@ pub fn create_run(conn: &Connection, thread_id: &str, model_id: &str) -> StoreRe
         finished_at: None,
         error_code: None,
         error_message: None,
+        trigger_seq,
     })
 }
 

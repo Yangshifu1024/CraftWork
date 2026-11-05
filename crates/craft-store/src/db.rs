@@ -8,8 +8,9 @@ use rusqlite::Connection;
 
 pub use craft_core::bus::now_millis;
 
-/// 当前 schema 版本（与 Node 版 SCHEMA_VERSION 同步演进，发版两侧必须一致）。
-pub const SCHEMA_VERSION: i64 = 7;
+/// 当前 schema 版本。历史版本与已移除的 Electron 版（Node）双向兼容——老库原位可读；
+/// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
+pub const SCHEMA_VERSION: i64 = 8;
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -220,7 +221,15 @@ pub const SCHEMA_V7: &str = r#"
 DELETE FROM threads WHERE title = '新对话' AND title_auto = 1 AND NOT EXISTS (SELECT 1 FROM events WHERE events.thread_id = threads.id);
 "#;
 
-const MIGRATIONS: [&str; 8] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7];
+/// V8：runs 记录触发它的用户消息事件 seq。快照重建给无部件 run 的占位消息定序时，
+/// 以 seq（单写者事务内严格递增）为权威先后信号，替代不可靠的毫秒时间戳比较
+/// （消息落库与 run 创建常落在同一毫秒，时间戳区分不出先后）。旧行留 NULL，
+/// 快照侧对 NULL 回退时间戳兜底，行为与 V7 一致。
+pub const SCHEMA_V8: &str = r#"
+ALTER TABLE runs ADD COLUMN trigger_seq INTEGER;
+"#;
+
+const MIGRATIONS: [&str; 9] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8];
 
 fn migrate(conn: &Connection) -> StoreResult<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);

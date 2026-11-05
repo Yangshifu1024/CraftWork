@@ -186,7 +186,7 @@ fn startup_finalization_marks_stale_runs_interrupted_and_writes_error_event() {
         NewThread { id: "th_5", status: "running", ..thread("x") },
     )
     .unwrap();
-    let run = create_run(&db.lock_conn(), "th_5", "gpt-x").unwrap();
+    let run = create_run(&db.lock_conn(), "th_5", "gpt-x", None).unwrap();
     // Recorder 的 interrupt_stale_runs 包装负责落库；此处直接用 append_event 等价回调
     let count = craft_store::runs::interrupt_stale_runs(&db, |rec| {
         record_event(&db, &rec).unwrap();
@@ -215,7 +215,7 @@ fn startup_finalization_marks_stale_runs_interrupted_and_writes_error_event() {
 fn run_finish_backfills_status() {
     let (dir, db) = tmp_db("runfinish");
     create_thread(&db.lock_conn(), thread("th_6")).unwrap();
-    let run = create_run(&db.lock_conn(), "th_6", "gpt-x").unwrap();
+    let run = create_run(&db.lock_conn(), "th_6", "gpt-x", None).unwrap();
     finish_run(&db.lock_conn(), &run.id, "done", "", "").unwrap();
     let (status, finished_at): (String, i64) = db
         .with(|conn| {
@@ -373,10 +373,10 @@ fn append_event_convenience_entry_verified_via_record_event() {
 fn snapshot_running_run_placeholder_message_after_triggering_user_message() {
     let (dir, db) = tmp_db("run-order");
     create_thread(&db.lock_conn(), thread("th_order")).unwrap();
-    // 用户消息先落库（快照里 seq 更小）
-    record_event(&db, &user_message("th_order", "msg_u1", "你好")).unwrap();
+    // 用户消息先落库（快照里 seq 更小）；seq 随 run 透传为 trigger_seq（V8）
+    let (_, seq1) = record_event(&db, &user_message("th_order", "msg_u1", "你好")).unwrap();
     // 创建运行：running 且尚无任何部件事件 → 快照补占位消息
-    let run = create_run(&db.lock_conn(), "th_order", "model-x").unwrap();
+    let run = create_run(&db.lock_conn(), "th_order", "model-x", Some(seq1)).unwrap();
     let snap = snapshot(&db.lock_conn(), "th_order", 0, 0).unwrap();
     let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(
@@ -386,8 +386,8 @@ fn snapshot_running_run_placeholder_message_after_triggering_user_message() {
     );
     // 失败且无部件的 run 同理
     finish_run(&db.lock_conn(), &run.id, "error", "", "模型调用失败").unwrap();
-    record_event(&db, &user_message("th_order", "msg_u2", "再来")).unwrap();
-    let run2 = create_run(&db.lock_conn(), "th_order", "model-x").unwrap();
+    let (_, seq2) = record_event(&db, &user_message("th_order", "msg_u2", "再来")).unwrap();
+    let run2 = create_run(&db.lock_conn(), "th_order", "model-x", Some(seq2)).unwrap();
     finish_run(&db.lock_conn(), &run2.id, "error", "", "模型调用失败").unwrap();
     let snap = snapshot(&db.lock_conn(), "th_order", 0, 0).unwrap();
     let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
@@ -397,10 +397,82 @@ fn snapshot_running_run_placeholder_message_after_triggering_user_message() {
 }
 
 #[test]
+fn snapshot_placeholder_ordering_is_deterministic_within_same_millisecond() {
+    // 同毫秒确定性回归（V8 trigger_seq + 占位优先 tie-break）：消息落库与 run 创建
+    // 常落在同一毫秒，旧的时间戳兜底（created_at <= started_at）分不出先后，占位
+    // 消息会随机排到下一条用户消息之后。本用例把 run.started_at 人为对齐到消息
+    // 落库毫秒，强制复现该场景，断言顺序恒定。
+    let (dir, db) = tmp_db("run-order-same-ms");
+    create_thread(&db.lock_conn(), thread("th_same_ms")).unwrap();
+    let (_, seq1) = record_event(&db, &user_message("th_same_ms", "msg_u1", "你好")).unwrap();
+    let t1: i64 = db
+        .lock_conn()
+        .query_row(
+            "SELECT created_at FROM events WHERE message_id = 'msg_u1' AND kind = 'user_message'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let run = create_run(&db.lock_conn(), "th_same_ms", "model-x", Some(seq1)).unwrap();
+    db.lock_conn()
+        .execute("UPDATE runs SET started_at = ?1 WHERE id = ?2", rusqlite::params![t1, run.id])
+        .unwrap();
+    finish_run(&db.lock_conn(), &run.id, "error", "", "模型调用失败").unwrap();
+    let (_, seq2) = record_event(&db, &user_message("th_same_ms", "msg_u2", "再来")).unwrap();
+    let run2 = create_run(&db.lock_conn(), "th_same_ms", "model-x", Some(seq2)).unwrap();
+    // run2 同样对齐到同一毫秒（比旧时间戳兜底更苛刻）
+    db.lock_conn()
+        .execute("UPDATE runs SET started_at = ?1 WHERE id = ?2", rusqlite::params![t1, run2.id])
+        .unwrap();
+    finish_run(&db.lock_conn(), &run2.id, "error", "", "模型调用失败").unwrap();
+
+    let snap = snapshot(&db.lock_conn(), "th_same_ms", 0, 0).unwrap();
+    let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
+    // run1 占位（seq=seq1+1）与 msg_u2（seq=seq2）同值时，占位优先规则保证占位在前；
+    // run2 占位（seq=seq2+1）严格在 msg_u2 之后——全序确定，与毫秒采样无关。
+    assert_eq!(
+        ids,
+        vec!["msg_u1", run.message_id.as_str(), "msg_u2", run2.message_id.as_str()],
+        "同毫秒下占位消息顺序必须确定：紧跟各自触发轮次，不得漂移到后续用户消息之后"
+    );
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn snapshot_placeholder_falls_back_to_timestamp_for_legacy_rows() {
+    // 旧行兼容：V8 之前的 run 行 trigger_seq 为 NULL，快照回退时间戳兜底——
+    // started_at 严格晚于消息落库毫秒时，占位仍排在已落库消息之后。
+    let (dir, db) = tmp_db("run-order-legacy");
+    create_thread(&db.lock_conn(), thread("th_legacy")).unwrap();
+    let (_, seq1) = record_event(&db, &user_message("th_legacy", "msg_u1", "你好")).unwrap();
+    let run = create_run(&db.lock_conn(), "th_legacy", "model-x", None).unwrap();
+    let t1: i64 = db
+        .lock_conn()
+        .query_row(
+            "SELECT created_at FROM events WHERE message_id = 'msg_u1' AND kind = 'user_message'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.lock_conn()
+        .execute("UPDATE runs SET started_at = ?1 WHERE id = ?2", rusqlite::params![t1 + 1000, run.id])
+        .unwrap();
+    finish_run(&db.lock_conn(), &run.id, "error", "", "模型调用失败").unwrap();
+
+    let snap = snapshot(&db.lock_conn(), "th_legacy", 0, 0).unwrap();
+    let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["msg_u1", run.message_id.as_str()], "NULL trigger_seq 回退时间戳兜底，占位仍排触发消息之后");
+    assert_eq!(snap.messages[1].seq, seq1 + 1, "兜底 seq = 已落库事件最大 seq + 1");
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn startup_interrupt_cleanup_writes_canceled_terminal_event_for_pending_approvals() {
     let (dir, db) = tmp_db("stale-approval");
     create_thread(&db.lock_conn(), thread("th_sa")).unwrap();
-    let run = create_run(&db.lock_conn(), "th_sa", "model-x").unwrap();
+    let run = create_run(&db.lock_conn(), "th_sa", "model-x", None).unwrap();
     let approval = create_approval(
         &db.lock_conn(),
         craft_store::runs::NewApproval {

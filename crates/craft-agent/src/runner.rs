@@ -53,6 +53,8 @@ pub struct SteerItem {
     pub message_id: String,
     pub text: String,
     pub attachments: Vec<String>,
+    /// 该引导消息的事件 seq：队列剩余项进入接力 run 时作为其 trigger_seq。
+    pub trigger_seq: i64,
 }
 
 pub struct RunnerDeps {
@@ -131,9 +133,12 @@ impl Runner {
     }
 
     /// 启动一次运行：写 run 行 + 异步执行。返回 run_id 或错误。
-    pub fn run(self: &Arc<Self>, thread_id: &str) -> Result<String, String> {
+    /// `trigger_seq` 是触发本次运行的用户消息事件 seq（快照给无部件 run 的占位
+    /// 消息定序用）；无对应新消息的调用（如 regenerate 重跑上一轮）传 None。
+    pub fn run(self: &Arc<Self>, thread_id: &str, trigger_seq: Option<i64>) -> Result<String, String> {
         let thread = get_thread(&self.deps.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
-        let run = create_run(&self.deps.db.lock_conn(), thread_id, &thread.model_id).map_err(|e| e.to_string())?;
+        let run = create_run(&self.deps.db.lock_conn(), thread_id, &thread.model_id, trigger_seq)
+            .map_err(|e| e.to_string())?;
         let _ = self.deps.records.set_thread_status(thread_id, Some(&run.id), "running");
         // 新消息接管：取消旧运行
         if let Some(old) = self.cancels.lock().unwrap().get(thread_id) {
@@ -227,6 +232,15 @@ impl Runner {
             .unwrap_or(false)
     }
 
+    /// 队列首（最早入队）引导消息的事件 seq：接力 run 以它为触发消息定序。
+    fn first_steer_seq(&self, thread_id: &str) -> Option<i64> {
+        self.steers
+            .lock()
+            .unwrap()
+            .get(thread_id)
+            .and_then(|q| q.first().map(|item| item.trigger_seq))
+    }
+
     // ---------- 主循环 ----------
 
     async fn execute(
@@ -253,8 +267,14 @@ impl Runner {
             if !self.has_steers(thread_id) {
                 break;
             }
-            // 接力运行：排队引导并入新 run（历史重建时自动带入）
-            let next = match create_run(&self.deps.db.lock_conn(), thread_id, model_id) {
+            // 接力运行：排队引导并入新 run（历史重建时自动带入）；
+            // 触发 seq 取队列首（最早入队）引导消息，供快照占位定序
+            let next = match create_run(
+                &self.deps.db.lock_conn(),
+                thread_id,
+                model_id,
+                self.first_steer_seq(thread_id),
+            ) {
                 Ok(next) => next,
                 Err(_) => break,
             };
