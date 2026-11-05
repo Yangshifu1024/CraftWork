@@ -73,7 +73,8 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 ```text
 src/shared/              跨进程共享：事件契约（events.ts）、类型（types.ts）、
                          通道表（channels.ts）、ID 生成（ids.ts）——与 Rust serde
-                         类型（craft-core::contract）黄金文件对拍防漂移
+                         类型（craft-core::contract）经契约序列化测试与
+                         dispatch 接线对拍测试防漂移（migration-parity 票 09）
 src/renderer/            React 界面：主题（styles.css）、侧栏、对话流、右侧面板、
                          浮层（命令面板/设置/数据/对话框/toast）、zustand 状态壳；
                          lib/tauri-bridge 在 Tauri 环境提供 window.craftwork 调用面
@@ -97,14 +98,15 @@ crates/
 tests/fixtures/          golden 数据库样本（Node 版生成，Rust 侧兼容测试用）
 scripts/                 modelsync.mjs（拉取 models.dev 目录）；golden-db.mjs（兼容样本）
 assets/catalog/          models.dev 快照（catalog.json.gz + manifest + rules；Rust include_bytes）
-docs/                    adr（决策记录）、specs（行为规格）、tauri-migration（迁移计划）
+docs/                    adr（决策记录）、<feature>/（spec.md + issues/ 本地票据）、
+                         migration-parity（迁移设计对账）、tauri-migration（迁移计划）
 ```
 
 新增能力优先落到对应领域 crate；`src-tauri/src/services.rs` 只做参数校验、编排与错误转换，渲染层不得绕过通道表直接假设服务实现。
 
 ## 5. 改动流程
 
-1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/specs/`（行为规格）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
+1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/<feature>/spec.md`（行为规格，本地票据见 `docs/agents/issue-tracker.md`）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
 2. **改后端**：领域 crate 保持普通 Rust 模块，不 import Tauri（全部 `crates/*` 可 cargo test；只有 `src-tauri` 允许接触 Tauri API）。
 3. **改界面**：状态壳（zustand）只做事件应用与动作；观感取值一律走 `src/renderer/src/styles.css` 的语义色 token，不写死色值。
 4. **补测试**：核心逻辑（策略、路径、diff、存储、Agent、工具、模型层）必须有 cargo test。
@@ -238,7 +240,7 @@ pnpm build            # tauri build
 - 提交信息使用中文，一次提交只做一件逻辑上的事。
 - 提交前运行第 8 节的检查；不要提交 `out/`、`dist/`、`target/`、`node_modules/`。
 - 贡献使用 DCO：`git commit -s`。
-- 界面视觉与交互的变更先更新受影响的行为 spec，再改实现；决策变更走 `docs/adr/`。
+- 界面视觉与交互的变更先更新受影响的行为 spec（`docs/<feature>/spec.md` 或对应 issue 的行为约定），再改实现；决策变更走 `docs/adr/`。
 
 ## Agent skills
 
