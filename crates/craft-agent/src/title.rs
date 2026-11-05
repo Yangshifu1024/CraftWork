@@ -1,5 +1,4 @@
 //! 会话自动命名：首条消息可短名直用时直接用；否则调模型起标题（sidecar 调用计用量）。
-//! 对应 src/main/agent/title.ts。
 
 use craft_model::types::{single_system, Client};
 use craft_store::db::Db;

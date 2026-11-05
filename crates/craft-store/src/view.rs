@@ -1,5 +1,5 @@
 //! 视图投影：ThreadRow → ThreadView（含最近一次用量推导的上下文占用）。
-//! 对应 src/main/store/view.ts；modelNameFor 的目录解析（normalizeModelRef）在 P3 接入 craft-model。
+//! modelNameFor 的目录解析（normalizeModelRef）经 craft-model 完成。
 
 use rusqlite::Connection;
 

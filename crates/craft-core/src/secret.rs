@@ -1,7 +1,5 @@
 //! 密钥存储：~/.craftwork/keys.json（0600）。
 //! 密钥只存在于主进程与该文件；损坏时降级启动（新空存储）并给出警告，由用户在设置页重填。
-//!
-//! 对应 src/main/core/secret.ts。
 
 use std::collections::HashMap;
 use std::fs;

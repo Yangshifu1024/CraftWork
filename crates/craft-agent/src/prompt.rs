@@ -1,6 +1,5 @@
 //! 系统提示词组装：分块按变化频率分层，让提供商前缀缓存命中最大化。
 //! 稳定节不引用任何会话事实；动态节承载工作区/环境/指令文件。
-//! 对应 src/main/agent/prompt.ts。
 
 use crate::envcontext::EnvContextSnapshot;
 use craft_model::types::SystemBlock;

@@ -1,6 +1,5 @@
 //! 工具框架：集中声明每个工具的静态元数据（名称/描述/Schema/风险/路径参数）；
 //! 注册、策略判断与审批展示读同一份声明，新增工具只声明一次。
-//! 对应 src/main/tools/registry.ts。
 
 use std::collections::HashMap;
 use std::sync::Mutex;

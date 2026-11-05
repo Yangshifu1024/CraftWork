@@ -1,6 +1,6 @@
 //! 风险分级与审批档位。
 //! R0 只读自动放行；R1 写工作区；R2 执行；R3 网络或越界；R4 破坏性阻止。
-//! 对应 src/main/policy/engine.ts。判定顺序不可调换（AGENTS.md 审批表）。
+//! 判定顺序不可调换（AGENTS.md 审批表）。
 
 /// 风险等级（与 shared/types.ts 的 Risk 对齐）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

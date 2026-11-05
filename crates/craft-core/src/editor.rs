@@ -1,5 +1,5 @@
 //! 行级 diff：LCS 动态规划 + 前后缀修剪 + 3 行上下文窗口合并；n*m > 4,000,000 时退化为整段删+增。
-//! 算法与 src/main/core/editor.ts 逐行对齐（相等时优先走删除，保证同输入同输出）。
+//! 相等时优先走删除，保证同输入同输出。
 
 use crate::contract::{DiffHunk, DiffLine, DiffResult};
 

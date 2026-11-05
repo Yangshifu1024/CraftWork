@@ -1,7 +1,6 @@
 //! Anthropic 适配器。
 //! 关键点：三个 cache_control 断点（系统稳定块 / 系统动态块 / 历史最后一块）、
 //! 连续同角色合并、tool 结果以 user 身份回传。
-//! 对应 src/main/model/anthropic.ts。
 
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;

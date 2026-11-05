@@ -1,6 +1,5 @@
 //! OpenAI / OpenAI-compatible 适配器。
 //! 请求体拼接规则固定不增减空白——前缀缓存依赖字节稳定。
-//! 对应 src/main/model/openai.ts。
 
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;

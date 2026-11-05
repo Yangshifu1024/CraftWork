@@ -1,6 +1,5 @@
 //! 轻量 PDF 文本层扫描：不渲染、不执行脚本、无 OCR。
 //! /Encrypt → 报错；FlateDecode 流 zlib 解压；内容流解析字面量/十六进制字符串与定位操作符。
-//! 对应 src/main/doc/index.ts 的 pdf 部分。
 
 use flate2::read::ZlibDecoder;
 use std::io::Read;

@@ -1,4 +1,4 @@
-//! workspaces + workspace_folders 表读写（src/main/store/workspaces.ts 的直译）。
+//! workspaces + workspace_folders 表读写。
 
 use rusqlite::{Connection, OptionalExtension};
 

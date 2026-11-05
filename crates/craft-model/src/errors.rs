@@ -1,9 +1,9 @@
 //! 模型错误归一化：错误码字符串直接传前端，文案中文可展示。
-//! 与 src/main/model/errors.ts 逐条对齐（状态码映射 + 关键词二次修正）。
+//! 状态码映射 + 关键词二次修正。
 
 use std::fmt;
 
-/// 错误码常量（shared/errors.ts 的 Code）。
+/// 错误码常量。
 pub mod code {
     pub const AUTH: &str = "auth";
     pub const RATE_LIMIT: &str = "rate_limit";

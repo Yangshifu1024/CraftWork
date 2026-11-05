@@ -1,6 +1,5 @@
 //! 历史重建：从事件快照还原模型输入消息序列。
 //! 工具调用链必须正确回放（assistant 工具调用 + tool 结果成对）；压缩摘要跨运行复用。
-//! 对应 src/main/agent/history.ts。
 
 use serde_json::Value;
 

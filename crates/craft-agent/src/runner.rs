@@ -2,7 +2,6 @@
 //! 启动/取消、建立模型流（带整体超时与失败转移）、消费流片段、工具执行、审批门控、
 //! 历史重建、上下文压缩、自动命名、用量与事件落库。
 //! 同一会话同时只允许一次运行：新消息总是接管（先取消旧运行再覆盖登记）。
-//! 对应 src/main/agent/runner.ts。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

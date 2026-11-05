@@ -1,5 +1,4 @@
 //! 命令风险分类：小写子串匹配，宁可误判也不放过。
-//! 对应 src/main/policy/command.ts。
 
 use crate::engine::PolicyRisk;
 

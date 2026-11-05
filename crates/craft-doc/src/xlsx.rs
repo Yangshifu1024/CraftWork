@@ -1,6 +1,5 @@
 //! xlsx 读取与单元格更新：sharedStrings/sheet XML 定点替换，保留原结构与样式。
 //! =开头→公式（不含等号）；数字→<v>；空串→自闭合；其余→inlineStr 保留空格。
-//! 对应 src/main/doc/index.ts 的 xlsx 部分。
 
 
 use crate::xml::{xml_escape, xml_unescape};

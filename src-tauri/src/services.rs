@@ -28,7 +28,7 @@ pub const APP_VERSION: &str = "0.1.0";
 const CUSTOM_PROVIDERS_KEY: &str = "model.custom_providers";
 
 /// 全部共享服务（tauri State 管理）。
-#[allow(dead_code)] // engine/registry 供 P8 审批档位热切换与 MCP 动态注册使用
+#[allow(dead_code)] // engine/registry 供审批档位热切换与 MCP 动态注册使用
 pub struct AppState {
     pub db: Arc<Db>,
     pub secrets: Arc<SecretStore>,
@@ -832,7 +832,7 @@ pub fn provider_clear_key(state: &AppState, id: &str) -> SvcResult {
 }
 
 pub fn provider_test(state: &AppState, id: &str) -> SvcResult {
-    // 连接测试：GET models 端点探测（完整语义 P8 校准）
+    // 连接测试：GET models 端点探测
     let Some(provider) = state.catalog.find_provider(id) else {
         return err("提供商不存在");
     };

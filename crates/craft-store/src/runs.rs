@@ -1,4 +1,4 @@
-//! runs + approvals 表读写（src/main/store/runs.ts 的直译）。
+//! runs + approvals 表读写。
 
 use rusqlite::Connection;
 

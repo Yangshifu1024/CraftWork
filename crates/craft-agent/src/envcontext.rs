@@ -1,6 +1,6 @@
 //! 环境上下文快照：日期 / 平台 / Shell + Git 摘要 + 指令文件（AGENTS.md 两级）。
 //! 任何一步失败都降级省略，不阻断运行——环境公告是增强信息。
-//! 对应 src/main/agent/envcontext.ts（同步采集，调用方放阻塞线程）。
+//! 同步采集，调用方放阻塞线程。
 
 use craft_core::platform::{run, RunSpec};
 

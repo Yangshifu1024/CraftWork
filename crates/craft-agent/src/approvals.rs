@@ -1,7 +1,7 @@
 //! 审批状态机：请求 → 卡片 → 用户决定 → 执行/跳过。
 //! 不允许静默放行：任何需要审批的操作都必须显式等待用户决定；
 //! 决定一经写入不可更改（数据库层并发保护）；拒绝时一律 once，防止误授永久权限。
-//! 对应 src/main/agent/approvals.ts；TS 的 Promise 等待在 Rust 用 tokio oneshot 表达。
+//! TS 的 Promise 等待在 Rust 用 tokio oneshot 表达。
 
 use std::collections::HashMap;
 use std::sync::Arc;

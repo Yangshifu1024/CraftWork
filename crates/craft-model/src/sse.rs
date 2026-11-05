@@ -1,7 +1,5 @@
 //! SSE 公共骨架：POST JSON → 状态码校验 → data: 行解析 → 适配器解码。
 //! 行拆分核心为同步纯函数（LineReader，可单测）；异步层在适配器内消费字节流。
-//!
-//! 对应 src/main/model/sse.ts。
 
 use serde_json::Value;
 

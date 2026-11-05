@@ -1,4 +1,4 @@
-//! 统一模型客户端类型（src/main/model/types.ts 的对应）。
+//! 统一模型客户端类型。
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

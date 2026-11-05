@@ -1,4 +1,4 @@
-//! 审计 / 用量 / 设置 / 备份 表读写（src/main/store/records.ts 的直译）。
+//! 审计 / 用量 / 设置 / 备份 表读写。
 
 use rusqlite::Connection;
 

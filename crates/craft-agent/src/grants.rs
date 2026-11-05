@@ -1,7 +1,6 @@
 //! 授权缓存（对应策略层的「本会话 / 本工作区允许」语义）。
 //! 会话授权只在内存（进程退出失效）；工作区授权写设置（重启有效）。
 //! 键：精确 `tool|target`；前缀 `tool|prefix:<prefix>`（仅 shell_exec 使用）。
-//! 对应 src/main/agent/grants.ts。
 
 use std::collections::HashSet;
 use std::sync::Arc;

@@ -1,5 +1,4 @@
 //! doc_read / doc_edit / xlsx_set_cell 内置工具（经 craft-doc）。
-//! 对应 src/main/tools/git_shell.ts 的 doc 部分。
 
 use serde_json::json;
 

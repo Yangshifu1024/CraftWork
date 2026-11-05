@@ -1,4 +1,4 @@
-//! 数据库打开、PRAGMA 与迁移链（src/main/store/db.ts 的直译）。
+//! 数据库打开、PRAGMA 与迁移链。
 //! 历史迁移 SQL 与 Node 版逐字一致：Electron 版写入的库在 Rust 版直接可读可迁移。
 
 use std::path::{Path, PathBuf};

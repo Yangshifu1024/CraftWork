@@ -6,7 +6,7 @@ import { applyTheme, loadThemePref } from "./lib/theme";
 import { installTauriBridge } from "./lib/tauri-bridge";
 import "./styles.css";
 
-// Tauri 环境下提供与 preload 同名的 window.craftwork / craftworkPush（Electron 环境为空操作）。
+// 提供 window.craftwork / craftworkPush 调用面（已存在则跳过，幂等安装）。
 installTauriBridge();
 
 applyTheme(loadThemePref());

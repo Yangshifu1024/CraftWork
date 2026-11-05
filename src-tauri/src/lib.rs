@@ -311,7 +311,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "mcpDisconnect" => mcp_disconnect(state, &a.str_at(0)),
         "savePastedAttachment" => save_pasted_attachment(state, &a.str_at(0), &a.str_at(1)),
         "readAttachment" => read_attachment(state, &a.str_at(0)),
-        _ => Err(format!("方法 {method} 尚未接线（迁移进行中，见 docs/tauri-migration/issues/09）")),
+        _ => Err(format!("方法 {method} 尚未接线")),
     }
 }
 

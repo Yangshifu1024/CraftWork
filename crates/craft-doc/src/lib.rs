@@ -1,9 +1,7 @@
 //! 文档读写：Word（docx）/ Excel（xlsx）/ PDF 的文本级处理。
 //! 限制：docx 只读正文；xlsx 不计算公式（保留公式原文）；pdf 只读文本层、不支持 OCR。
 //! 编辑语义：XML 转义后的字节级替换（恰好一次）；xlsx 用定点替换保留原结构与样式。
-//! 路线：与 Electron 版一致的低层 zip + XML 处理（直译 src/main/doc/index.ts，保真度可控）。
-//!
-//! 对应 Electron 主进程 `src/main/doc/`。
+//! 路线：低层 zip + XML 处理，保真度可控。
 
 pub mod docx;
 pub mod pdf;

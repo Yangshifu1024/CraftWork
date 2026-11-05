@@ -1,7 +1,6 @@
 //! 提供商目录：内置 models.dev 快照（候选列表，只读）+ 用户自定义提供商（可调用）。
 //! 原则：应用不内置任何可用提供商——内置目录只提供「可添加候选」，调用必须经用户添加。
 //! 内置快照经 include_bytes 编译期嵌入（assets/catalog/catalog.json.gz，modelsync 产物同源）。
-//! 对应 src/main/model/catalog.ts。
 
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
@@ -311,7 +310,7 @@ fn to_model_info(p: &PersistedProvider, m: &PersistedModel) -> ModelInfo {
     }
 }
 
-/// store/view 引用的规范化入口（Arc<Db> 版；view.rs 在 P3 接入）。
+/// store/view 引用的规范化入口（Arc<Db> 版）。
 pub fn normalize_model_ref(catalog: &Catalog, ref_or_id: &str) -> Option<NormalizedRef> {
     catalog.normalize(ref_or_id)
 }

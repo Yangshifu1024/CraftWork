@@ -1,6 +1,5 @@
 //! 工具框架（Registry）与内置工具。
-//! 对应 Electron 主进程 `src/main/tools/`：fs_* / apply_patch / shell_exec / git_* / todo_write；
-//! doc_* 在 P7（docs/tauri-migration/issues/08）接入 craft-doc 后启用。
+//! 内置工具：fs_* / apply_patch / shell_exec / git_* / todo_write / doc_*。
 //! 路径解析、输出截断与写前备份由 Registry 统一处理。
 
 pub mod doc;

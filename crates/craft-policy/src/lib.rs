@@ -1,5 +1,5 @@
 //! 策略：风险分级与审批档位、命令分类、路径安全解析、敏感附件名。
-//! 对应 Electron 主进程 `src/main/policy/`。本 crate 零依赖、可独立测试。
+//! 本 crate 零依赖、可独立测试。
 
 pub mod attachment;
 pub mod command;

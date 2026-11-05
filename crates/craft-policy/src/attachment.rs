@@ -1,6 +1,5 @@
 //! 敏感附件文件名启发式。
 //! 这是启发式防护，不能替代路径边界与内容类型限制；调用方传文件名而非完整路径。
-//! 对应 src/main/policy/attachment.ts。
 
 const SENSITIVE_SUFFIXES: &[&str] = &[".pem", ".key", ".p12", ".pfx", ".jks"];
 

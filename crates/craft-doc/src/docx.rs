@@ -1,7 +1,6 @@
 //! docx 读取与文本替换：word/document.xml 流式扫描。
 //! <w:p> 段落成行；表格 <w:tbl>/<w:tr>/<w:tc>（单元格内换行连接，单元格间 tab 连接）；
 //! <w:t> 文本、<w:tab/>→\t、<w:br/>→\n。页眉页脚批注不在范围。
-//! 对应 src/main/doc/index.ts 的 docx 部分。
 
 use crate::xml::{xml_escape, xml_unescape};
 use crate::zipio;

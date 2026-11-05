@@ -1,6 +1,5 @@
 //! 上下文压缩：估算 token 超过窗口 70% 时，把早期对话压缩成摘要（复用会话模型）。
 //! 压缩失败不阻断运行；摘要只写不删，最新一条自然淘汰旧摘要。
-//! 对应 src/main/agent/context.ts。
 
 use craft_core::contract::event_type;
 use craft_core::ids::{id_prefix, new_id};

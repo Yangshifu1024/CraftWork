@@ -1,5 +1,4 @@
 //! shell_exec / git_* 内置工具。
-//! 对应 src/main/tools/git_shell.ts 的 shell_exec 与 git 部分；doc_* 在 P7 接入。
 
 use serde_json::{json, Value};
 

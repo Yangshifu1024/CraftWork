@@ -1,6 +1,6 @@
 //! 重试装饰器：指数退避，只对可重试错误生效。
 //! 只对「请求尚未建立流」阶段的可重试错误重试：一旦产出片段就不再重试——
-//! 重复内容会污染会话上下文。对应 src/main/model/retry.ts。
+//! 重复内容会污染会话上下文。
 
 use futures_core::stream::BoxStream;
 use futures_util::StreamExt;

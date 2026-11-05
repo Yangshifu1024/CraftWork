@@ -1,7 +1,5 @@
 //! 平台基础能力：原子写、哈希、二进制探测、环境清洗、子进程执行。
 //! 安全语义必须逐条保留：环境清洗防止模型密钥泄漏给工具子进程；进程组杀防止孤儿进程；有界缓冲防止输出撑爆内存。
-//!
-//! 对应 src/main/core/platform.ts。
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;

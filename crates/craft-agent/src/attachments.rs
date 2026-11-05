@@ -1,6 +1,5 @@
 //! 附件加载：文本/图片两类，越界与敏感名拦截，尺寸与总量限制。
 //! 被跳过的附件保留在结果里并带说明，让界面能解释为什么没有发送。
-//! 对应 src/main/agent/attachments.ts。
 
 use std::collections::HashSet;
 use std::path::Path;

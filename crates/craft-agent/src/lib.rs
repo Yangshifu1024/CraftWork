@@ -1,7 +1,7 @@
 //! Agent：Run 循环、审批状态机、授权缓存、历史重建、上下文压缩、自动命名、
 //! 系统提示词组装、附件加载、环境上下文。
 //!
-//! 对应 Electron 主进程 `src/main/agent/`。循环结构参考 openai/codex（仅参考设计）。
+//! 循环结构参考 openai/codex（仅参考设计）。
 //! 取消语义用 CancellationToken（对应 TS AbortController）。
 
 pub mod approvals;

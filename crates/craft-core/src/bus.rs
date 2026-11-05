@@ -1,7 +1,7 @@
 //! 内部事件总线：按会话分配内存内单调 seq（与 DB 的 seq 是两套，互不相干）；
 //! 推送侧做 30ms 微批合并，界面层按帧渲染即可。
 //!
-//! 对应 src/main/core/bus.ts；push 回调由壳层提供（Tauri emit 到 craftwork:events 通道）。
+//! push 回调由壳层提供（Tauri emit 到 craftwork:events 通道）。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};

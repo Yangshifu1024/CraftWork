@@ -1,5 +1,4 @@
 //! 模型客户端工厂：按引用解析提供商 → 构造协议客户端（统一套重试）→ 密钥校验与回退链。
-//! 对应 src/main/model/factory.ts。
 
 use std::sync::{Arc, Mutex};
 

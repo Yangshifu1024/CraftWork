@@ -1,5 +1,4 @@
 //! todo_write 内置工具（任务清单，纯展示输出）。
-//! 对应 src/main/tools/git_shell.ts 的 todo_write 部分。
 
 use serde_json::{json, Value};
 

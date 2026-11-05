@@ -1,4 +1,4 @@
-//! threads 表读写（src/main/store/threads.ts 的直译）。
+//! threads 表读写。
 
 use rusqlite::Connection;
 

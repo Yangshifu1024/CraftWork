@@ -1,5 +1,4 @@
 //! fs_* / apply_patch 内置工具：读行号窗口、glob/grep 限额、写前备份、补丁预演与逐块应用。
-//! 对应 src/main/tools/fs.ts。
 
 use serde_json::{json, Value};
 

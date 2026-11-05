@@ -1,4 +1,4 @@
-//! events 表读写与快照重建（src/main/store/events.ts 的直译）。
+//! events 表读写与快照重建。
 //! 事件表是唯一事实源：消息与部件从事件行重建，不另存副本。
 //! seq 分配与插入必须同事务（并发安全）；写入后顺带推进 threads.updated_at。
 

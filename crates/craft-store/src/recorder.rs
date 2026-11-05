@@ -1,6 +1,5 @@
 //! Recorder：事件写入与广播的唯一出口。
 //! 「写进历史」与「推给界面」的映射只存在这一份，不会漂移。
-//! 对应 src/main/core/record.ts。
 
 use std::sync::Arc;
 

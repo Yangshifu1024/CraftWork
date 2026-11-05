@@ -1,6 +1,5 @@
 //! 路径安全解析。
 //! 核心不变量：词法校验拒绝 ../ 越界 + 真实路径（符号链接解析后）二次校验拒绝链接逃逸。
-//! 对应 src/main/policy/resolve.ts。
 
 use std::path::{Component, Path, PathBuf, MAIN_SEPARATOR};
 
