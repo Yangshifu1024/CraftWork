@@ -1,5 +1,5 @@
 //! golden 数据库兼容测试：Electron 版（Node）生成的样本库在 Rust 侧原位打开、
-//! 版本一致、快照重建结果一致。样本由 scripts/golden-db.mjs 生成（迁移链与写入全部走 Node 版代码）。
+//! 版本一致、快照重建结果一致。样本为 Electron 版（Node）迁移链的历史固化产物（生成脚本已随主进程删除移除）。
 
 use std::path::PathBuf;
 
@@ -60,7 +60,7 @@ fn golden库_快照重建与Node侧基准一致() {
     let db = Db::open(&path).unwrap();
     let snap = snapshot(&db.lock_conn(), "th_gold1", 0, 0).unwrap();
 
-    // Node 侧基准（scripts/golden-db.mjs 输出）：
+    // Node 侧基准（Electron 期迁移链固化的样本输出）：
     // events: msg_g1/user_message@1, msg_g2/text@2, msg_g2/tool_call@3
     assert_eq!(snap.messages.len(), 2);
     let user_msg = &snap.messages[0];

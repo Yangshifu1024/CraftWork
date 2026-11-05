@@ -65,7 +65,6 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 | 类型检查 | `pnpm typecheck`（web 侧 tsconfig） |
 | 打包 .app | `pnpm dist:dir`（debug 包）→ `target/debug/bundle/macos/CraftWork.app`；分发 dmg 用 `pnpm dist` |
 | 同步模型目录 | `node scripts/modelsync.mjs`（检查漂移加 `--check`；生成快照后 Rust 侧经 include_bytes 生效需重编译） |
-| 生成数据兼容样本 | `node --experimental-transform-types scripts/golden-db.mjs` |
 | GUI 冒烟（隔离目录） | `CRAFTWORK_HOME=/tmp/cw-smoke pnpm dev` |
 
 ## 4. 目录与职责
@@ -96,7 +95,7 @@ crates/
                          自动命名、系统提示词组装、附件加载、环境上下文
   craft-doc/             文档读写：docx / xlsx / pdf 文本级处理（低层 zip + XML）
 tests/fixtures/          golden 数据库样本（Node 版生成，Rust 侧兼容测试用）
-scripts/                 modelsync.mjs（拉取 models.dev 目录）；golden-db.mjs（兼容样本）
+scripts/                 modelsync.mjs（拉取 models.dev 目录）
 assets/catalog/          models.dev 快照（catalog.json.gz + manifest + rules；Rust include_bytes）
 docs/                    adr（决策记录）、<feature>/（spec.md + issues/ 本地票据）、
                          migration-parity（迁移设计对账）、tauri-migration（迁移计划）
