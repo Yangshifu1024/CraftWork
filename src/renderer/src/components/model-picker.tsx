@@ -56,6 +56,16 @@ export function ModelPicker({
   const reasoningLevels = currentModel?.reasoningLevels ?? [];
   const currentLevel = activeThreadId ? (activeThread?.reasoningLevel || "") : draftLevel;
 
+  // 受控高亮：浮层打开且目录就绪后定位到当前选中模型（cmdk 非受控时高亮恒落第一个条目）。
+  // value 需与条目 value 完全一致（`${name} ${id} ${providerName}`）。
+  const [highlight, setHighlight] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    const group = groups.find((g) => g.models.some((m) => m.ref === current));
+    const item = group?.models.find((m) => m.ref === current);
+    setHighlight(item && group ? `${item.name} ${item.id} ${group.provider.name}` : "");
+  }, [open, current, providers]);
+
   const pick = async (ref: string, modelName: string): Promise<void> => {
     // 档位校验：当前档位不属于新模型档位集则清空（避免给不支持档位的模型带档发请求）
     const nextLevels = groups.flatMap((g) => g.models).find((m) => m.ref === ref)?.reasoningLevels ?? [];
@@ -110,7 +120,7 @@ export function ModelPicker({
           // 宽度随内容自适应（单模型不空旷），下限保条目排版、上限防长名溢出（对齐 ZCode 的窄菜单量级）
           className="z-50 w-fit min-w-[320px] max-w-[min(460px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md"
         >
-          <Command label="选择模型" shouldFilter={true} className="overflow-hidden">
+          <Command value={highlight} onValueChange={setHighlight} label="选择模型" shouldFilter={true} className="overflow-hidden">
             <div className="flex items-center gap-2 border-b border-border px-4">
               <Command.Input
                 autoFocus
