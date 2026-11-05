@@ -623,14 +623,22 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
   const settings = useApp((s) => s.settings);
   const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
   const draftLevel = useApp((s) => effectiveReasoningLevel(s, s.mode));
+  const draftSlotData = useApp((s) => draftSlot(s, s.mode));
   const thread = threads.find((t) => t.id === activeId);
   const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
   const level = activeId === "" ? draftLevel : (thread?.reasoningLevel || "");
-  const label = modelId
-    ? thread?.modelName && thread.modelName !== "未选择模型" && thread.modelName !== "模型不可用"
-      ? thread.modelName
-      : (modelId.split("/").pop() ?? modelId)
-    : "选择模型";
+  // 显示名解析：会话名 → 草稿槽随选存的名字 → 其他会话同模型的 name → ID 尾段兜底
+  const validName = (n: string | undefined): n is string => !!n && n !== "未选择模型" && n !== "模型不可用";
+  const slotName = draftSlotData?.modelRef && draftSlotData.modelRef === modelId ? draftSlotData.modelName : undefined;
+  const borrowedName = threads.find((t) => t.modelId === modelId && validName(t.modelName))?.modelName;
+  const name = validName(thread?.modelName)
+    ? thread!.modelName
+    : validName(slotName)
+      ? slotName!
+      : validName(borrowedName)
+        ? borrowedName!
+        : (modelId.split("/").pop() ?? modelId);
+  const label = modelId ? name : "选择模型";
   return (
     <button
       type="button"

@@ -56,7 +56,7 @@ export function ModelPicker({
   const reasoningLevels = currentModel?.reasoningLevels ?? [];
   const currentLevel = activeThreadId ? (activeThread?.reasoningLevel || "") : draftLevel;
 
-  const pick = async (ref: string): Promise<void> => {
+  const pick = async (ref: string, modelName: string): Promise<void> => {
     // 档位校验：当前档位不属于新模型档位集则清空（避免给不支持档位的模型带档发请求）
     const nextLevels = groups.flatMap((g) => g.models).find((m) => m.ref === ref)?.reasoningLevels ?? [];
     const staleLevel = currentLevel !== "" && !nextLevels.includes(currentLevel);
@@ -70,8 +70,9 @@ export function ModelPicker({
       }
       await useApp.getState().saveSettings(staleLevel ? { defaultModel: ref, reasoningLevel: "" } : { defaultModel: ref });
     } else {
-      // 草稿态：模型引用只写入当前草稿槽（纯渲染层状态，随槽持久化），零写请求。
-      setDraft(mode, staleLevel ? { modelRef: ref, reasoningLevel: "" } : { modelRef: ref });
+      // 草稿态：模型引用只写入当前草稿槽（纯渲染层状态，随槽持久化），零写请求；
+      // 显示名随槽存（chip 展示用，避免草稿态只有原始 ID 可显）。
+      setDraft(mode, staleLevel ? { modelRef: ref, reasoningLevel: "", modelName } : { modelRef: ref, modelName });
     }
     onOpenChange(false);
   };
@@ -133,7 +134,7 @@ export function ModelPicker({
                     <Command.Item
                       key={m.ref}
                       value={`${m.name} ${m.id} ${p.name}`}
-                      onSelect={() => void pick(m.ref)}
+                      onSelect={() => void pick(m.ref, m.name)}
                       className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl px-2.5 text-ui-base text-foreground data-[selected=true]:bg-menu-hover"
                     >
                       <span className="min-w-0 flex-1 truncate">{m.name}</span>

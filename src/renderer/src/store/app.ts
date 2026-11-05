@@ -25,12 +25,13 @@ export interface ChatState {
 }
 
 /** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容；modelRef 为草稿态选定的模型引用（空 = 用全局默认）；
- * reasoningLevel 为草稿态选定的思考档位（空 = 未选择）。 */
+ * reasoningLevel 为草稿态选定的思考档位（空 = 未选择）；modelName 为该引用的显示名（chip 展示用）。 */
 export interface DraftState {
   text: string;
   attachments: string[];
   modelRef: string;
   reasoningLevel: string;
+  modelName: string;
 }
 
 interface AppState {
@@ -69,7 +70,7 @@ function emptyChat(): ChatState {
 }
 
 /** 稳定空草稿槽：槽尚无内容时的回落（引用恒定，避免 zustand selector 每次返回新对象触发重渲染）。 */
-export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "", reasoningLevel: "" };
+export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "", reasoningLevel: "", modelName: "" };
 
 /** 当前模式的草稿槽（draftWsId 指向归属）；槽尚无内容时为 undefined。 */
 export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
