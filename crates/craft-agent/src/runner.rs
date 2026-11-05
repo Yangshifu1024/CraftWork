@@ -187,7 +187,7 @@ impl Runner {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 handle.spawn(async move {
-                    this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id).await;
+                    this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id, trigger_seq).await;
                 });
             }
             Err(_) => {
@@ -197,7 +197,7 @@ impl Runner {
                         .build()
                         .expect("craftwork-run 运行时启动失败");
                     rt.block_on(async move {
-                        this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id).await;
+                        this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id, trigger_seq).await;
                     });
                 });
             }
@@ -278,6 +278,7 @@ impl Runner {
 
     /// 主循环：执行单轮运行，正常结束后消费 steer 队列接力新 run，直至无引导或取消/失败。
     /// 收尾统一在此处：丢弃未消费的排队 steer、回收仍归属本次运行的取消令牌。
+    #[allow(clippy::too_many_arguments)]
     async fn execute(
         self: Arc<Self>,
         token: CancellationToken,
@@ -286,14 +287,16 @@ impl Runner {
         first_message_id: &str,
         mode: &str,
         model_id: &str,
+        first_trigger_seq: Option<i64>,
     ) {
         let mut run_id = first_run_id.to_string();
         let mut message_id = first_message_id.to_string();
+        let mut trigger_seq = first_trigger_seq;
         let mut titled = false;
         loop {
             let ok = self
                 .clone()
-                .execute_run(&token, thread_id, &run_id, &message_id, mode, model_id, titled)
+                .execute_run(&token, thread_id, &run_id, &message_id, mode, model_id, titled, trigger_seq)
                 .await;
             if !ok {
                 break;
@@ -303,18 +306,20 @@ impl Runner {
                 break;
             }
             // 接力运行：排队引导并入新 run（历史重建时自动带入）；
-            // 触发 seq 取队列首（最早入队）引导消息，供快照占位定序
+            // 触发 seq 取队列首（最早入队）引导消息，供快照占位定序与计划模式还原
+            let next_trigger_seq = self.first_steer_seq(thread_id);
             let next = match create_run(
                 &self.deps.db.lock_conn(),
                 thread_id,
                 model_id,
-                self.first_steer_seq(thread_id),
+                next_trigger_seq,
             ) {
                 Ok(next) => next,
                 Err(_) => break,
             };
             run_id = next.id;
             message_id = next.message_id;
+            trigger_seq = next_trigger_seq;
             let _ = self.deps.records.set_thread_status(thread_id, Some(&run_id), "running");
         }
         // 收尾临界区：丢弃未投递的排队引导（它们已写入事件表，下次运行的历史仍可见）
@@ -340,15 +345,9 @@ impl Runner {
         mode: &str,
         model_id: &str,
         titled: bool,
+        trigger_seq: Option<i64>,
     ) -> bool {
         let started_at = now_millis();
-        self.deps.records.emit(
-            event_type::RUN_STARTED,
-            Some(thread_id),
-            Some(run_id),
-            json!({ "messageId": message_id, "modelId": model_id }),
-        );
-
         // 运行环境是值不是全局态：开始时一次性解析，沿调用图下发
         let thread = match get_thread(&self.deps.db.lock_conn(), thread_id) {
             Ok(thread) => thread,
@@ -357,6 +356,27 @@ impl Runner {
                 return false;
             }
         };
+        // 计划模式标记随触发消息落库，此处按 trigger 还原（regenerate 跟随上一轮、steer 接力取首条引导）
+        let plan_mode =
+            craft_store::events::plan_mode_for_trigger(&self.deps.db.lock_conn(), thread_id, trigger_seq).unwrap_or(false);
+        // 计划数据：计划 run 启动即建行（未批准、无文件）；完成时 finalize_plan 落盘回填。
+        // 中断/失败保持无文件——前端「批准并执行」提示条不出现。
+        if plan_mode {
+            let _ = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id);
+        }
+        let worktree_path = thread.worktree_path.clone();
+        let worktree_branch = thread.worktree_branch.clone();
+        self.deps.records.emit(
+            event_type::RUN_STARTED,
+            Some(thread_id),
+            Some(run_id),
+            json!({
+                "messageId": message_id,
+                "modelId": model_id,
+                "planMode": plan_mode,
+                "worktreePath": worktree_path.as_str(),
+            }),
+        );
         let mut env = RunEnv::default();
         if !thread.workspace_id.is_empty() {
             match get_workspace(&self.deps.db.lock_conn(), &thread.workspace_id) {
@@ -381,6 +401,28 @@ impl Runner {
                     return false;
                 }
             }
+        }
+        // worktree 绑定：主要目录切换到独立 git 工作树（附加目录保留），fs/命令/Git 全部在工作树内进行；
+        // 目录丢失按失败处理（重发时服务层 ensure 会 prune 重建），不允许静默回退到主目录
+        let mut worktree_branch_for_prompt: Option<String> = None;
+        if !worktree_path.is_empty() && !env.workspace_path.is_empty() {
+            if !std::path::Path::new(&worktree_path).exists() {
+                self.fail(
+                    thread_id,
+                    run_id,
+                    message_id,
+                    "worktree_missing",
+                    "会话绑定的 git 工作树目录已不存在，请重新发送消息以自动重建",
+                    true,
+                    started_at,
+                );
+                return false;
+            }
+            env.workspace_path = worktree_path.clone();
+            if let Some(first) = env.roots.first_mut() {
+                *first = worktree_path.clone();
+            }
+            worktree_branch_for_prompt = Some(worktree_branch).filter(|b| !b.is_empty());
         }
 
         // 历史重建（阻塞段放阻塞线程）
@@ -437,6 +479,8 @@ impl Runner {
             additional_folders: &env.roots[env.roots.len().min(1)..],
             workspace_purpose: &env.purpose,
             restricted: env.restricted,
+            plan_mode,
+            worktree_branch: worktree_branch_for_prompt.as_deref(),
             env: env_context.as_ref(),
         });
 
@@ -662,6 +706,9 @@ impl Runner {
             // 没有工具调用 = 最终回答
             if tool_calls.is_empty() {
                 self.complete(thread_id, run_id, started_at);
+                if plan_mode {
+                    self.finalize_plan(thread_id, run_id);
+                }
                 return true;
             }
 
@@ -670,7 +717,7 @@ impl Runner {
             history.push(assistant);
             for call in tool_calls {
                 let (result, aborted) = self
-                    .run_tool(token, thread_id, run_id, message_id, &call, &env, mode)
+                    .run_tool(token, thread_id, run_id, message_id, &call, &env, mode, plan_mode)
                     .await;
                 if aborted {
                     self.canceled(thread_id, run_id, started_at);
@@ -760,6 +807,7 @@ impl Runner {
         call: &ToolCall,
         env: &RunEnv,
         mode: &str,
+        plan_mode: bool,
     ) -> (ToolResult, bool) {
         let part_id = new_id(id_prefix::PART);
         let assessment = self.deps.registry.assess(
@@ -801,7 +849,15 @@ impl Runner {
         } else if !self.deps.registry.allows(mode, &call.name) {
             denied = "当前模式不支持该工具".into();
         } else {
-            let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
+            let mut action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
+            // 计划模式硬约束：R1+ 写类操作一律逐次审批——「永不主动编辑」不依赖提示词自觉。
+            // 只把 Allow 收紧为 Ask，不放松任何既有拒绝（R4 / 受限工作区 R3 / 只读档 Deny 原样保留）。
+            let plan_forced = plan_mode
+                && !matches!(assessment.risk, craft_policy::PolicyRisk::R0)
+                && action != craft_policy::Action::Deny;
+            if plan_forced {
+                action = craft_policy::Action::Ask;
+            }
             match action {
                 craft_policy::Action::Deny => denied = "当前审批档位拒绝该操作".into(),
                 craft_policy::Action::Allow => {}
@@ -814,13 +870,15 @@ impl Runner {
                     } else {
                         target.clone()
                     };
-                    // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效
-                    let cached = !env.restricted && self.deps.approvals.allowed(&call.name, &grant_target);
+                    // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效；
+                    // 计划模式下已授权缓存不生效，每次写入都必须当面确认
+                    let cached = !env.restricted && !plan_forced && self.deps.approvals.allowed(&call.name, &grant_target);
                     if cached {
                         scope = "cache".into();
                     } else {
-                        // 受限工作区每次必问且无授权缓存
-                        let permanent = self.deps.engine.lock().unwrap().allows_permanent(env.restricted, assessment.risk);
+                        // 受限工作区每次必问且无授权缓存；计划模式不提供永久授权（决定按 once 处理）
+                        let permanent = !plan_forced
+                            && self.deps.engine.lock().unwrap().allows_permanent(env.restricted, assessment.risk);
                         let mut facts = vec![
                             ApprovalFact { label: "风险等级".into(), value: assessment.risk.as_str().to_string() },
                             ApprovalFact { label: "操作".into(), value: summary.clone() },
@@ -828,6 +886,9 @@ impl Runner {
                         ];
                         if !target.is_empty() {
                             facts.push(ApprovalFact { label: "目标".into(), value: target.clone() });
+                        }
+                        if plan_forced {
+                            facts.push(ApprovalFact { label: "计划模式".into(), value: "本轮写操作需逐次确认，不提供永久授权".into() });
                         }
                         if call.name == "shell_exec" {
                             let prefix = command_prefix_of(&command);
@@ -960,6 +1021,42 @@ impl Runner {
     }
 
     // ---------- 结束路径 ----------
+
+    /// 计划收尾（仅计划模式 run 正常完成后调用）：把该 run 的最终正文写入
+    /// ~/.craftwork/plans/plan_<id>.md，回填计划记录并广播 plan.created。
+    /// 中断/失败不走到这里——计划保持无文件，前端提示条不出现。
+    fn finalize_plan(&self, thread_id: &str, run_id: &str) {
+        let conn = self.deps.db.lock_conn();
+        // 该 run 名下的计划行（run 启动时创建；找不到说明历史数据，静默跳过）
+        let plan = match craft_store::plans::latest_plan(&conn, thread_id) {
+            Ok(Some(p)) if p.run_id.as_deref() == Some(run_id) => p,
+            _ => return,
+        };
+        // 最终正文 = 该 run 最后一段非空 text（就是用户在聊天里看到的那份计划）
+        let Ok(Some(text)) = craft_store::plans::last_text_of_run(&conn, run_id) else {
+            return;
+        };
+        drop(conn);
+        // 落盘 + 回填 + 广播；任一步失败只降级为「无文件」（提示条不出现），不打断收尾
+        let dir = match craft_store::plans::plans_dir(&self.deps.db) {
+            Ok(dir) => dir,
+            Err(_) => return,
+        };
+        let file = dir.join(format!("plan_{}.md", plan.id.trim_start_matches(id_prefix::PLAN)));
+        if craft_core::platform::write_file_atomic_str(&file, &text, 0o600).is_err() {
+            return;
+        }
+        let _ = self
+            .deps
+            .db
+            .with(|conn| craft_store::plans::set_plan_file(conn, &plan.id, file.to_string_lossy().as_ref()));
+        self.deps.records.emit(
+            event_type::PLAN_CREATED,
+            Some(thread_id),
+            Some(run_id),
+            json!({ "planId": plan.id, "threadId": thread_id, "filePath": file.to_string_lossy(), "updatedAt": now_millis() }),
+        );
+    }
 
     /// 正常收尾：run 置 done、会话切 idle、广播 run.completed、发桌面通知。
     fn complete(&self, thread_id: &str, run_id: &str, started_at: i64) {
