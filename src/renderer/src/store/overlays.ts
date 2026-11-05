@@ -18,12 +18,16 @@ interface OverlaysState {
   prompt: { title: string; message: string; value: string; onOk(value: string): void } | null;
   /** 「创建项目」对话框（名称/源文件夹多选/信任确认两视图）。 */
   createProject: boolean;
+  /** 自由档确认门（能力清单 + 勾选确认门，危险操作专用）。 */
+  freeLevel: { onOk(): void } | null;
   open(kind: OverlayKind, section?: SettingsSection): void;
   close(): void;
   closeConfirm(): void;
   closePrompt(): void;
   openCreateProject(): void;
   closeCreateProject(): void;
+  openFreeLevel(opts: { onOk(): void }): void;
+  closeFreeLevel(): void;
   openConfirm(opts: { title: string; message: string; danger?: boolean; onOk(): void }): void;
   openPrompt(opts: { title: string; message: string; value: string; onOk(value: string): void }): void;
   openPicker(kind: PickerKind): void;
@@ -37,6 +41,7 @@ export const useOverlays = create<OverlaysState>((set) => ({
   confirm: null,
   prompt: null,
   createProject: false,
+  freeLevel: null,
   open(kind, section) {
     // 全屏浮层与 composer picker 互斥：打开任一浮层时收起 picker。
     set({ overlay: kind, picker: null, settingsSection: section ?? null });
@@ -66,6 +71,13 @@ export const useOverlays = create<OverlaysState>((set) => ({
   },
   openCreateProject() {
     set({ createProject: true, picker: null });
+  },
+  // 自由档确认门与 confirm/prompt 同族：全局单例，新请求覆盖旧请求并清掉其他未决层
+  openFreeLevel(opts) {
+    set({ freeLevel: opts, confirm: null, prompt: null, picker: null });
+  },
+  closeFreeLevel() {
+    set({ freeLevel: null });
   },
   closeCreateProject() {
     set({ createProject: false });

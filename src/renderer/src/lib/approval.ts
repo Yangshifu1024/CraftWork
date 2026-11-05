@@ -28,22 +28,13 @@ export const APPROVAL_LEVEL_ICONS: Record<PolicyLevel, LucideIcon> = {
 const LEVEL_ORDER: readonly PolicyLevel[] = ["graded", "strict", "readonly", "free"];
 
 type SaveSettings = (next: { approvalLevel: PolicyLevel }) => Promise<unknown>;
-type OpenConfirm = (opts: { title: string; message: string; danger?: boolean; onOk(): void }) => void;
+type OpenFreeLevel = (opts: { onOk(): void }) => void;
 
-/** 选择档位的统一入口：切到「自由」先弹危险确认，确认才写入；其余档位直接写入并立即生效。 */
-function confirmThenSave(
-  id: PolicyLevel,
-  current: PolicyLevel,
-  save: SaveSettings,
-  openConfirm: OpenConfirm,
-): void {
+/** 选择档位的统一入口：切到「自由」先过自由档确认门（能力清单 + 勾选确认），
+ * 确认才写入；其余档位直接写入并立即生效。 */
+function confirmThenSave(id: PolicyLevel, current: PolicyLevel, save: SaveSettings, openFreeLevel: OpenFreeLevel): void {
   if (id === "free" && current !== "free") {
-    openConfirm({
-      title: "切换到「自由」档位？",
-      message: "自由档位会放行一切操作，包括破坏性命令与工作区之外的写入，安全只靠审计与备份兜底。建议仅在隔离或完全可信的环境中使用。",
-      danger: true,
-      onOk: () => void save({ approvalLevel: id }),
-    });
+    openFreeLevel({ onOk: () => void save({ approvalLevel: id }) });
     return;
   }
   void save({ approvalLevel: id });
@@ -53,15 +44,15 @@ function confirmThenSave(
 export function useApprovalLevelAction(): (id: PolicyLevel) => void {
   const current = useApp((s) => s.settings.approvalLevel);
   const save = useApp((s) => s.saveSettings);
-  const openConfirm = useOverlays((s) => s.openConfirm);
-  return (id) => confirmThenSave(id, current, save, openConfirm);
+  const openFreeLevel = useOverlays((s) => s.openFreeLevel);
+  return (id) => confirmThenSave(id, current, save, openFreeLevel);
 }
 
-/** ⌘⇧M 循环档位（分级 → 严格 → 只读 → 自由 → 分级，对齐 ZCode cycleSessionMode）；切入「自由」同样过确认。 */
+/** ⌘⇧M 循环档位（分级 → 严格 → 只读 → 自由 → 分级，对齐 ZCode cycleSessionMode）；切入「自由」同样过确认门。 */
 export function cycleApprovalLevel(): void {
   const { settings, saveSettings } = useApp.getState();
-  const openConfirm = useOverlays.getState().openConfirm;
+  const openFreeLevel = useOverlays.getState().openFreeLevel;
   const idx = LEVEL_ORDER.indexOf(settings.approvalLevel);
   const next = LEVEL_ORDER[(Math.max(idx, 0) + 1) % LEVEL_ORDER.length] ?? "graded";
-  confirmThenSave(next, settings.approvalLevel, saveSettings, openConfirm);
+  confirmThenSave(next, settings.approvalLevel, saveSettings, openFreeLevel);
 }
