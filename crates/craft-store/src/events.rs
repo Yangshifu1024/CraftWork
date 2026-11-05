@@ -273,11 +273,15 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             payload = serde_json::json!({});
         }
         if ev.kind == "user_message" {
-            // user_message 只保留 text 与 attachments
+            // user_message 只保留 text 与 attachments（via=steer 透传：前端「待送达」标记）
+            let via = payload.get("via").cloned();
             payload = serde_json::json!({
                 "text": payload.get("text").cloned().unwrap_or(Value::String(String::new())),
                 "attachments": payload.get("attachments").cloned().unwrap_or(Value::Array(vec![])),
             });
+            if let Some(via) = via {
+                payload["via"] = via;
+            }
         }
 
         let role = if ev.kind == "user_message" { "user" } else { "assistant" };

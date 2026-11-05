@@ -12,6 +12,7 @@ import { SettingsOverlay } from "./overlays/settings";
 import { ToastViewport } from "./overlays/toast";
 import { Dialogs } from "./overlays/dialogs";
 import { CreateProjectDialog } from "./overlays/create-project";
+import { ImagePreview } from "./overlays/image-preview";
 import { useOverlays } from "./store/overlays";
 import { useShortcuts } from "./hooks/shortcuts";
 
@@ -63,6 +64,7 @@ export default function App(): React.JSX.Element {
       {overlay === "settings" && <SettingsOverlay />}
       <Dialogs />
       <CreateProjectDialog />
+      <ImagePreview />
       <ToastViewport />
     </div>
   );

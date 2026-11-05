@@ -115,6 +115,10 @@ export const useApp = create<AppState>((set, get) => ({
       api.threadList("work", false),
       api.workspaceList(),
     ]);
+    // 界面字号缩放：设置页只在拖动时写 --ui-font-size，boot 必须回放持久化值（否则重启回退 14px）
+    if (settings.fontSize >= 11 && settings.fontSize <= 18) {
+      document.documentElement.style.setProperty("--ui-font-size", `${settings.fontSize}px`);
+    }
     // 主题以 settings 为事实源：校准启动缓存；system 偏好下跟随系统亮暗变化。
     saveThemePref(settings.theme);
     const themeResolved = applyTheme(settings.theme);
@@ -299,12 +303,18 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
   switch (event.type) {
     case "run.started": {
       const messageId = String(data["messageId"] ?? "");
+      // 回复已开始：清掉用户消息上的「待送达」（via=steer）标记
+      const cleared = chat.messages.map((m) =>
+        m.parts.some((p) => p.payload["via"])
+          ? { ...m, parts: m.parts.map((p) => (p.payload["via"] ? { ...p, payload: { ...p.payload, via: undefined } } : p)) }
+          : m,
+      );
       setChat(set, threadId, {
         ...chat,
         running: true,
-        messages: chat.messages.some((m) => m.id === messageId)
-          ? chat.messages
-          : [...chat.messages, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: event.ts }],
+        messages: cleared.some((m) => m.id === messageId)
+          ? cleared
+          : [...cleared, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: event.ts }],
       });
       break;
     }
@@ -313,11 +323,13 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const messages = chat.messages.map((m) =>
         m.status === "streaming" ? { ...m, status: event.type === "run.completed" ? ("complete" as const) : ("incomplete" as const) } : m,
       );
+      mergeWorkDuration(messages, data["durationMs"]);
       setChat(set, threadId, { messages, running: false, lastSeq: chat.lastSeq });
       break;
     }
     case "run.failed": {
       const messages = chat.messages.map((m) => (m.status === "streaming" ? { ...m, status: "error" as const } : m));
+      mergeWorkDuration(messages, data["durationMs"]);
       setChat(set, threadId, { messages, running: false, lastSeq: chat.lastSeq });
       break;
     }
@@ -417,7 +429,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
             id: `part_${messageId}`,
             kind: "text",
             seq: 0,
-            payload: { text: data["text"] ?? "", attachments: data["attachments"] ?? [] },
+            payload: { text: data["text"] ?? "", attachments: data["attachments"] ?? [], via: data["via"] },
           },
         ],
         status: "complete",
@@ -488,6 +500,19 @@ function upsertAppend(
 
 function setChat(set: SetFn, threadId: string, chat: ChatState): void {
   set((state) => ({ chats: { ...state.chats, [threadId]: chat } }));
+}
+
+/** run 终态的 durationMs 并入最近一条无时长的消息：折叠块「持续 X 秒」实时显示
+ * （快照重建路径已按 runs 表计算，事件流此前把该字段丢弃）。 */
+function mergeWorkDuration(messages: MessageSnapshot[], durationMs: unknown): void {
+  if (typeof durationMs !== "number" || durationMs <= 0) return;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role === "assistant" && m.workDurationMs === undefined) {
+      messages[i] = { ...m, workDurationMs: durationMs };
+      return;
+    }
+  }
 }
 
 /** 快照与在途事件流的消息合并：快照为序的权威；同 id 消息快照 parts 为空（run 占位）而

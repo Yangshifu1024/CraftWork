@@ -1,7 +1,8 @@
 // 窗口级快捷键：⌘K 命令面板 / ⌘N 新建 / ⌘B 侧栏 / ⌘, 设置 / ⌘D 数据 / ⌘M 模型菜单 /
-// ⌘⇧M 审批档位循环 / Esc 退出链。输入框聚焦时 Esc 不拦截（走浏览器默认行为），
-// 浮层打开时 Esc 归浮层（各自监听）。
+// ⌘⇧M 审批档位循环 / Esc 退出链。浮层打开时 Esc 归浮层（各自监听）；空闲态运行中
+// 会话双击 Esc 确认停止（与停止按钮共享 armed 态）；IME 组合中的 Esc 不拦截。
 import { useEffect } from "react";
+import { api } from "../lib/api";
 import { useApp } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { cycleApprovalLevel } from "../lib/approval";
@@ -61,9 +62,26 @@ export function useShortcuts(): void {
         else openPicker("model");
         return;
       }
-      if (e.key === "Escape" && overlay === "none") {
-        // 空闲态 Esc：收起已打开的右键菜单等由组件层处理；这里收侧栏无意义，忽略
-        return;
+      if (e.key === "Escape" && overlay === "none" && !dialogOpen && state.picker === null) {
+        // Esc 退出链（恢复 Gen1 语义）：浮层/对话框/picker 打开时归各自处理（上方让位），
+        // 空闲态到达这里——运行中会话双击 Esc 确认停止（与停止按钮共享 armed 态，800ms）。
+        // IME 组合中的 Esc 是取消候选，不拦截；右键菜单等组件层自收。
+        if (e.isComposing || e.keyCode === 229) return;
+        const app = useApp.getState();
+        const activeId = app.activeThreadId[app.mode];
+        if (!activeId || !app.chats[activeId]?.running) return;
+        e.preventDefault();
+        const overlays = useOverlays.getState();
+        if (overlays.stopArmed) {
+          overlays.setStopArmed(false);
+          void api.chatCancel(activeId).catch(() => {});
+        } else {
+          overlays.setStopArmed(true);
+          setTimeout(() => {
+            const s = useOverlays.getState();
+            if (s.stopArmed) s.setStopArmed(false);
+          }, 800);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

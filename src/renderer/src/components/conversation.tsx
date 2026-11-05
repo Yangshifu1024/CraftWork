@@ -9,6 +9,7 @@ import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
 import { cleanErrorMessage } from "../lib/errors";
+import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from "../lib/paste";
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot } from "../../../shared/types";
@@ -142,6 +143,71 @@ function fmtDateTime(ts: number): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+/** 文件路径 → 展示名。 */
+function attachmentLeaf(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+/** 用户消息附件：图片经 readAttachment 懒加载为缩略图（点击放大预览），其余渲染文件 chip。 */
+function MessageAttachments({ attachments }: { attachments: unknown }): React.JSX.Element | null {
+  const openPreview = useOverlays((s) => s.openImagePreview);
+  const list = (Array.isArray(attachments) ? attachments : []).map(String).filter(Boolean);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const requested = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const name of list) {
+      if (!isImageName(name) || requested.current.has(name)) continue;
+      requested.current.add(name);
+      void api
+        .readAttachment(name)
+        .then((c) => setUrls((prev) => ({ ...prev, [name]: `data:${c.mime};base64,${c.base64}` })))
+        .catch(() => setUrls((prev) => ({ ...prev, [name]: "" }))); // 读取失败降级为文件 chip
+    }
+  }, [list]);
+
+  if (list.length === 0) return null;
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {list.map((name) => {
+        const url = urls[name];
+        if (isImageName(name) && url) {
+          return url ? (
+            <button
+              key={name}
+              type="button"
+              className="overflow-hidden rounded-lg border border-border"
+              title={`放大查看 ${attachmentLeaf(name)}`}
+              onClick={() => openPreview(url, attachmentLeaf(name))}
+            >
+              <img src={url} alt={attachmentLeaf(name)} className="max-h-40 max-w-56 object-cover" />
+            </button>
+          ) : null;
+        }
+        if (isImageName(name)) {
+          return (
+            <span
+              key={name}
+              className="flex h-16 w-24 items-center justify-center rounded-lg border border-border bg-surface text-ui-xs text-foreground-subtlest"
+            >
+              加载中…
+            </span>
+          );
+        }
+        return (
+          <span
+            key={name}
+            className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface px-2 text-ui-xs text-foreground-subtle"
+          >
+            <Paperclip className="size-3" />
+            <span className="max-w-48 truncate">{attachmentLeaf(name)}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function MessageRow({
   message,
   chatRunning,
@@ -153,12 +219,22 @@ function MessageRow({
     return (
       <div className="group/msg flex w-full flex-col items-end gap-1">
         <div className="select-text flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-user-message-bubble px-4 py-3 text-ui-base text-foreground sm:max-w-xl">
+          {message.parts.some((p) => p.payload["via"] === "steer") && (
+            <span className="self-end rounded bg-warning-surface px-1.5 py-0.5 text-ui-xs text-warning-surface-foreground">
+              待送达
+            </span>
+          )}
           {message.parts
             .filter((p) => p.kind === "text")
             .map((part) => (
               <div key={part.id} className="whitespace-pre-wrap break-words">
                 {String(part.payload["text"] ?? "")}
               </div>
+            ))}
+          {message.parts
+            .filter((p) => p.kind === "text" && Array.isArray(p.payload["attachments"]) && (p.payload["attachments"] as unknown[]).length > 0)
+            .map((part) => (
+              <MessageAttachments key={`att_${part.id}`} attachments={part.payload["attachments"]} />
             ))}
         </div>
         {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动 */}
@@ -681,7 +757,9 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
   const pushToast = useToasts((s) => s.push);
   const running = chat?.running ?? false;
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const armedRef = useRef<number>(0);
+  // 停止「再按一次确认」armed 态：与全局 Esc 退出链共享（overlays store，800ms）
+  const stopArmed = useOverlays((s) => s.stopArmed);
+  const setStopArmed = useOverlays((s) => s.setStopArmed);
 
   const pickAndAttach = async (): Promise<void> => {
     try {
@@ -695,13 +773,30 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
   };
 
   const stop = (): void => {
-    if (Date.now() - armedRef.current < 800) {
+    if (stopArmed) {
+      setStopArmed(false);
       void api.chatCancel(activeId);
-      armedRef.current = 0;
     } else {
-      armedRef.current = Date.now();
-      setTimeout(() => (armedRef.current = 0), 800);
+      setStopArmed(true);
+      setTimeout(() => {
+        const s = useOverlays.getState();
+        if (s.stopArmed) s.setStopArmed(false);
+      }, 800);
     }
+  };
+
+  /** 粘贴上传：剪贴板文件经 savePastedAttachment 落附件目录后并入附件列表。 */
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = selectPastedFiles(e.clipboardData.files);
+    if (files.length === 0) return;
+    e.preventDefault();
+    void (async () => {
+      for (const file of files) {
+        const base64 = await readFileAsBase64(file);
+        const saved = await api.savePastedAttachment(pastedFileName(file), base64);
+        setAttachments((prev) => (prev.includes(saved) ? prev : [...prev, saved].slice(0, 10)));
+      }
+    })().catch((err) => pushToast("danger", "粘贴上传失败", cleanErrorMessage(err)));
   };
 
   // 自适应高度（1→8 行）
@@ -795,6 +890,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
             data-composer-input
             className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
@@ -822,8 +918,10 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
                 <button
                   type="button"
                   onClick={stop}
-                  className="flex size-8 items-center justify-center rounded-full border border-border text-foreground-subtle hover:bg-surface-hover"
-                  title="停止（Esc）"
+                  className={`flex size-8 items-center justify-center rounded-full border hover:bg-surface-hover ${
+                    stopArmed ? "border-destructive text-destructive" : "border-border text-foreground-subtle"
+                  }`}
+                  title={stopArmed ? "再按一次确认停止（或按 Esc）" : "停止（再次点击或按 Esc）"}
                 >
                   <Square className="size-3.5" />
                 </button>

@@ -20,6 +20,10 @@ interface OverlaysState {
   createProject: boolean;
   /** 自由档确认门（能力清单 + 勾选确认门，危险操作专用）。 */
   freeLevel: { onOk(): void } | null;
+  /** 图片放大预览（缩略图点击触发）。 */
+  imagePreview: { src: string; name: string } | null;
+  /** 运行中停止的「再按一次确认」armed 态：停止按钮与全局 Esc 共享（800ms）。 */
+  stopArmed: boolean;
   open(kind: OverlayKind, section?: SettingsSection): void;
   close(): void;
   closeConfirm(): void;
@@ -28,6 +32,9 @@ interface OverlaysState {
   closeCreateProject(): void;
   openFreeLevel(opts: { onOk(): void }): void;
   closeFreeLevel(): void;
+  openImagePreview(src: string, name: string): void;
+  closeImagePreview(): void;
+  setStopArmed(armed: boolean): void;
   openConfirm(opts: { title: string; message: string; danger?: boolean; onOk(): void }): void;
   openPrompt(opts: { title: string; message: string; value: string; onOk(value: string): void }): void;
   openPicker(kind: PickerKind): void;
@@ -42,6 +49,8 @@ export const useOverlays = create<OverlaysState>((set) => ({
   prompt: null,
   createProject: false,
   freeLevel: null,
+  imagePreview: null,
+  stopArmed: false,
   open(kind, section) {
     // 全屏浮层与 composer picker 互斥：打开任一浮层时收起 picker。
     set({ overlay: kind, picker: null, settingsSection: section ?? null });
@@ -78,6 +87,15 @@ export const useOverlays = create<OverlaysState>((set) => ({
   },
   closeFreeLevel() {
     set({ freeLevel: null });
+  },
+  openImagePreview(src, name) {
+    set({ imagePreview: { src, name } });
+  },
+  closeImagePreview() {
+    set({ imagePreview: null });
+  },
+  setStopArmed(armed) {
+    set({ stopArmed: armed });
   },
   closeCreateProject() {
     set({ createProject: false });

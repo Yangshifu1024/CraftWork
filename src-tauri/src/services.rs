@@ -604,9 +604,24 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
 }
 
 fn append_user_message(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> Result<String, String> {
+    append_user_message_via(state, thread_id, text, attachments, None)
+}
+
+/// 落库并广播用户消息；via 非空时写入载荷（"steer" = 运行中引导，前端显示「待送达」）。
+fn append_user_message_via(
+    state: &AppState,
+    thread_id: &str,
+    text: &str,
+    attachments: &[Value],
+    via: Option<&str>,
+) -> Result<String, String> {
     let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
     // 经 Recorder 落库并广播 user.message：直接调 record_event 只写库不发事件，
     // 渲染层时间线将看不到这条用户消息（首轮对话靠首发快照掩盖了该缺陷）。
+    let mut payload = json!({ "text": text, "attachments": attachments });
+    if let Some(via) = via {
+        payload["via"] = json!(via);
+    }
     let (_, seq) = state
         .recorder
         .append(&craft_store::events::EventRecord {
@@ -614,7 +629,7 @@ fn append_user_message(state: &AppState, thread_id: &str, text: &str, attachment
             message_id: message_id.clone(),
             run_id: None,
             kind: "user_message".into(),
-            payload: json!({ "text": text, "attachments": attachments }),
+            payload,
         })
         .map_err(|e| e.to_string())?;
     let _ = seq;
@@ -628,23 +643,28 @@ pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[V
 }
 
 pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> SvcResult {
-    let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
-    // 引导消息先落事件表（运行收尾丢弃队列时历史仍可见，与 TS 语义一致）
-    append_user_message(state, thread_id, text, attachments)?;
+    // 预检引导容量再落库：只有确定并入队列的消息才带 via=steer（「待送达」标记）
+    let steer = state.runner.can_steer(thread_id)?;
+    let message_id = if steer {
+        append_user_message_via(state, thread_id, text, attachments, Some("steer"))?
+    } else {
+        append_user_message(state, thread_id, text, attachments)?
+    };
     let item = craft_agent::runner::SteerItem {
-        message_id,
+        message_id: message_id.clone(),
         text: text.to_string(),
         attachments: attachments.iter().filter_map(Value::as_str).map(String::from).collect(),
     };
-    match state.runner.try_steer(thread_id, item) {
-        Ok(true) => Ok(json!({ "queued": true })),
-        Ok(false) => {
-            // 无在途运行：回退普通发送（消息已落库，直接启动 run）
-            let run_id = state.runner.run(thread_id)?;
-            Ok(json!({ "queued": false, "runId": run_id }))
+    if steer {
+        match state.runner.try_steer(thread_id, item) {
+            Ok(true) => return Ok(json!({ "queued": true })),
+            // 预检后在途运行恰好收尾：按普通发送兜底（消息已落库，直接启动 run）
+            Ok(false) => {}
+            Err(e) => return err(e),
         }
-        Err(e) => err(e),
     }
+    let run_id = state.runner.run(thread_id)?;
+    Ok(json!({ "queued": false, "runId": run_id }))
 }
 
 pub fn chat_regenerate(state: &AppState, thread_id: &str) -> SvcResult {

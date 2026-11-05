@@ -195,6 +195,19 @@ impl Runner {
         Ok(true)
     }
 
+    /// 引导预检：有在途运行且队列未满时返回 true（不入队）。
+    /// 落库前调用，让引导消息带上 via=steer 标记（时间线显示「待送达」）。
+    pub fn can_steer(&self, thread_id: &str) -> Result<bool, String> {
+        if !self.cancels.lock().unwrap().contains_key(thread_id) {
+            return Ok(false);
+        }
+        let steers = self.steers.lock().unwrap();
+        if steers.get(thread_id).map(|q| q.len() >= MAX_STEER_QUEUE).unwrap_or(false) {
+            return Err(format!("排队引导已达上限（{MAX_STEER_QUEUE} 条），请等当前步骤完成后再发"));
+        }
+        Ok(true)
+    }
+
     fn take_steers(&self, thread_id: &str) -> Vec<SteerItem> {
         let mut steers = self.steers.lock().unwrap();
         match steers.remove(thread_id) {
