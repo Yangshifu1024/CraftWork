@@ -813,7 +813,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
     })().catch((err) => pushToast("danger", "粘贴上传失败", cleanErrorMessage(err)));
   };
 
-  // 自适应高度（1→8 行）
+  // 自适应高度（2→8 行）
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -900,14 +900,14 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
           )}
           <textarea
             ref={taRef}
-            rows={1}
+            rows={2}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
             data-composer-input
-            className="max-h-[192px] min-h-[24px] w-full resize-none overscroll-contain bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
+            className="max-h-[192px] min-h-[48px] w-full resize-none overscroll-contain bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
           />
           <div className="group/toolbar flex items-end gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-0.5" data-composer-leading-actions>
