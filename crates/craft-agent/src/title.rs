@@ -117,7 +117,7 @@ pub struct AutoTitleInput<'a> {
 pub fn auto_title(db: &Db, input: AutoTitleInput<'_>) {
     let short = short_title(input.first_text);
     if !short.is_empty() {
-        let _ = auto_title_thread(&db.lock_conn(), input.thread_id, &short, "新对话");
+        let _ = auto_title_thread(&db.lock_conn(), input.thread_id, &short);
         return;
     }
     let attachment_text = input
@@ -167,7 +167,7 @@ pub fn auto_title(db: &Db, input: AutoTitleInput<'_>) {
     if !generated.trim().is_empty() {
         let title = sanitize_model_title(&generated);
         if !title.is_empty() {
-            let _ = auto_title_thread(&db.lock_conn(), input.thread_id, &title, "新对话");
+            let _ = auto_title_thread(&db.lock_conn(), input.thread_id, &title);
         }
         // sidecar 用量记账在 Runner 层（title 请求的 usage 由流末尾 chunk 提供——此处省略：
         // TS 版 sidecar 也不覆盖上下文水位，用量记账为 best-effort）

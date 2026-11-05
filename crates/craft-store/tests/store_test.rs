@@ -117,11 +117,19 @@ fn threads基本读写与删除() {
 }
 
 #[test]
-fn autoTitle条件更新只在标题未被改动时生效() {
+fn autoTitle条件更新只在自动命名会话生效并翻转标记() {
     let (dir, db) = tmp_db("autotitle");
     create_thread(&db.lock_conn(), thread("th_2")).unwrap();
-    assert!(auto_title_thread(&db.lock_conn(), "th_2", "新标题", "新对话").unwrap());
-    assert!(!auto_title_thread(&db.lock_conn(), "th_2", "再改", "新对话").unwrap());
+    // 命名落地并翻转 title_auto=0：后续 run 不再重复命名（migration-parity 票 03；
+    // 旧条件要求 title=「新对话」，而首发路径标题是 derive_title，模型命名永不落地）
+    assert!(auto_title_thread(&db.lock_conn(), "th_2", "新标题").unwrap());
+    assert!(!get_thread(&db.lock_conn(), "th_2").unwrap().title_auto);
+    assert!(!auto_title_thread(&db.lock_conn(), "th_2", "再改").unwrap());
+    // 手动改名保护：rename 后 title_auto=0，自动命名不覆盖
+    create_thread(&db.lock_conn(), thread("th_3")).unwrap();
+    rename_thread(&db.lock_conn(), "th_3", "手动名").unwrap();
+    assert!(!auto_title_thread(&db.lock_conn(), "th_3", "模型名").unwrap());
+    assert_eq!(get_thread(&db.lock_conn(), "th_3").unwrap().title, "手动名");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -384,6 +392,60 @@ fn 快照运行中run占位消息排在触发它的用户消息之后() {
     let snap = snapshot(&db.lock_conn(), "th_order", 0, 0).unwrap();
     let ids: Vec<&str> = snap.messages.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(ids, vec!["msg_u1", run.message_id.as_str(), "msg_u2", run2.message_id.as_str()]);
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn 启动中断清理为挂起审批写取消终态事件() {
+    let (dir, db) = tmp_db("stale-approval");
+    create_thread(&db.lock_conn(), thread("th_sa")).unwrap();
+    let run = create_run(&db.lock_conn(), "th_sa", "model-x").unwrap();
+    let approval = create_approval(
+        &db.lock_conn(),
+        craft_store::runs::NewApproval {
+            thread_id: "th_sa",
+            run_id: &run.id,
+            tool_call_id: "call_1",
+            tool: "shell_exec",
+            risk: "R2",
+        },
+    )
+    .unwrap();
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_sa".into(),
+            message_id: "msg_a".into(),
+            run_id: Some(run.id.clone()),
+            kind: "approval".into(),
+            payload: serde_json::json!({ "partId": "part_ap1", "approvalId": approval.id, "status": "waiting" }),
+        },
+    )
+    .unwrap();
+
+    // 回调内即落库（对齐生产 Recorder 包装：append = 落库 + 广播）
+    let mut resolved_count = 0;
+    craft_store::runs::interrupt_stale_runs(&db, |rec| {
+        if rec.kind == "approval_resolved" {
+            resolved_count += 1;
+            assert_eq!(rec.payload["partId"], "part_ap1");
+            assert_eq!(rec.payload["approvalId"], approval.id.as_str());
+            assert_eq!(rec.payload["status"], "canceled");
+        }
+        let _ = record_event(&db, &rec).unwrap();
+    }).unwrap();
+    assert_eq!(resolved_count, 1, "应写审批取消终态事件");
+
+    // 快照回填：卡片不再是 waiting（此前只改库不发事件，重启后卡片僵尸等待）
+    let snap = snapshot(&db.lock_conn(), "th_sa", 0, 0).unwrap();
+    let card = snap
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .find(|p| p.kind == "approval")
+        .expect("快照应有审批卡片");
+    assert_eq!(card.payload["status"], "canceled");
     drop(db);
     let _ = std::fs::remove_dir_all(&dir);
 }

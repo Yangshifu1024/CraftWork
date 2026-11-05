@@ -276,6 +276,22 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![craftwork_invoke])
-        .run(tauri::generate_context!())
-        .expect("craftwork 启动失败");
+        // 窗口关闭：取消在途运行并按取消落审计（AGENTS 6.2）
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event
+                && let Some(state) = window.app_handle().try_state::<Arc<AppState>>()
+            {
+                services::cancel_all_runs(state.inner());
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("craftwork 启动失败")
+        .run(|app_handle, event| {
+            // 应用退出（⌘Q 等）：同上兜底（窗口未关直接退出时 CloseRequested 不触发）
+            if matches!(event, tauri::RunEvent::ExitRequested { .. })
+                && let Some(state) = app_handle.try_state::<Arc<AppState>>()
+            {
+                services::cancel_all_runs(state.inner());
+            }
+        });
 }

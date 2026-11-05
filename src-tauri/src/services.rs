@@ -18,7 +18,7 @@ use craft_policy::engine::Engine;
 use craft_policy::resolve::resolve_existing;
 use craft_store::db::Db;
 use craft_store::recorder::Recorder;
-use craft_store::records::{get_setting, list_audit, list_backups, set_setting, usage_summary};
+use craft_store::records::{add_audit, get_setting, list_audit, list_backups, set_setting, usage_summary};
 use craft_store::threads;
 use craft_store::workspaces;
 use craft_tools::registry::Registry;
@@ -652,6 +652,29 @@ pub fn chat_regenerate(state: &AppState, thread_id: &str) -> SvcResult {
 
 pub fn chat_cancel(state: &AppState, thread_id: &str) -> SvcResult {
     Ok(json!(state.runner.cancel(thread_id)))
+}
+
+/// 窗口关闭/应用退出：统一取消在途运行并落审计（AGENTS 6.2「窗口关闭、应用退出
+/// 统一按拒绝或取消落审计」）。同步返回；run 循环的收尾是异步的，进程随即退出时
+/// 由下次启动的 interrupt_stale_runs 兜底（中断标记 + 可重试错误事件）。
+pub fn cancel_all_runs(state: &AppState) {
+    for thread_id in state.runner.running_threads() {
+        if state.runner.cancel(&thread_id) {
+            let _ = add_audit(
+                &state.db.lock_conn(),
+                craft_store::records::AuditRecord {
+                    ts: None,
+                    thread_id: Some(&thread_id),
+                    run_id: None,
+                    tool: "run",
+                    risk: "R0",
+                    decision: "canceled",
+                    scope: None,
+                    detail: Some("窗口关闭/应用退出，运行已取消"),
+                },
+            );
+        }
+    }
 }
 
 // ---------- 提供商 ----------

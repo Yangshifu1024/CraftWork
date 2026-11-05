@@ -126,6 +126,11 @@ impl Runner {
         self.cancels.lock().unwrap().contains_key(thread_id)
     }
 
+    /// 当前在途运行的会话 id（窗口关闭/应用退出时统一取消并落审计用）。
+    pub fn running_threads(&self) -> Vec<String> {
+        self.cancels.lock().unwrap().keys().cloned().collect()
+    }
+
     /// 启动一次运行：写 run 行 + 异步执行。返回 run_id 或错误。
     pub fn run(self: &Arc<Self>, thread_id: &str) -> Result<String, String> {
         let thread = get_thread(&self.deps.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
@@ -247,8 +252,13 @@ impl Runner {
         }
         // 收尾临界区：丢弃未投递的排队引导（它们已写入事件表，下次运行的历史仍可见）
         self.steers.lock().unwrap().remove(thread_id);
-        if self.cancels.lock().unwrap().get(thread_id).map(|t| t.is_cancelled()).unwrap_or(false) {
-            self.cancels.lock().unwrap().remove(thread_id);
+        // 回收本 run 的取消令牌：只移除仍归属本 run 的条目（新 run 已覆盖时不动）。
+        // 残留会让 try_steer 误判有在途运行（steer 回退分支不可达）、chat_cancel 误报。
+        {
+            let mut cancels = self.cancels.lock().unwrap();
+            if cancels.get(thread_id).map(|t| *t == token).unwrap_or(false) {
+                cancels.remove(thread_id);
+            }
         }
     }
 
@@ -772,6 +782,20 @@ impl Runner {
                         };
                         let outcome = self.deps.approvals.request(&request, token.clone()).await;
                         if outcome.status == "canceled" {
+                            // 审批取消也落审计（AGENTS 6.2：取消统一按取消落审计）
+                            let _ = add_audit(
+                                &self.deps.db.lock_conn(),
+                                craft_store::records::AuditRecord {
+                                    ts: None,
+                                    thread_id: Some(thread_id),
+                                    run_id: Some(run_id),
+                                    tool: call.name.as_str(),
+                                    risk: assessment.risk.as_str(),
+                                    decision: "canceled",
+                                    scope: None,
+                                    detail: Some(&format!("审批已取消：{summary}")),
+                                },
+                            );
                             return (ToolResult::err_code("审批已取消", "tool_error"), true);
                         }
                         if !outcome.allow {

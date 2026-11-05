@@ -386,14 +386,15 @@ const RISK_LABELS: Record<string, string> = {
 export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId: string }): React.JSX.Element {
   const waiting = part.status === "waiting";
   const [busy, setBusy] = useState(false);
+  const pushToast = useToasts((s) => s.push);
 
   const decide = async (allow: boolean, scope: "once" | "session" | "workspace"): Promise<void> => {
     setBusy(true);
     try {
       await api.chatDecideApproval(part.approvalId, allow, scope);
     } catch (err) {
-      // 决定失败保持卡片可重试
-      console.warn(err);
+      // 决定失败（如重启后等待已失效的僵尸卡）保持卡片可重试，但必须给出可读反馈
+      pushToast("danger", "审批操作失败", String(err));
     } finally {
       setBusy(false);
     }

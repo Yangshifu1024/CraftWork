@@ -168,6 +168,9 @@ pub fn part_event(kind: &str) -> Option<&'static str> {
         "reasoning" => Some(crate::contract::event_type::REASONING_COMPLETED),
         "tool_call" => Some(crate::contract::event_type::TOOL_COMPLETED),
         "approval" => Some(crate::contract::event_type::APPROVAL_REQUESTED),
+        // 审批终态：落库（快照回填状态）+ 广播（前端翻卡）。只 emit 不落库会让
+        // 重启后的已决定审批卡回显「等待决定」成僵尸卡（migration-parity 票 03）。
+        "approval_resolved" => Some(crate::contract::event_type::APPROVAL_RESOLVED),
         "todo" => Some(crate::contract::event_type::TODO_UPDATED),
         "error" => Some(crate::contract::event_type::ERROR),
         "notice" => Some(crate::contract::event_type::NOTICE),

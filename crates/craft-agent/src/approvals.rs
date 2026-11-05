@@ -9,7 +9,6 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
-use craft_core::contract::event_type;
 use craft_core::ids::{id_prefix, new_id};
 use crate::grants::Grants;
 use craft_store::db::Db;
@@ -176,34 +175,37 @@ impl Approvals {
         if outcome.status == "canceled" {
             let _ = resolve_approval(&self.db.lock_conn(), &approval_id, "canceled", "");
             let _ = self.recorder.set_thread_status(&req.thread_id, Some(&req.run_id), "running");
-            self.recorder.emit(
-                event_type::APPROVAL_RESOLVED,
-                Some(&req.thread_id),
-                Some(&req.run_id),
-                json!({
+            // 终态落库 + 广播：只广播不落库时，重启后已取消的审批卡会回显「等待决定」成僵尸卡
+            let _ = self.recorder.append(&EventRecord {
+                thread_id: req.thread_id.clone(),
+                message_id: req.message_id.clone(),
+                run_id: Some(req.run_id.clone()),
+                kind: "approval_resolved".into(),
+                payload: json!({
                     "partId": req.part_id,
                     "approvalId": approval_id,
                     "status": "canceled",
                     "decision": "canceled",
                     "scope": "",
                 }),
-            );
+            });
             return outcome;
         }
 
         let _ = self.recorder.set_thread_status(&req.thread_id, Some(&req.run_id), "running");
-        self.recorder.emit(
-            event_type::APPROVAL_RESOLVED,
-            Some(&req.thread_id),
-            Some(&req.run_id),
-            json!({
+        let _ = self.recorder.append(&EventRecord {
+            thread_id: req.thread_id.clone(),
+            message_id: req.message_id.clone(),
+            run_id: Some(req.run_id.clone()),
+            kind: "approval_resolved".into(),
+            payload: json!({
                 "partId": req.part_id,
                 "approvalId": approval_id,
                 "status": outcome.status,
                 "decision": outcome.decision,
                 "scope": outcome.scope,
             }),
-        );
+        });
         outcome
     }
 
@@ -239,6 +241,20 @@ impl Approvals {
             normalized.as_str(),
         )
         .map_err(|e| e.to_string())?;
+        // 审批决定写审计（AGENTS 6.2：审批决定必须落 audit_log）
+        let _ = craft_store::records::add_audit(
+            &self.db.lock_conn(),
+            craft_store::records::AuditRecord {
+                ts: None,
+                thread_id: Some(approval.thread_id.as_str()),
+                run_id: Some(approval.run_id.as_str()),
+                tool: &approval.tool,
+                risk: &approval.risk,
+                decision: if allow { "allow" } else { "deny" },
+                scope: Some(normalized.as_str()),
+                detail: None,
+            },
+        );
         let entry = self.pending.lock().await.remove(approval_id);
         if let Some(entry) = entry {
             if let (true, Some(key)) = (allow && normalized != ApprovalScope::Once, self.grant_keys.lock().await.get(approval_id)) {

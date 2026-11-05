@@ -72,10 +72,18 @@ pub fn finish_run(conn: &Connection, id: &str, status: &str, code: &str, message
     Ok(())
 }
 
+/// 启动收尾时待取消的挂起审批（partId 供快照回填定位卡片）。
+struct StaleApproval {
+    id: String,
+    thread_id: String,
+    run_id: String,
+    message_id: String,
+    part_id: Option<String>,
+}
+
 /// 启动收尾：把上次退出遗留的 running 运行标记为 interrupted、挂起审批标记 canceled、
 /// 会话状态复位，并为每个中断 run 写一条可重试的 error 事件。返回中断数量。
-pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord)) -> StoreResult<usize> {
-    let stale: Vec<(String, String, String)> = db.with(|conn| {
+pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord)) -> StoreResult<usize> {    let stale: Vec<(String, String, String)> = db.with(|conn| {
         let mut stmt = conn
             .prepare("SELECT id, thread_id, message_id FROM runs WHERE status = 'running'")
             .map_err(other_err)?;
@@ -90,6 +98,32 @@ pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord
         return Ok(0);
     }
     let message = "应用退出导致运行中断，已保留已产生的消息，可以重试。";
+
+    // 取消前收集挂起审批（id/thread/run/message + 卡片 partId 反查）：
+    // approval_resolved 事件回填快照状态时按 partId 定位卡片，缺了会留下「等待决定」僵尸卡。
+    let stale_approvals: Vec<StaleApproval> = db.with(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT a.id, a.thread_id, a.run_id FROM approvals a JOIN runs r ON r.id = a.run_id \
+                 WHERE r.status = 'running' AND a.decision IS NULL",
+            )
+            .map_err(other_err)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })
+            .map_err(other_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(other_err)?;
+        let mut result = Vec::with_capacity(rows.len());
+        for (id, thread_id, run_id) in rows {
+            // 卡片的 partId / message_id 从审批事件行反查（approvals 表没有这两列）
+            let (part_id, message_id) = find_approval_event(conn, &thread_id, &id).unwrap_or((None, String::new()));
+            result.push(StaleApproval { id, thread_id, run_id, message_id, part_id });
+        }
+        Ok(result)
+    })?;
+
     db.transaction(|conn| {
         for (run_id, thread_id, _message_id) in &stale {
             conn.execute(
@@ -110,7 +144,7 @@ pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord
         }
         Ok(())
     })?;
-    // error 事件在事务外逐条写入（append_event 自带事务）
+    // 事件在事务外逐条写入（append_event 自带事务）：可重试的 error + 挂起审批的取消终态
     for (run_id, thread_id, message_id) in &stale {
         append_event_fn(EventRecord {
             thread_id: thread_id.clone(),
@@ -125,7 +159,40 @@ pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord
             }),
         });
     }
+    for sa in &stale_approvals {
+        append_event_fn(EventRecord {
+            thread_id: sa.thread_id.clone(),
+            message_id: sa.message_id.clone(),
+            run_id: Some(sa.run_id.clone()),
+            kind: "approval_resolved".into(),
+            payload: serde_json::json!({
+                "partId": sa.part_id.clone().unwrap_or_default(),
+                "approvalId": sa.id,
+                "status": "canceled",
+                "decision": "canceled",
+                "scope": "",
+            }),
+        });
+    }
     Ok(stale.len())
+}
+
+/// 在指定会话的事件行里反查审批卡片（payload.approvalId 匹配），返回 (partId, message_id)。
+fn find_approval_event(conn: &rusqlite::Connection, thread_id: &str, approval_id: &str) -> StoreResult<(Option<String>, String)> {
+    let mut stmt = conn
+        .prepare("SELECT payload, message_id FROM events WHERE kind = 'approval' AND thread_id = ?1 ORDER BY seq DESC")
+        .map_err(other_err)?;
+    let rows = stmt
+        .query_map([thread_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(other_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(other_err)?;
+    Ok(rows
+        .iter()
+        .filter_map(|(payload, message_id)| serde_json::from_str::<serde_json::Value>(payload).ok().map(|p| (p, message_id.clone())))
+        .find(|(p, _)| p.get("approvalId").and_then(serde_json::Value::as_str) == Some(approval_id))
+        .map(|(p, message_id)| (p.get("partId").and_then(serde_json::Value::as_str).map(String::from), message_id))
+        .unwrap_or((None, String::new())))
 }
 
 // ---------- 审批 ----------

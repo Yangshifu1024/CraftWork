@@ -147,12 +147,13 @@ pub fn rename_thread(conn: &Connection, id: &str, title: &str) -> StoreResult<()
     Ok(())
 }
 
-/// 条件更新自动命名：仅当仍是自动标题且标题未被改动时生效。返回是否实际更新。
-pub fn auto_title_thread(conn: &Connection, id: &str, title: &str, prev: &str) -> StoreResult<bool> {
+/// 条件更新自动命名：仅当仍是自动命名会话时生效（rename_thread 置 title_auto=0 保护手动改名）。
+/// 命名落地后翻转 title_auto=0，后续 run 不再重复命名。返回是否实际更新。
+pub fn auto_title_thread(conn: &Connection, id: &str, title: &str) -> StoreResult<bool> {
     let changes = conn
         .execute(
-            "UPDATE threads SET title = ?1, updated_at = ?2 WHERE id = ?3 AND title_auto = 1 AND title = ?4 AND deleted_at IS NULL",
-            rusqlite::params![title, now_millis(), id, prev],
+            "UPDATE threads SET title = ?1, title_auto = 0, updated_at = ?2 WHERE id = ?3 AND title_auto = 1 AND deleted_at IS NULL",
+            rusqlite::params![title, now_millis(), id],
         )
         .map_err(other_err)?;
     Ok(changes > 0)
