@@ -234,7 +234,8 @@ mod tests {
         let (abs, rel) = resolve_at(&root, "a/b.txt").unwrap();
         // 返回真实路径（macOS /var → /private/var 的符号链接会被解析）
         assert!(abs.starts_with(&std::fs::canonicalize(&root).unwrap().to_string_lossy().to_string()));
-        assert_eq!(rel, "a/b.txt");
+        // Windows 分隔符为反斜杠：归一化后比较
+        assert_eq!(rel.replace(std::path::MAIN_SEPARATOR, "/"), "a/b.txt");
         assert!(resolve_at(&root, "../outside").is_err());
         assert!(resolve_at(&root, "a/../../outside").is_err());
         assert!(resolve_at(&root, "/etc/passwd").is_err(), "绝对路径超出根必须拒绝");
@@ -310,9 +311,11 @@ mod tests {
     #[test]
     fn 展示路径() {
         let root = tmp_root("relative");
-        assert_eq!(relative(&root, &format!("{root}/a/b.txt")), "a/b.txt");
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(relative(&root, &format!("{root}{sep}a{sep}b.txt")), format!("a{sep}b.txt"));
         assert_eq!(relative(&root, &root), ".");
-        assert_eq!(relative(&root, "/elsewhere/x.txt"), "/elsewhere/x.txt");
+        // 根外路径原样返回
+        assert_eq!(relative(&root, &format!("{sep}elsewhere{sep}x.txt")), format!("{sep}elsewhere{sep}x.txt"));
         std::fs::remove_dir_all(&root).ok();
     }
 
