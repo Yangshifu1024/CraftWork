@@ -907,7 +907,7 @@ function Composer({ activeId, chat }: { activeId: string; chat: { running: boole
             onPaste={onPaste}
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
             data-composer-input
-            className="max-h-[192px] min-h-[24px] w-full resize-none bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
+            className="max-h-[192px] min-h-[24px] w-full resize-none overscroll-contain bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
           />
           <div className="group/toolbar flex items-end gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-0.5" data-composer-leading-actions>
