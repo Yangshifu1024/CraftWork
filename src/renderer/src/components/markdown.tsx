@@ -4,13 +4,21 @@
 // 字号与外框：.markdown-body 的字号/表格覆盖见 styles.css——streamdown 用 Tailwind 绝对字号，
 // 按元素映射到 UI 字号约束（--ui-font-size 体系）；表格 wrapper 是它自带的卡片外框，此处关掉
 // 表格工具按钮（controls），外框样式在 CSS 层移除。
+// 高度全展开：streamdown 默认表格限高 300px、代码块限高 400px（内联 max-height + 滚动），
+// 显式置 0 禁用，表格与代码块始终按真实内容高度展开（docs/conversation-width/spec.md 第 7 条）。
 import { Streamdown } from "streamdown";
 
 /** 流式 Markdown 视图：streaming 时套渐入动画类；安全与字号策略见文件头。 */
 export function Markdown({ text, streaming }: { text: string; streaming: boolean }): React.JSX.Element {
   return (
     <div className={`markdown-body select-text break-words text-ui-base ${streaming ? "stream-fade-in" : ""}`}>
-      <Streamdown controls={{ table: false, code: { download: false } }}>{text}</Streamdown>
+      <Streamdown
+        codeBlockMaxHeight={0}
+        tableMaxHeight={0}
+        controls={{ table: false, code: { download: false } }}
+      >
+        {text}
+      </Streamdown>
     </div>
   );
 }
