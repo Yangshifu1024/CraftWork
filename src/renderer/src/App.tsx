@@ -58,7 +58,7 @@ export default function App(): React.JSX.Element {
         aria-label="调整侧栏宽度"
         className="group/handle relative z-10 flex h-full w-1 shrink-0 cursor-ew-resize bg-transparent after:absolute after:top-0 after:mx-auto after:h-full after:w-0.5 after:rounded-full after:bg-foreground-subtlest/50 after:opacity-0 hover:after:opacity-100"
       />
-      <div id="content" className="flex min-w-[320px] flex-1 flex-col pb-1 pr-1">
+      <div id="content" className="flex min-w-[320px] flex-1 flex-col pt-2 pb-2">
         <div className="flex min-h-0 flex-1 flex-row">
           <Conversation />
           <SidePane />
