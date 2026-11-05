@@ -133,7 +133,9 @@ function ThreadRowItem({ thread, active, onSelect }: ThreadRowProps): React.JSX.
                 setMenu(null);
                 openConfirm({
                   title: "删除会话",
-                  message: `将彻底删除「${thread.title}」及其全部消息与审批记录，无法恢复。`,
+                  message: `将彻底删除「${thread.title}」及其全部消息与审批记录，无法恢复。${
+                    thread.worktreePath ? "该会话绑定的 git 工作树（含未合并的提交）将一并删除。" : ""
+                  }`,
                   danger: true,
                   onOk: () => void deleteThread(thread.id),
                 });
