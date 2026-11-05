@@ -11,6 +11,7 @@ import { CommandPalette } from "./overlays/palette";
 import { SettingsOverlay } from "./overlays/settings";
 import { ToastViewport } from "./overlays/toast";
 import { Dialogs } from "./overlays/dialogs";
+import { CreateProjectDialog } from "./overlays/create-project";
 import { useOverlays } from "./store/overlays";
 import { useShortcuts } from "./hooks/shortcuts";
 
@@ -61,6 +62,7 @@ export default function App(): React.JSX.Element {
       {overlay === "palette" && <CommandPalette />}
       {overlay === "settings" && <SettingsOverlay />}
       <Dialogs />
+      <CreateProjectDialog />
       <ToastViewport />
     </div>
   );

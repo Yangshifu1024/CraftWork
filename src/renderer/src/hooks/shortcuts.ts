@@ -12,8 +12,8 @@ export function useShortcuts(): void {
       const meta = e.metaKey || e.ctrlKey;
       const state = useOverlays.getState();
       const overlay = state.overlay;
-      // 确认框 / 输入框（独立叠加层）打开时，窗口级浮层快捷键让位，避免静默丢弃未决的确认操作。
-      const dialogOpen = state.confirm !== null || state.prompt !== null;
+      // 确认框 / 输入框 / 创建项目对话框（独立叠加层）打开时，窗口级浮层快捷键让位，避免静默丢弃未决操作。
+      const dialogOpen = state.confirm !== null || state.prompt !== null || state.createProject;
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (dialogOpen) return;

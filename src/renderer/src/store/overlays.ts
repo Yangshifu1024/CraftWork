@@ -16,10 +16,14 @@ interface OverlaysState {
   confirm: { title: string; message: string; danger?: boolean; onOk(): void } | null;
   /** 输入框参数（重命名等）；独立于全屏浮层，可叠加在其上。 */
   prompt: { title: string; message: string; value: string; onOk(value: string): void } | null;
+  /** 「创建项目」对话框（名称/源文件夹多选/信任确认两视图）。 */
+  createProject: boolean;
   open(kind: OverlayKind, section?: SettingsSection): void;
   close(): void;
   closeConfirm(): void;
   closePrompt(): void;
+  openCreateProject(): void;
+  closeCreateProject(): void;
   openConfirm(opts: { title: string; message: string; danger?: boolean; onOk(): void }): void;
   openPrompt(opts: { title: string; message: string; value: string; onOk(value: string): void }): void;
   openPicker(kind: PickerKind): void;
@@ -32,6 +36,7 @@ export const useOverlays = create<OverlaysState>((set) => ({
   settingsSection: null,
   confirm: null,
   prompt: null,
+  createProject: false,
   open(kind, section) {
     // 全屏浮层与 composer picker 互斥：打开任一浮层时收起 picker。
     set({ overlay: kind, picker: null, settingsSection: section ?? null });
@@ -58,5 +63,11 @@ export const useOverlays = create<OverlaysState>((set) => ({
   },
   closePicker() {
     set({ picker: null });
+  },
+  openCreateProject() {
+    set({ createProject: true, picker: null });
+  },
+  closeCreateProject() {
+    set({ createProject: false });
   },
 }));

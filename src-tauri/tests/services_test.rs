@@ -264,3 +264,53 @@ fn 提供商保存空id由服务端生成并返回单对象() {
     assert_eq!(updated["id"], id.as_str());
     assert_eq!(updated["name"], "改名");
 }
+
+#[test]
+fn 创建项目空名推导重名序号与返回单对象() {
+    let (dir, state) = test_state("ws-add-project");
+    let root = dir.path().join("a");
+    std::fs::create_dir_all(root.join("proj")).unwrap();
+    std::fs::create_dir_all(root.join("b").join("proj")).unwrap();
+    std::fs::create_dir_all(root.join("c").join("proj")).unwrap();
+    let p1 = root.join("proj").to_string_lossy().to_string();
+    let p2 = root.join("b").join("proj").to_string_lossy().to_string();
+    let p3 = root.join("c").join("proj").to_string_lossy().to_string();
+
+    // 空名：从主要目录叶子名推导（migration-parity 票 02；此前空名直接报错，新建项目全废）
+    let view = services::workspace_add_project(&state, "", json!([p1, p2]).as_array().unwrap(), "trusted").unwrap();
+    assert_eq!(view["name"], "proj");
+    assert_eq!(view["purpose"], "project");
+    assert_eq!(view["trust"], "trusted");
+    assert_eq!(view["folders"].as_array().unwrap().len(), 2, "返回单对象并携带文件夹列表");
+    assert_eq!(view["path"], std::fs::canonicalize(&p1).unwrap().to_string_lossy().to_string(), "首项为主要目录");
+
+    // 重名自动加序号（p3 与 p1 叶子名同为 proj）
+    let view2 = services::workspace_add_project(&state, "", json!([p3]).as_array().unwrap(), "restricted").unwrap();
+    assert_eq!(view2["name"], "proj (2)");
+
+    // 请求内目录去重
+    let dup = services::workspace_add_project(&state, "", json!([p1, p1]).as_array().unwrap(), "trusted");
+    assert!(dup.is_err() && dup.unwrap_err().contains("重复"));
+
+    // 已是其他工作区源文件夹
+    let conflict = services::workspace_add_project(&state, "", json!([p1]).as_array().unwrap(), "trusted");
+    assert!(conflict.is_err() && conflict.unwrap_err().contains("已被工作区"));
+}
+
+#[test]
+fn 创建项目拒绝内置临时会话目录() {
+    let (dir, state) = test_state("ws-add-project-guard");
+    let _ = services::ensure_conversation_workspace(&state).unwrap();
+    let list = services::workspace_list(&state).unwrap();
+    let conv_path = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["purpose"] == "conversation")
+        .unwrap()["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let err = services::workspace_add_project(&state, "", json!([conv_path]).as_array().unwrap(), "trusted").unwrap_err();
+    assert!(err.contains("临时会话目录"), "实际：{err}");
+}

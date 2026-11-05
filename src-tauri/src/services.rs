@@ -279,18 +279,18 @@ pub fn ensure_conversation_workspace(state: &AppState) -> SvcResult {
 
 pub fn workspace_list(state: &AppState) -> SvcResult {
     let list = workspaces::list_workspaces(&state.db.lock_conn()).map_err(|e| e.to_string())?;
-    let views: Vec<Value> = list
-        .into_iter()
-        .map(|ws| {
-            json!({
-                "id": ws.workspace.id, "name": ws.workspace.name, "path": ws.workspace.path,
-                "trust": ws.workspace.trust, "purpose": ws.workspace.purpose,
-                "lastOpenedAt": ws.workspace.last_opened_at,
-                "folders": ws.folders.iter().map(|f| json!({"id": f.id, "path": f.path, "position": f.position})).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
+    let views: Vec<Value> = list.iter().map(workspace_view_json).collect();
     Ok(json!(views))
+}
+
+/// 工作区视图（与 workspace_list 同构的 json 形状，camelCase 对齐 WorkspaceView）。
+fn workspace_view_json(ws: &workspaces::WorkspaceWithFolders) -> Value {
+    json!({
+        "id": ws.workspace.id, "name": ws.workspace.name, "path": ws.workspace.path,
+        "trust": ws.workspace.trust, "purpose": ws.workspace.purpose,
+        "lastOpenedAt": ws.workspace.last_opened_at,
+        "folders": ws.folders.iter().map(|f| json!({"id": f.id, "path": f.path, "position": f.position})).collect::<Vec<_>>(),
+    })
 }
 
 fn workspace_roots(state: &AppState, workspace_id: &str) -> Result<Vec<String>, String> {
@@ -308,14 +308,90 @@ pub fn workspace_add(state: &AppState, path: &str, trust: &str) -> SvcResult {
 }
 
 pub fn workspace_add_project(state: &AppState, name: &str, folders: &[Value], trust: &str) -> SvcResult {
-    let paths: Vec<String> = folders.iter().filter_map(Value::as_str).map(String::from).collect();
-    if name.is_empty() || paths.is_empty() {
-        return err("名称与目录不能为空");
+    let raw: Vec<&str> = folders.iter().filter_map(Value::as_str).collect();
+    if raw.is_empty() {
+        return err("请至少选择一个源文件夹");
     }
-    let main = paths[0].clone();
-    let ws = workspaces::upsert_workspace(&state.db.lock_conn(), name, &main, trust, "project").map_err(|e| e.to_string())?;
-    workspaces::replace_workspace_folders(&state.db, &ws.id, &paths).map_err(|e| e.to_string())?;
-    workspace_list(state)
+    // 规范化：绝对路径 + 符号链接解析 + 必须是目录 + 请求内去重
+    let mut normalized: Vec<String> = Vec::with_capacity(raw.len());
+    for folder in raw {
+        let abs = std::fs::canonicalize(folder).map_err(|_| "目录不存在".to_string())?;
+        if !abs.is_dir() {
+            return err("源文件夹必须是目录");
+        }
+        let abs = abs.to_string_lossy().to_string();
+        if normalized.iter().any(|p| p == &abs) {
+            return err(format!("源文件夹重复：{abs}"));
+        }
+        normalized.push(abs);
+    }
+    let existing = {
+        let conn = state.db.lock_conn();
+        workspaces::list_workspaces(&conn).map_err(|e| e.to_string())?
+    };
+    // 内置目录守卫：数据目录与内置临时会话目录不可作为项目目录（避免两套授权范围交叉）。
+    // 存储路径可能与规范化形式不同（如 macOS /var → /private/var），两侧都规范化后比较。
+    let data_dir_canon = std::fs::canonicalize(&state.data_dir).ok().map(|p| p.to_string_lossy().to_string());
+    let conv_paths: Vec<String> = existing
+        .iter()
+        .filter(|w| w.workspace.purpose == "conversation")
+        .filter_map(|w| std::fs::canonicalize(&w.workspace.path).ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    for abs in &normalized {
+        if Some(abs) == data_dir_canon.as_ref() {
+            return err("该目录是应用数据目录，不能作为项目目录");
+        }
+        if conv_paths.iter().any(|p| p == abs) {
+            return err("该目录是内置的临时会话目录，无需添加为项目");
+        }
+    }
+    // 任一目录已是其他工作区的源文件夹时拒绝（同样规范化后比较）
+    let used: Vec<(String, String)> = existing
+        .iter()
+        .flat_map(|w| w.folders.iter().map(move |f| (w.workspace.name.clone(), f.path.clone())))
+        .filter_map(|(name, p)| std::fs::canonicalize(&p).ok().map(|c| (name, c.to_string_lossy().to_string())))
+        .collect();
+    if let Some((ws_name, _)) = used.iter().find(|(_, p)| normalized.iter().any(|n| n == p)) {
+        return err(format!("目录已被工作区「{ws_name}」使用"));
+    }
+    let trust = if trust == "trusted" { "trusted" } else { "restricted" };
+    // 名称推导：空名称用主要目录的目录名；重名自动追加序号
+    let mut name = name.trim().to_string();
+    if name.is_empty() {
+        name = Path::new(&normalized[0])
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| normalized[0].clone());
+    }
+    let name = unique_workspace_name(name, &existing);
+    let ws = {
+        let conn = state.db.lock_conn();
+        workspaces::upsert_workspace(&conn, &name, &normalized[0], trust, "project").map_err(|e| e.to_string())?
+    };
+    workspaces::replace_workspace_folders(&state.db, &ws.id, &normalized).map_err(|e| e.to_string())?;
+    // 重新读取装配文件夹列表，返回单对象与前端 Promise<WorkspaceView> 声明一致
+    let saved = {
+        let conn = state.db.lock_conn();
+        workspaces::get_workspace(&conn, &ws.id).map_err(|e| e.to_string())?
+    };
+    Ok(workspace_view_json(&saved))
+}
+
+/// 项目重名自动加序号：「name (2)」「name (3)」……（对齐旧版 AddProject 语义）。
+fn unique_workspace_name(name: String, existing: &[workspaces::WorkspaceWithFolders]) -> String {
+    let taken: Vec<&str> = existing.iter().map(|w| w.workspace.name.as_str()).collect();
+    if !taken.contains(&name.as_str()) {
+        return name;
+    }
+    let mut index = 2;
+    loop {
+        let candidate = format!("{name} ({index})");
+        if !taken.contains(&candidate.as_str()) {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 pub fn workspace_set_trust(state: &AppState, id: &str, trust: &str) -> SvcResult {

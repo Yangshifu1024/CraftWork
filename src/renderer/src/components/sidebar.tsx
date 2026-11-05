@@ -273,8 +273,6 @@ export function Sidebar(): React.JSX.Element {
   const sidebarVisible = useApp((s) => s.sidebarVisible);
   const selectThread = useApp((s) => s.selectThread);
   const newDraft = useApp((s) => s.newDraft);
-  const refreshWorkspaces = useApp((s) => s.refreshWorkspaces);
-  const pushToast = useToasts((s) => s.push);
   const open = useOverlays((s) => s.open);
   const overlay = useOverlays((s) => s.overlay);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -301,18 +299,8 @@ export function Sidebar(): React.JSX.Element {
     });
   };
 
-  /** 新建项目：选目录 → 创建项目工作区（restricted 保守信任）→ 进入该项目草稿态（新建流程收尾落在项目槽）。 */
-  const createProject = async (): Promise<void> => {
-    try {
-      const folder = await api.pickFolder();
-      if (!folder) return; // 用户取消
-      const ws = await api.workspaceAddProject("", [folder], "restricted");
-      await refreshWorkspaces();
-      newDraft(ws.id);
-    } catch (err) {
-      pushToast("danger", "新建项目失败", err instanceof Error ? err.message : String(err));
-    }
-  };
+  /** 新建项目入口：打开「创建项目」对话框（名称/多文件夹/信任确认），创建成功由对话框收尾（刷新列表 + 进入项目草稿态）。 */
+  const openCreateProject = useOverlays((s) => s.openCreateProject);
 
   const groups = useMemo(() => {
     const conversationWs = workspaces.find((w) => w.purpose === "conversation");
@@ -443,8 +431,8 @@ export function Sidebar(): React.JSX.Element {
                         {/* 新建项目入口：hover 分组头才显示（从「任务列表」区头移入使用场景附近） */}
                         <button
                           className="flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-subtle opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-foreground group-hover/proj-sec:opacity-100"
-                          title="新建项目（选择一个目录作为项目工作区）"
-                          onClick={() => void createProject()}
+                          title="新建项目"
+                          onClick={openCreateProject}
                         >
                           <FolderPlus className="size-3.5" />
                         </button>
