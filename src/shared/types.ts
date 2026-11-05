@@ -27,6 +27,10 @@ export interface ThreadView {
   /** 思考档位（空串=未选择） */
   reasoningLevel: string;
   workspaceId: string;
+  /** 绑定的 git worktree 目录（空串 = 未绑定）；绑定后本会话固定在工作树内执行 */
+  worktreePath: string;
+  /** 绑定的 worktree 分支名（craftwork/<会话短码>；空串 = 未绑定） */
+  worktreeBranch: string;
   status: string; // idle | running | awaiting | error
   archived: boolean;
   tokens: number;
@@ -109,6 +113,7 @@ export interface MessageSnapshot {
   seq: number; // 最后部件 seq（翻页游标）
   createdAt: number; // 消息起始时刻（毫秒）；0 = 未知（旧事件流未携带）
   workDurationMs?: number;
+  finishedAt?: number; // 回复完成时刻（= run 结束时间）；运行中缺省——界面时间戳显示它而非 createdAt
 }
 
 export interface Snapshot {
@@ -118,6 +123,18 @@ export interface Snapshot {
   lastSeq: number;
   oldestSeq: number;
   hasMore: boolean;
+}
+
+/** 计划数据（计划模式产物）：file_path 非空且未批准时前端显示「批准并执行」提示条。 */
+export interface PlanInfo {
+  id: string;
+  threadId: string;
+  runId?: string;
+  filePath: string;
+  approved: boolean;
+  /** 用户点过「忽略」：提示条不再出现 */
+  ignored: boolean;
+  updatedAt: number;
 }
 
 /** 待审批卡片（快照恢复用，载荷与事件中的审批部件一致）。 */

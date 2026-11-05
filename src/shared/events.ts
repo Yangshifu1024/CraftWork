@@ -15,6 +15,7 @@ export const EventType = {
   ToolCompleted: "tool.completed",
   ApprovalRequested: "approval.requested",
   ApprovalResolved: "approval.resolved",
+  PlanCreated: "plan.created",
   TodoUpdated: "todo.updated",
   UserMessage: "user.message",
   Notice: "notice",
@@ -100,6 +101,13 @@ export interface ApprovalPart {
   status: "waiting" | "approved" | "denied" | "canceled";
   decision?: string;
   scope?: string;
+}
+
+/** 计划已生成：计划正文落盘到 plans 目录并回填路径（仅计划 run 正常完成时发出）。 */
+export interface PlanCreatedData {
+  planId: string;
+  threadId: string;
+  filePath: string;
 }
 
 export interface ApprovalResolvedData {

@@ -2,7 +2,7 @@
 // 渲染层系统操作唯一出口：经 tauri-bridge 暴露的 window.craftwork 调用；src-tauri 的
 // craftwork_invoke 按方法名一一分发（三处同步接线：本文件签名 / tauri-bridge / src-tauri/src/lib.rs
 // dispatch；接线完整性由 src-tauri/tests/dispatch_test.rs 对拍保证）。
-import type {
+import type { PlanInfo,
   AppInfo,
   ApprovalScope,
   AttachmentContent,
@@ -83,12 +83,26 @@ export interface CraftworkApi {
     attachments: string[],
     modelRef: string,
     reasoningLevel: string,
+    /** 计划模式：本轮只调研出计划，写类操作强制逐次审批 */
+    planMode: boolean,
+    /** worktree：发送时创建独立 git 工作树并绑定到会话（会话级，不可解绑） */
+    useWorktree: boolean,
   ): Promise<{ threadId: string; runId: string }>;
-  chatSend(threadId: string, text: string, attachments: string[]): Promise<string>;
-  chatSteer(threadId: string, text: string, attachments: string[]): Promise<{ queued: boolean; runId?: string }>;
+  chatSend(threadId: string, text: string, attachments: string[], planMode: boolean, useWorktree: boolean): Promise<string>;
+  chatSteer(threadId: string, text: string, attachments: string[], planMode: boolean): Promise<{ queued: boolean; runId?: string }>;
   chatRegenerate(threadId: string): Promise<string>;
   chatCancel(threadId: string): Promise<boolean>;
   chatDecideApproval(approvalId: string, allow: boolean, scope: ApprovalScope): Promise<void>;
+
+  // ---------- 计划 ----------
+  /** 会话的最新计划（无则 null）。file_path 非空且未批准才显示「批准并执行」提示条 */
+  planGet(threadId: string): Promise<PlanInfo | null>;
+  /** 批准计划：approved 置 1（提示条消失），随后前端发送确认消息开始执行 */
+  planApprove(planId: string): Promise<void>;
+  /** 忽略计划：提示条不再出现，等待用户直接输入继续 */
+  planIgnore(planId: string): Promise<void>;
+  /** 用系统默认应用打开计划 md 文件（仅允许 plans 目录内） */
+  planOpen(path: string): Promise<void>;
 
   // ---------- 设置 ----------
   settingsGet(): Promise<Settings>;

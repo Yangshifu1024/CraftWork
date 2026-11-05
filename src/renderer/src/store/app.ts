@@ -5,6 +5,7 @@ import { create } from "zustand";
 import type { Batch, Envelope } from "../../../shared/events";
 import type {
   MessageSnapshot,
+  PlanInfo,
   PartSnapshot,
   Settings,
   ThreadView,
@@ -27,13 +28,16 @@ export interface ChatState {
 }
 
 /** 草稿槽：活动会话为空（草稿态）时输入区的未发送内容；modelRef 为草稿态选定的模型引用（空 = 用全局默认）；
- * reasoningLevel 为草稿态选定的思考档位（空 = 未选择）；modelName 为该引用的显示名（chip 展示用）。 */
+ * reasoningLevel 为草稿态选定的思考档位（空 = 未选择）；modelName 为该引用的显示名（chip 展示用）；
+ * planMode/useWorktree 为 composer 顶部的发送选项勾选态（随槽保留）。 */
 export interface DraftState {
   text: string;
   attachments: string[];
   modelRef: string;
   reasoningLevel: string;
   modelName: string;
+  planMode: boolean;
+  useWorktree: boolean;
 }
 
 interface AppState {
@@ -52,6 +56,9 @@ interface AppState {
   settings: Settings;
   /** 已装载会话的运行时消息流（按需装载，不常驻全部历史）。 */
   chats: Record<string, ChatState>;
+  /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
+   *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
+  plans: Record<string, PlanInfo | undefined>;
   sidebarVisible: boolean;
   /** 已解析主题类（system 偏好下随系统亮暗变化更新）。 */
   themeResolved: "theme-zai-light" | "theme-zai-dark";
@@ -73,6 +80,9 @@ interface AppState {
   applyBatch(batch: Batch): void;
   /** 合并保存设置：以服务端返回的完整值为准覆盖本地。 */
   saveSettings(next: Partial<Settings>): Promise<void>;
+  /** 批准计划（approved 置 1，提示条消失）；确认消息由调用方随后发送。 */
+  approvePlan(threadId: string): Promise<void>;
+  ignorePlan(threadId: string): Promise<void>;
   toggleSidebar(): void;
 }
 
@@ -81,7 +91,15 @@ function emptyChat(): ChatState {
 }
 
 /** 稳定空草稿槽：槽尚无内容时的回落（引用恒定，避免 zustand selector 每次返回新对象触发重渲染）。 */
-export const EMPTY_DRAFT: DraftState = { text: "", attachments: [], modelRef: "", reasoningLevel: "", modelName: "" };
+export const EMPTY_DRAFT: DraftState = {
+  text: "",
+  attachments: [],
+  modelRef: "",
+  reasoningLevel: "",
+  modelName: "",
+  planMode: false,
+  useWorktree: false,
+};
 
 /** 当前模式的草稿槽（draftWsId 指向归属）；槽尚无内容时为 undefined。 */
 export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
@@ -126,6 +144,7 @@ export const useApp = create<AppState>((set, get) => ({
     maxIterations: 300,
   },
   chats: {},
+  plans: {},
   sidebarVisible: true,
   themeResolved: "theme-zai-dark",
 
@@ -212,6 +231,11 @@ export const useApp = create<AppState>((set, get) => ({
         },
       }));
     }
+    // 会话的最新计划（批准并执行提示条的数据源）；失败降级为无计划
+    await api
+      .planGet(id)
+      .then((plan) => set((state) => ({ plans: { ...state.plans, [id]: plan ?? undefined } })))
+      .catch(() => {});
   },
 
   newDraft(workspaceId = "") {
@@ -259,6 +283,25 @@ export const useApp = create<AppState>((set, get) => ({
   async saveSettings(next) {
     const saved = await api.settingsSave({ ...get().settings, ...next });
     set({ settings: saved });
+  },
+
+  /** 批准计划：后端置 approved，本地同步（提示条消失），随后调用方发送确认消息。 */
+  async approvePlan(threadId: string): Promise<void> {
+    const plan = get().plans[threadId];
+    if (!plan) return;
+    await api.planApprove(plan.id);
+    set((state) => ({
+      plans: { ...state.plans, [threadId]: { ...plan, approved: true } },
+    }));
+  },
+  /** 忽略计划：ignored 置 1（提示条消失），不做任何后续动作。 */
+  async ignorePlan(threadId: string): Promise<void> {
+    const plan = get().plans[threadId];
+    if (!plan) return;
+    await api.planIgnore(plan.id);
+    set((state) => ({
+      plans: { ...state.plans, [threadId]: { ...plan, ignored: true } },
+    }));
   },
 
   toggleSidebar() {
@@ -354,13 +397,13 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const messages = chat.messages.map((m) =>
         m.status === "streaming" ? { ...m, status: event.type === "run.completed" ? ("complete" as const) : ("incomplete" as const) } : m,
       );
-      mergeWorkDuration(messages, data["durationMs"]);
+      mergeWorkDuration(messages, data["durationMs"], event.ts);
       setChat(set, threadId, { messages, running: false, lastSeq: chat.lastSeq });
       break;
     }
     case "run.failed": {
       const messages = chat.messages.map((m) => (m.status === "streaming" ? { ...m, status: "error" as const } : m));
-      mergeWorkDuration(messages, data["durationMs"]);
+      mergeWorkDuration(messages, data["durationMs"], event.ts);
       setChat(set, threadId, { messages, running: false, lastSeq: chat.lastSeq });
       break;
     }
@@ -406,24 +449,48 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
     }
     case "approval.requested": {
       const partId = String(data["partId"] ?? "");
-      const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id;
+      // 审批请求复用工具调用的 partId：必须以独立 id（approval_ 前缀）建 part，
+      // 否则会浅合并进已存在的 tool part——kind 保持 "tool"、status 被 "waiting"
+      // 覆盖，审批卡永不渲染、工具卡假显「完成」。
+      const key = `approval_${partId}`;
+      // lastStreamingId 找不到时返回空串（非 nullish），必须用 || 回退到最后一条消息，
+      // 否则审批事件会被静默丢弃（run 无声卡死）
+      const messageId = lastStreamingId(chat) || [...chat.messages].reverse()[0]?.id;
       if (!messageId) break;
-      const messages = upsertPart(chat, messageId, partId, "approval", data, event.ts);
+      const messages = upsertPart(chat, messageId, key, "approval", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
     }
     case "approval.resolved": {
-      const partId = String(data["partId"] ?? "");
-      const messageId = findMessageIdForPart(chat, partId);
+      // 与 approval.requested 同一前缀键定位（快照重建侧 Rust 同规则，见 craft-store::events）
+      const key = `approval_${String(data["partId"] ?? "")}`;
+      const messageId = findMessageIdForPart(chat, key);
       if (!messageId) break;
       // 决策事件只更新决策字段（status/decision/scope），保留原请求 payload（标题/风险/参数）供卡片继续展示
-      const messages = upsertPart(chat, messageId, partId, "approval", {
-        ...approvalPayloadOf(chat, partId),
+      const messages = upsertPart(chat, messageId, key, "approval", {
+        ...approvalPayloadOf(chat, key),
         status: data["status"],
         decision: data["decision"],
         scope: data["scope"],
       }, event.ts);
       setChat(set, threadId, { ...chat, messages });
+      break;
+    }
+    case "plan.created": {
+      const planThreadId = event.threadId ?? threadId;
+      set((state) => ({
+        plans: {
+          ...state.plans,
+          [planThreadId]: {
+            id: String(data["planId"] ?? ""),
+            threadId: planThreadId,
+            filePath: String(data["filePath"] ?? ""),
+            approved: false,
+            ignored: false,
+            updatedAt: typeof data["updatedAt"] === "number" ? data["updatedAt"] : 0,
+          },
+        },
+      }));
       break;
     }
     case "todo.updated": {
@@ -436,7 +503,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
     }
     case "error": {
       const partId = String(data["partId"] ?? "");
-      const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id ?? "";
+      const messageId = lastStreamingId(chat) || [...chat.messages].reverse()[0]?.id || "";
       const messages = upsertPart(chat, messageId, partId, "error", data, event.ts);
       setChat(set, threadId, { ...chat, messages });
       break;
@@ -444,7 +511,7 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
     case "notice":
     case "context.compressed": {
       const partId = String(data["partId"] ?? event.seq);
-      const messageId = lastStreamingId(chat) ?? [...chat.messages].reverse()[0]?.id ?? "";
+      const messageId = lastStreamingId(chat) || [...chat.messages].reverse()[0]?.id || "";
       if (!messageId) break;
       const messages = upsertPart(chat, messageId, partId, "notice", { text: data["text"] ?? data["summary"] ?? "" }, event.ts);
       setChat(set, threadId, { ...chat, messages });
@@ -461,7 +528,13 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
             id: `part_${messageId}`,
             kind: "text",
             seq: 0,
-            payload: { text: data["text"] ?? "", attachments: data["attachments"] ?? [], via: data["via"] },
+            payload: {
+              text: data["text"] ?? "",
+              attachments: data["attachments"] ?? [],
+              via: data["via"],
+              // 计划模式标记：计划 run 结束后前端据此展示「批准并执行」
+              planMode: data["planMode"] === true,
+            },
           },
         ],
         status: "complete",
@@ -541,14 +614,17 @@ function setChat(set: SetFn, threadId: string, chat: ChatState): void {
   set((state) => ({ chats: { ...state.chats, [threadId]: chat } }));
 }
 
-/** run 终态的 durationMs 并入最近一条无时长的消息：折叠块「持续 X 秒」实时显示
- * （快照重建路径已按 runs 表计算，事件流此前把该字段丢弃）。 */
-function mergeWorkDuration(messages: MessageSnapshot[], durationMs: unknown): void {
-  if (typeof durationMs !== "number" || durationMs <= 0) return;
+/** run 终态的 durationMs 与结束时刻并入最近一条缺省的消息：折叠块「持续 X 秒」实时显示、
+ * 消息时间戳显示结束时刻（快照重建路径按 runs 表计算，事件流此前把这两个字段丢弃）。 */
+function mergeWorkDuration(messages: MessageSnapshot[], durationMs: unknown, finishedAt: number): void {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]!;
-    if (m.role === "assistant" && m.workDurationMs === undefined) {
-      messages[i] = { ...m, workDurationMs: durationMs };
+    if (m.role === "assistant" && (m.workDurationMs === undefined || m.finishedAt === undefined)) {
+      messages[i] = {
+        ...m,
+        workDurationMs: m.workDurationMs ?? (typeof durationMs === "number" && durationMs > 0 ? durationMs : undefined),
+        finishedAt: m.finishedAt ?? (finishedAt > 0 ? finishedAt : undefined),
+      };
       return;
     }
   }

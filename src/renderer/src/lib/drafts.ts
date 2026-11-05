@@ -38,6 +38,9 @@ export function loadDrafts(): DraftTable {
           reasoningLevel: typeof record["reasoningLevel"] === "string" ? record["reasoningLevel"] : "",
           // 模型显示名（chip 展示用；旧版本槽缺失回落空串 = 显示 ID 尾段）
           modelName: typeof record["modelName"] === "string" ? record["modelName"] : "",
+          // 发送选项勾选态（旧版本槽缺失回落 false）
+          planMode: record["planMode"] === true,
+          useWorktree: record["useWorktree"] === true,
         };
       }
     }
