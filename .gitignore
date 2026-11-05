@@ -12,11 +12,6 @@ coverage/
 # Rust 构建产物
 target/
 
-# Electron 打包与本地杂项
-output/
-bin/
-*.exe
-
 # 本地环境
 .env
 .env.*
