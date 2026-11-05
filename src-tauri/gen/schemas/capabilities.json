@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"主窗口基础权限：核心事件监听与窗口拖拽。P8（docs/tauri-migration/issues/09）按插件逐条扩充并做全量审计。","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"default":{"identifier":"default","description":"主窗口基础权限：核心事件监听与窗口拖拽。P8（docs/tauri-migration/issues/09）按插件逐条扩充并做全量审计。","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-set-background-color"]}}

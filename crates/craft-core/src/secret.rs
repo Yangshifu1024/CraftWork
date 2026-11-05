@@ -165,11 +165,6 @@ fn current_mode(path: &Path) -> Option<u32> {
     fs::metadata(path).ok().map(|m| m.permissions().mode())
 }
 
-#[cfg(not(unix))]
-fn current_mode(_path: &Path) -> Option<u32> {
-    Some(0o600)
-}
-
 /// 权限过宽时收紧 0600；返回是否处于收紧状态（含已收紧成功）。
 #[cfg(unix)]
 fn tighten_mode(path: &Path) -> bool {
