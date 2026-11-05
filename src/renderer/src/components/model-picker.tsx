@@ -98,7 +98,7 @@ export function ModelPicker({
       <Popover.Portal>
         <Popover.Content
           side="top"
-          align="start"
+          align="end"
           sideOffset={8}
           aria-label="选择模型"
           onCloseAutoFocus={(e) => {
@@ -106,7 +106,8 @@ export function ModelPicker({
             e.preventDefault();
             document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
           }}
-          className="z-50 w-[460px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md"
+          // 宽度随内容自适应（单模型不空旷），下限保条目排版、上限防长名溢出（对齐 ZCode 的窄菜单量级）
+          className="z-50 w-fit min-w-[320px] max-w-[min(460px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-popover-border bg-popover shadow-md"
         >
           <Command label="选择模型" shouldFilter={true} className="overflow-hidden">
             <div className="flex items-center gap-2 border-b border-border px-4">
