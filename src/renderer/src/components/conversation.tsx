@@ -641,7 +641,7 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
       } ${className ?? ""}`}
       title={modelId || "先在设置中添加提供商并选择模型"}
     >
-      <span className="max-w-40 truncate">
+      <span className="max-w-60 truncate">
         {label}
         {modelId && level !== "" && ` · ${reasoningLabel(level)}`}
       </span>
