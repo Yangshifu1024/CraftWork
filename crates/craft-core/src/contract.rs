@@ -79,6 +79,7 @@ pub struct ThreadView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceFolder {
     pub id: String,
     pub path: String,
@@ -305,7 +306,7 @@ mod tests {
     use super::*;
 
     /// 对拍 src/shared/events.ts：信封字段必须序列化为 camelCase（type 除外）。
-    /// 漂移后果：渲染层读不到 threadId/runId，事件回落到活动会话，乱序且串会话。
+    /// 漂移后果：渲染层读不到 threadId，所有事件回落到活动会话应用，出现乱序与串会话。
     #[test]
     fn 事件信封序列化为前端契约的驼峰字段() {
         let env = Envelope {
@@ -332,5 +333,157 @@ mod tests {
         let bv = serde_json::to_value(&batch).unwrap();
         assert_eq!(bv["threadId"], "th_x");
         assert!(bv.get("thread_id").is_none());
+    }
+
+    /// 金样守卫：全部对外契约结构序列化字段必须为 camelCase（不含下划线），与
+    /// src/shared/types.ts 对拍。新增字段若漂移为 snake_case 此测试即红
+    /// （迁移复审发现 WorkspaceFolder 漏 rename_all，系统性补此守卫——票 09）。
+    fn assert_no_snake_keys(prefix: &str, value: &Value) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    assert!(!k.contains('_'), "{prefix} 字段 {k:?} 含下划线（应为 camelCase）");
+                    assert_no_snake_keys(&format!("{prefix}.{k}"), v);
+                }
+            }
+            Value::Array(items) => {
+                for (i, v) in items.iter().enumerate() {
+                    assert_no_snake_keys(&format!("{prefix}[{i}]"), v);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn sample_thread() -> ThreadView {
+        ThreadView {
+            id: "t".into(),
+            mode: "code".into(),
+            title: "t".into(),
+            model_id: "m".into(),
+            model_name: "m".into(),
+            workspace_id: "w".into(),
+            status: "idle".into(),
+            archived: false,
+            tokens: 0,
+            context_tokens: 0,
+            context_cache_tokens: 0,
+            context_speed: 0.0,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn 契约结构序列化字段全部为驼峰() {
+        let folder = WorkspaceFolder { id: "f".into(), path: "/p".into(), position: 0 };
+        let part = PartSnapshot { id: "p".into(), kind: "text".into(), seq: 0, payload: Value::Null };
+        let message = MessageSnapshot {
+            id: "m".into(),
+            role: "user".into(),
+            parts: vec![part.clone()],
+            status: "complete".into(),
+            seq: 0,
+            created_at: 0,
+            work_duration_ms: Some(1),
+        };
+        let card = ApprovalCard {
+            part_id: "p".into(),
+            approval_id: "a".into(),
+            tool_call_id: "c".into(),
+            tool: "t".into(),
+            risk: "R1".into(),
+            title: "t".into(),
+            target: "x".into(),
+            detail: "d".into(),
+            facts: vec![ApprovalFact { label: "l".into(), value: "v".into() }],
+            args: Value::Null,
+            allow_permanent: false,
+            status: "waiting".into(),
+            decision: None,
+            scope: None,
+        };
+        let snapshot = Snapshot {
+            thread: sample_thread(),
+            messages: vec![message],
+            pending_approvals: vec![card],
+            last_seq: 0,
+            oldest_seq: 0,
+            has_more: false,
+        };
+        let settings = Settings {
+            theme: "system".into(),
+            mode: "code".into(),
+            panel_width: 320,
+            approval_level: "graded".into(),
+            default_model: String::new(),
+            fallback_model: String::new(),
+            active_workspace: String::new(),
+            language: String::new(),
+            font_size: 15,
+            code_theme: String::new(),
+            auto_update: false,
+            notifications: false,
+            update_channel: String::new(),
+            telemetry: false,
+            max_iterations: 300,
+        };
+        let audit = AuditEntry {
+            id: 0,
+            ts: 0,
+            thread_id: String::new(),
+            run_id: String::new(),
+            tool: "t".into(),
+            risk: "R0".into(),
+            decision: "auto".into(),
+            scope: String::new(),
+            detail: String::new(),
+        };
+        let totals = TokenTotals { input_tokens: 0, output_tokens: 0, cost_micros: 0 };
+        let usage = UsageSummary {
+            today: totals.clone(),
+            week: totals.clone(),
+            month: totals.clone(),
+            by_model: vec![UsageByModel { model_id: "m".into(), input_tokens: 0, output_tokens: 0, cost_micros: 0 }],
+            by_day: vec![UsageByDay { day: "d".into(), input_tokens: 0, output_tokens: 0, cost_micros: 0 }],
+        };
+        let backup = Backup {
+            id: "b".into(),
+            path: "/p".into(),
+            backup_path: "/b".into(),
+            hash: "h".into(),
+            size: 0,
+            created_at: 0,
+        };
+        let line = DiffLine { kind: "ctx".into(), old: 0, r#new: 0, text: "t".into() };
+        let diff = DiffResult { additions: 0, deletions: 0, hunks: vec![DiffHunk { header: "h".into(), lines: vec![line] }], truncated: false };
+        let info = AppInfo { name: "n".into(), version: "v".into(), platform: "p".into(), arch: "a".into(), data_dir: "/d".into() };
+        let workspace = WorkspaceView { id: "w".into(), name: "n".into(), path: "/p".into(), trust: "trusted".into(), purpose: "project".into(), last_opened_at: 0, folders: vec![folder] };
+
+        let samples: Vec<(&str, Value)> = vec![
+            ("ThreadView", serde_json::to_value(sample_thread()).unwrap()),
+            ("WorkspaceView", serde_json::to_value(workspace).unwrap()),
+            ("Snapshot", serde_json::to_value(snapshot).unwrap()),
+            ("Settings", serde_json::to_value(settings).unwrap()),
+            ("AuditEntry", serde_json::to_value(audit).unwrap()),
+            ("UsageSummary", serde_json::to_value(usage).unwrap()),
+            ("Backup", serde_json::to_value(backup).unwrap()),
+            ("DiffResult", serde_json::to_value(diff).unwrap()),
+            ("AppInfo", serde_json::to_value(info).unwrap()),
+        ];
+        // MessageSnapshot 单独构造（含 skip_serializing_if 的 workDurationMs 缺省形态）
+        let ms = MessageSnapshot {
+            id: "m".into(),
+            role: "assistant".into(),
+            parts: vec![part],
+            status: "streaming".into(),
+            seq: 0,
+            created_at: 0,
+            work_duration_ms: None,
+        };
+        assert_no_snake_keys("MessageSnapshot", &serde_json::to_value(ms).unwrap());
+        for (name, v) in samples {
+            assert_no_snake_keys(name, &v);
+        }
     }
 }
