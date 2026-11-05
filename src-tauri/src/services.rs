@@ -122,6 +122,36 @@ pub fn default_settings() -> Settings {
     }
 }
 
+// ---------- 计划 ----------
+
+/// 会话的最新计划（无则返回 null）。前端据此决定「批准并执行」提示条：
+/// file_path 非空且未批准才显示（中断/失败的计划无文件，不出现）。
+pub fn plan_get(state: &AppState, thread_id: &str) -> SvcResult {
+    let plan = state.db.with(|conn| craft_store::plans::latest_plan(conn, thread_id)).map_err(|e| e.to_string())?;
+    Ok(match plan {
+        Some(p) => serde_json::to_value(p).map_err(|e| e.to_string())?,
+        None => json!(null),
+    })
+}
+
+/// 忽略计划：ignored 置 1（提示条不再出现，等待用户直接输入继续）。
+pub fn plan_ignore(state: &AppState, plan_id: &str) -> SvcResult {
+    state.db.with(|conn| craft_store::plans::ignore_plan(conn, plan_id)).map_err(|e| e.to_string())?;
+    Ok(json!(null))
+}
+
+/// 批准计划：approved 置 1（提示条随之消失），确认消息由前端继续发送。
+pub fn plan_approve(state: &AppState, plan_id: &str) -> SvcResult {
+    state.db.with(|conn| craft_store::plans::approve_plan(conn, plan_id)).map_err(|e| e.to_string())?;
+    Ok(json!(null))
+}
+
+/// 打开计划文件（系统默认 markdown 应用）；路径白名单校验在 system::open_plan_file。
+pub fn plan_open(state: &AppState, path: &str) -> SvcResult {
+    let db_dir = Path::new(&state.data_dir);
+    crate::system::open_plan_file(db_dir, path)
+}
+
 pub fn settings_get(state: &AppState) -> SvcResult {
     let saved: Option<Settings> = state
         .db
@@ -129,7 +159,9 @@ pub fn settings_get(state: &AppState) -> SvcResult {
         .ok()
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok());
-    let merged = saved.unwrap_or_else(default_settings);
+    let mut merged = saved.unwrap_or_else(default_settings);
+    // 历史档位（strict/readonly，已移除）与未知值回落分级档，保证前端拿到的档位恒合法
+    merged.approval_level = craft_policy::parse_level(&merged.approval_level).as_str().into();
     serde_json::to_value(merged).map_err(|e| e.to_string())
 }
 
@@ -270,7 +302,10 @@ pub fn thread_set_archived(state: &AppState, id: &str, archived: bool) -> SvcRes
 /// 彻底删除会话：事务内物理移除事件、审批、运行与线程行，不可恢复。
 /// 当前对运行中/等待审批的会话无删除守卫（GLOSSARY 已知限制）。
 pub fn thread_delete(state: &AppState, id: &str) -> SvcResult {
+    // 删除前快照绑定信息（删行后无法追溯）；工作树清理 best-effort，不阻塞删除
+    let thread = threads::get_thread(&state.db.lock_conn(), id).map_err(|e| e.to_string())?;
     threads::delete_thread(&state.db, id).map_err(|e| e.to_string())?;
+    cleanup_thread_worktree(state, &thread);
     Ok(json!(null))
 }
 
@@ -431,7 +466,14 @@ pub fn workspace_rename(state: &AppState, id: &str, name: &str) -> SvcResult {
 }
 
 pub fn workspace_remove(state: &AppState, id: &str) -> SvcResult {
-    // 级联删除其下会话（AGENTS.md：删除级联清理会话）
+    // 级联删除其下会话（AGENTS.md：删除级联清理会话）；删除前逐会话清理绑定的 worktree
+    let doomed = {
+        let conn = state.db.lock_conn();
+        threads::list_threads_by_workspace(&conn, id).map_err(|e| e.to_string())?
+    };
+    for thread in &doomed {
+        cleanup_thread_worktree(state, thread);
+    }
     let count = threads::delete_threads_by_workspace(&state.db, id).map_err(|e| e.to_string())?;
     workspaces::delete_workspace(&state.db, id).map_err(|e| e.to_string())?;
     // 广播删除事件：渲染层据此清理该工作区的草稿槽（localStorage），避免残留
@@ -595,11 +637,153 @@ pub fn workspace_git_statuses(state: &AppState) -> SvcResult {
     Ok(Value::Object(statuses))
 }
 
+// ---------- worktree ----------
+
+/// git 命令出口：经 platform::run（环境白名单清洗 + 独立进程组 + 超时杀树），
+/// 与 envcontext 的 git_run、workspace_git_statuses 同源；dir 为执行目录。
+fn git_run(dir: &str, args: &[&str], timeout_ms: u64) -> craft_core::platform::RunResult {
+    craft_core::platform::run(craft_core::platform::RunSpec {
+        file: "git".into(),
+        args: args.iter().map(|s| s.to_string()).collect(),
+        dir: Some(dir.to_string()),
+        timeout_ms: Some(timeout_ms),
+        output_limit: None,
+    })
+}
+
+/// git 命令失败的可读信息（stdout/stderr 或 spawn 错误）。
+fn git_error_detail(result: &craft_core::platform::RunResult) -> String {
+    let detail = result.output.trim();
+    if !detail.is_empty() {
+        return detail.to_string();
+    }
+    if result.timed_out {
+        return "git 命令超时".into();
+    }
+    result.error.clone().unwrap_or_else(|| format!("退出码 {}", result.exit_code))
+}
+
+/// 会话绑定的 worktree 目录：数据目录下统一管理（随 CRAFTWORK_HOME 隔离，不污染项目目录）。
+fn thread_worktree_dir(data_dir: &str, thread_id: &str) -> PathBuf {
+    PathBuf::from(data_dir).join("worktrees").join(thread_id)
+}
+
+/// worktree 分支名：craftwork/<会话 id 去前缀后的前 8 位>；跨重建稳定，便于终端辨认。
+fn worktree_branch_for(thread_id: &str) -> String {
+    let short: String = thread_id.strip_prefix("thr_").unwrap_or(thread_id).chars().take(8).collect();
+    format!("craftwork/{short}")
+}
+
+/// 确保会话已绑定可用的 git worktree（幂等）：
+/// · 未绑定 → 校验项目工作区 + 主目录为 git 仓库，创建 `<数据目录>/worktrees/<会话id>`（分支 craftwork/<短码>）并落库；
+/// · 已绑定但目录丢失 → `git worktree prune` 后重建，优先复用原分支（历史提交不丢）；
+/// · 已绑定且目录存在 → 直接返回，不重复创建。
+/// 失败返回可读中文错误，发送链路据此中止（不落消息）。
+pub fn ensure_thread_worktree(state: &AppState, thread_id: &str) -> Result<(String, String), String> {
+    let thread = threads::get_thread(&state.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
+    if thread.mode == "work" {
+        return err("Work 模式没有 Git 能力，不支持 worktree；请切换到 Code 模式后重试");
+    }
+    if thread.workspace_id.is_empty() {
+        return err("会话未绑定工作区，无法使用 worktree");
+    }
+    let ws = workspaces::get_workspace(&state.db.lock_conn(), &thread.workspace_id).map_err(|e| e.to_string())?;
+    if ws.workspace.purpose != "project" {
+        return err("内置临时目录不是 git 仓库，无法使用 worktree；请先将项目添加为工作区");
+    }
+    let repo = ws.workspace.path.clone();
+    let probe = git_run(&repo, &["rev-parse", "--is-inside-work-tree"], 10_000);
+    if probe.exit_code != 0 {
+        return err("当前项目不是 git 仓库，无法使用 worktree");
+    }
+    let path = thread_worktree_dir(&state.data_dir, thread_id);
+    let path_str = path.to_string_lossy().to_string();
+    let branch = worktree_branch_for(thread_id);
+
+    // 幂等：已绑定且目录在，直接返回既有绑定
+    if !thread.worktree_path.is_empty() && path.is_dir() {
+        return Ok((thread.worktree_path.clone(), thread.worktree_branch.clone()));
+    }
+
+    // 目录丢失（手动删除等）：清理主仓库残留的 worktree 元数据后重建
+    let _ = git_run(&repo, &["worktree", "prune"], 15_000);
+    std::fs::create_dir_all(&path).map_err(|e| format!("创建工作树目录失败：{e}"))?;
+    // 优先新建分支；分支已存在（重建场景）则复用，保留工作线上的历史提交
+    let mut added = git_run(&repo, &["worktree", "add", "-b", &branch, &path_str], 30_000);
+    if added.exit_code != 0 {
+        added = git_run(&repo, &["worktree", "add", &path_str, &branch], 30_000);
+    }
+    if added.exit_code != 0 {
+        return err(format!("创建 git 工作树失败：{}", git_error_detail(&added)));
+    }
+    threads::set_thread_worktree(&state.db.lock_conn(), thread_id, &path_str, &branch).map_err(|e| e.to_string())?;
+    let _ = add_audit(
+        &state.db.lock_conn(),
+        craft_store::records::AuditRecord {
+            ts: None,
+            thread_id: Some(thread_id),
+            run_id: None,
+            tool: "worktree",
+            risk: "R0",
+            decision: "allowed",
+            scope: None,
+            detail: Some(&format!("创建 git 工作树：{path_str}（分支 {branch}）")),
+        },
+    );
+    Ok((path_str, branch))
+}
+
+/// 删除会话时清理其绑定的 worktree（best-effort）：强制移除工作树并删除分支，
+/// 失败只落审计不阻塞删除（残留目录可手动清理；未合并改动的告知由前端确认框承担）。
+fn cleanup_thread_worktree(state: &AppState, thread: &threads::ThreadRow) {
+    if thread.worktree_path.is_empty() {
+        return;
+    }
+    // 主仓库目录：worktree 的 git 元数据挂在来源工作区主目录；工作区已删则退化直接删目录
+    let repo = state.db.with(|conn| {
+        Ok(workspaces::get_workspace(conn, &thread.workspace_id)?.workspace.path)
+    });
+    let removed = repo
+        .as_ref()
+        .map(|repo| git_run(repo, &["worktree", "remove", "--force", &thread.worktree_path], 30_000).exit_code == 0)
+        .unwrap_or(false);
+    if !removed {
+        let _ = std::fs::remove_dir_all(&thread.worktree_path);
+    }
+    if let Ok(repo) = &repo {
+        let _ = git_run(repo, &["branch", "-D", &thread.worktree_branch], 10_000);
+    }
+    let _ = add_audit(
+        &state.db.lock_conn(),
+        craft_store::records::AuditRecord {
+            ts: None,
+            thread_id: Some(&thread.id),
+            run_id: None,
+            tool: "worktree",
+            risk: "R0",
+            decision: "allowed",
+            scope: None,
+            detail: Some(&format!("删除会话，清理 git 工作树：{}", thread.worktree_path)),
+        },
+    );
+}
+
 // ---------- 对话 ----------
 
 /// 原子首发（services/chat.ts 的 chatCreateAndStart 等价）：
-/// 模型校验 → 创建会话 → 写用户消息事件 → 启动 Run。失败零落库。
-pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, text: &str, attachments: &[Value], model_ref: &str, reasoning_level: &str) -> SvcResult {
+/// 模型校验 → 创建会话 →（勾选 worktree 时先创建并绑定）→ 写用户消息事件 → 启动 Run。失败零落库。
+#[allow(clippy::too_many_arguments)]
+pub fn chat_create_and_start(
+    state: &AppState,
+    mode: &str,
+    workspace_id: &str,
+    text: &str,
+    attachments: &[Value],
+    model_ref: &str,
+    reasoning_level: &str,
+    plan_mode: bool,
+    use_worktree: bool,
+) -> SvcResult {
     if state.models.resolve(model_ref).is_none() {
         return err("模型不存在或已被删除，请重新选择模型");
     }
@@ -629,7 +813,14 @@ pub fn chat_create_and_start(state: &AppState, mode: &str, workspace_id: &str, t
         },
     )
     .map_err(|e| e.to_string())?;
-    let (_, seq) = append_user_message(state, &id, text, attachments)?;
+    // worktree 创建放在消息落库之前：失败回滚刚建的空会话，保持「失败零落库」语义
+    if use_worktree
+        && let Err(e) = ensure_thread_worktree(state, &id)
+    {
+        let _ = threads::delete_thread(&state.db, &id);
+        return err(e);
+    }
+    let (_, seq) = append_user_message(state, &id, text, attachments, plan_mode)?;
     let run_id = state.runner.run(&id, Some(seq))?;
     Ok(json!({ "threadId": id, "runId": run_id }))
 }
@@ -639,11 +830,13 @@ fn append_user_message(
     thread_id: &str,
     text: &str,
     attachments: &[Value],
+    plan_mode: bool,
 ) -> Result<(String, i64), String> {
-    append_user_message_via(state, thread_id, text, attachments, None)
+    append_user_message_via(state, thread_id, text, attachments, None, plan_mode)
 }
 
 /// 落库并广播用户消息；via 非空时写入载荷（"steer" = 运行中引导，前端显示「待送达」）。
+/// plan_mode 随载荷落库：run 启动时按 trigger_seq 还原（计划模式提示词与审批硬约束的依据）。
 /// 返回 (message_id, seq)：seq 随 run 启动透传为 trigger_seq，快照占位定序的权威信号。
 fn append_user_message_via(
     state: &AppState,
@@ -651,11 +844,12 @@ fn append_user_message_via(
     text: &str,
     attachments: &[Value],
     via: Option<&str>,
+    plan_mode: bool,
 ) -> Result<(String, i64), String> {
     let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
     // 经 Recorder 落库并广播 user.message：直接调 record_event 只写库不发事件，
     // 渲染层时间线将看不到这条用户消息（首轮对话靠首发快照掩盖了该缺陷）。
-    let mut payload = json!({ "text": text, "attachments": attachments });
+    let mut payload = json!({ "text": text, "attachments": attachments, "planMode": plan_mode });
     if let Some(via) = via {
         payload["via"] = json!(via);
     }
@@ -672,19 +866,24 @@ fn append_user_message_via(
     Ok((message_id, seq))
 }
 
-pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> SvcResult {
-    let (_, seq) = append_user_message(state, thread_id, text, attachments)?;
+pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[Value], plan_mode: bool, use_worktree: bool) -> SvcResult {
+    // 已绑定会话总是确保工作树可用（目录丢失自动重建）；未绑定仅在勾选时创建并绑定
+    let thread = threads::get_thread(&state.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
+    if use_worktree || !thread.worktree_path.is_empty() {
+        ensure_thread_worktree(state, thread_id)?;
+    }
+    let (_, seq) = append_user_message(state, thread_id, text, attachments, plan_mode)?;
     let run_id = state.runner.run(thread_id, Some(seq))?;
     Ok(json!(run_id))
 }
 
-pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[Value]) -> SvcResult {
+pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[Value], plan_mode: bool) -> SvcResult {
     // 预检引导容量再落库：只有确定并入队列的消息才带 via=steer（「待送达」标记）
     let steer = state.runner.can_steer(thread_id)?;
     let (message_id, seq) = if steer {
-        append_user_message_via(state, thread_id, text, attachments, Some("steer"))?
+        append_user_message_via(state, thread_id, text, attachments, Some("steer"), plan_mode)?
     } else {
-        append_user_message(state, thread_id, text, attachments)?
+        append_user_message(state, thread_id, text, attachments, plan_mode)?
     };
     let item = craft_agent::runner::SteerItem {
         message_id: message_id.clone(),

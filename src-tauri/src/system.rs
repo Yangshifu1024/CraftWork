@@ -67,6 +67,28 @@ pub fn show_in_folder(path: &str) -> SvcResult {
     }
 }
 
+/// 用系统默认应用打开计划文件。唯一出口：只允许打开数据目录 plans/ 下的 .md 文件，
+/// 其余路径一律拒绝（与 open_external 的白名单思路一致，防止渲染层传入任意路径）。
+pub fn open_plan_file(db_dir: &std::path::Path, path: &str) -> SvcResult {
+    let plans_dir = db_dir.join("plans");
+    let target = std::path::Path::new(path);
+    let allowed = target
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+        && target.parent().is_some_and(|p| p == plans_dir);
+    if !allowed {
+        return err("仅允许打开计划目录下的 markdown 文件");
+    }
+    if !target.exists() {
+        return err("计划文件不存在");
+    }
+    let result = std::process::Command::new("open").arg(target).spawn();
+    match result {
+        Ok(_) => Ok(json!(null)),
+        Err(e) => err(format!("打开计划失败：{e}")),
+    }
+}
+
 /// 写剪贴板（纯文本）。
 pub fn clipboard_write(app: &tauri::AppHandle, text: &str) -> SvcResult {
     use tauri_plugin_clipboard_manager::ClipboardExt;

@@ -137,7 +137,7 @@ fn first_message_atomic_path_no_model_failure_persists_nothing() {
     let ws_id = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
 
     // 模型不存在：失败且不产生会话
-    let err = services::chat_create_and_start(&state, "code", &ws_id, "你好", &[], "nope/model", "").unwrap_err();
+    let err = services::chat_create_and_start(&state, "code", &ws_id, "你好", &[], "nope/model", "", false, false).unwrap_err();
     assert!(err.contains("模型不存在"));
     let threads = services::thread_list(&state, "code", false).unwrap();
     assert_eq!(threads.as_array().unwrap().len(), 0, "失败首发零落库");
@@ -160,7 +160,7 @@ fn thread_creation_and_snapshot_chain() {
     assert!(services::provider_list(&state).unwrap().to_string().contains("\"stub/m1\""));
 
     // 首发：模型解析通过（连接 stub 端点会失败——run 的失败路径写 error 事件，不阻断首发本身）
-    let result = services::chat_create_and_start(&state, "code", &ws_id, "帮我看看这个项目", &[], "stub/m1", "").unwrap();
+    let result = services::chat_create_and_start(&state, "code", &ws_id, "帮我看看这个项目", &[], "stub/m1", "", false, false).unwrap();
     let thread_id = result["threadId"].as_str().unwrap().to_string();
     assert!(result["runId"].as_str().is_some());
 
@@ -322,11 +322,15 @@ fn workspace_add_rejects_builtin_conversation_directory() {
 fn settings_save_level_takes_effect_without_restart() {
     let (_dir, state) = test_state("level-hot");
     // migration-parity 票 04：引擎只在启动时按设置初始化，保存后必须同步热切换
-    services::settings_save(&state, &json!({ "approvalLevel": "readonly" })).unwrap();
-    assert_eq!(state.engine.lock().unwrap().level().as_str(), "readonly");
     services::settings_save(&state, &json!({ "approvalLevel": "free" })).unwrap();
     assert_eq!(state.engine.lock().unwrap().level().as_str(), "free");
-    // 非法值回落默认档（graded）
+    services::settings_save(&state, &json!({ "approvalLevel": "graded" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
+    // 已移除的历史档位（strict/readonly）与非法值一律回落默认档（graded）
+    services::settings_save(&state, &json!({ "approvalLevel": "readonly" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
+    services::settings_save(&state, &json!({ "approvalLevel": "strict" })).unwrap();
+    assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
     services::settings_save(&state, &json!({ "approvalLevel": "bogus" })).unwrap();
     assert_eq!(state.engine.lock().unwrap().level().as_str(), "graded");
 }
@@ -367,4 +371,153 @@ fn model_reasoning_declaration_persists_and_survives_unrelated_edit() {
         "reasoningKind": "", "reasoningLevels": [],
     })).unwrap();
     assert!(view.to_string().contains(r#""reasoningLevels":[]"#));
+}
+
+// ---------- worktree ----------
+
+/// 在测试目录里造一个真实 git 仓库（git init + 首次提交，worktree add 需要 HEAD 存在）。
+fn git_repo(dir: &std::path::Path) -> std::path::PathBuf {
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(args).current_dir(&repo).output().unwrap();
+        assert!(out.status.success(), "git {args:?} 失败：{}", String::from_utf8_lossy(&out.stderr));
+    };
+    run(&["init", "-q"]);
+    run(&["config", "user.email", "test@craftwork.local"]);
+    run(&["config", "user.name", "test"]);
+    std::fs::write(repo.join("README.md"), "hello\n").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-qm", "init"]);
+    repo
+}
+
+/// 注册「已解析模型」的存根提供商（照抄 thread_creation 测试的做法，让首发校验通过）。
+fn stub_provider(state: &services::AppState) {
+    let provider = json!({
+        "id": "stub", "name": "Stub", "kind": "openai-compatible",
+        "endpoint": "https://stub.invalid/v1", "keyRequired": false,
+        "models": [{ "id": "m1", "name": "模型一", "contextK": 8, "maxTokens": 512,
+                     "caps": {"stream": true, "tools": true, "vision": false, "reasoning": false, "structured": false},
+                     "status": "", "source": "manual", "enabled": true }],
+    });
+    services::provider_save(state, &provider).unwrap();
+}
+
+fn thread_id_of(view: &Value) -> String {
+    view["id"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn worktree_ensure_rejects_work_mode_conversation_and_non_git_project() {
+    let (dir, state) = test_state("wt-reject");
+    // 内置临时目录（purpose=conversation）：不是 git 仓库
+    let conv = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
+    let t_conv = services::thread_create(&state, "code", &conv, "临时任务").unwrap();
+    let err = services::ensure_thread_worktree(&state, &thread_id_of(&t_conv)).unwrap_err();
+    assert!(err.contains("不是 git 仓库"), "实际：{err}");
+
+    // 普通目录（非 git）项目工作区
+    let plain = dir.path().join("plain-proj");
+    std::fs::create_dir_all(&plain).unwrap();
+    let ws = services::workspace_add_project(&state, "plain", json!([plain.to_string_lossy().to_string()]).as_array().unwrap(), "trusted").unwrap();
+    let t_plain = services::thread_create(&state, "code", ws["id"].as_str().unwrap(), "任务").unwrap();
+    let err = services::ensure_thread_worktree(&state, &thread_id_of(&t_plain)).unwrap_err();
+    assert!(err.contains("不是 git 仓库"), "实际：{err}");
+
+    // 真实 git 仓库 + work 模式会话：没有 Git 能力
+    let repo = git_repo(dir.path());
+    let ws = services::workspace_add_project(&state, "gitproj", json!([repo.to_string_lossy().to_string()]).as_array().unwrap(), "trusted").unwrap();
+    let t_work = services::thread_create(&state, "work", ws["id"].as_str().unwrap(), "文档任务").unwrap();
+    let err = services::ensure_thread_worktree(&state, &thread_id_of(&t_work)).unwrap_err();
+    assert!(err.contains("Work 模式"), "实际：{err}");
+}
+
+#[test]
+fn worktree_ensure_creates_binds_and_is_idempotent() {
+    let (dir, state) = test_state("wt-create");
+    let repo = git_repo(dir.path());
+    let ws = services::workspace_add_project(&state, "wtproj", json!([repo.to_string_lossy().to_string()]).as_array().unwrap(), "trusted").unwrap();
+    let thread = services::thread_create(&state, "code", ws["id"].as_str().unwrap(), "任务").unwrap();
+    let id = thread_id_of(&thread);
+
+    let (path, branch) = services::ensure_thread_worktree(&state, &id).unwrap();
+    assert!(std::path::Path::new(&path).is_dir(), "工作树目录已创建");
+    assert!(branch.starts_with("craftwork/"), "分支名 craftwork/<短码>：{branch}");
+    // 数据目录统一管理：<data_dir>/worktrees/<会话id>
+    assert_eq!(path, dir.path().join("worktrees").join(&id).to_string_lossy().to_string());
+
+    // 幂等：二次调用返回同一绑定，不重复创建
+    let (path2, branch2) = services::ensure_thread_worktree(&state, &id).unwrap();
+    assert_eq!((path.clone(), branch.clone()), (path2, branch2));
+
+    // 绑定落库（ThreadView 透出 worktreePath/worktreeBranch）
+    let view = services::thread_snapshot(&state, &id, 0, 0).unwrap();
+    assert_eq!(view["thread"]["worktreePath"], path.as_str());
+    assert_eq!(view["thread"]["worktreeBranch"], branch.as_str());
+
+    // 主仓库的 worktree 登记 + 分支存在
+    let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains(&path), "主仓库应登记该工作树");
+    let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
+    assert!(!String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支应存在");
+}
+
+#[test]
+fn worktree_ensure_rebuilds_after_directory_loss_reusing_branch() {
+    let (dir, state) = test_state("wt-rebuild");
+    let repo = git_repo(dir.path());
+    let ws = services::workspace_add_project(&state, "wtproj", json!([repo.to_string_lossy().to_string()]).as_array().unwrap(), "trusted").unwrap();
+    let thread = services::thread_create(&state, "code", ws["id"].as_str().unwrap(), "任务").unwrap();
+    let id = thread_id_of(&thread);
+
+    let (path, branch) = services::ensure_thread_worktree(&state, &id).unwrap();
+    // 在工作树里留一个提交（分支历史不为空），目录丢失后重建应复用分支
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(args).current_dir(&path).output().unwrap();
+        assert!(out.status.success(), "git {args:?} 失败：{}", String::from_utf8_lossy(&out.stderr));
+    };
+    run(&["config", "user.email", "test@craftwork.local"]);
+    run(&["config", "user.name", "test"]);
+    std::fs::write(std::path::Path::new(&path).join("w.txt"), "worktree\n").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-qm", "wt-commit"]);
+
+    std::fs::remove_dir_all(&path).unwrap();
+    let (rebuilt, rebuilt_branch) = services::ensure_thread_worktree(&state, &id).unwrap();
+    assert_eq!(rebuilt, path, "重建路径稳定");
+    assert_eq!(rebuilt_branch, branch, "重建复用原分支");
+    // 分支历史提交不丢
+    let out = std::process::Command::new("git").args(["log", "--oneline", "-2"]).current_dir(&rebuilt).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("wt-commit"), "分支提交保留");
+}
+
+#[test]
+fn worktree_send_failure_rolls_back_created_thread() {
+    let (_dir, state) = test_state("wt-atomic");
+    stub_provider(&state);
+    // 启动装配先建内置临时目录（应用启动时必经；否则空串回落不到工作区）
+    services::ensure_conversation_workspace(&state).unwrap();
+    // 临时槽（空串回落 conversation 工作区）：勾选 worktree 首发必失败
+    let err = services::chat_create_and_start(&state, "code", "", "任务", &[], "stub/m1", "", false, true).unwrap_err();
+    assert!(err.contains("不是 git 仓库"), "实际：{err}");
+    let threads = services::thread_list(&state, "code", false).unwrap();
+    assert_eq!(threads.as_array().unwrap().len(), 0, "worktree 失败回滚刚建的空会话（失败零落库）");
+}
+
+#[test]
+fn thread_delete_cleans_up_bound_worktree_and_branch() {
+    let (dir, state) = test_state("wt-delete");
+    let repo = git_repo(dir.path());
+    let ws = services::workspace_add_project(&state, "wtproj", json!([repo.to_string_lossy().to_string()]).as_array().unwrap(), "trusted").unwrap();
+    let thread = services::thread_create(&state, "code", ws["id"].as_str().unwrap(), "任务").unwrap();
+    let id = thread_id_of(&thread);
+    let (path, branch) = services::ensure_thread_worktree(&state, &id).unwrap();
+
+    services::thread_delete(&state, &id).unwrap();
+    assert!(!std::path::Path::new(&path).exists(), "工作树目录已清理");
+    let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支已删除");
+    let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(&path), "主仓库 worktree 登记已移除");
 }
