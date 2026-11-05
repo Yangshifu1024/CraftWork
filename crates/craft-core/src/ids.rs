@@ -38,7 +38,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 新生成的_id_带前缀与16位十六进制() {
+    fn new_generated_id_has_prefix_and_16_hex() {
         let id = new_id(id_prefix::THREAD);
         assert!(id.starts_with("th_"));
         assert_eq!(id.len(), "th_".len() + 16);
@@ -47,7 +47,7 @@ mod tests {
     }
 
     #[test]
-    fn 同前缀的两次生成_互不相同() {
+    fn same_prefix_generations_are_distinct() {
         assert_ne!(new_id(id_prefix::PART), new_id(id_prefix::PART));
     }
 }

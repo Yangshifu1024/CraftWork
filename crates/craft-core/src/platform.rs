@@ -330,7 +330,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 原子写_覆盖已存在文件() {
+    fn atomic_write_overwrites_existing_file() {
         let dir = std::env::temp_dir().join(format!("craftwork-atomic-{}", random_suffix()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.txt");
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn sha256_与已知向量一致() {
+    fn sha256_matches_known_vector() {
         assert_eq!(
             sha256_hex(b"hello"),
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -356,14 +356,14 @@ mod tests {
     }
 
     #[test]
-    fn 二进制探测_含nul即二进制() {
+    fn binary_probe_contains_nul_is_binary() {
         assert!(!is_binary(b"plain text"));
         assert!(is_binary(&[0x50, 0x4b, 0x00, 0x01]));
     }
 
     #[cfg(unix)]
     #[test]
-    fn 子进程执行_捕获输出与退出码() {
+    fn child_process_exec_captures_output_and_exit_code() {
         let result = run(RunSpec {
             file: "/bin/sh".into(),
             args: vec!["-c".into(), "echo hello; echo err >&2; exit 3".into()],
@@ -379,7 +379,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn 子进程超时_整组被杀并上报() {
+    fn child_process_timeout_kills_group_and_reports() {
         let result = run(RunSpec {
             file: "/bin/sh".into(),
             args: vec!["-c".into(), "echo start; sleep 30".into()],
@@ -394,7 +394,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn 子进程孙进程_随进程组一并终止() {
+    fn child_process_grandchild_terminated_with_process_group() {
         // 孙进程 sleep 30：若未整组杀，输出会超时后仍等不到收尾
         let result = run(RunSpec {
             file: "/bin/sh".into(),
@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn 环境清洗_剔除敏感变量并保留白名单() {
+    fn sanitized_env_strips_secrets_keeps_allowlist() {
         // 本测试进程注入敏感变量，验证白名单与剔除规则
         unsafe { std::env::set_var("CRAFTWORK_TEST_API_KEY", "x") };
         unsafe { std::env::set_var("AWS_SECRET_ACCESS_KEY", "y") };

@@ -108,7 +108,7 @@ docs/                    adr（决策记录）、<feature>/（spec.md + issues/ 
 1. **先读文档**：仓库根 `GLOSSARY.md`（术语）、`docs/<feature>/spec.md`（行为规格，本地票据见 `docs/agents/issue-tracker.md`）、`docs/adr/`（决策记录）；改动与既有 ADR 冲突时先显式提出，不要静默推翻。
 2. **改后端**：领域 crate 保持普通 Rust 模块，不 import Tauri（全部 `crates/*` 可 cargo test；只有 `src-tauri` 允许接触 Tauri API）。
 3. **改界面**：状态壳（zustand）只做事件应用与动作；观感取值一律走 `src/renderer/src/styles.css` 的语义色 token，不写死色值。
-4. **补测试**：核心逻辑（策略、路径、diff、存储、Agent、工具、模型层）必须有 cargo test。
+4. **补测试**：核心逻辑（策略、路径、diff、存储、Agent、工具、模型层）必须有 cargo test。测试函数名一律用英文 snake_case，按下划线分段描述被测行为（如 `single_root_symlink_escape_rejected`）；不用中文或中英混合标识符——触发 non_snake_case 编译警告，也不利于测试输出与 CI 日志检索。
 5. **跑验证**：见第 8 节。
 6. **同步文档**：见第 9 节。
 

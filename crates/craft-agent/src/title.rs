@@ -180,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 标题清洗规则() {
+    fn title_sanitization_rules() {
         assert_eq!(normalize_title("# 你好，世界！"), "你好，世界");
         assert_eq!(normalize_title("  多   行\n第二行"), "多 行");
         assert_eq!(short_title("帮我写一个测试"), "帮我写一个测试");

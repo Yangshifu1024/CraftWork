@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn 单根_相对路径_词法越界拒绝() {
+    fn single_root_relative_path_lexical_escape_rejected() {
         let root = tmp_root("single");
         std::fs::create_dir_all(format!("{root}/a")).unwrap();
         let (abs, rel) = resolve_at(&root, "a/b.txt").unwrap();
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn 单根_新建文件_父目录真实路径拼接() {
+    fn single_root_new_file_parent_realpath_join() {
         let root = tmp_root("newfile");
         std::fs::create_dir_all(format!("{root}/new/deep")).unwrap();
         let (abs, _) = resolve_at(&root, "new/deep/file.txt").unwrap();
@@ -254,7 +254,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn 单根_符号链接逃逸拒绝() {
+    fn single_root_symlink_escape_rejected() {
         let root = tmp_root("symlink");
         let outside = tmp_root("outside");
         std::fs::create_dir_all(format!("{root}/inner")).unwrap();
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn 多根_主要目录优先_附加目录可达() {
+    fn multi_root_main_preferred_extra_reachable() {
         let main = tmp_root("multi-main");
         let extra = tmp_root("multi-extra");
         std::fs::write(format!("{main}/in-main.txt"), "x").unwrap();
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn 多根_preferExisting_新建文件回落首个词法命中() {
+    fn multi_root_prefer_existing_new_file_fallback_first_lexical_hit() {
         let main = tmp_root("lex-main");
         let extra = tmp_root("lex-extra");
         std::fs::write(format!("{extra}/exists.txt"), "x").unwrap();
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn 展示路径() {
+    fn display_path() {
         let root = tmp_root("relative");
         let sep = std::path::MAIN_SEPARATOR;
         assert_eq!(relative(&root, &format!("{root}{sep}a{sep}b.txt")), format!("a{sep}b.txt"));
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn 空根列表拒绝() {
+    fn empty_root_list_rejected() {
         assert!(resolve_any(&[], "x", false).is_err());
         assert!(resolve_any(&["".to_string()], "x", false).is_err());
     }

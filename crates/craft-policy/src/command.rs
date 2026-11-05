@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 分类_宁可误判也不放过() {
+    fn classify_prefer_false_positive_over_miss() {
         assert_eq!(classify_command("ls -la"), (PolicyRisk::R2, "在工作区内执行命令"));
         assert_eq!(classify_command("  "), (PolicyRisk::R2, "执行命令"));
         assert_eq!(classify_command("sudo rm x"), (PolicyRisk::R4, "包含破坏性命令"));

@@ -357,7 +357,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn shell_exec_捕获输出与退出码() {
+    fn shell_exec_captures_output_and_exit_code() {
         let (_dir, ctx) = make_ctx(json!({"command": "echo hello; exit 3"}), vec!["/tmp".to_string()]);
         let result = ShellExec.execute(&ctx);
         assert!(result.is_error);
@@ -367,14 +367,14 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn shell_exec_空命令拒绝() {
+    fn shell_exec_rejects_empty_command() {
         let (_dir, ctx) = make_ctx(json!({"command": "  "}), vec!["/tmp".to_string()]);
         assert!(ShellExec.execute(&ctx).is_error);
     }
 
     #[cfg(unix)]
     #[test]
-    fn shell_exec_超时杀进程() {
+    fn shell_exec_timeout_kills_process() {
         let (_dir, ctx) = make_ctx(json!({"command": "sleep 30", "timeout": 1}), vec!["/tmp".to_string()]);
         let result = ShellExec.execute(&ctx);
         assert!(result.is_error);

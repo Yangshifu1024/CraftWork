@@ -340,7 +340,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn url拼接_去尾部斜杠() {
+    fn url_join_strips_trailing_slash() {
         assert_eq!(join_url("https://api.x.com/v1"), "https://api.x.com/v1/chat/completions");
         assert_eq!(join_url("https://api.x.com/v1/"), "https://api.x.com/v1/chat/completions");
         assert_eq!(join_url("https://api.x.com/"), "https://api.x.com/chat/completions");
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn 请求体构造_消息形状与字节稳定() {
+    fn request_body_construction_message_shape_and_byte_stability() {
         let body = build_openai_body("gpt-4o", &sample_request());
         assert_eq!(body["model"], "gpt-4o");
         assert_eq!(body["stream"], true);
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn 请求体_零maxTokens与空tools时字段省略() {
+    fn request_body_omits_fields_when_max_tokens_zero_and_tools_empty() {
         let mut req = sample_request();
         req.max_tokens = 0;
         req.tools = vec![];
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn 事件解码_文本与用量() {
+    fn event_decoding_text_and_usage() {
         let mut usage = Usage::empty();
         let mut usage_seen = false;
         let mut tool_calls = ToolCallBuilder::default();
@@ -439,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn 事件解码_流内错误() {
+    fn event_decoding_in_stream_error() {
         let err = decode_openai_event("p", r#"{"error":{"message":"bad","type":"auth"}}"#, &mut Usage::empty(), &mut false, &mut ToolCallBuilder::default(), &mut false)
             .unwrap()
             .unwrap_err();

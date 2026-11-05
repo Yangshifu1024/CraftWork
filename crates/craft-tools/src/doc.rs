@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn xlsx单元格工具_更新与备份() {
+    fn xlsx_cell_tool_update_and_backup() {
         let sheet_xml = r#"<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#;
         let buf = std::io::Cursor::new(Vec::new());
         let mut writer = zip::ZipWriter::new(buf);
@@ -247,6 +247,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    // zip 依赖供测试使用
-    use zip as _zip_marker;
+    // zip 依赖供测试使用（匿名导入确保链接且不报 unused）
+    use zip as _;
 }

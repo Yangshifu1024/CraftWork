@@ -125,7 +125,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 三块结构_静态字节稳定() {
+    fn three_block_structure_static_bytes_stable() {
         let result = build_prompt(PromptInput {
             mode: "code",
             workspace: "/tmp/ws",

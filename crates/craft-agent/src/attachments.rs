@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn 附件加载_文本命中_敏感名与不存在() {
+    fn attachment_loading_text_hit_sensitive_names_and_missing() {
         let (attach_dir, ws) = setup();
         let result = load_attachments(&ws, &attach_dir, &["note.md".into(), "secret.pem".into(), "missing.txt".into()]);
         assert_eq!(result.attachments.len(), 3);
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn 附件加载_不支持类型() {
+    fn attachment_loading_unsupported_type() {
         let (attach_dir, ws) = setup();
         std::fs::write(format!("{ws}/x.exe"), b"MZ").unwrap();
         let result = load_attachments(&ws, &attach_dir, &["x.exe".into()]);

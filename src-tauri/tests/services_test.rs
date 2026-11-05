@@ -110,7 +110,7 @@ mod tempdir {
 }
 
 #[test]
-fn 启动ensure与设置往返() {
+fn startup_ensure_and_settings_roundtrip() {
     let (_dir, state) = test_state("basic");
     // ensure 后 workspaceList 含临时目录
     let ws_id_value = services::ensure_conversation_workspace(&state).unwrap();
@@ -129,7 +129,7 @@ fn 启动ensure与设置往返() {
 }
 
 #[test]
-fn 首发原子路径_无模型失败零落库() {
+fn first_message_atomic_path_no_model_failure_persists_nothing() {
     let (_dir, state) = test_state("chat");
     let ws_id = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
 
@@ -141,7 +141,7 @@ fn 首发原子路径_无模型失败零落库() {
 }
 
 #[test]
-fn 会话创建与快照链路() {
+fn thread_creation_and_snapshot_chain() {
     let (_dir, state) = test_state("thread");
     let ws_id = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
 
@@ -185,7 +185,7 @@ fn 会话创建与快照链路() {
 }
 
 #[test]
-fn 文件写入与diff() {
+fn file_write_and_diff() {
     let (_dir, state) = test_state("files");
     let ws_id = services::ensure_conversation_workspace(&state).unwrap().as_str().unwrap().to_string();
 
@@ -208,7 +208,7 @@ fn 文件写入与diff() {
 }
 
 #[test]
-fn 提供商密钥与启停() {
+fn provider_key_and_enable_disable() {
     let (_dir, state) = test_state("provider");
     let provider = json!({
         "id": "p1", "name": "P1", "kind": "openai", "endpoint": "https://api.p1.com/v1",
@@ -233,7 +233,7 @@ fn 提供商密钥与启停() {
 }
 
 #[test]
-fn 内置目录加载与导入() {
+fn builtin_catalog_load_and_import() {
     let (_dir, state) = test_state("catalog");
     let meta = services::catalog_meta(&state).unwrap();
     assert!(meta["providerCount"].as_u64().unwrap() > 100);
@@ -245,7 +245,7 @@ fn 内置目录加载与导入() {
 }
 
 #[test]
-fn 提供商保存空id由服务端生成并返回单对象() {
+fn provider_save_empty_id_generated_server_side_returns_single_object() {
     let (_dir, state) = test_state("provider-save-empty-id");
     let provider = json!({
         "id": "", "name": "手动提供商", "kind": "openai-compatible",
@@ -266,7 +266,7 @@ fn 提供商保存空id由服务端生成并返回单对象() {
 }
 
 #[test]
-fn 创建项目空名推导重名序号与返回单对象() {
+fn workspace_add_empty_name_derivation_dedup_ordinal_and_single_object() {
     let (dir, state) = test_state("ws-add-project");
     let root = dir.path().join("a");
     std::fs::create_dir_all(root.join("proj")).unwrap();
@@ -298,8 +298,8 @@ fn 创建项目空名推导重名序号与返回单对象() {
 }
 
 #[test]
-fn 创建项目拒绝内置临时会话目录() {
-    let (dir, state) = test_state("ws-add-project-guard");
+fn workspace_add_rejects_builtin_conversation_directory() {
+    let (_dir, state) = test_state("ws-add-project-guard");
     let _ = services::ensure_conversation_workspace(&state).unwrap();
     let list = services::workspace_list(&state).unwrap();
     let conv_path = list
@@ -316,7 +316,7 @@ fn 创建项目拒绝内置临时会话目录() {
 }
 
 #[test]
-fn 设置保存档位即时生效无需重启() {
+fn settings_save_level_takes_effect_without_restart() {
     let (_dir, state) = test_state("level-hot");
     // migration-parity 票 04：引擎只在启动时按设置初始化，保存后必须同步热切换
     services::settings_save(&state, &json!({ "approvalLevel": "readonly" })).unwrap();

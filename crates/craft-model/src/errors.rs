@@ -230,7 +230,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 状态码映射() {
+    fn status_code_mapping() {
         assert_eq!(code_for_status(401), code::AUTH);
         assert_eq!(code_for_status(403), code::AUTH);
         assert_eq!(code_for_status(429), code::RATE_LIMIT);
@@ -242,21 +242,21 @@ mod tests {
     }
 
     #[test]
-    fn 状态错误_文案二次修正为上下文溢出() {
+    fn status_error_message_correction_to_context_overflow() {
         let err = status_error("openai", 400, r#"{"error":{"message":"This model's maximum context length is 8192 tokens"}}"#);
         assert_eq!(err.code, code::CONTEXT_OVERFLOW);
         assert!(!err.retryable());
     }
 
     #[test]
-    fn 状态错误_401文案含限流词修正为限流() {
+    fn status_error_401_rate_limit_keyword_corrected_to_rate_limit() {
         let err = status_error("x", 401, r#"{"error":{"message":"you have hit your rate limit quota"}}"#);
         assert_eq!(err.code, code::RATE_LIMIT);
         assert!(err.retryable());
     }
 
     #[test]
-    fn 流内错误_关键词分类() {
+    fn in_stream_error_keyword_classification() {
         assert_eq!(stream_error("p", "prompt is too long", "").code, code::CONTEXT_OVERFLOW);
         assert_eq!(stream_error("p", "", "insufficient_quota").code, code::RATE_LIMIT);
         assert_eq!(stream_error("p", "invalid api key", "").code, code::AUTH);
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn 错误消息提取_三种形状() {
+    fn error_message_extraction_three_shapes() {
         assert_eq!(extract_error_message(r#"{"error":"plain string"}"#), "plain string");
         assert_eq!(
             extract_error_message(r#"{"error":{"message":"bad key","type":"invalid_request_error"}}"#),
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn 可重试判断() {
+    fn retryable_error_decision() {
         assert!(ModelError::new(code::RATE_LIMIT, "p", "m", 0).retryable());
         assert!(ModelError::new(code::TIMEOUT, "p", "m", 0).retryable());
         assert!(ModelError::new(code::PROVIDER_UNAVAILABLE, "p", "m", 0).retryable());

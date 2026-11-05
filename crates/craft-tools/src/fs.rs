@@ -732,7 +732,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn glob匹配_通配与双星() {
+    fn glob_match_wildcard_and_double_star() {
         assert!(match_glob("*.ts", "src/main.ts"));
         assert!(match_glob("**/*.go", "src/a/b.go"));
         assert!(!match_glob("*.ts", "src/main.go"));
@@ -740,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn 补丁解析_行数校验() {
+    fn parse_patch_line_count_validation() {
         let patch = "@@ -1,2 +1,2 @@\n-a\n+b\n c\n";
         let hunks = parse_patch(patch).unwrap();
         assert_eq!(hunks.len(), 1);
@@ -749,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn 补丁应用_修正位置与行号偏移回退() {
+    fn apply_hunk_preferred_position_and_offset_fallback() {
         let mut file: Vec<String> = "one\ntwo\nthree\nfour".split('\n').map(str::to_string).collect();
         let hunk = parse_patch("@@ -2,1 +2,1 @@\n-two\n+TWO").unwrap().remove(0);
         assert_eq!(apply_hunk(&mut file, &hunk, 0).unwrap(), 0);
@@ -769,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn 补丁应用_上下文不匹配报错() {
+    fn apply_hunk_context_mismatch_error() {
         let mut file: Vec<String> = "a\nb".split('\n').map(str::to_string).collect();
         let hunk = parse_patch("@@ -1,1 +1,1 @@\n-nothing-matches\n+new").unwrap().remove(0);
         assert!(apply_hunk(&mut file, &hunk, 0).is_err());

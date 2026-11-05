@@ -124,7 +124,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 指令文件_读取与截断() {
+    fn instruction_file_read_and_truncation() {
         let dir = std::env::temp_dir().join(format!(
             "cw-env-{}-{}",
             std::process::id(),
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn 环境快照_非git目录降级() {
+    fn environment_snapshot_non_git_dir_fallback() {
         let dir = std::env::temp_dir().join(format!(
             "cw-env2-{}-{}",
             std::process::id(),

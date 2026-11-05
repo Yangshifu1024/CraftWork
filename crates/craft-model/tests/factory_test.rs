@@ -63,7 +63,7 @@ fn install_providers(db: &Db, providers: serde_json::Value) {
 }
 
 #[test]
-fn 内置目录_加载与元数据() {
+fn builtin_catalog_load_and_metadata() {
     let (dir, db) = tmp_db("builtin");
     let catalog = Catalog::new(Arc::clone(&db));
     let (generated_at, version, provider_count, model_count) = catalog.builtin_meta();
@@ -77,7 +77,7 @@ fn 内置目录_加载与元数据() {
 }
 
 #[test]
-fn 解析_引用优先_原始ID兼容() {
+fn parse_prefers_reference_raw_id_fallback() {
     let (dir, db) = tmp_db("resolve");
     install_providers(
         &db,
@@ -105,7 +105,7 @@ fn 解析_引用优先_原始ID兼容() {
 }
 
 #[test]
-fn 客户端构造_缺密钥与停用分支() {
+fn client_construction_missing_key_and_disabled_branches() {
     let (dir, db) = tmp_db("branches");
     install_providers(
         &db,
@@ -147,7 +147,7 @@ fn 客户端构造_缺密钥与停用分支() {
 }
 
 #[test]
-fn 回退链_停用与同引用与缺密钥候选不参与() {
+fn fallback_chain_excludes_disabled_same_reference_and_missing_key_candidates() {
     let (dir, db) = tmp_db("fallback");
     install_providers(
         &db,
@@ -185,7 +185,7 @@ fn 回退链_停用与同引用与缺密钥候选不参与() {
 }
 
 #[test]
-fn 协议类型_费用分支用() {
+fn provider_kind_for_cost_branches() {
     let (dir, db) = tmp_db("kind");
     install_providers(
         &db,
@@ -202,7 +202,7 @@ fn 协议类型_费用分支用() {
 }
 
 #[test]
-fn 事件类型常量_与契约对齐() {
+fn event_type_constants_aligned_with_contract() {
     // 烟雾：event_type 常量可访问（contract 与 events.ts 对齐由黄金文件测试保障）
     assert_eq!(event_type::RUN_STARTED, "run.started");
 }

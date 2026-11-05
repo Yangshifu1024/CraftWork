@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn 读取_压缩内容流的文本层() {
+    fn read_compressed_content_stream_text_layer() {
         let content = "BT /F1 12 Tf\n(Hello \\(world\\)) Tj\n0 -20 Td\n(Second line) Tj\nET";
         let mut raw = b"%PDF-1.4\n".to_vec();
         raw.extend_from_slice(&flate_stream(content));
@@ -280,20 +280,20 @@ mod tests {
     }
 
     #[test]
-    fn 加密pdf报错() {
+    fn error_on_encrypted_pdf() {
         let raw = b"%PDF-1.4\n/Encrypt 1 0 R\n%%EOF".to_vec();
         assert!(read(&raw).is_err());
     }
 
     #[test]
-    fn 无文本层提示扫描件() {
+    fn no_text_layer_hints_scanned_document() {
         let raw = b"%PDF-1.4\n<< /Subtype /Image >>\nstream\n\x89PNG\nendstream\n%%EOF".to_vec();
         let result = read(&raw).unwrap();
         assert!(result.note.contains("扫描件"));
     }
 
     #[test]
-    fn 十六进制与utf16字符串() {
+    fn hex_and_utf16_strings() {
         // <FEFF0041 0042> = UTF-16BE "AB"
         let content = "BT <FE FF 0041 0042> Tj ET";
         assert_eq!(extract_pdf_text(content), "AB");
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn 负间距视为词间空格() {
+    fn negative_spacing_treated_as_word_spaces() {
         let content = "BT (Word) Tj -150 (Word) Tj ET";
         assert_eq!(extract_pdf_text(content), "Word Word");
     }

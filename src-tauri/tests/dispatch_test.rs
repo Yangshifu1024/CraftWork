@@ -11,7 +11,7 @@ use std::path::Path;
 const UNWIRED_ALLOWLIST: [&str; 3] = ["catalogLookup", "workspaceSetActive", "workspaceLocateFile"];
 
 #[test]
-fn channels_全部方法在_dispatch_有接线分支() {
+fn channels_all_methods_have_dispatch_branches() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let channels = std::fs::read_to_string(manifest.join("../src/shared/channels.ts")).expect("读 src/shared/channels.ts");
     let lib = std::fs::read_to_string(manifest.join("src/lib.rs")).expect("读 src-tauri/src/lib.rs");

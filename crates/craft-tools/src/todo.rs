@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn 任务清单_状态符号与上限() {
+    fn todo_list_status_symbols_and_limit() {
         let ctx = make_ctx(json!({"items": [
             {"text": "任务一", "status": "done"},
             {"text": "任务二", "status": "active"},
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn 任务清单_空列表拒绝() {
+    fn todo_list_empty_items_rejected() {
         let ctx = make_ctx(json!({"items": []}));
         assert!(TodoWrite.execute(&ctx).is_error);
     }

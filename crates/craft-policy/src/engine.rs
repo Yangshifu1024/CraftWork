@@ -175,7 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 判定顺序与档位规则() {
+    fn decision_order_and_level_rules() {
         // graded
         let graded = Engine::new(Level::Graded);
         assert_eq!(graded.action(false, PolicyRisk::R0), Action::Allow);
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn 永久授权仅分级档非受限R1R2() {
+    fn permanent_grant_only_graded_unrestricted_r1_r2() {
         let graded = Engine::new(Level::Graded);
         assert!(graded.allows_permanent(false, PolicyRisk::R1));
         assert!(graded.allows_permanent(false, PolicyRisk::R2));
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn 档位解析与最宽风险() {
+    fn level_parsing_and_widest_risk() {
         assert_eq!(parse_level("strict"), Level::Strict);
         assert_eq!(parse_level("其他"), Level::Graded);
         assert_eq!(level_widest_risk(Level::Free), PolicyRisk::R4);

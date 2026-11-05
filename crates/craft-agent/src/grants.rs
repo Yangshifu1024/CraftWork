@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn 命令前缀规则() {
+    fn command_prefix_rules() {
         // 第二段是选项：前缀只取第一段
         assert_eq!(command_prefix("ls -la src"), "ls");
         assert_eq!(command_prefix("git status"), "git status");
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn 会话与工作区授权_前缀命中() {
+    fn session_and_workspace_grants_prefix_hit() {
         let db = tmp_db();
         let grants = Grants::new(Arc::clone(&db));
         assert!(!grants.allowed("fs_write", "/tmp/a.txt"));

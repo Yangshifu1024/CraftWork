@@ -158,7 +158,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 行拆分_跨chunk缓冲与cr去除() {
+    fn line_split_cross_chunk_buffering_and_cr_removal() {
         let mut reader = LineReader::new();
         assert_eq!(reader.push_bytes(b"data: hel"), Vec::<String>::new());
         let lines = reader.push_bytes(b"lo\r\ndata: world\n\n");
@@ -167,14 +167,14 @@ mod tests {
     }
 
     #[test]
-    fn 行拆分_无换行结尾_残留为末行() {
+    fn line_split_no_trailing_newline_remainder_as_last_line() {
         let mut reader = LineReader::new();
         assert_eq!(reader.push_bytes(b"abc"), Vec::<String>::new());
         assert_eq!(reader.finish(), Some("abc".into()));
     }
 
     #[test]
-    fn 行拆分_超长行截断保留尾部() {
+    fn line_split_oversized_line_truncation_keeps_tail() {
         let mut reader = LineReader::new();
         let big = vec![b'x'; MAX_SSE_LINE_BYTES + 4096];
         let lines = reader.push_bytes(&big);
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn data行提取_done与空载荷() {
+    fn data_line_extraction_done_and_empty_payload() {
         assert!(matches!(line_to_event("data: [DONE]"), Some(SseEvent::Done)));
         assert!(line_to_event("data: {}").is_some());
         assert!(line_to_event("data:").is_none()); // 空载荷忽略
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn 工具调用参数解析_失败保留原文() {
+    fn tool_call_arguments_parse_failure_preserves_raw() {
         assert_eq!(parse_arguments(""), serde_json::json!({}));
         assert_eq!(parse_arguments(r#"{"a":1}"#), serde_json::json!({"a":1}));
         assert_eq!(parse_arguments("[1,2]"), serde_json::json!({"_raw": [1, 2]}));
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn 工具调用增量聚合_按index升序交付() {
+    fn tool_call_incremental_aggregation_delivered_in_ascending_index_order() {
         let mut builder = ToolCallBuilder::default();
         builder.add(1, "", "read", "{\"p");
         builder.add(0, "call_a", "write", "{\"q\":");

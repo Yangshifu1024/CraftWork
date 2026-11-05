@@ -308,7 +308,7 @@ mod tests {
     /// 对拍 src/shared/events.ts：信封字段必须序列化为 camelCase（type 除外）。
     /// 漂移后果：渲染层读不到 threadId，所有事件回落到活动会话应用，出现乱序与串会话。
     #[test]
-    fn 事件信封序列化为前端契约的驼峰字段() {
+    fn envelope_serializes_camel_case_fields_for_frontend() {
         let env = Envelope {
             seq: 3,
             event_type: event_type::TEXT_DELTA.to_string(),
@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn 契约结构序列化字段全部为驼峰() {
+    fn contract_structs_serialize_all_camel_case() {
         let folder = WorkspaceFolder { id: "f".into(), path: "/p".into(), position: 0 };
         let part = PartSnapshot { id: "p".into(), kind: "text".into(), seq: 0, payload: Value::Null };
         let message = MessageSnapshot {

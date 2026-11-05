@@ -257,7 +257,7 @@ mod tests {
 </w:document>"#;
 
     #[test]
-    fn 读取_段落与表格() {
+    fn read_paragraphs_and_tables() {
         let raw = minimal_docx(SAMPLE);
         let result = read(&raw).unwrap();
         assert_eq!(result.kind, "docx");
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn 替换_唯一命中与多次拒绝() {
+    fn replace_unique_match_and_multiple_rejections() {
         let tmp = std::env::temp_dir().join(format!(
             "cw-docx-{}-{}.docx",
             std::process::id(),
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn 读取_转义实体还原() {
+    fn read_unescapes_entities() {
         let xml = r#"<w:p><w:r><w:t>a&lt;b &amp; c</w:t></w:r></w:p>"#;
         let raw = minimal_docx(xml);
         let result = read(&raw).unwrap();

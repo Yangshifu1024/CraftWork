@@ -371,7 +371,7 @@ mod tests {
     use crate::types::{Message, SystemBlock, ToolCall, ToolSpec};
 
     #[test]
-    fn 端点拼接_v1去重() {
+    fn endpoint_path_join_v1_deduplication() {
         assert_eq!(join_api_path("https://api.anthropic.com", "/v1/messages"), "https://api.anthropic.com/v1/messages");
         assert_eq!(join_api_path("https://api.anthropic.com/v1", "/v1/messages"), "https://api.anthropic.com/v1/messages");
         assert_eq!(join_api_path("https://gw.example.com/api/", "/v1/messages"), "https://gw.example.com/api/v1/messages");
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn 消息转换_连续同角色合并与缓存断点() {
+    fn message_conversion_consecutive_same_role_merge_and_cache_breakpoints() {
         let (system, messages) = build_anthropic_messages(&sample_request());
         // system：稳定块（带 cache_control）+ 动态块
         assert_eq!(system.len(), 2);
@@ -432,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn 请求体构造() {
+    fn request_body_construction() {
         let body = build_anthropic_body("claude-x", &sample_request());
         assert_eq!(body["model"], "claude-x");
         assert_eq!(body["max_tokens"], 2048);
@@ -449,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn 事件解码_完整流() {
+    fn event_decoding_full_stream() {
         let mut state = AnthropicStreamState::new();
         state
             .decode(

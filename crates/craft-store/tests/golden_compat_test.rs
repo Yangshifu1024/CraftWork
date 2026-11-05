@@ -27,7 +27,7 @@ fn copy_to_tmp() -> PathBuf {
 }
 
 #[test]
-fn golden库_版本一致且会话列表可读() {
+fn golden_db_version_matches_and_thread_list_readable() {
     let path = copy_to_tmp();
     let db = Db::open(&path).unwrap();
     let version: i64 = db
@@ -55,7 +55,7 @@ fn golden库_版本一致且会话列表可读() {
 }
 
 #[test]
-fn golden库_快照重建与Node侧基准一致() {
+fn golden_db_snapshot_rebuild_matches_node_baseline() {
     let path = copy_to_tmp();
     let db = Db::open(&path).unwrap();
     let snap = snapshot(&db.lock_conn(), "th_gold1", 0, 0).unwrap();

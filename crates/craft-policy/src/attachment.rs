@@ -19,7 +19,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 敏感附件启发式() {
+    fn sensitive_attachment_heuristics() {
         assert!(is_sensitive_attachment(".env"));
         assert!(is_sensitive_attachment(".env.local"));
         assert!(is_sensitive_attachment("server.pem"));

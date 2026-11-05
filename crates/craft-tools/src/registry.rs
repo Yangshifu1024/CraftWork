@@ -345,7 +345,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 输出截断_字节级并标注原始长度() {
+    fn truncate_output_byte_level_with_original_length() {
         let short = truncate_output("hello", MAX_OUTPUT_BYTES);
         assert_eq!(short, "hello");
         let long = "x".repeat(MAX_OUTPUT_BYTES + 10);
@@ -355,14 +355,14 @@ mod tests {
     }
 
     #[test]
-    fn 人可读大小() {
+    fn human_readable_size() {
         assert_eq!(human_size(512), "512 B");
         assert_eq!(human_size(2048), "2.0 KB");
         assert_eq!(human_size(3 * 1024 * 1024), "3.0 MB");
     }
 
     #[test]
-    fn 忽略目录表() {
+    fn ignored_dirs_table() {
         assert!(is_ignored_dir(".git"));
         assert!(is_ignored_dir("NODE_MODULES"));
         assert!(!is_ignored_dir("src"));

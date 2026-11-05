@@ -320,7 +320,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 无变化_空hunks() {
+    fn no_changes_empty_hunks() {
         let result = diff("a\nb\nc", "a\nb\nc");
         assert_eq!(result.additions, 0);
         assert_eq!(result.deletions, 0);
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn 单行修改_上下文扩展() {
+    fn single_line_change_expands_context() {
         let result = diff("a\nb\nc\nd\ne", "a\nb\nX\nd\ne");
         assert_eq!(result.additions, 1);
         assert_eq!(result.deletions, 1);
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn 纯新增_旧侧起始为0() {
+    fn pure_addition_old_side_starts_at_zero() {
         let result = diff("a", "a\nb\nc");
         assert_eq!(result.additions, 2);
         assert_eq!(result.deletions, 0);
@@ -351,14 +351,14 @@ mod tests {
     }
 
     #[test]
-    fn crlf归一化() {
+    fn crlf_normalized() {
         let result = diff("a\r\nb", "a\nb");
         assert_eq!(result.additions, 0);
         assert_eq!(result.deletions, 0);
     }
 
     #[test]
-    fn 分离的变更_产生多个hunks() {
+    fn separated_changes_produce_multiple_hunks() {
         // 首尾修改，中间隔 13 行：两处变更的上下文窗口不再重叠
         let old_text = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np";
         let new_text = "X\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\nY";
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn 首尾修改_上下文窗口重叠时合并为单hunk() {
+    fn leading_trailing_changes_merge_single_hunk_when_windows_overlap() {
         let result = diff("a\nb\nc\nd\ne\nf\ng\nh", "X\nb\nc\nd\ne\nf\ng\nY");
         assert_eq!(result.hunks.len(), 1);
         assert_eq!(result.additions, 2);
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn 超限截断() {
+    fn oversize_input_truncated() {
         let big = "x\n".repeat(20001);
         let result = diff(&big, "y");
         assert!(result.truncated);
@@ -386,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn lcs超限退化_整段删增() {
+    fn lcs_oversize_degenerates_to_wholesale_delete_add() {
         // n*m > 4_000_000：构造 3000 x 2000 的完全不同文本（6M 超限），
         // 但行数不超 20000，走退化路径
         let old_text: String = (0..3000).map(|i| format!("old{i}\n")).collect();

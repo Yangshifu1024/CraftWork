@@ -205,10 +205,10 @@ mod tests {
     }
 
     #[test]
-    fn 写入读取_文件权限收紧_遮罩() {
+    fn write_read_mode_tightened_masked() {
         let dir = tmp_dir("basic");
         {
-            let mut store = SecretStore::open(&dir);
+            let store = SecretStore::open(&dir);
             store.set("p1", "sk-abcdefghijklmnop");
             assert_eq!(store.get("p1"), "sk-abcdefghijklmnop");
             assert_eq!(store.source("p1"), "file");
@@ -228,10 +228,10 @@ mod tests {
     }
 
     #[test]
-    fn 空值set即删除_env回退链() {
+    fn empty_set_removes_env_fallback_chain() {
         unsafe { std::env::set_var("CRAFTWORK_SECRET_TEST_KEY", "env-value") };
         let dir = tmp_dir("env");
-        let mut store = SecretStore::open(&dir);
+        let store = SecretStore::open(&dir);
         store.set("p1", "x");
         store.set("p1", "");
         assert_eq!(store.get("p1"), "");
@@ -242,14 +242,14 @@ mod tests {
     }
 
     #[test]
-    fn 损坏文件降级并给出警告() {
+    fn corrupt_file_falls_back_with_warning() {
         let dir = tmp_dir("corrupt");
         fs::write(dir.join("keys.json"), "{not json").unwrap();
         let store = SecretStore::open(&dir);
         assert!(store.get("p1").is_empty());
         assert!(store.warnings().iter().any(|w| w.contains("读取失败")));
         // set 覆盖原文件恢复可用
-        let mut store = store;
+        let store = store;
         store.set("p1", "ok");
         assert_eq!(SecretStore::open(&dir).get("p1"), "ok");
         fs::remove_dir_all(&dir).ok();

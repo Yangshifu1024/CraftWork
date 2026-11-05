@@ -251,7 +251,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 全新库_迁移到最新版本() {
+    fn fresh_db_migrates_to_latest_version() {
         let dir = std::env::temp_dir().join(format!("craftwork-db-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let db = Db::open(&dir.join("craftwork.db")).unwrap();
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn 事务_出错自动回滚() {
+    fn transaction_auto_rollback_on_error() {
         let dir = std::env::temp_dir().join(format!("craftwork-dbtx-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let db = Db::open(&dir.join("craftwork.db")).unwrap();

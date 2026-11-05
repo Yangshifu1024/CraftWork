@@ -184,7 +184,7 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
-    fn 事件经微批合并推送_会话seq单调递增() {
+    fn events_micro_batched_session_seq_monotonic() {
         let (tx, rx) = mpsc::channel::<Batch>();
         let bus = Bus::new(move |batch| tx.send(batch).unwrap());
         bus.emit("text.delta", Some("t1"), None, serde_json::json!({"a": 1}));
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn close_冲刷剩余事件() {
+    fn close_flushes_remaining_events() {
         let (tx, rx) = mpsc::channel::<Batch>();
         let bus = Bus::new(move |batch| tx.send(batch).unwrap());
         bus.emit("notice", Some("t2"), None, serde_json::json!("x"));
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn part_event_映射完整() {
+    fn part_event_mapping_is_complete() {
         assert_eq!(part_event("user_message"), Some("user.message"));
         assert_eq!(part_event("tool_call"), Some("tool.completed"));
         assert_eq!(part_event("draft"), None);

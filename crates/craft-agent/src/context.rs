@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn 估算与切分点() {
+    fn estimate_and_split_points() {
         // 小历史不触发
         let messages: Vec<Message> = (0..10).map(user).collect();
         assert!(plan_compression(&messages, 100_000).is_none());
@@ -281,14 +281,14 @@ mod tests {
     }
 
     #[test]
-    fn 窗口未知时跳过压缩() {
+    fn skip_compaction_when_window_unknown() {
         // contextK=0 的模型窗口为 0：不压缩（否则阈值恒超，每轮压到只剩保留窗）
         let messages: Vec<Message> = (0..50).map(user).collect();
         assert!(plan_compression(&messages, 0).is_none());
     }
 
     #[test]
-    fn 转录截断() {
+    fn transcript_truncation() {
         let messages = vec![Message::new("user", "x".repeat(30000))];
         let transcript = transcript_of(&messages);
         assert!(transcript.contains("省略") || transcript.chars().count() < 30000);

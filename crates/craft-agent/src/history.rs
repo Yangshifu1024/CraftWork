@@ -159,7 +159,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 工具调用链拆分与文本累积() {
+    fn tool_call_chain_split_and_text_accumulation() {
         let msg = MessageSnapshot {
             id: "msg_a".into(),
             role: "assistant".into(),
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn 用户消息_带附件路径() {
+    fn user_message_with_attachment_paths() {
         let dir = std::env::temp_dir().join(format!(
             "cw-hist-{}-{}",
             std::process::id(),

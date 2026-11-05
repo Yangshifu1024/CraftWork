@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn 读取_共享字符串_数值与公式() {
+    fn read_shared_strings_numbers_and_formulas() {
         let raw = minimal_xlsx(SAMPLE_SHEET);
         let result = read(&raw).unwrap();
         assert!(result.text.contains("工作表：数据"));
@@ -569,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn 单元格更新_原位替换_公式与数字() {
+    fn cell_update_in_place_replacement_formulas_and_numbers() {
         let tmp = std::env::temp_dir().join(format!(
             "cw-xlsx-{}-{}.xlsx",
             std::process::id(),
@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn 数字识别() {
+    fn number_detection() {
         assert!(is_plain_number("42"));
         assert!(is_plain_number("-3.14"));
         assert!(is_plain_number("0.5"));

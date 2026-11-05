@@ -51,7 +51,7 @@ fn user_message(thread_id: &str, message_id: &str, text: &str) -> EventRecord {
 }
 
 #[test]
-fn 迁移到当前版本且可重开() {
+fn migrate_to_current_version_and_reopen() {
     let (dir, db) = tmp_db("migrate");
     let version: i64 = db
         .with(|conn| Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0)))
@@ -67,7 +67,7 @@ fn 迁移到当前版本且可重开() {
 }
 
 #[test]
-fn v7空会话清理语义_删空自动命名_保留有事件与手动改名() {
+fn v7_empty_thread_cleanup_semantics_delete_empty_auto_named_keep_thread_with_events_and_manual_rename() {
     let (dir, db) = tmp_db("v7");
     create_thread(&db.lock_conn(), thread("th_v7_empty")).unwrap();
     create_thread(&db.lock_conn(), thread("th_v7_events")).unwrap();
@@ -105,7 +105,7 @@ fn v7空会话清理语义_删空自动命名_保留有事件与手动改名() {
 }
 
 #[test]
-fn threads基本读写与删除() {
+fn threads_basic_read_write_and_delete() {
     let (dir, db) = tmp_db("threads");
     let t = create_thread(&db.lock_conn(), thread("th_1")).unwrap();
     assert_eq!(get_thread(&db.lock_conn(), &t.id).unwrap().title, "新对话");
@@ -117,7 +117,7 @@ fn threads基本读写与删除() {
 }
 
 #[test]
-fn autoTitle条件更新只在自动命名会话生效并翻转标记() {
+fn auto_title_conditional_update_only_applies_to_auto_named_threads_and_flips_flag() {
     let (dir, db) = tmp_db("autotitle");
     create_thread(&db.lock_conn(), thread("th_2")).unwrap();
     // 命名落地并翻转 title_auto=0：后续 run 不再重复命名（migration-parity 票 03；
@@ -134,7 +134,7 @@ fn autoTitle条件更新只在自动命名会话生效并翻转标记() {
 }
 
 #[test]
-fn 事件seq单调递增且快照重建消息() {
+fn event_seq_monotonically_increasing_and_snapshot_rebuilds_messages() {
     let (dir, db) = tmp_db("events");
     create_thread(&db.lock_conn(), thread("th_3")).unwrap();
     let r1 = record_event(&db, &user_message("th_3", "m1", "你好")).unwrap();
@@ -161,7 +161,7 @@ fn 事件seq单调递增且快照重建消息() {
 }
 
 #[test]
-fn 审批并发保护与重复决定拒绝() {
+fn approval_concurrency_protection_and_repeated_decision_rejected() {
     let (dir, db) = tmp_db("approvals");
     create_thread(&db.lock_conn(), thread("th_4")).unwrap();
     let ap = create_approval(
@@ -179,7 +179,7 @@ fn 审批并发保护与重复决定拒绝() {
 }
 
 #[test]
-fn 启动收尾_中断运行标记interrupted并写错误事件() {
+fn startup_finalization_marks_stale_runs_interrupted_and_writes_error_event() {
     let (dir, db) = tmp_db("stale");
     create_thread(
         &db.lock_conn(),
@@ -212,7 +212,7 @@ fn 启动收尾_中断运行标记interrupted并写错误事件() {
 }
 
 #[test]
-fn run完成回填状态() {
+fn run_finish_backfills_status() {
     let (dir, db) = tmp_db("runfinish");
     create_thread(&db.lock_conn(), thread("th_6")).unwrap();
     let run = create_run(&db.lock_conn(), "th_6", "gpt-x").unwrap();
@@ -230,7 +230,7 @@ fn run完成回填状态() {
 }
 
 #[test]
-fn 工作区按path幂等upsert() {
+fn workspace_idempotent_upsert_by_path() {
     let (dir, db) = tmp_db("wsupsert");
     let a = upsert_workspace(&db.lock_conn(), "项目", "/tmp/ws-a", "trusted", "project").unwrap();
     let b = upsert_workspace(&db.lock_conn(), "项目改名", "/tmp/ws-a", "restricted", "conversation").unwrap();
@@ -243,7 +243,7 @@ fn 工作区按path幂等upsert() {
 }
 
 #[test]
-fn 文件夹整体替换并同步主目录() {
+fn folders_replaced_wholesale_and_main_path_synced() {
     let (dir, db) = tmp_db("wsfolders");
     let ws = upsert_workspace(&db.lock_conn(), "项目", "/tmp/ws-b", "restricted", "project").unwrap();
     replace_workspace_folders(&db, &ws.id, &["/tmp/ws-b".into(), "/tmp/ws-c".into()]).unwrap();
@@ -255,7 +255,7 @@ fn 文件夹整体替换并同步主目录() {
 }
 
 #[test]
-fn 默认临时会话工作区解析_缺失时回落空串() {
+fn default_conversation_workspace_resolution_falls_back_to_empty_string_when_missing() {
     let (dir, db) = tmp_db("wsdefault");
     // 无 conversation 工作区时回落空串
     assert_eq!(default_conversation_workspace_id(&db.lock_conn()), "");
@@ -263,7 +263,7 @@ fn 默认临时会话工作区解析_缺失时回落空串() {
 }
 
 #[test]
-fn 设置upsert与读取() {
+fn settings_upsert_and_read() {
     let (dir, db) = tmp_db("settings");
     set_setting(&db.lock_conn(), "app", &serde_json::json!({ "theme": "dark" })).unwrap();
     assert_eq!(get_setting(&db.lock_conn(), "app").unwrap().unwrap()["theme"], "dark");
@@ -273,7 +273,7 @@ fn 设置upsert与读取() {
 }
 
 #[test]
-fn 审计追加与倒序列表() {
+fn audit_append_and_descending_list() {
     let (dir, db) = tmp_db("audit");
     add_audit(
         &db.lock_conn(),
@@ -311,7 +311,7 @@ fn 审计追加与倒序列表() {
 }
 
 #[test]
-fn 会话列表按模式过滤() {
+fn thread_list_filtered_by_mode() {
     let (dir, db) = tmp_db("threadmode");
     create_thread(&db.lock_conn(), NewThread { id: "th_c1", title: "c1", ..thread("x") }).unwrap();
     create_thread(
@@ -325,7 +325,7 @@ fn 会话列表按模式过滤() {
 }
 
 #[test]
-fn 上下文摘要_最新一条自然淘汰旧摘要() {
+fn context_summary_latest_one_naturally_evicts_older_summaries() {
     let (dir, db) = tmp_db("summary");
     create_thread(&db.lock_conn(), thread("th_7")).unwrap();
     record_event(
@@ -357,7 +357,7 @@ fn 上下文摘要_最新一条自然淘汰旧摘要() {
 }
 
 #[test]
-fn append_event便捷入口_经record_event验证() {
+fn append_event_convenience_entry_verified_via_record_event() {
     let (dir, db) = tmp_db("append");
     create_thread(&db.lock_conn(), thread("th_8")).unwrap();
     // 直接在 with 内调用 append_event 与 record_event 等价（record_event 自带事务）
@@ -370,7 +370,7 @@ fn append_event便捷入口_经record_event验证() {
 }
 
 #[test]
-fn 快照运行中run占位消息排在触发它的用户消息之后() {
+fn snapshot_running_run_placeholder_message_after_triggering_user_message() {
     let (dir, db) = tmp_db("run-order");
     create_thread(&db.lock_conn(), thread("th_order")).unwrap();
     // 用户消息先落库（快照里 seq 更小）
@@ -397,7 +397,7 @@ fn 快照运行中run占位消息排在触发它的用户消息之后() {
 }
 
 #[test]
-fn 启动中断清理为挂起审批写取消终态事件() {
+fn startup_interrupt_cleanup_writes_canceled_terminal_event_for_pending_approvals() {
     let (dir, db) = tmp_db("stale-approval");
     create_thread(&db.lock_conn(), thread("th_sa")).unwrap();
     let run = create_run(&db.lock_conn(), "th_sa", "model-x").unwrap();

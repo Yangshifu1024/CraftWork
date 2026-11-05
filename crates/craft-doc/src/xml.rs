@@ -55,7 +55,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 转义往返() {
+    fn escape_roundtrip() {
         assert_eq!(xml_escape("a<b&\"c\"'d'"), "a&lt;b&amp;&quot;c&quot;&apos;d&apos;");
         assert_eq!(xml_unescape("a&lt;b&amp;&quot;c&quot;&apos;d&apos;"), "a<b&\"c\"'d'");
         assert_eq!(xml_unescape("&#20013;&#x6587;"), "中文");
