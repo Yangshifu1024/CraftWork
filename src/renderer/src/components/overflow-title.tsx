@@ -29,13 +29,9 @@ export function OverflowTitle({ text, className }: { text: string; className?: s
   const overflow = distance > 0;
   const scrolling = hovering && overflow;
   const travel = distance + MARQUEE_GAP;
-  // mask 只在溢出时挂载：短标题的盒宽接近内容宽，恒开的 1.5rem 渐变区会吃掉尾部文本；
-  // 滚动期间改用两端渐隐，露出经过左缘的文字。
-  const mask = overflow
-    ? scrolling
-      ? "linear-gradient(to right, transparent 0, black 1.5rem, black calc(100% - 1.5rem), transparent 100%)"
-      : "linear-gradient(to right, black calc(100% - 1.5rem), transparent)"
-    : undefined;
+  // mask 只在溢出时挂载：短标题的盒宽接近内容宽，恒开的 1.5rem 渐变区会吃掉尾部文本。
+  // 只保留右侧尾部渐隐（左侧头部不渐隐：文字经过左缘时直接被裁切）。
+  const mask = overflow ? "linear-gradient(to right, black calc(100% - 1.5rem), transparent)" : undefined;
 
   return (
     <span
