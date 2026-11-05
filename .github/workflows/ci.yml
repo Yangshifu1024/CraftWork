@@ -53,8 +53,15 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
+      - name: 安装 Linux 系统依赖（Tauri Linux 侧需要 webkit2gtk）
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # 与 rust-toolchain.toml 锁定版本一致，否则 clippy 组件装到别的工具链上
       - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
 

@@ -102,7 +102,8 @@ pub fn sanitized_env() -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = Vec::new();
     for (key, value) in std::env::vars() {
         let upper = key.to_uppercase();
-        if ENV_ALLOW.contains(&key.as_str()) || upper.starts_with("LC_") {
+        // Windows 环境变量名不区分大小写（返回 "Path" 而非 "PATH"）：白名单按忽略大小写比较
+        if ENV_ALLOW.iter().any(|allowed| allowed.eq_ignore_ascii_case(&key)) || upper.starts_with("LC_") {
             env.push((key, value));
             continue;
         }
@@ -417,7 +418,7 @@ mod tests {
         let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert!(!keys.iter().any(|k| k.contains("API_KEY")));
         assert!(!keys.iter().any(|k| k.starts_with("AWS_")));
-        assert!(keys.contains(&"PATH"));
+        assert!(keys.iter().any(|k| k.eq_ignore_ascii_case("PATH")), "PATH 应保留（Windows 下为 Path）");
         assert!(keys.contains(&"CRAFTWORK"));
         unsafe { std::env::remove_var("CRAFTWORK_TEST_API_KEY") };
         unsafe { std::env::remove_var("AWS_SECRET_ACCESS_KEY") };
