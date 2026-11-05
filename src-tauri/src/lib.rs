@@ -16,7 +16,7 @@ use craft_agent::approvals::Approvals;
 use craft_agent::grants::Grants;
 use craft_agent::runner::{Runner, RunnerDeps};
 use craft_core::bus::Bus;
-use craft_core::contract::Batch;
+use craft_core::contract::{Batch, Settings};
 use craft_core::secret::SecretStore;
 use craft_model::catalog::Catalog;
 use craft_model::factory::{ModelFactory, SecretKeyProvider};
@@ -45,6 +45,34 @@ fn resolve_data_dir() -> PathBuf {
 
 fn dirs_home() -> PathBuf {
     std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
+
+/// 启动窗口装配：按持久化主题偏好设底色，最大化后显示（conf 的 visible:false）。
+/// 底色与渲染层 styles.css 的 --zai-background 两套值一致（theme.ts 的
+/// syncWindowBackground 首帧后接管，值相同无跳变）；system 偏好按系统当前外观解析。
+/// 顺序固定为设底色 → maximize → show：底色先就位，最大化露出的填充区域与内容同色；
+/// maximize 在 show 前，窗口以最大化形态首现，避免先小后大的跳动。
+/// 任一步失败保持 conf 兜底底色，仅跳过 show 由默认可见性兜底，不阻塞启动。
+fn setup_main_window(window: &tauri::WebviewWindow, db: &Db) {
+    let pref = db
+        .with(|conn| get_setting(conn, "app"))
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value::<Settings>(v).ok())
+        .map(|s| s.theme)
+        .unwrap_or_else(|| "system".into());
+    let resolved = match pref.as_str() {
+        "dark" => tauri::Theme::Dark,
+        "light" => tauri::Theme::Light,
+        _ => window.theme().unwrap_or(tauri::Theme::Light),
+    };
+    let color = match resolved {
+        tauri::Theme::Dark => tauri::window::Color(0x16, 0x16, 0x16, 0xff),
+        _ => tauri::window::Color(0xf8, 0xf8, 0xf8, 0xff),
+    };
+    let _ = window.set_background_color(Some(color));
+    let _ = window.maximize();
+    let _ = window.show();
 }
 
 fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
@@ -325,6 +353,10 @@ pub fn run() {
             let state = build_app_state(&app.handle().clone()).map_err(std::io::Error::other)?;
             // 启动确保内置临时会话目录
             let _ = services::ensure_conversation_workspace(&state);
+            // 按主题偏好设好底色、最大化后再显示窗口（消除启动黑/白闪 + 启动即最大化）
+            if let Some(window) = app.get_webview_window("main") {
+                setup_main_window(&window, &state.db);
+            }
             app.manage(Arc::new(state));
             Ok(())
         })
