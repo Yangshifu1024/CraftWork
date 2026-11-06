@@ -1078,6 +1078,10 @@ function LevelChip(): React.JSX.Element {
               </button>
             );
           })}
+          {/* 风险等级说明：R0~R4 分级语义（审批档位切换的唯一说明位）。 */}
+          <div className="mt-1 rounded-lg bg-surface px-2.5 py-2 text-ui-xs leading-relaxed text-foreground-subtlest">
+            风险等级：R0 只读 · R1 写入工作区 · R2 执行命令 · R3 网络或越界（不提供永久授权） · R4 破坏性（阻止）
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

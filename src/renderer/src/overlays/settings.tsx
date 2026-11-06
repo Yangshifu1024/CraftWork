@@ -1,13 +1,12 @@
-// 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/工具与权限/数据）。
+// 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/Skills/数据）。
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
-import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, type LucideIcon } from "lucide-react";
+import { Palette, Puzzle, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, type LucideIcon } from "lucide-react";
 import { Dialog, DropdownMenu, Popover, Switch as RadixSwitch } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { useOverlays } from "../store/overlays";
 import { api } from "../lib/api";
-import { APPROVAL_LEVELS, useApprovalLevelAction } from "../lib/approval";
 import { applyTheme, saveThemePref } from "../lib/theme";
 import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/provider-list";
 import { formatContextK, formatContextTitle } from "../lib/format-context";
@@ -19,7 +18,7 @@ import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
 import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, ProviderView, Settings, UsageSummary } from "../../../shared/types";
 
-type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
+type Section = "general" | "appearance" | "providers" | "skills" | "usage" | "audit" | "backups";
 
 /** 侧栏分组导航（对齐 ZCode 设置侧栏）：分组标题 + 图标导航项。 */
 const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; icon: LucideIcon }> }> = [
@@ -33,7 +32,7 @@ const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: stri
   },
   {
     label: "Agent 能力",
-    items: [{ id: "permissions", label: "工具与权限", icon: ShieldCheck }],
+    items: [{ id: "skills", label: "Skills", icon: Puzzle }],
   },
   {
     label: "数据与统计",
@@ -98,7 +97,7 @@ export function SettingsOverlay(): React.JSX.Element {
             {section === "general" && <GeneralSection />}
             {section === "appearance" && <AppearanceSection />}
             {section === "providers" && <ProvidersSection />}
-            {section === "permissions" && <PermissionsSection />}
+            {section === "skills" && <SkillsSection />}
             {section === "usage" && <UsageSection />}
             {section === "audit" && <AuditSection />}
             {section === "backups" && <BackupsSection />}
@@ -1151,31 +1150,15 @@ function ModelRow({
   );
 }
 
-function PermissionsSection(): React.JSX.Element {
-  const settings = useApp((s) => s.settings);
-  const chooseLevel = useApprovalLevelAction();
+function SkillsSection(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-ui-settings-title font-semibold text-foreground">
-        <ShieldCheck className="mr-2 inline size-5" />
-        工具与权限
+        <Puzzle className="mr-2 inline size-5" />
+        Skills
       </h2>
-      <div className="grid gap-2">
-        {APPROVAL_LEVELS.map((l) => (
-          <button
-            key={l.id}
-            className={`rounded-xl border px-4 py-3 text-left ${
-              settings.approvalLevel === l.id ? "border-brand bg-selected" : "border-border/50 bg-panel hover:bg-surface-hover"
-            }`}
-            onClick={() => chooseLevel(l.id)}
-          >
-            <div className="text-ui-base font-medium">{l.name}</div>
-            <div className="text-ui-sm text-foreground-subtlest">{l.desc}</div>
-          </button>
-        ))}
-      </div>
       <div className="rounded-xl bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
-        风险等级：R0 只读 · R1 写入工作区 · R2 执行命令 · R3 网络或越界（不提供永久授权） · R4 破坏性（阻止）
+        Skills 管理建设中：导入、启停与查看即将提供。
       </div>
     </div>
   );

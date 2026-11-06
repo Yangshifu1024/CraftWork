@@ -7,7 +7,7 @@ export type OverlayKind = "none" | "palette" | "settings";
 /** composer 配置 picker 种类（模型 / 思考档位）。 */
 export type PickerKind = "model" | "level";
 /** 设置页分区（打开设置时可直达）。 */
-export type SettingsSection = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
+export type SettingsSection = "general" | "appearance" | "providers" | "skills" | "usage" | "audit" | "backups";
 
 interface OverlaysState {
   /** 当前打开的全屏浮层；none = 关闭。 */
