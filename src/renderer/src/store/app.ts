@@ -588,6 +588,16 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
         scope: data["scope"],
       }, event.ts);
       setChat(set, threadId, { ...chat, messages });
+      // 计划审阅批准：定向关闭 composer 勾选（对应 ZCode「批准定向关闭 Plan 标记」；
+      // 拒绝/反馈保持计划态，勾选不动）。同一决定只处理一次（resolved 不重复广播）。
+      if (data["status"] === "approved" && approvalPayloadOf(chat, key)["tool"] === "exit_plan") {
+        set((state) => ({
+          threadComposer: {
+            ...state.threadComposer,
+            [threadId]: { ...(state.threadComposer[threadId] ?? EMPTY_THREAD_COMPOSER), planMode: false },
+          },
+        }));
+      }
       break;
     }
     case "plan.created": {
@@ -603,6 +613,18 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
             ignored: false,
             updatedAt: typeof data["updatedAt"] === "number" ? data["updatedAt"] : 0,
           },
+        },
+      }));
+      break;
+    }
+    case "plan.entered": {
+      // enter_plan 工具执行（模型主动进入计划态）：同步 composer 勾选态为勾选
+      // （对应 ZCode「工具主动进入定向开启」）。纯广播事件，只在实时流出现，快照不回放。
+      const planThreadId = event.threadId ?? threadId;
+      set((state) => ({
+        threadComposer: {
+          ...state.threadComposer,
+          [planThreadId]: { ...(state.threadComposer[planThreadId] ?? EMPTY_THREAD_COMPOSER), planMode: true },
         },
       }));
       break;

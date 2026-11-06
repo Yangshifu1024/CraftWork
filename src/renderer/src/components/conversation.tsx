@@ -834,11 +834,15 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
   const waiting = part.status === "waiting";
   const [busy, setBusy] = useState(false);
   const pushToast = useToasts((s) => s.push);
+  // 计划审阅卡：三动作（批准并开始实施 / 提出修改 / 忽略），拒绝可携带反馈
+  const isPlanReview = part.tool === "exit_plan";
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
 
-  const decide = async (allow: boolean, scope: "once" | "session" | "workspace"): Promise<void> => {
+  const decide = async (allow: boolean, scope: "once" | "session" | "workspace", feedback?: string): Promise<void> => {
     setBusy(true);
     try {
-      await api.chatDecideApproval(part.approvalId, allow, scope);
+      await api.chatDecideApproval(part.approvalId, allow, scope, feedback);
     } catch (err) {
       // 决定失败（如重启后等待已失效的僵尸卡）保持卡片可重试，但必须给出可读反馈
       pushToast("danger", "审批操作失败", String(err));
@@ -857,7 +861,7 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
     >
       <div className="flex flex-col gap-3 p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-ui-base font-medium text-foreground-subtle">需要你的批准</span>
+          <span className="text-ui-base font-medium text-foreground-subtle">{part.tool === "exit_plan" ? "计划审阅" : "需要你的批准"}</span>
           <span className="rounded-md bg-warning-surface px-1.5 py-0.5 font-mono text-ui-xs text-warning-surface-foreground">
             {part.risk} {RISK_LABELS[part.risk] ?? ""}
           </span>
@@ -887,7 +891,68 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
             ))}
           </div>
         )}
-        {waiting && (
+        {waiting && isPlanReview && (
+          <div className="flex flex-col gap-2 pt-1">
+            {feedbackOpen ? (
+              <>
+                <textarea
+                  autoFocus
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="说明计划需要怎么改（将作为你的消息发给模型，模型会修订后重新提交）"
+                  rows={3}
+                  className="w-full resize-y rounded-lg border border-border bg-input px-2.5 py-2 text-ui-sm text-foreground placeholder:text-foreground-subtlest focus:border-brand/60 focus:outline-none"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={busy}
+                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+                    onClick={() => {
+                      setFeedbackOpen(false);
+                      setFeedbackText("");
+                    }}
+                  >
+                    返回
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    disabled={busy || feedbackText.trim().length === 0}
+                    className="h-8 rounded-lg border border-brand/50 bg-brand/10 px-3 text-ui-sm text-brand hover:bg-brand/20 disabled:opacity-50"
+                    onClick={() => void decide(false, "once", feedbackText)}
+                  >
+                    发送修改意见
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={busy}
+                  className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover disabled:opacity-50"
+                  onClick={() => void decide(false, "once")}
+                >
+                  忽略
+                </button>
+                <div className="flex-1" />
+                <button
+                  disabled={busy}
+                  className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+                  onClick={() => setFeedbackOpen(true)}
+                >
+                  提出修改
+                </button>
+                <button
+                  disabled={busy}
+                  className="h-8 rounded-lg border border-brand/50 bg-brand/10 px-3 text-ui-sm text-brand hover:bg-brand/20 disabled:opacity-50"
+                  onClick={() => void decide(true, "once")}
+                >
+                  批准并开始实施
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {waiting && !isPlanReview && (
           <div className="flex items-center gap-2 pt-1">
             <button
               disabled={busy}
@@ -911,7 +976,7 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
             >
               本会话允许
             </button>
-            {permanentVisible && (
+            {permanentVisible && !isPlanReview && (
               <button
                 disabled={busy}
                 className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
@@ -1644,6 +1709,20 @@ function Composer({
               title="用系统默认应用打开计划文件"
             >
               查看计划
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // 提出修改：置计划态勾选并聚焦输入框——用户输入会作为计划模式消息发送，
+                // 模型在计划态下修订并重新提交（与审批卡内「提出修改」同构，这里是 run 已结束的兜底入口）
+                if (!isDraft) setThreadComposer(activeId, { planMode: true });
+                else setDraft(mode, { planMode: true });
+                requestAnimationFrame(() => taRef.current?.focus());
+              }}
+              className="text-ui-xs text-foreground-subtle underline-offset-2 hover:underline"
+              title="勾选计划模式并聚焦输入框：输入的修改意见会让模型修订计划后重新提交"
+            >
+              提出修改
             </button>
             <button
               type="button"

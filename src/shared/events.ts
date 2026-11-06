@@ -16,6 +16,8 @@ export const EventType = {
   ApprovalRequested: "approval.requested",
   ApprovalResolved: "approval.resolved",
   PlanCreated: "plan.created",
+  /** 计划态切换（纯广播不入库）：enter_plan 工具执行时发出，前端同步 composer 勾选态。 */
+  PlanEntered: "plan.entered",
   TodoUpdated: "todo.updated",
   UserMessage: "user.message",
   SteerDelivered: "steer.delivered",
@@ -117,6 +119,8 @@ export interface ApprovalResolvedData {
   status: "approved" | "denied" | "canceled";
   decision: string;
   scope: string;
+  /** 拒绝时用户填写的修改意见长度（反馈本体作为用户消息另行落库，这里只带摘要）。 */
+  feedbackChars?: number;
 }
 
 export interface TodoItem {
@@ -130,12 +134,13 @@ export interface TodoPart {
   items: TodoItem[];
 }
 
-/** 用户消息事件载荷；via="steer" 表示运行中引导已入队（前端显示「待送达」标记）。 */
+/** 用户消息事件载荷；via="steer" 表示运行中引导已入队（前端显示「待送达」标记），
+ *  via="plan_feedback" 表示计划审阅的修改意见（渲染为普通用户消息，不显示待送达标记）。 */
 export interface UserMessageData {
   messageId: string;
   text: string;
   attachments: string[];
-  via?: "steer";
+  via?: "steer" | "plan_feedback";
 }
 
 /** 引导投递回执：messageId 即引导消息 id（Recorder 自动注入）。
