@@ -501,19 +501,13 @@
   }
 }
 
-/* 侧栏长标题走马灯（配合 OverflowTitle 的右侧渐隐 mask）：去 → 尾端停顿 → 返回 */
+/* 侧栏长标题走马灯（配合 OverflowTitle 的右侧渐隐 mask）：单向左移，无缝循环 */
 @keyframes overflow-title-marquee {
-  0%,
-  12% {
+  from {
     transform: translateX(0);
   }
-  46%,
-  58% {
+  to {
     transform: translateX(var(--marquee-distance));
-  }
-  92%,
-  100% {
-    transform: translateX(0);
   }
 }
 
