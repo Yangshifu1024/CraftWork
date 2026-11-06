@@ -159,7 +159,7 @@ mod tests {
             roots: vec![],
             target_root: String::new(),
             err: None,
-            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), db }),
+            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db }),
         }
     }
 
@@ -237,7 +237,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cw-plan-registry-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = crate::registry::Registry::new("", std::sync::Arc::new(
+        let registry = crate::registry::Registry::new("", "", std::sync::Arc::new(
             craft_store::db::Db::open(&dir.join("t.db")).unwrap(),
         ));
         registry.register(Box::new(EnterPlan));

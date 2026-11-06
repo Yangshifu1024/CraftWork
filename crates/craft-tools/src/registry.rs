@@ -101,6 +101,8 @@ pub struct ToolSpec {
 pub struct ToolEnv {
     /// 备份根目录（`~/.craftwork/backups/`）；空串表示禁用备份（测试场景）
     pub backup_dir: String,
+    /// 应用数据目录（`~/.craftwork/`）；技能等目录型资源由工具按需推导（空串 = 测试场景）
+    pub data_dir: String,
     pub db: Arc<Db>,
 }
 
@@ -241,10 +243,11 @@ pub struct Registry {
 
 impl Registry {
     /// backup_dir 传 `~/.craftwork/backups/`；空串则所有写前备份静默跳过。
-    pub fn new(backup_dir: &str, db: Arc<Db>) -> Self {
+    /// data_dir 传 `~/.craftwork/`，供技能等目录型资源推导。
+    pub fn new(backup_dir: &str, data_dir: &str, db: Arc<Db>) -> Self {
         Self {
             tools: Mutex::new(HashMap::new()),
-            env: Arc::new(ToolEnv { backup_dir: backup_dir.to_string(), db }),
+            env: Arc::new(ToolEnv { backup_dir: backup_dir.to_string(), data_dir: data_dir.to_string(), db }),
         }
     }
 

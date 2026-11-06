@@ -10,5 +10,6 @@ craft-doc = { path = "../craft-doc" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 craft-policy = { path = "../craft-policy" }
 craft-store = { path = "../craft-store" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"

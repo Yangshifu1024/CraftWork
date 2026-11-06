@@ -175,6 +175,7 @@ pub fn default_settings() -> Settings {
         logs_level: "info".into(),
         smooth_follow: false,
         input_prediction: true,
+        skills_enabled: true,
     }
 }
 
@@ -265,13 +266,14 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     if let Some(v) = next.get("updateChannel").and_then(Value::as_str).filter(|v| !v.is_empty()) {
         merged.update_channel = v.into();
     }
-    for key in ["autoUpdate", "notifications", "telemetry", "smoothFollow", "inputPrediction"] {
+    for key in ["autoUpdate", "notifications", "telemetry", "smoothFollow", "inputPrediction", "skillsEnabled"] {
         if let Some(v) = next.get(key).and_then(Value::as_bool) {
             match key {
                 "autoUpdate" => merged.auto_update = v,
                 "notifications" => merged.notifications = v,
                 "smoothFollow" => merged.smooth_follow = v,
                 "inputPrediction" => merged.input_prediction = v,
+                "skillsEnabled" => merged.skills_enabled = v,
                 _ => merged.telemetry = v,
             }
         }
@@ -693,7 +695,7 @@ pub fn workspace_write_file(state: &AppState, workspace_id: &str, folder_id: &st
         if !expected_hash.is_empty() && current_hash != expected_hash {
             return err("文件已被外部修改，请先重新读取再保存");
         }
-        let env = craft_tools::ToolEnv { backup_dir: state.backup_dir.clone(), db: Arc::clone(&state.db) };
+        let env = craft_tools::ToolEnv { backup_dir: state.backup_dir.clone(), data_dir: state.data_dir.clone(), db: Arc::clone(&state.db) };
         env.backup(&resolved.abs, &existing)?;
     }
     if let Some(parent) = Path::new(&resolved.abs).parent() {
@@ -942,7 +944,7 @@ pub fn chat_create_and_start(
         let _ = threads::delete_thread(&state.db, &id);
         return err(e);
     }
-    let (_, seq) = append_user_message(state, &id, text, attachments, plan_mode)?;
+    let (_, seq) = append_user_message(state, &id, text, attachments, plan_mode, detect_skill_invoke(state, &id, text).as_deref())?;
     let run_id = state.runner.run(&id, Some(seq))?;
     Ok(json!({ "threadId": id, "runId": run_id }))
 }
@@ -953,12 +955,14 @@ fn append_user_message(
     text: &str,
     attachments: &[Value],
     plan_mode: bool,
+    skill_invoke: Option<&str>,
 ) -> Result<(String, i64), String> {
-    append_user_message_via(state, thread_id, text, attachments, None, plan_mode)
+    append_user_message_via(state, thread_id, text, attachments, None, plan_mode, skill_invoke)
 }
 
 /// 落库并广播用户消息；via 非空时写入载荷（"steer" = 运行中引导，前端显示「待送达」）。
 /// plan_mode 随载荷落库：run 启动时按 trigger_seq 还原（计划模式提示词与审批硬约束的依据）。
+/// skill_invoke 非空表示斜杠技能调用（载荷带 skillInvoke.name，历史重建时改写为引导 prompt）。
 /// 返回 (message_id, seq)：seq 随 run 启动透传为 trigger_seq，快照占位定序的权威信号。
 fn append_user_message_via(
     state: &AppState,
@@ -967,6 +971,7 @@ fn append_user_message_via(
     attachments: &[Value],
     via: Option<&str>,
     plan_mode: bool,
+    skill_invoke: Option<&str>,
 ) -> Result<(String, i64), String> {
     let message_id = craft_core::ids::new_id(craft_core::ids::id_prefix::MESSAGE);
     // 经 Recorder 落库并广播 user.message：直接调 record_event 只写库不发事件，
@@ -974,6 +979,9 @@ fn append_user_message_via(
     let mut payload = json!({ "text": text, "attachments": attachments, "planMode": plan_mode });
     if let Some(via) = via {
         payload["via"] = json!(via);
+    }
+    if let Some(name) = skill_invoke {
+        payload["skillInvoke"] = json!({ "name": name });
     }
     let (_, seq) = state
         .recorder
@@ -994,7 +1002,7 @@ pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[V
     if use_worktree || !thread.worktree_path.is_empty() {
         ensure_thread_worktree(state, thread_id)?;
     }
-    let (_, seq) = append_user_message(state, thread_id, text, attachments, plan_mode)?;
+    let (_, seq) = append_user_message(state, thread_id, text, attachments, plan_mode, detect_skill_invoke(state, thread_id, text).as_deref())?;
     let run_id = state.runner.run(thread_id, Some(seq))?;
     Ok(json!(run_id))
 }
@@ -1002,14 +1010,19 @@ pub fn chat_send(state: &AppState, thread_id: &str, text: &str, attachments: &[V
 pub fn chat_steer(state: &AppState, thread_id: &str, text: &str, attachments: &[Value], plan_mode: bool) -> SvcResult {
     // 预检引导容量再落库：只有确定并入队列的消息才带 via=steer（「待送达」标记）
     let steer = state.runner.can_steer(thread_id)?;
+    let skill_invoke = detect_skill_invoke(state, thread_id, text);
     let (message_id, seq) = if steer {
-        append_user_message_via(state, thread_id, text, attachments, Some("steer"), plan_mode)?
+        append_user_message_via(state, thread_id, text, attachments, Some("steer"), plan_mode, skill_invoke.as_deref())?
     } else {
-        append_user_message(state, thread_id, text, attachments, plan_mode)?
+        append_user_message(state, thread_id, text, attachments, plan_mode, skill_invoke.as_deref())?
     };
     let item = craft_agent::runner::SteerItem {
         message_id: message_id.clone(),
-        text: text.to_string(),
+        // 斜杠技能调用：队列里的投递文本用引导 prompt（模型视角）；落库与前端显示保留原文
+        text: match &skill_invoke {
+            Some(name) => craft_tools::skills::manual_skill_prompt_from_text(name, text),
+            None => text.to_string(),
+        },
         attachments: attachments.iter().filter_map(Value::as_str).map(String::from).collect(),
         trigger_seq: seq,
     };
@@ -1700,7 +1713,7 @@ pub fn audit_restore(state: &AppState, backup_id: &str) -> SvcResult {
 impl AppState {
     /// 构造写前备份用的 ToolEnv（备份目录 + DB），审计恢复与工具执行共用同一备份链路。
     pub fn registry_backup_env(&self) -> craft_tools::ToolEnv {
-        craft_tools::ToolEnv { backup_dir: self.backup_dir.clone(), db: Arc::clone(&self.db) }
+        craft_tools::ToolEnv { backup_dir: self.backup_dir.clone(), data_dir: self.data_dir.clone(), db: Arc::clone(&self.db) }
     }
 }
 
@@ -1778,4 +1791,112 @@ pub fn mcp_connect(_state: &AppState, _server_id: &str) -> SvcResult {
 
 pub fn mcp_disconnect(_state: &AppState, _server_id: &str) -> SvcResult {
     err("MCP 连接能力尚未启用（迁移后单独立项）")
+}
+
+// ---------- Skills（技能，决策 D11） ----------
+
+/// 管理视角的技能根内路径校验：realpath 落在技能根之一内（用户级 + 指定工作区级）、
+/// 且是 SKILL.md 文件。管理操作（启停/删除/读取）的唯一入口校验，防误操作任意路径。
+fn ensure_skill_managed_path(state: &AppState, path: &str, workspace: &str) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("技能路径不能为空".into());
+    }
+    let target = std::path::Path::new(path);
+    let target_canon = target.canonicalize().map_err(|_| "技能路径不存在".to_string())?;
+    if !target_canon.is_file() || !target_canon.file_name().is_some_and(|n| n == craft_tools::skills::SKILL_FILE_NAME) {
+        return Err("技能路径不是有效的 SKILL.md".into());
+    }
+    for root in craft_tools::skills::skill_roots(&state.data_dir, workspace, false) {
+        if let Ok(root_canon) = root.dir.canonicalize()
+            && target_canon.starts_with(&root_canon)
+        {
+            return Ok(());
+        }
+    }
+    Err("路径不在技能目录内，拒绝操作".into())
+}
+
+/// 管理页传 workspaceId：取工作区主目录（folders 首条）；空串 = 只操作用户级技能。
+fn managed_workspace_path(state: &AppState, workspace_id: &str) -> String {
+    if workspace_id.is_empty() {
+        return String::new();
+    }
+    let conn = state.db.lock_conn();
+    workspaces::get_workspace(&conn, workspace_id)
+        .ok()
+        .and_then(|ws| ws.folders.first().map(|f| f.path.clone()))
+        .unwrap_or_default()
+}
+
+/// 扫描技能列表（管理页全量视角）：用户级 + 指定工作区级。不做受限过滤——受限工作区
+/// 约束的是 Agent 自动加载（run 注入按 env.restricted 过滤），用户管理视角可见全部。
+pub fn skills_list(state: &AppState, workspace_id: &str) -> SvcResult {
+    let workspace = managed_workspace_path(state, workspace_id);
+    let (_enabled, disabled) = craft_tools::skills::load_skills_config(&state.db);
+    let roots = craft_tools::skills::skill_roots(&state.data_dir, &workspace, false);
+    let metas = craft_tools::skills::discover_skills(&roots, &disabled);
+    serde_json::to_value(&metas).map_err(|e| e.to_string())
+}
+
+/// 启停单个技能：enabled=true 从禁用列表移除，false 加入；返回刷新后的列表。
+pub fn skills_set_enabled(state: &AppState, path: &str, enabled: bool, workspace_id: &str) -> SvcResult {
+    let workspace = managed_workspace_path(state, workspace_id);
+    ensure_skill_managed_path(state, path, &workspace)?;
+    let (_enabled, mut disabled) = craft_tools::skills::load_skills_config(&state.db);
+    if enabled {
+        disabled.retain(|p| p != path);
+    } else if !disabled.iter().any(|p| p == path) {
+        disabled.push(path.to_string());
+    }
+    craft_tools::skills::save_disabled_paths(&state.db, &disabled)?;
+    skills_list(state, workspace_id)
+}
+
+/// 删除技能目录（SKILL.md 所在目录），并清理禁用列表残留；返回刷新后的列表。
+pub fn skills_remove(state: &AppState, path: &str, workspace_id: &str) -> SvcResult {
+    let workspace = managed_workspace_path(state, workspace_id);
+    ensure_skill_managed_path(state, path, &workspace)?;
+    let target = std::path::Path::new(path);
+    let dir = target.parent().unwrap_or(target);
+    std::fs::remove_dir_all(dir).map_err(|e| format!("技能目录删除失败：{e}"))?;
+    let (_enabled, mut disabled) = craft_tools::skills::load_skills_config(&state.db);
+    disabled.retain(|p| p != path);
+    craft_tools::skills::save_disabled_paths(&state.db, &disabled)?;
+    skills_list(state, workspace_id)
+}
+
+/// 读取技能正文（管理页预览）：剥 frontmatter 与目录变量替换后的展示文本。
+pub fn skills_read(state: &AppState, path: &str, workspace_id: &str) -> SvcResult {
+    let workspace = managed_workspace_path(state, workspace_id);
+    ensure_skill_managed_path(state, path, &workspace)?;
+    let dir = std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let content = craft_tools::skills::load_skill_body(path, &dir)?;
+    Ok(json!({ "content": content }))
+}
+
+/// 斜杠技能调用检测：`/名称 [参数]` 且名称与可用技能清单精确匹配时返回技能名。
+/// 总开关关闭或扫描失败一律返回 None（按普通消息发送）——检测失败不阻塞发送。
+fn detect_skill_invoke(state: &AppState, thread_id: &str, text: &str) -> Option<String> {
+    let (name, _) = craft_tools::skills::parse_slash_invocation(text)?;
+    let workspace = thread_workspace_path(state, thread_id);
+    // 受限工作区不在此限制：显式斜杠调用是用户主动行为，加载本身 R0 且后续命令仍走审批
+    let available = craft_tools::skills::scan_available(&state.db, &state.data_dir, &workspace, false);
+    available.iter().find(|s| s.name == name).map(|_| name)
+}
+
+/// 会话当前主要目录：绑定 worktree 时用工作树路径（与 RunEnv 语义一致），否则工作区主目录。
+/// 任何一步失败回退空串（斜杠检测退化为只扫用户级技能）。
+fn thread_workspace_path(state: &AppState, thread_id: &str) -> String {
+    let conn = state.db.lock_conn();
+    let Ok(thread) = threads::get_thread(&conn, thread_id) else { return String::new() };
+    if !thread.worktree_path.is_empty() {
+        return thread.worktree_path;
+    }
+    workspaces::get_workspace(&conn, &thread.workspace_id)
+        .ok()
+        .and_then(|ws| ws.folders.first().map(|f| f.path.clone()))
+        .unwrap_or_default()
 }

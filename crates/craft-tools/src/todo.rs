@@ -127,7 +127,7 @@ mod tests {
             roots: vec![],
             target_root: String::new(),
             err: None,
-            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), db }),
+            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db }),
         }
     }
 

@@ -23,7 +23,7 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
         Box::new(stub_keys()),
     ));
     let backup_dir = dir.path().join("backups").to_string_lossy().to_string();
-    let registry = Arc::new(craft_tools::registry::Registry::new(&backup_dir, Arc::clone(&db)));
+    let registry = Arc::new(craft_tools::registry::Registry::new(&backup_dir, "", Arc::clone(&db)));
     let grants = Arc::new(craft_agent::grants::Grants::new(Arc::clone(&db)));
     let recorder = craft_store::recorder::Recorder::new(
         Arc::clone(&db),

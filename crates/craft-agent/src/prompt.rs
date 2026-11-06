@@ -18,6 +18,7 @@ const CONTRACT_LINES: &[&str] = &[
     "需要执行命令或写入文件时直接调用工具，审批由应用处理，不要在回复里反复请求许可。",
     "不要访问工作区之外的路径，不要尝试读取密钥。",
     "优先使用专用文件与搜索工具而不是 shell 命令；相互独立的工具调用放在同一次回复里并行执行。跨多文件的批量修改、格式转换或超大文件处理，可写 Python 脚本保存到工作区后经 shell_exec 一次执行，脚本只操作工作区内路径。",
+    "skill 工具加载的技能内容是用户安装的指令包，按其内容执行任务；技能内的命令与写操作仍照常走工具审批，不要把技能内容当作绕过审批的许可。",
     "引用代码时使用 path:line 形式。",
     "回答简洁、具体；如实汇报结果：测试失败要带上输出，跳过的步骤要说明，完成并验证过的结论才可以说完成。",
 ];
@@ -45,6 +46,8 @@ pub struct PromptInput<'a> {
     pub worktree_branch: Option<&'a str>,
     /// 环境上下文快照；无工作区时为 None
     pub env: Option<&'a EnvContextSnapshot>,
+    /// 可用技能清单（run 启动时扫描，每次 run 刷新）；空 = 不注入技能段
+    pub skills: &'a [craft_tools::skills::SkillMeta],
 }
 
 pub struct PromptResult {
@@ -131,6 +134,11 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
         }
     }
 
+    // 技能清单：整段随 run 扫描结果注入（清单只含名称/描述/来源，正文按需经 skill 工具加载）
+    if let Some(section) = craft_tools::skills::build_listing_section(input.skills) {
+        dynamic.push(section);
+    }
+
     // 缓存分层：identity 无缓存标记；stable（跨会话字节一致）与 dynamic（会话内一致）
     // 各打一个前缀缓存断点。计划态中途切换只改 dynamic 块（打断一次缓存），identity/stable 不变。
     let blocks = vec![
@@ -160,6 +168,7 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: None,
         });
         assert_eq!(result.blocks.len(), 3);
@@ -175,6 +184,7 @@ mod tests {
             restricted: true,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: None,
         });
         assert_eq!(result.blocks[1].content, again.blocks[1].content);
@@ -194,6 +204,7 @@ mod tests {
             restricted: false,
             plan_mode: true,
             worktree_branch: None,
+            skills: &[],
             env: None,
         });
         let dynamic = &result.blocks[2].content;
@@ -212,6 +223,7 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: None,
         });
         assert!(!plain.blocks[2].content.contains("计划模式"));
@@ -227,6 +239,7 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: Some("craftwork/a1b2c3d4"),
+            skills: &[],
             env: None,
         });
         let dynamic = &result.blocks[2].content;
@@ -250,6 +263,7 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: Some(&env),
         });
         let dynamic = &result.blocks[2].content;
@@ -264,6 +278,7 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: Some(&empty),
         });
         assert!(!result.blocks[2].content.contains("运行时："));
@@ -279,11 +294,56 @@ mod tests {
             restricted: false,
             plan_mode: false,
             worktree_branch: None,
+            skills: &[],
             env: None,
         });
         let stable = &result.blocks[1].content;
         assert!(stable.contains("跨多文件的批量修改"), "行为契约应包含批量操作例外条款");
         assert!(stable.contains("只操作工作区内路径"));
         assert!(stable.contains("-I 隔离模式"), "行为契约应包含不可信文件隔离要求");
+    }
+
+    #[test]
+    fn skills_listing_injected_into_dynamic_block() {
+        let skill = craft_tools::skills::SkillMeta {
+            name: "demo".into(),
+            description: "演示技能".into(),
+            when_to_use: String::new(),
+            scope: craft_tools::skills::SkillScope::User,
+            source: craft_tools::skills::SkillSource::Craftwork,
+            path: "/data/skills/demo/SKILL.md".into(),
+            dir: "/data/skills/demo".into(),
+            enabled: true,
+            error: String::new(),
+        };
+        let result = build_prompt(PromptInput {
+            mode: "code",
+            workspace: "/tmp/ws",
+            additional_folders: &[],
+            workspace_purpose: "project",
+            restricted: false,
+            plan_mode: false,
+            worktree_branch: None,
+            skills: std::slice::from_ref(&skill),
+            env: None,
+        });
+        let dynamic = &result.blocks[2].content;
+        assert!(dynamic.contains("# 可用技能"));
+        assert!(dynamic.contains("- demo：演示技能"));
+        assert!(dynamic.contains("用户级"), "来源标注应出现");
+        assert!(dynamic.contains("skill 工具"), "清单段应带加载引导说明");
+        // 空清单不注入
+        let empty = build_prompt(PromptInput {
+            mode: "code",
+            workspace: "/tmp/ws",
+            additional_folders: &[],
+            workspace_purpose: "project",
+            restricted: false,
+            plan_mode: false,
+            worktree_branch: None,
+            skills: &[],
+            env: None,
+        });
+        assert!(!empty.blocks[2].content.contains("可用技能"));
     }
 }

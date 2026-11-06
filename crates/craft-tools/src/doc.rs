@@ -217,7 +217,7 @@ mod tests {
             roots,
             target_root: String::new(),
             err: None,
-            env: std::sync::Arc::new(ToolEnv { backup_dir: dir.join("backups").to_string_lossy().to_string(), db }),
+            env: std::sync::Arc::new(ToolEnv { backup_dir: dir.join("backups").to_string_lossy().to_string(), data_dir: String::new(), db }),
         };
         (dir, ctx)
     }

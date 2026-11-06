@@ -741,6 +741,7 @@ dependencies = [
  "craft-policy",
  "craft-store",
  "regex",
+ "serde",
  "serde_json",
  "zip",
 ]

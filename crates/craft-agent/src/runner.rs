@@ -585,7 +585,7 @@ impl Runner {
             history.insert(0, Message::new("user", crate::context::plan_reminder_text(&plan_text)));
         }
 
-        // 环境上下文 + 提示词（阻塞段）
+        // 环境上下文 + 技能清单 + 提示词（阻塞段）
         let data_dir = self.deps.data_dir.clone();
         let workspace_for_env = env.workspace_path.clone();
         let env_context = if !workspace_for_env.is_empty() {
@@ -597,6 +597,16 @@ impl Runner {
         } else {
             None
         };
+        // 技能清单：每次 run 重扫（受限工作区不扫工作区级），禁用/删除下一 run 生效
+        let db_for_skills = Arc::clone(&self.deps.db);
+        let data_dir_for_skills = self.deps.data_dir.clone();
+        let workspace_for_skills = env.workspace_path.clone();
+        let restricted_for_skills = env.restricted;
+        let skill_list = tokio::task::spawn_blocking(move || {
+            craft_tools::skills::scan_available(&db_for_skills, &data_dir_for_skills, &workspace_for_skills, restricted_for_skills)
+        })
+        .await
+        .unwrap_or_default();
         let mut prompt_active = build_prompt(crate::prompt::PromptInput {
             mode,
             workspace: &env.workspace_path,
@@ -609,6 +619,7 @@ impl Runner {
             plan_mode: plan_active,
             worktree_branch: worktree_branch_for_prompt.as_deref(),
             env: env_context.as_ref(),
+            skills: &skill_list,
         });
         // 上次构造提示词时的计划态标记（循环内重建的判断依据）
         let mut prompt_plan_mode = plan_active;
@@ -805,6 +816,7 @@ impl Runner {
                     plan_mode: plan_active,
                     worktree_branch: worktree_branch_for_prompt.as_deref(),
                     env: env_context.as_ref(),
+                    skills: &skill_list,
                 });
             }
             let mut text = String::new();

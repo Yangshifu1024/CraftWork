@@ -164,7 +164,7 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
     let catalog_arc = Arc::new(Catalog::new(Arc::clone(&db)));
     let models = Arc::new(ModelFactory::new(Arc::clone(&catalog_arc), Box::new(SecretKeyProvider { secrets: Arc::clone(&secrets) })));
     let backup_dir = data_dir.join("backups").to_string_lossy().to_string();
-    let registry = Arc::new(Registry::new(&backup_dir, Arc::clone(&db)));
+    let registry = Arc::new(Registry::new(&backup_dir, &data_dir.to_string_lossy(), Arc::clone(&db)));
     // 内置工具注册（MCP 动态注册后续经同名 register 替换）
     register_builtin_tools(&registry);
 
@@ -256,7 +256,7 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
     })
 }
 
-/// 注册全部内置工具（fs / apply_patch / shell / git / todo / doc）。
+/// 注册全部内置工具（fs / apply_patch / shell / git / todo / doc / skill）。
 /// MCP 动态工具留桩（决策 D5）：后续接入时经同名 register 覆盖。
 fn register_builtin_tools(registry: &Registry) {
     registry.register(Box::new(craft_tools::fs::FsList));
@@ -277,6 +277,7 @@ fn register_builtin_tools(registry: &Registry) {
     registry.register(Box::new(craft_tools::doc::DocRead));
     registry.register(Box::new(craft_tools::doc::DocEdit));
     registry.register(Box::new(craft_tools::doc::XlsxSetCell));
+    registry.register(Box::new(craft_tools::skills::SkillInvoke));
 }
 
 /// 渲染层统一入口：所有 `window.craftwork.<method>(...)` 经此分发（method + 位置参数数组）。
@@ -425,6 +426,10 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "mcpRemove" => mcp_remove(state, &a.str_at(0)),
         "mcpConnect" => mcp_connect(state, &a.str_at(0)),
         "mcpDisconnect" => mcp_disconnect(state, &a.str_at(0)),
+        "skillsList" => skills_list(state, &a.str_at(0)),
+        "skillsSetEnabled" => skills_set_enabled(state, &a.str_at(0), a.bool_at(1), &a.str_at(2)),
+        "skillsRemove" => skills_remove(state, &a.str_at(0), &a.str_at(1)),
+        "skillsRead" => skills_read(state, &a.str_at(0), &a.str_at(1)),
         "savePastedAttachment" => save_pasted_attachment(state, &a.str_at(0), &a.str_at(1)),
         "readAttachment" => read_attachment(state, &a.str_at(0)),
         _ => Err(format!("方法 {method} 尚未接线")),

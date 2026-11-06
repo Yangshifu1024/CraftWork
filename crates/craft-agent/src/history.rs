@@ -40,7 +40,12 @@ fn message_from_snapshot(
             }
             let text = as_string(part.payload.get("text"));
             if !text.is_empty() {
-                texts.push(text);
+                // 斜杠技能调用（payload 带 skillInvoke）：模型可见文本替换为引导 prompt，
+                // 落库与前端显示保留原文——用户视角与模型视角分离
+                match part.payload.get("skillInvoke").and_then(|s| s.get("name")).and_then(Value::as_str) {
+                    Some(name) => texts.push(craft_tools::skills::manual_skill_prompt_from_text(name, &text)),
+                    None => texts.push(text),
+                }
             }
             attachment_paths.extend(as_string_array(part.payload.get("attachments")));
         }
@@ -204,6 +209,36 @@ mod tests {
         assert_eq!(messages[2].role, "tool");
         assert_eq!(messages[2].tool_call_id, "call_1");
         assert_eq!(messages[2].content, "内容");
+    }
+
+    #[test]
+    fn slash_skill_invocation_rewritten_for_model() {
+        let caps = Capabilities { stream: true, tools: true, vision: false, reasoning: false, structured: false };
+        let mk = |payload: Value| MessageSnapshot {
+            id: "msg_s".into(),
+            role: "user".into(),
+            parts: vec![craft_core::contract::PartSnapshot { id: "p1".into(), kind: "text".into(), seq: 1, payload }],
+            status: "complete".into(),
+            seq: 1,
+            created_at: 0,
+            work_duration_ms: None,
+            finished_at: None,
+        };
+        // 带 skillInvoke：模型可见文本替换为引导 prompt（保留参数、不再出现斜杠原文）
+        let invoked = message_from_snapshot(
+            &mk(serde_json::json!({ "text": "/demo 帮我做 X", "skillInvoke": { "name": "demo" } })),
+            "",
+            "",
+            &caps,
+        );
+        assert_eq!(invoked.len(), 1);
+        assert!(invoked[0].content.contains("skill 工具"));
+        assert!(invoked[0].content.contains("name=\"demo\""));
+        assert!(invoked[0].content.contains("帮我做 X"));
+        assert!(!invoked[0].content.contains("/demo"));
+        // 无 skillInvoke：原文照常进入历史
+        let plain = message_from_snapshot(&mk(serde_json::json!({ "text": "/demo 帮我做 X" })), "", "", &caps);
+        assert_eq!(plain[0].content, "/demo 帮我做 X");
     }
 
     #[test]

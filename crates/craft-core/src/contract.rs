@@ -261,6 +261,9 @@ pub struct Settings {
     /// 输入预测：一轮任务结束后静置 5 秒，在输入框以幽灵文本给出下一句建议（Tab 应用）
     #[serde(default = "default_true")]
     pub input_prediction: bool,
+    /// 技能总开关（决策 D11）：关闭后不注入可用技能清单、skill 工具返回错误、斜杠调用不匹配
+    #[serde(default = "default_true")]
+    pub skills_enabled: bool,
 }
 
 // ---------- 审计 / 用量 / 备份 ----------
@@ -519,6 +522,7 @@ mod tests {
             logs_level: "info".into(),
             smooth_follow: false,
             input_prediction: true,
+            skills_enabled: true,
         };
         let audit = AuditEntry {
             id: 0,

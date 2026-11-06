@@ -358,7 +358,7 @@ mod tests {
         let dir = tempdir::TempDir::new().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Arc::new(craft_store::db::Db::open(&db_path).unwrap());
-        let env = Arc::new(ToolEnv { backup_dir: dir.path().join("backups").to_string_lossy().to_string(), db });
+        let env = Arc::new(ToolEnv { backup_dir: dir.path().join("backups").to_string_lossy().to_string(), data_dir: String::new(), db });
         let ctx = ToolCtx {
             name: "test".into(),
             args,

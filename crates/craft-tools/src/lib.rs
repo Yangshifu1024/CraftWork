@@ -11,6 +11,7 @@ pub mod fs;
 pub mod plan;
 pub mod registry;
 pub mod shell;
+pub mod skills;
 pub mod todo;
 
 pub use registry::{human_size, is_ignored_dir, more_hint, truncate_output, Assessment, Registry, Tool, ToolCtx, ToolEnv, ToolResult, ToolSpec, MAX_OUTPUT_BYTES, MAX_READ_BYTES, MAX_READ_LINES};
