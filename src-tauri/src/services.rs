@@ -123,6 +123,7 @@ pub fn default_settings() -> Settings {
         max_iterations: 300,
         logs_level: "info".into(),
         smooth_follow: false,
+        input_prediction: true,
     }
 }
 
@@ -142,6 +143,15 @@ pub fn plan_get(state: &AppState, thread_id: &str) -> SvcResult {
 pub fn plan_ignore(state: &AppState, plan_id: &str) -> SvcResult {
     state.db.with(|conn| craft_store::plans::ignore_plan(conn, plan_id)).map_err(|e| e.to_string())?;
     Ok(json!(null))
+}
+
+/// 输入预测缓存读取（docs/input-prediction/spec.md）：run 完成后端侧预计算的
+/// 下一句建议，瞬态内存值（不入库），无则 null。
+pub fn input_prediction_get(state: &AppState, thread_id: &str) -> SvcResult {
+    Ok(match state.runner.prediction(thread_id) {
+        Some(text) => json!(text),
+        None => json!(null),
+    })
 }
 
 /// 批准计划：approved 置 1（提示条随之消失），确认消息由前端继续发送。
@@ -204,12 +214,13 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     if let Some(v) = next.get("updateChannel").and_then(Value::as_str).filter(|v| !v.is_empty()) {
         merged.update_channel = v.into();
     }
-    for key in ["autoUpdate", "notifications", "telemetry", "smoothFollow"] {
+    for key in ["autoUpdate", "notifications", "telemetry", "smoothFollow", "inputPrediction"] {
         if let Some(v) = next.get(key).and_then(Value::as_bool) {
             match key {
                 "autoUpdate" => merged.auto_update = v,
                 "notifications" => merged.notifications = v,
                 "smoothFollow" => merged.smooth_follow = v,
+                "inputPrediction" => merged.input_prediction = v,
                 _ => merged.telemetry = v,
             }
         }

@@ -19,7 +19,7 @@ use craft_policy::engine::{reason_for, Engine};
 use craft_store::db::Db;
 use craft_store::events::EventRecord;
 use craft_store::recorder::Recorder;
-use craft_store::records::{add_audit, add_usage};
+use craft_store::records::{add_audit, add_usage, get_setting};
 use craft_store::runs::{create_run, finish_run};
 use craft_store::threads::{add_thread_tokens, get_thread};
 use craft_store::workspaces::get_workspace;
@@ -133,6 +133,9 @@ pub struct Runner {
     max_iterations: Mutex<Option<Box<dyn Fn() -> i64 + Send + Sync>>>,
     /// 正在生成自动命名的会话 id（防并发重复起名）
     title_pending: Mutex<HashSet<String>>,
+    /// 输入预测缓存（docs/input-prediction/spec.md）：会话 → 下一句建议文本。
+    /// 瞬态 UI 辅助只存内存（不入事件表），新完成覆盖旧值。
+    predictions: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Runner {
@@ -144,6 +147,7 @@ impl Runner {
             notifier: Mutex::new(None),
             max_iterations: Mutex::new(None),
             title_pending: Mutex::new(HashSet::new()),
+            predictions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -165,6 +169,65 @@ impl Runner {
     /// 当前在途运行的会话 id（窗口关闭/应用退出时统一取消并落审计用）。
     pub fn running_threads(&self) -> Vec<String> {
         self.cancels.lock().unwrap().keys().cloned().collect()
+    }
+
+    /// 写入输入预测缓存（新完成覆盖旧值）。
+    pub fn store_prediction(&self, thread_id: &str, text: String) {
+        self.predictions.lock().unwrap().insert(thread_id.to_string(), text);
+    }
+
+    /// 读取输入预测缓存（services 层 `inputPredictionGet` 通道）。
+    pub fn prediction(&self, thread_id: &str) -> Option<String> {
+        self.predictions.lock().unwrap().get(thread_id).cloned()
+    }
+
+    /// 输入预测 sidecar（docs/input-prediction/spec.md）：run 正常完成后后台预计算
+    /// 下一句建议，写缓存供渲染层 5 秒静默后拉取。best-effort 与自动命名一致：
+    /// 开关关闭不调模型；失败静默不阻断；不记账不落事件表。
+    fn spawn_input_prediction(&self, thread_id: &str, session: &Session, history: &[Message], final_text: &str) {
+        let client = session.client.clone_box();
+        let model_id = session.info.id.clone();
+        let thread_id = thread_id.to_string();
+        // complete 调用点的 history 尚未含本轮最终回答（return 路径不 push），补齐再送预测
+        let mut history = history.to_vec();
+        let mut assistant = Message::new("assistant", final_text);
+        assistant.tool_calls = Vec::new();
+        history.push(assistant);
+        let db = Arc::clone(&self.deps.db);
+        let log = Arc::clone(&self.deps.log);
+        let predictions = Arc::clone(&self.predictions);
+        let cache_key = thread_id.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            // 开关门控：关闭则完全不发起模型调用（设置保存即时生效）
+            let enabled = db
+                .with(|conn| get_setting(conn, "app"))
+                .ok()
+                .flatten()
+                .and_then(|v| v.get("inputPrediction").and_then(Value::as_bool))
+                .unwrap_or(true);
+            if !enabled {
+                return None;
+            }
+            let started = std::time::Instant::now();
+            let prediction = crate::prediction::generate_prediction(client.as_ref(), &model_id, &history);
+            // INFO 级：低频 sidecar 事件，默认日志等级下可观测（排查「为何没有预测」的唯一证据源）
+            log.write_thread(
+                &thread_id,
+                LEVEL_INFO,
+                "input_prediction",
+                json!({
+                    "ok": prediction.is_some(),
+                    "chars": prediction.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+                    "elapsedMs": started.elapsed().as_millis() as u64,
+                }),
+            );
+            prediction
+        });
+        tokio::task::spawn(async move {
+            if let Ok(Some(text)) = task.await {
+                predictions.lock().unwrap().insert(cache_key, text);
+            }
+        });
     }
 
     /// 启动一次运行：写 run 行 + 异步执行。返回 run_id 或错误。
@@ -898,6 +961,7 @@ impl Runner {
             // 没有工具调用 = 最终回答
             if tool_calls.is_empty() {
                 self.complete(thread_id, run_id, started_at);
+                self.spawn_input_prediction(thread_id, &session, &history, &text);
                 if plan_mode {
                     self.finalize_plan(thread_id, run_id);
                 }

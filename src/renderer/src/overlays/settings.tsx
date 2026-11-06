@@ -146,6 +146,9 @@ function GeneralSection(): React.JSX.Element {
       <Row title="流式平滑跟随" desc="流式输出时以弹簧动画平滑贴底；关闭后即时跟随（直接跳到底）">
         <Switch checked={settings.smoothFollow} onChange={(v) => void save({ smoothFollow: v })} />
       </Row>
+      <Row title="输入预测" desc="任务结束后静置 5 秒，在输入框给出下一句建议，Tab 应用">
+        <Switch checked={settings.inputPrediction} onChange={(v) => void save({ inputPrediction: v })} />
+      </Row>
       <Row title="系统通知" desc="窗口失焦时的审批 / 完成 / 失败提醒">
         <Switch checked={settings.notifications} onChange={(v) => void save({ notifications: v })} />
       </Row>

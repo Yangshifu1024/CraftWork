@@ -218,6 +218,12 @@ pub struct Snapshot {
 
 // ---------- 设置 ----------
 
+/// 新增布尔设置的 serde 兜底：老库 JSON 无该字段时按 true 补齐（否则整体反序列化
+/// 失败会回落默认设置，丢失用户已有配置）。
+fn default_true() -> bool {
+    true
+}
+
 /// 应用设置（settings 表 `app` 键的 JSON 形态）；字段即时生效由壳层保证。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -249,6 +255,9 @@ pub struct Settings {
     /// 流式输出贴底的平滑（弹簧）动画开关；false=即时跟随（直接跳到底）
     #[serde(default)]
     pub smooth_follow: bool,
+    /// 输入预测：一轮任务结束后静置 5 秒，在输入框以幽灵文本给出下一句建议（Tab 应用）
+    #[serde(default = "default_true")]
+    pub input_prediction: bool,
 }
 
 // ---------- 审计 / 用量 / 备份 ----------
@@ -492,6 +501,7 @@ mod tests {
             max_iterations: 300,
             logs_level: "info".into(),
             smooth_follow: false,
+            input_prediction: true,
         };
         let audit = AuditEntry {
             id: 0,

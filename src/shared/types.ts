@@ -179,6 +179,8 @@ export interface Settings {
   logsLevel: "off" | "error" | "info" | "debug";
   /** 流式输出贴底的平滑（弹簧）动画开关；false=即时跟随（直接跳到底） */
   smoothFollow: boolean;
+  /** 输入预测：任务结束后静置 5 秒在输入框给出下一句建议，Tab 应用（docs/input-prediction/spec.md） */
+  inputPrediction: boolean;
 }
 
 // ---------- 提供商与模型 ----------

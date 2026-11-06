@@ -10,6 +10,7 @@ pub mod context;
 pub mod envcontext;
 pub mod grants;
 pub mod history;
+pub mod prediction;
 pub mod prompt;
 pub mod runner;
 pub mod session_log;

@@ -1287,7 +1287,55 @@ function Composer({
   // Composer 不按 activeId 重挂载，切换会话显式重置翻阅态。
   useEffect(() => {
     historyRef.current = { index: -1, stash: "" };
+    setHint("");
   }, [activeId]);
+
+  // 输入预测（docs/input-prediction/spec.md）：run 结束（running 下降沿）静置 5 秒后
+  // 拉取后端预计算的下一句建议，以幽灵文本展示，Tab 应用。期间键入 / 程序化回填 /
+  // 发送 / 接力新 run / 切会话均取消；到点后端未算完（返回空）则本次放弃，不重试。
+  const [hint, setHint] = useState("");
+  const touchedRef = useRef(false); // 下降沿后输入框是否被改动过（键入 / 回填 / 发送）
+  const runningPrevRef = useRef(running);
+  const lastThreadIdRef = useRef(activeId);
+  useEffect(() => {
+    // 会话切换导致的 running 值变化不是下降沿（如从运行中的 A 切到空闲的 B）
+    const threadSwitched = lastThreadIdRef.current !== activeId;
+    lastThreadIdRef.current = activeId;
+    const wasRunning = runningPrevRef.current;
+    runningPrevRef.current = running;
+    if (running) {
+      setHint(""); // 新 run 开始：旧建议即刻失效
+      return;
+    }
+    if (isDraft || !wasRunning || threadSwitched) return;
+    touchedRef.current = false;
+    // 5 秒静默到点拉取；后端未算完（sidecar 慢模型返回空）时补偿重试一次，再为空则本次放弃
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const fetchHint = (delay: number): void => {
+      timer = setTimeout(() => {
+        if (cancelled || touchedRef.current) return;
+        if (!useApp.getState().settings.inputPrediction) return; // 前端兜底（后端已门控）
+        if (useApp.getState().chats[activeId]?.running) return; // steer 接力新 run
+        void api
+          .inputPredictionGet(activeId)
+          .then((text) => {
+            if (cancelled) return;
+            if (text) {
+              if (!touchedRef.current && !useApp.getState().chats[activeId]?.running) setHint(text);
+              return;
+            }
+            fetchHint(4000);
+          })
+          .catch(() => {}); // 失败静默（spec 行为约定 10）
+      }, delay);
+    };
+    fetchHint(5000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [running, activeId, isDraft]);
 
   const pickAndAttach = async (): Promise<void> => {
     try {
@@ -1354,6 +1402,8 @@ function Composer({
 
   const submit = (): void => {
     historyRef.current = { index: -1, stash: "" }; // 发送即退出翻阅态（失败还原走程序化回填，不影响游标）
+    touchedRef.current = true; // 发送后不再展示旧建议
+    setHint("");
     const clean = text.trim();
     if (!clean && attachments.length === 0) return;
     const sendAttachments = attachments;
@@ -1406,6 +1456,8 @@ function Composer({
 
   /** 回填文本并置光标于末尾：受控值变化时经 effect 置尾；未变化（effect 不会跑）直接在 DOM 上置。 */
   const setTextAndCursorEnd = (value: string): void => {
+    touchedRef.current = true; // 程序化回填视同用户改动（历史翻阅 / Tab 应用后不再展示旧建议）
+    setHint("");
     setText(value);
     if (value === text) {
       const ta = taRef.current;
@@ -1447,6 +1499,12 @@ function Composer({
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     // IME 组词中的 Enter 是候选确认（如中文输入法选词），交给输入法处理，不触发发送
     if (isImeComposing(e)) return;
+    // 输入预测应用（docs/input-prediction/spec.md）：Tab 填入建议、光标置尾、hint 消失
+    if (e.key === "Tab" && hint !== "") {
+      e.preventDefault();
+      setTextAndCursorEnd(hint);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -1467,6 +1525,8 @@ function Composer({
   // 运行中清空内容 → 停止态；空闲恒为发送态（无内容禁用）。任一时刻只有一个按钮。
   const hasDraft = text.trim() !== "" || attachments.length > 0;
   const showStop = running && !hasDraft;
+  // 输入预测幽灵文本的展示窗口：空闲会话 + 空输入 + 有建议；此时隐藏原生 placeholder
+  const showHint = !isDraft && !running && text === "" && hint !== "";
 
   return (
     <div className="shrink-0 px-4 pb-4">
@@ -1560,20 +1620,36 @@ function Composer({
               ))}
             </div>
           )}
-          <textarea
-            ref={taRef}
-            rows={2}
-            value={text}
-            onChange={(e) => {
-              historyRef.current = { index: -1, stash: "" }; // 手动键入退出翻阅态（程序化回填不触发 onChange）
-              setText(e.target.value);
-            }}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
-            data-composer-input
-            className="max-h-[192px] min-h-[48px] w-full resize-none overscroll-contain bg-transparent text-ui-base text-foreground placeholder:text-foreground-subtlest"
-          />
+          <div className="relative">
+            {/* 输入预测幽灵文本（docs/input-prediction/spec.md）：非原生 placeholder（需与空输入
+                共存）；leading-6 与 textarea 行高一致保证首行重合；行尾 Tab 徽标提示应用方式。
+                显示期间隐藏原生 placeholder，避免两层提示文字重叠 */}
+            {showHint && (
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 flex min-h-[48px] items-start gap-2 overflow-hidden text-ui-base leading-6 text-foreground-subtlest"
+                aria-hidden
+              >
+                <span className="min-w-0 flex-1 truncate">{hint}</span>
+                <kbd className="shrink-0 rounded border border-border px-1 text-ui-xs text-foreground-subtlest">Tab</kbd>
+              </div>
+            )}
+            <textarea
+              ref={taRef}
+              rows={2}
+              value={text}
+              onChange={(e) => {
+                historyRef.current = { index: -1, stash: "" }; // 手动键入退出翻阅态（程序化回填不触发 onChange）
+                touchedRef.current = true; // 键入即取消静默计时与既有建议
+                setHint("");
+                setText(e.target.value);
+              }}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              placeholder={showHint ? "" : running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
+              data-composer-input
+              className="max-h-[192px] min-h-[48px] w-full resize-none overscroll-contain bg-transparent text-ui-base leading-6 text-foreground placeholder:text-foreground-subtlest"
+            />
+          </div>
           <div className="group/toolbar flex items-end gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-0.5" data-composer-leading-actions>
               <button

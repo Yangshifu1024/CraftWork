@@ -72,6 +72,8 @@ export interface CraftworkApi {
   threadSetReasoning(threadId: string, level: string): Promise<void>;
   threadArchive(threadId: string, archived: boolean): Promise<void>;
   threadDelete(threadId: string): Promise<void>;
+  /** 一键清理临时会话（内置 conversation 工作区下当前模式、未归档的线程）；运行中/等待审批的跳过 */
+  threadClearTemp(mode: string): Promise<{ removed: number; skipped: number }>;
   threadSnapshot(threadId: string): Promise<Snapshot>;
   threadSnapshotPage(threadId: string, limit: number, beforeSeq: number): Promise<Snapshot>;
 
@@ -103,6 +105,10 @@ export interface CraftworkApi {
   planIgnore(planId: string): Promise<void>;
   /** 用系统默认应用打开计划 md 文件（仅允许 plans 目录内） */
   planOpen(path: string): Promise<void>;
+
+  // ---------- 输入预测 ----------
+  /** 一轮任务正常结束后预计算的下一句建议提示词（docs/input-prediction/spec.md；瞬态内存缓存，无则 null） */
+  inputPredictionGet(threadId: string): Promise<string | null>;
 
   // ---------- 设置 ----------
   settingsGet(): Promise<Settings>;

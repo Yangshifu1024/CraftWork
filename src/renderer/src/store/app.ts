@@ -147,6 +147,7 @@ export const useApp = create<AppState>((set, get) => ({
     maxIterations: 300,
     logsLevel: "info",
     smoothFollow: false,
+    inputPrediction: true,
   },
   chats: {},
   plans: {},

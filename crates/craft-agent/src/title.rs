@@ -35,14 +35,14 @@ pub fn normalize_title(text: &str) -> String {
 }
 
 /// 是否含有效内容字符（ASCII 字母数字或中文），过滤纯符号/空白串。
-fn has_content(s: &str) -> bool {
+pub(crate) fn has_content(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c))
 }
 
-/// 拒收对话式输出：弱指令遵循的模型可能无视标题任务，把标题请求当对话
+/// 拒收对话式输出：弱指令遵循的模型可能无视任务指令，把请求当对话
 /// 开始自我介绍或回答用户问题（实测 DeepSeek 系输出「你好！我是基于…」）。
-/// 保守特征：问候语开头或自我介绍短语；正常标题是名词短语，几乎不会命中。
-fn is_conversational_output(s: &str) -> bool {
+/// 保守特征：问候语开头或自我介绍短语；正常标题/建议是名词短语，几乎不会命中。
+pub(crate) fn is_conversational_output(s: &str) -> bool {
     let lower = s.to_lowercase();
     if ["你好", "您好", "hello"].iter().any(|p| lower.starts_with(p)) {
         return true;
