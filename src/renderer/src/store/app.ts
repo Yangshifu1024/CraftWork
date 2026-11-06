@@ -14,7 +14,7 @@ import type {
 import type { ApprovalPart } from "../../../shared/events";
 import { api } from "../lib/api";
 import { applyModeTheme, applyTheme, saveModePref, saveThemePref, watchSystemTheme } from "../lib/theme";
-import { emptyDraftTable, loadDrafts, saveDrafts } from "../lib/drafts";
+import { emptyDraftTable, loadDrafts, saveDrafts, loadThreadComposer, saveThreadComposer } from "../lib/drafts";
 import type { DraftTable } from "../lib/drafts";
 import { useToasts } from "./toast";
 
@@ -56,6 +56,11 @@ interface AppState {
   workspaces: WorkspaceView[];
   settings: Settings;
   /** 已装载会话的运行时消息流（按需装载，不常驻全部历史）。 */
+  /** 会话级 composer 桶：会话态输入区的文本/附件/发送选项，按会话 id 分桶（草稿态仍走草稿槽）；
+   *  切换会话互不干扰、往返保留；持久化经 lib/drafts，删除会话时清理、boot 按现存会话裁剪。 */
+  threadComposer: Record<string, ThreadComposer>;
+  /** 写会话级 composer 桶（合并 patch + 持久化）；仅会话态使用，草稿态走 setDraft。 */
+  setThreadComposer(id: string, patch: Partial<ThreadComposer>): void;
   chats: Record<string, ChatState>;
   /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
    *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
@@ -104,6 +109,21 @@ export const EMPTY_DRAFT: DraftState = {
   useWorktree: false,
 };
 
+/** 会话级 composer 桶（会话态输入区）：文本/附件 + 发送选项勾选态。
+ *  空桶常量供 selector 回落（引用恒定，避免每次返回新对象触发重渲染）。 */
+export interface ThreadComposer {
+  text: string;
+  attachments: string[];
+  planMode: boolean;
+  useWorktree: boolean;
+}
+export const EMPTY_THREAD_COMPOSER: ThreadComposer = {
+  text: "",
+  attachments: [],
+  planMode: false,
+  useWorktree: false,
+};
+
 /** 当前模式的草稿槽（draftWsId 指向归属）；槽尚无内容时为 undefined。 */
 export function draftSlot(state: AppState, mode: Mode): DraftState | undefined {
   return state.drafts[mode][state.draftWsId[mode]];
@@ -120,6 +140,16 @@ export function effectiveReasoningLevel(state: AppState, mode: Mode): string {
 }
 
 /** 全局状态壳 store：字段为可渲染状态，方法为动作；组件经 selector 订阅。 */
+/** 按现存会话裁剪 composer 桶：保留列表内的条目，回收已删除会话的残留。 */
+function pruneThreadComposer(composer: Record<string, ThreadComposer>, alive: string[]): Record<string, ThreadComposer> {
+  const aliveSet = new Set(alive);
+  const out: Record<string, ThreadComposer> = {};
+  for (const [id, bucket] of Object.entries(composer)) {
+    if (aliveSet.has(id)) out[id] = bucket;
+  }
+  return out;
+}
+
 export const useApp = create<AppState>((set, get) => ({
   booted: false,
   mode: "code",
@@ -127,6 +157,7 @@ export const useApp = create<AppState>((set, get) => ({
   activeThreadId: { code: "", work: "" },
   drafts: emptyDraftTable(),
   draftWsId: { code: "", work: "" },
+  threadComposer: loadThreadComposer(),
   workspaces: [],
   settings: {
     theme: "system",
@@ -186,6 +217,8 @@ export const useApp = create<AppState>((set, get) => ({
       // 启动恢复各槽草稿文本与附件；槽归属不恢复（恒为临时槽），
       // activeThreadId 选择逻辑不动：有会话选中最近会话，即「恢复草稿但不自动进入草稿态」。
       drafts: loadDrafts(),
+      // 会话级 composer 桶按现存会话裁剪：批量删除（如一键清理临时会话）留下的死条目在此回收
+      threadComposer: pruneThreadComposer(loadThreadComposer(), [...threadsCode, ...threadsWork].map((t) => t.id)),
       activeThreadId: {
         code: threadsCode[0]?.id ?? "",
         work: threadsWork[0]?.id ?? "",
@@ -263,8 +296,24 @@ export const useApp = create<AppState>((set, get) => ({
     set({ drafts });
   },
 
+  setThreadComposer(id, patch) {
+    if (!id) return;
+    const prev = get().threadComposer;
+    const bucket = prev[id] ?? EMPTY_THREAD_COMPOSER;
+    const next = { ...prev, [id]: { ...bucket, ...patch } };
+    saveThreadComposer(next);
+    set({ threadComposer: next });
+  },
+
   async deleteThread(id) {
     await api.threadDelete(id);
+    // 清理会话级 composer 桶（输入/附件/发送选项随会话一起删）
+    const composer = { ...get().threadComposer };
+    if (composer[id]) {
+      delete composer[id];
+      saveThreadComposer(composer);
+      set({ threadComposer: composer });
+    }
     const mode = get().mode;
     await get().refreshThreads(mode);
     if (get().activeThreadId[mode] === id) {

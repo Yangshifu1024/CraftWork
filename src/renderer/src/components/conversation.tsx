@@ -5,7 +5,7 @@ import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Folder, ListChecks, GitBranch } from "lucide-react";
 import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
-import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT } from "../store/app";
+import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT, EMPTY_THREAD_COMPOSER } from "../store/app";
 import { useOverlays } from "../store/overlays";
 import { useToasts } from "../store/toast";
 import { api } from "../lib/api";
@@ -1178,9 +1178,11 @@ function Composer({
   plan?: PlanInfo;
 }): React.JSX.Element {
   // 输入态分流：草稿态（活动会话为空）读写当前草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽，
-  // 内容随槽保留互不覆盖）；会话态回到组件本地 state（切会话丢输入的既有行为），打字不写草稿槽。
+  // 内容随槽保留互不覆盖）；会话态读写会话级 composer 桶 threadComposer（文本/附件/发送选项随会话
+  // 分桶保留，切换互不串、重启不丢），草稿槽只服务草稿态。
   const mode = useApp((s) => s.mode);
   const setDraft = useApp((s) => s.setDraft);
+  const setThreadComposer = useApp((s) => s.setThreadComposer);
   const refreshThreads = useApp((s) => s.refreshThreads);
   const selectThread = useApp((s) => s.selectThread);
   const workspaces = useApp((s) => s.workspaces);
@@ -1188,40 +1190,38 @@ function Composer({
   const thread = useApp((s) => s.threads[s.mode].find((t) => t.id === activeId));
   const isDraft = activeId === "";
   const draft = useApp((s) => (isDraft ? (draftSlot(s, s.mode) ?? EMPTY_DRAFT) : EMPTY_DRAFT));
-  const [localText, setLocalText] = useState("");
-  const [localAttachments, setLocalAttachments] = useState<string[]>([]);
-  const [localPlan, setLocalPlan] = useState(false);
-  const [localWorktree, setLocalWorktree] = useState(false);
-  const text = isDraft ? draft.text : localText;
-  const attachments = isDraft ? draft.attachments : localAttachments;
+  const bucket = useApp((s) => (isDraft ? EMPTY_THREAD_COMPOSER : (s.threadComposer[activeId] ?? EMPTY_THREAD_COMPOSER)));
+  const text = isDraft ? draft.text : bucket.text;
+  const attachments = isDraft ? draft.attachments : bucket.attachments;
   const setText = (value: string): void => {
     if (isDraft) setDraft(mode, { text: value });
-    else setLocalText(value);
+    else setThreadComposer(activeId, { text: value });
   };
   const setAttachments = (value: string[] | ((prev: string[]) => string[])): void => {
     if (isDraft) {
       const prev = draftSlot(useApp.getState(), mode)?.attachments ?? EMPTY_DRAFT.attachments;
       setDraft(mode, { attachments: typeof value === "function" ? value(prev) : value });
     } else {
-      setLocalAttachments((prev) => (typeof value === "function" ? value(prev) : value));
+      const prev = useApp.getState().threadComposer[activeId]?.attachments ?? EMPTY_THREAD_COMPOSER.attachments;
+      setThreadComposer(activeId, { attachments: typeof value === "function" ? value(prev) : value });
     }
   };
   // 顶部信息行的工作区名称：草稿态取草稿槽归属，会话态取会话绑定的工作区；
   // 内置临时目录的名称就叫「临时会话」，查不到（孤儿会话）如实显示「未绑定工作区」。
   const metaWsId = isDraft ? draftWsId : (thread?.workspaceId ?? "");
   const metaWs = workspaces.find((w) => w.id === metaWsId);
-  // 发送选项勾选态：草稿态随草稿槽保留；会话态用本地 state（与输入内容同生命周期）。
+  // 发送选项勾选态：草稿态随草稿槽保留；会话态随会话级 composer 桶保留（切走切回不丢、不跨会话串）。
   // worktree 已绑定的会话恒为勾选且锁定（绑定不可解绑，本会话固定在工作树内执行）。
   const boundWorktree = thread?.worktreePath ?? "";
-  const planOn = isDraft ? draft.planMode : localPlan;
-  const worktreeOn = boundWorktree ? true : isDraft ? draft.useWorktree : localWorktree;
+  const planOn = isDraft ? draft.planMode : bucket.planMode;
+  const worktreeOn = boundWorktree ? true : isDraft ? draft.useWorktree : bucket.useWorktree;
   const setPlanOn = (value: boolean): void => {
     if (isDraft) setDraft(mode, { planMode: value });
-    else setLocalPlan(value);
+    else setThreadComposer(activeId, { planMode: value });
   };
   const setWorktreeOn = (value: boolean): void => {
     if (isDraft) setDraft(mode, { useWorktree: value });
-    else setLocalWorktree(value);
+    else setThreadComposer(activeId, { useWorktree: value });
   };
   const togglePlan = (): void => setPlanOn(!planOn);
   /** worktree 勾选带预检：临时槽 / 非项目工作区 / Work 模式 / 非 git 仓库直接拒绝并说明，发送时后端还会兜底校验。 */
@@ -1284,7 +1284,7 @@ function Composer({
   // cursorEnd 置位后由自适应高度 effect 在受控更新完成后把光标移到末尾。
   const historyRef = useRef({ index: -1, stash: "" });
   const cursorEndRef = useRef(false);
-  // Composer 不按 activeId 重挂载，切换会话显式重置翻阅态。
+  // Composer 不按 activeId 重挂载，切换会话显式重置翻阅态（输入与勾选走会话桶，无需在此处理）。
   useEffect(() => {
     historyRef.current = { index: -1, stash: "" };
     setHint("");
@@ -1388,13 +1388,14 @@ function Composer({
     }
   }, [text]);
 
-  /** 计划确认执行：后端置批准状态（提示条消失）→ 取消勾选 → 发送固定确认消息（写操作回到审批档位管控）。 */
+  /** 计划确认执行：后端置批准状态（提示条消失）→ 退出计划模式（桶复位勾选）→ 发送固定确认消息
+   *  （消息带 planMode=false，执行轮次遵循用户所选审批档位）。 */
   const approvePlan = (): void => {
+    if (!isDraft) setThreadComposer(activeId, { planMode: false });
     void useApp
       .getState()
       .approvePlan(activeId)
       .then(() => {
-        setPlanOn(false);
         return api.chatSend(activeId, PLAN_CONFIRM_TEXT, [], false, false);
       })
       .catch((err: unknown) => pushToast("danger", "发送失败", cleanErrorMessage(err)));
@@ -1426,6 +1427,10 @@ function Composer({
       void api
         .chatCreateAndStart(mode, state.draftWsId[mode], clean, sendAttachments, modelRef, reasoningLevel, sendPlan, sendWorktree)
         .then(async ({ threadId }) => {
+          // 勾选随首发消息转移：新会话桶播种 planMode（按钮保持勾选，与运行中的计划 run 一致）；
+          // worktree 绑定已落在会话上不转移；草稿槽复位，不把选项留给同槽的下一个草稿。
+          setThreadComposer(threadId, { planMode: sendPlan });
+          setDraft(mode, { planMode: false, useWorktree: false });
           await refreshThreads(mode);
           // 首发飞行中切走模式时不抢选：新会话留在原模式侧栏
           if (useApp.getState().mode === mode) await selectThread(threadId);

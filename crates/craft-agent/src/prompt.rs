@@ -81,7 +81,7 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
     }
     if input.plan_mode {
         dynamic.push(
-            "当前处于计划模式：本轮只做只读调研与分析，禁止任何修改类操作（写文件、编辑、补丁、执行命令、Git 提交等一律不要调用；这些调用会被应用强制要求逐次审批）。先输出一份分步实施计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；输出计划后停下等待用户确认，不要开始实施。用户确认后应用会解除计划模式再执行。"
+            "当前处于计划模式：本轮只做只读调研与分析，不要调用任何修改类操作（写文件、编辑、补丁、执行命令、Git 提交等）。修改类操作将按用户当前选择的审批档位处理：自由档会直接执行、分级档会弹出审批。请先输出一份分步实施计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；输出计划后停下等待用户确认，不要开始实施。用户确认后应用会解除计划模式再执行。"
                 .into(),
         );
     }
@@ -198,7 +198,7 @@ mod tests {
         });
         let dynamic = &result.blocks[2].content;
         assert!(dynamic.contains("计划模式"));
-        assert!(dynamic.contains("禁止任何修改类操作"));
+        assert!(dynamic.contains("按用户当前选择的审批档位处理"));
         assert!(dynamic.contains("等待用户确认"));
     }
 
@@ -222,9 +222,11 @@ mod tests {
 
     #[test]
     fn runtimes_injected_into_dynamic_block() {
-        let mut env = EnvContextSnapshot::default();
-        env.today = "2026-11-06".into();
-        env.runtimes = vec!["python3 3.12.4".into()];
+        let env = EnvContextSnapshot {
+            today: "2026-11-06".into(),
+            runtimes: vec!["python3 3.12.4".into()],
+            ..EnvContextSnapshot::default()
+        };
         let result = build_prompt(PromptInput {
             mode: "code",
             workspace: "/tmp/ws",

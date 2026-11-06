@@ -209,7 +209,7 @@ impl Runner {
                 return None;
             }
             let started = std::time::Instant::now();
-            let prediction = crate::prediction::generate_prediction(client.as_ref(), &model_id, &history);
+            let prediction = crate::prediction::generate_prediction(client.as_ref(), &model_id, &thread_id, &history);
             // INFO 级：低频 sidecar 事件，默认日志等级下可观测（排查「为何没有预测」的唯一证据源）
             log.write_thread(
                 &thread_id,
@@ -775,6 +775,8 @@ impl Runner {
                     // 思考档位随会话记忆（threads.reasoning_level）；档位类型由模型元数据决定
                     reasoning_kind: session.info.reasoning_kind.clone(),
                     reasoning_level: thread.reasoning_level.clone(),
+                    // 会话 ID 供自定义请求头 {sessionId} 占位符替换（网关路由归并）
+                    session_id: thread_id.to_string(),
                 };
                 let mut stream = session.client.stream(&req);
                 loop {
@@ -973,7 +975,7 @@ impl Runner {
             history.push(assistant);
             for call in tool_calls {
                 let (result, aborted) = self
-                    .run_tool(token, thread_id, run_id, &message_id, &call, &env, mode, plan_mode)
+                    .run_tool(token, thread_id, run_id, &message_id, &call, &env, mode)
                     .await;
                 if aborted {
                     self.canceled(thread_id, run_id, started_at);
@@ -1076,7 +1078,6 @@ impl Runner {
         call: &ToolCall,
         env: &RunEnv,
         mode: &str,
-        plan_mode: bool,
     ) -> (ToolResult, bool) {
         let part_id = new_id(id_prefix::PART);
         let assessment = self.deps.registry.assess(
@@ -1118,15 +1119,9 @@ impl Runner {
         } else if !self.deps.registry.allows(mode, &call.name) {
             denied = "当前模式不支持该工具".into();
         } else {
-            let mut action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
-            // 计划模式硬约束：R1+ 写类操作一律逐次审批——「永不主动编辑」不依赖提示词自觉。
-            // 只把 Allow 收紧为 Ask，不放松任何既有拒绝（R4 / 受限工作区 R3 / 只读档 Deny 原样保留）。
-            let plan_forced = plan_mode
-                && !matches!(assessment.risk, craft_policy::PolicyRisk::R0)
-                && action != craft_policy::Action::Deny;
-            if plan_forced {
-                action = craft_policy::Action::Ask;
-            }
+            let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
+            // 计划模式不介入审批（决策 D8）：写操作遵循用户所选审批档位的原定义——
+            // 自由档静默放行、分级档按风险弹卡；计划模式仅靠提示词约束模型「只调研出计划」。
             match action {
                 craft_policy::Action::Deny => denied = "当前审批档位拒绝该操作".into(),
                 craft_policy::Action::Allow => {}
@@ -1139,15 +1134,13 @@ impl Runner {
                     } else {
                         target.clone()
                     };
-                    // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效；
-                    // 计划模式下已授权缓存不生效，每次写入都必须当面确认
-                    let cached = !env.restricted && !plan_forced && self.deps.approvals.allowed(&call.name, &grant_target);
+                    // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效
+                    let cached = !env.restricted && self.deps.approvals.allowed(&call.name, &grant_target);
                     if cached {
                         scope = "cache".into();
                     } else {
-                        // 受限工作区每次必问且无授权缓存；计划模式不提供永久授权（决定按 once 处理）
-                        let permanent = !plan_forced
-                            && self.deps.engine.lock().unwrap().allows_permanent(env.restricted, assessment.risk);
+                        // 受限工作区每次必问且无授权缓存
+                        let permanent = self.deps.engine.lock().unwrap().allows_permanent(env.restricted, assessment.risk);
                         let mut facts = vec![
                             ApprovalFact { label: "风险等级".into(), value: assessment.risk.as_str().to_string() },
                             ApprovalFact { label: "操作".into(), value: summary.clone() },
@@ -1155,9 +1148,6 @@ impl Runner {
                         ];
                         if !target.is_empty() {
                             facts.push(ApprovalFact { label: "目标".into(), value: target.clone() });
-                        }
-                        if plan_forced {
-                            facts.push(ApprovalFact { label: "计划模式".into(), value: "本轮写操作需逐次确认，不提供永久授权".into() });
                         }
                         if call.name == "shell_exec" {
                             let prefix = command_prefix_of(&command);

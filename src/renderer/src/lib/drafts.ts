@@ -58,3 +58,44 @@ export function saveDrafts(drafts: DraftTable): void {
     // 存储不可用（配额满/隐私模式）：草稿持久化是尽力而为，放弃本次写入
   }
 }
+
+// ---------- 会话级 composer 桶 ----------
+
+const COMPOSER_KEY = "craftwork-thread-composer";
+
+/** 会话级 composer 桶：会话 id → 输入区文本/附件/发送选项。 */
+export type ThreadComposerTable = Record<string, import("../store/app").ThreadComposer>;
+
+/** 读整表；key 缺失或数据损坏时逐条容错，整体不可用回落空表。 */
+export function loadThreadComposer(): ThreadComposerTable {
+  try {
+    const raw = localStorage.getItem(COMPOSER_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: ThreadComposerTable = {};
+    for (const [threadId, bucket] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof bucket !== "object" || bucket === null) continue;
+      const record = bucket as Record<string, unknown>;
+      const attachments = Array.isArray(record["attachments"]) ? record["attachments"] : [];
+      out[threadId] = {
+        text: typeof record["text"] === "string" ? record["text"] : "",
+        attachments: attachments.filter((a): a is string => typeof a === "string"),
+        planMode: record["planMode"] === true,
+        useWorktree: record["useWorktree"] === true,
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 写整表；存储不可用时静默（持久化是尽力而为）。 */
+export function saveThreadComposer(table: ThreadComposerTable): void {
+  try {
+    localStorage.setItem(COMPOSER_KEY, JSON.stringify(table));
+  } catch {
+    // 存储不可用：放弃本次写入
+  }
+}

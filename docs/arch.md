@@ -245,6 +245,7 @@ flowchart LR
 ```
 
 - 提供商与模型目录来自 `assets/catalog/catalog.json.gz`（models.dev 构建期快照，`include_bytes!` 嵌入）；用户自定义提供商存 settings 的 `model.custom_providers`；应用不内置任何可用提供商。
+- 用户提供商可配置自定义请求头（`PersistedProvider.headers`，如网关路由头 `x-opencode-session`）：随每次模型请求/测试连接/拉取模型附加，保存时服务端校验（名称限 RFC 7230 token、值禁换行、`authorization`/`x-api-key` 与密钥字段冲突拒绝、去重、16 条 / 4KB 上限）；渲染层 `lib/provider-headers` 提供同规则的即时反馈，最终以服务端为准。头值支持 `{sessionId}` 占位符——发送时替换为当前会话 ID（`Request.session_id`，Agent 主对话与命名/预测/压缩 sidecar 均填入），每会话独立路由；无会话上下文的请求跳过含占位符的头。
 - 错误归一化：HTTP 状态码 → 基础错误码，关键词二次修正（如 400/401 也可能报限流、流内错误无状态码）；界面只见 `auth / rate_limit / timeout / context_overflow` 等错误码。
 - 上下文占用 = 最近一次主对话请求 `input + output`，每轮覆盖更新；历史超过模型窗口 70% 触发压缩（会话模型生成摘要，落 `context_summary` 事件，失败不阻断）。
 - 系统提示词三层缓存：identity（无缓存标记）/ stable（跨会话一致）/ dynamic（会话内一致），Anthropic 侧映射为前缀缓存断点。
@@ -264,7 +265,7 @@ flowchart LR
 | D5 | MCP（stdio 客户端）留桩 | 设置页可存服务器配置，连接能力不实现；rmcp 接入单独立项 |
 | D6 | 先出未签名包；updater 链路未接线 | tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存；凭据到位后另立项接线 |
 | D7 | 仅保障 macOS 实测 | Win / Linux 实机走查单独立项（D1 后打包障碍已消失，配置已备） |
-| D8 | 计划模式 = 提示词 + 审批硬约束双保险 | 「计划模式」是随消息落库的发送选项（user_message payload 的 planMode，run 启动按 trigger 还原；regenerate 跟随上一轮、steer 接力取首条引导），不是会话级档位：系统提示词 dynamic 段注入计划指令之外，run_tool 对 R1+ 风险强制 Ask、跳过已授权缓存、禁用永久授权——不依赖模型自觉，任何审批档位下都不可绕过；确认执行走前端「批准并执行」按钮（取消勾选 + 发送固定确认消息），零新增后端协议 |
+| D8 | 计划模式 = 纯提示词约束，执行遵循所选审批档位 | 「计划模式」是随消息落库的发送选项（user_message payload 的 planMode，run 启动按 trigger 还原；regenerate 跟随上一轮、steer 接力取首条引导），不是会话级档位：仅通过系统提示词 dynamic 段注入「只读调研、输出计划、停下等待确认」，**不改变任何审批行为**——R1+ 写操作按用户所选档位的原定义处理（自由档静默放行、分级档弹卡），授权缓存与永久授权规则不变；「批准并执行」由前端发送 planMode=false 的固定确认消息，执行轮次同样遵循所选档位。前端勾选态为会话级（threadComposer 分桶，随会话保留） |
 | D9 | worktree 由后端编排、会话级绑定 | 勾选 worktree 发送时由服务层 `ensure_thread_worktree` 直跑 git（platform::run，环境清洗 + 超时杀树），不走 Agent 工具/审批——它是发送编排动作，发生在 run 之前，失败回滚保持「失败零落库」；目录固定在 `<数据目录>/worktrees/<会话id>`（随 CRAFTWORK_HOME 隔离），绑定落 threads 表（V10）后 RunEnv 主要目录切换，fs/命令/Git 全部跟随；不可解绑（避免主目录与工作树状态分裂），删除会话/项目时级联清理 |
 | D10 | Python 批量操作 = 环境底座 + 分类识别 + 提示词引导 + 双护栏 | 支持模型用 Python 做批量文件修改：① 环境底座——`sanitize_env` 白名单特批 `PYTHONIOENCODING`/`PYTHONUTF8`（用户值优先，否则注入 UTF-8 默认）；② 分类识别——`python/python3/py` 仅 `--version/-V/-h` 等纯查询参数判 R0 只读，`-c`/`-m`/脚本路径维持 R2 审批，`pip install` 仍 R3；③ 引导——环境快照探测 python3（缺失回落 python）注入「运行时」，行为契约加批量例外与不可信文件 `-I` 隔离条款；④ 护栏——apply_patch 失败文案禁止转向脚本整体重写。策略层看不进脚本内容（`python x.py` 审批后脚本内写入不受路径校验，与 shell 同级边界，靠提示词约束 + 审计兜底）。确定性内置脚本/技能机制留桩，另立项 |
 
