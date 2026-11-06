@@ -325,6 +325,50 @@ pub fn thread_delete(state: &AppState, id: &str) -> SvcResult {
     Ok(json!(null))
 }
 
+/// 一键清理临时会话：删除内置 conversation 工作区下指定模式、未归档的全部线程
+/// （与侧栏「临时会话」分组可见列表一致）。运行中/等待审批的会话跳过，避免与
+/// 进行中的 run 互相踩踏；返回 { removed, skipped } 供前端提示。临时会话禁止绑定
+/// worktree（ensure_thread_worktree 守卫），无需级联清理工作树。
+pub fn thread_clear_temp(state: &AppState, mode: &str) -> SvcResult {
+    let ws_id = state
+        .db
+        .with(|conn| Ok(workspaces::default_conversation_workspace_id(conn)))
+        .map_err(|e| e.to_string())?;
+    let (mut removed, mut skipped) = (0u32, 0u32);
+    if !ws_id.is_empty() {
+        let targets: Vec<threads::ThreadRow> = {
+            let conn = state.db.lock_conn();
+            threads::list_threads_by_workspace(&conn, &ws_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .filter(|t| t.mode == mode && !t.archived)
+                .collect()
+        };
+        for thread in &targets {
+            if thread.status == "running" || thread.status == "awaiting" {
+                skipped += 1;
+                continue;
+            }
+            threads::delete_thread(&state.db, &thread.id).map_err(|e| e.to_string())?;
+            removed += 1;
+        }
+    }
+    let _ = add_audit(
+        &state.db.lock_conn(),
+        craft_store::records::AuditRecord {
+            ts: None,
+            thread_id: None,
+            run_id: None,
+            tool: "thread",
+            risk: "R0",
+            decision: "deleted",
+            scope: None,
+            detail: Some(&format!("清理临时会话：删除 {removed} 个，跳过 {skipped} 个运行中")),
+        },
+    );
+    Ok(json!({ "removed": removed, "skipped": skipped }))
+}
+
 /// 会话快照：读事件按 message_id 归组重建消息流（时间线装载的唯一入口）。
 /// limit=0 不限条数；before_seq>0 只保留 seq 小于游标的事件（向上翻页）。
 pub fn thread_snapshot(state: &AppState, id: &str, limit: i64, before_seq: i64) -> SvcResult {

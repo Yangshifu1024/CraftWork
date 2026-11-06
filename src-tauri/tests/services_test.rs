@@ -599,3 +599,44 @@ fn thread_delete_cleans_up_bound_worktree_and_branch() {
     let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
     assert!(!porcelain_contains_path(&String::from_utf8_lossy(&out.stdout), &target), "主仓库 worktree 登记已移除");
 }
+
+/// 一键清理临时会话：只删当前模式、未归档、非运行中的线程；running/awaiting 跳过；审计落一条。
+#[test]
+fn thread_clear_temp_deletes_idle_and_skips_running_awaiting_and_archived() {
+    let (_dir, state) = test_state("clear-temp");
+    // 启动装配先建内置临时目录；conversation 工作区 id 由返回值取得（ensure 幂等）
+    let ws_id = services::ensure_conversation_workspace(&state)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mk = |title: &str, mode: &str| -> String {
+        thread_id_of(&services::thread_create(&state, mode, &ws_id, title).unwrap())
+    };
+    let idle_code = mk("普通会话", "code");
+    let running_code = mk("运行中", "code");
+    let awaiting_code = mk("等审批", "code");
+    let archived_code = mk("已归档", "code");
+    let work_thread = mk("跨模式", "work");
+    state.recorder.set_thread_status(&running_code, Some("run-x"), "running").unwrap();
+    state.recorder.set_thread_status(&awaiting_code, Some("run-y"), "awaiting").unwrap();
+    services::thread_set_archived(&state, &archived_code, true).unwrap();
+
+    let result = services::thread_clear_temp(&state, "code").unwrap();
+    assert_eq!(result["removed"], json!(1), "只删 idle 的 code 未归档会话");
+    assert_eq!(result["skipped"], json!(2), "running + awaiting 跳过");
+
+    let alive = |id: &str| craft_store::threads::get_thread(&state.db.lock_conn(), id).is_ok();
+    assert!(!alive(&idle_code), "普通会话已删");
+    assert!(alive(&running_code), "运行中跳过");
+    assert!(alive(&awaiting_code), "等待审批跳过");
+    assert!(alive(&archived_code), "归档不动（与侧栏可见列表一致）");
+    assert!(alive(&work_thread), "跨模式不动");
+
+    let audits = craft_store::records::list_audit(&state.db.lock_conn(), 10).unwrap();
+    assert!(
+        audits.iter().any(|a| a.tool == "thread" && a.decision == "deleted" && a.detail.contains("清理临时会话")),
+        "清理落审计：{:?}",
+        audits.iter().map(|a| (a.tool.as_str(), a.decision.as_str())).collect::<Vec<_>>()
+    );
+}

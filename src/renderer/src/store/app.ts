@@ -16,6 +16,7 @@ import { api } from "../lib/api";
 import { applyModeTheme, applyTheme, saveModePref, saveThemePref, watchSystemTheme } from "../lib/theme";
 import { emptyDraftTable, loadDrafts, saveDrafts } from "../lib/drafts";
 import type { DraftTable } from "../lib/drafts";
+import { useToasts } from "./toast";
 
 /** 工作模式：Code（开发者工作台）/ Work（文档处理工作台）。 */
 export type Mode = "code" | "work";
@@ -76,6 +77,8 @@ interface AppState {
   setDraft(mode: Mode, patch: Partial<DraftState>): void;
   /** 删除会话（后端物理删除）；删的是活动会话时改选列表第一个，列表空则回草稿态。 */
   deleteThread(id: string): Promise<void>;
+  /** 一键清理临时会话（当前模式、未归档）；活动会话被清掉时回临时会话草稿槽。 */
+  clearTempThreads(): Promise<void>;
   renameThread(id: string, title: string): Promise<void>;
   applyBatch(batch: Batch): void;
   /** 合并保存设置：以服务端返回的完整值为准覆盖本地。 */
@@ -267,6 +270,20 @@ export const useApp = create<AppState>((set, get) => ({
       const next = get().threads[mode][0]?.id ?? "";
       set((state) => ({ activeThreadId: { ...state.activeThreadId, [mode]: next } }));
       if (next) await get().selectThread(next);
+    }
+  },
+
+  /** 一键清理临时会话：后端删除（运行中跳过），活动会话被清掉时回临时会话草稿槽；有跳过时提示。 */
+  async clearTempThreads() {
+    const mode = get().mode;
+    const activeId = get().activeThreadId[mode];
+    const result = await api.threadClearTemp(mode);
+    await get().refreshThreads(mode);
+    if (activeId && !get().threads[mode].some((t) => t.id === activeId)) {
+      get().newDraft("");
+    }
+    if (result.skipped > 0) {
+      useToasts.getState().push("warn", "已清理临时会话", `${result.removed} 个已删除，${result.skipped} 个运行中已跳过`);
     }
   },
 

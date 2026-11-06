@@ -279,10 +279,14 @@ export function Sidebar(): React.JSX.Element {
   const sidebarVisible = useApp((s) => s.sidebarVisible);
   const selectThread = useApp((s) => s.selectThread);
   const newDraft = useApp((s) => s.newDraft);
+  const clearTempThreads = useApp((s) => s.clearTempThreads);
   const open = useOverlays((s) => s.open);
   const overlay = useOverlays((s) => s.overlay);
+  const openConfirm = useOverlays((s) => s.openConfirm);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  /** 临时会话分组头的右键菜单坐标（null = 关闭）。 */
+  const [tempMenu, setTempMenu] = useState<{ x: number; y: number } | null>(null);
 
   /** 每组默认可见条数，超出折叠为「显示更多」（对齐 ZCode 任务列表）。 */
   const VISIBLE_LIMIT = 5;
@@ -373,8 +377,14 @@ export function Sidebar(): React.JSX.Element {
                   {/* 临时会话在顶部，项目分组在后；每组超 5 条折叠为「显示更多」 */}
                   {groups.temp.length > 0 && (
                     <section>
-                      {/* 分组头：与项目分组一致可折叠；文字对齐 18px 左线，箭头跟随右侧 */}
-                      <div className="group/temp-row ml-2 flex h-7 min-w-0 items-center rounded-lg hover:bg-surface-hover">
+                      {/* 分组头：与项目分组一致可折叠；文字对齐 18px 左线，箭头跟随右侧；右键弹「清理临时会话」 */}
+                      <div
+                        className="group/temp-row ml-2 flex h-7 min-w-0 items-center rounded-lg hover:bg-surface-hover"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setTempMenu({ x: e.clientX, y: e.clientY });
+                        }}
+                      >
                         <button
                           className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-lg pl-2.5 pr-1 text-left"
                           onClick={() => toggleGroup(groups.conversationWs?.id ?? "temp")}
@@ -391,6 +401,37 @@ export function Sidebar(): React.JSX.Element {
                           </span>
                         </button>
                       </div>
+                      {tempMenu && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-[59]"
+                            onClick={() => setTempMenu(null)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setTempMenu(null);
+                            }}
+                          />
+                          <div
+                            className="fixed z-[60] flex min-w-32 max-w-64 flex-col gap-0.5 overflow-hidden rounded-lg border border-popover-border bg-menu p-1 shadow-md"
+                            style={{ left: tempMenu.x, top: tempMenu.y }}
+                          >
+                            <button
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-ui-base text-destructive hover:bg-menu-hover"
+                              onClick={() => {
+                                setTempMenu(null);
+                                openConfirm({
+                                  title: "清理临时会话",
+                                  message: `将彻底删除全部 ${groups.temp.length} 个临时会话及其消息记录，无法恢复。正在运行的会话会跳过。`,
+                                  danger: true,
+                                  onOk: () => void clearTempThreads(),
+                                });
+                              }}
+                            >
+                              <Trash2 className="size-3.5" /> 清理临时会话
+                            </button>
+                          </div>
+                        </>
+                      )}
                       {!collapsed.has(groups.conversationWs?.id ?? "temp") && (
                         <>
                           <ul className="ml-2 space-y-0.5 pt-1">

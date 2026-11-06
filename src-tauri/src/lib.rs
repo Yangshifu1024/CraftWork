@@ -322,6 +322,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "threadSetReasoning" => thread_set_reasoning(state, &a.str_at(0), &a.str_at(1)),
         "threadArchive" => thread_set_archived(state, &a.str_at(0), a.bool_at(1)),
         "threadDelete" => thread_delete(state, &a.str_at(0)),
+        "threadClearTemp" => thread_clear_temp(state, &a.str_at(0)),
         // 快照与翻页共用实现：limit=0 不限条数（全量）；翻页传 limit + beforeSeq 游标（保留最新 limit 条）
         "threadSnapshot" => thread_snapshot(state, &a.str_at(0), 0, 0),
         "threadSnapshotPage" => thread_snapshot(state, &a.str_at(0), a.i64_at(1), a.i64_at(2)),
