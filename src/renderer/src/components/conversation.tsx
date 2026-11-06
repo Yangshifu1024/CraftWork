@@ -176,7 +176,7 @@ function Timeline({
               {!isAtBottom && (
                 <button
                   className="absolute -top-9 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1.5 text-ui-sm text-foreground-subtle shadow-md hover:bg-menu-hover"
-                  onClick={() => scrollToBottom()}
+                  onClick={() => scrollToBottom("instant")}
                 >
                   <ChevronDown className="inline size-3.5" /> 回到底部
                 </button>
@@ -363,40 +363,53 @@ function MessageRow({
 }
 
 /** 单条助手消息的渲染（对齐 ZCode 单折叠区模型）：一个 run 只有一个过程折叠区——
- *  最终正文（最后一段非空 text）之前的全部内容（思考、工具、审批历史、**中间解说正文**）
- *  都收进折叠区，只留最终正文平铺在外；最终正文之后的过程行（运行中实时产出 / 中断残余）
+ *  正文（最后一段非空 text）之前的全部内容（思考、工具、审批历史、**中间解说正文**）
+ *  都收进折叠区，只留正文平铺在外；正文之后的过程行（运行中实时产出 / 中断残余）
  *  常驻平铺。run 结束后折叠区收起，只显示「已工作 · 持续 N 秒」+ 结论。
- *  等待中的审批卡常驻渲染在折叠区之外。 */
+ *  流式期间正文起点锚定第一个非空 text part：正文与其后的过程行、追加正文段按序平铺，
+ *  几何只增不减；run 结束按最后一个非空 text 重算切段——这次重组与折叠收起同帧完成，
+ *  是一次显式形态转换而非逐帧搬家（行为约定见 docs/conversation-flow/spec.md）。
+ *  等待中的审批卡常驻渲染在折叠区之外；流式中的已决定审批卡也留在常驻位原位降级。 */
 function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunning: boolean }): React.JSX.Element {
   const threadId = useActiveThreadId();
   const parts = message.parts;
   const isStreaming = message.status === "streaming";
 
-  // 最终正文 = 最后一个非空 text 部件；空 text（流式占位/旧数据）不算。
-  // 等待决定的审批部件不进折叠区（由 openApprovals 常驻渲染）。
   const isWaitingApproval = (p: PartSnapshot): boolean =>
     p.kind === "approval" && (p.payload as unknown as ApprovalPart).status === "waiting";
+  // 常驻折叠区之外的审批卡：waiting 卡任意时刻常驻（run 推进的关键路径，折叠进过程块
+  // 会让任务无声卡死）；流式中的已决定卡也留在常驻位——决定瞬间退回折叠区会造成高度回落，
+  // 原位降级展示，run 结束随切段回归折叠区归档。
+  const isPinnedApproval = (p: PartSnapshot): boolean =>
+    isWaitingApproval(p) || (isStreaming && p.kind === "approval");
+  const isNonEmptyText = (p: PartSnapshot): boolean =>
+    p.kind === "text" && String(p.payload["text"] ?? "").length > 0;
+
+  // 正文起点：流式锚定第一个非空 text（parts 只追加，该选择逐帧稳定——旧逻辑取「最后一个」，
+  // 新正文段到达时前一段正文会从平铺 Markdown 位搬进折叠区，格式与高度双突变）；
+  // 完成后取最后一个非空 text（最终结论平铺在外，此前的一切进折叠区）。
   let finalIdx = -1;
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i]!;
-    if (p.kind === "text" && !isWaitingApproval(p) && String(p.payload["text"] ?? "").length > 0) {
-      finalIdx = i;
-      break;
+  if (isStreaming) {
+    finalIdx = parts.findIndex(isNonEmptyText);
+  } else {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]!;
+      if (isNonEmptyText(p) && !isWaitingApproval(p)) {
+        finalIdx = i;
+        break;
+      }
     }
   }
-  // 折叠区：最终正文之前的全部行（含中间解说正文——它们是过程的一部分）
-  const historyParts = parts.slice(0, finalIdx < 0 ? parts.length : finalIdx).filter((p) => !isWaitingApproval(p));
+  // 折叠区：正文之前的全部行（含中间解说正文——它们是过程的一部分）
+  const historyParts = parts.slice(0, finalIdx < 0 ? parts.length : finalIdx).filter((p) => !isPinnedApproval(p));
   const finalText = finalIdx >= 0 ? parts[finalIdx]! : null;
-  // 尾段：最终正文之后的过程行（运行中实时产出 / 中断残余），常驻平铺
-  const tailParts = (finalIdx >= 0 ? parts.slice(finalIdx + 1) : []).filter((p) => !isWaitingApproval(p));
+  // 尾段：正文之后的过程行 / 流式中的追加正文段（按序平铺，见 JSX 内分支）
+  const tailParts = (finalIdx >= 0 ? parts.slice(finalIdx + 1) : []).filter((p) => !isPinnedApproval(p));
   // 流式中的思考段（消息流式中最后一个 reasoning part）：折叠行显示「思考中 + 最新一行摘要」
   const streamingReasoningId = isStreaming
     ? ([...parts].reverse().find((p) => p.kind === "reasoning")?.id ?? "")
     : "";
-  // 等待决定的审批卡必须常驻可见：审批是 run 推进的关键路径，折叠进过程块会让用户
-  // 找不到任何审批入口（只有标题栏小字「等待审批」），任务无声卡死。决定后（approved/
-  // denied/canceled）不再命中 waiting，卡片自然回到折叠块作为历史记录。
-  const openApprovals = parts.filter(isWaitingApproval);
+  const openApprovals = parts.filter(isPinnedApproval);
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -412,11 +425,19 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
       )}
       {finalText && (
         <div className="text-ui-base text-foreground">
-          <Markdown text={String(finalText.payload["text"] ?? "")} streaming={isStreaming} />
+          <Markdown text={String(finalText.payload["text"] ?? "")} />
         </div>
       )}
-      {tailParts.length > 0 && (
-        <WorkLines parts={tailParts} threadId={threadId} streamingReasoningId={streamingReasoningId} />
+      {tailParts.map((part) =>
+        // 流式中的追加正文段：与正文同级 Markdown 平铺（按序追加、不搬家）；
+        // 非流式尾段是中断残余，保持弱化纯文本
+        isStreaming && part.kind === "text" ? (
+          <div key={part.id} className="text-ui-base text-foreground">
+            <Markdown text={String(part.payload["text"] ?? "")} />
+          </div>
+        ) : (
+          <WorkLine key={part.id} part={part} threadId={threadId} streamingReasoningId={streamingReasoningId} />
+        ),
       )}
       {openApprovals.map((part) => (
         <ApprovalCard key={part.id} part={part.payload as unknown as ApprovalPart} threadId={threadId} />
@@ -434,10 +455,11 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
         }
         return null;
       })}
-      {isStreaming && chatRunning && parts.every((p) => p === finalText || (p.kind === "text" && String(p.payload["text"] ?? "").length === 0)) && (
-        <div className="text-ui-sm">
-          <span className="animated-gradient-text">思考中</span>
-        </div>
+      {/* 轮尾运行中槽位：run 期间常驻（固定 min-h，出现/消失不推挤上文）；等待审批时让位——
+          审批卡已是唯一进度反馈（对齐 ZCode 轮尾 ChatLoading 的互斥裁决：只对「等待用户
+          操作」互斥，已决定的审批卡原位留存不阻塞 loading） */}
+      {isStreaming && chatRunning && !parts.some(isWaitingApproval) && (
+        <RunLoadingSlot createdAt={message.createdAt} />
       )}
     </div>
   );
@@ -447,11 +469,17 @@ function useActiveThreadId(): string {
   return useApp((s) => s.activeThreadId[s.mode]);
 }
 
+/** 折叠块收起过渡时长（毫秒）；过渡结束后才卸载内容。 */
+const FOLD_TRANSITION_MS = 300;
+
 /** 工作过程折叠块（一段正文章节前的过程行）。运行中自动展开让过程可见，且自动展开态
  *  隐藏区头——过程行平铺本身就是当前动作，避免区头「正在思考/工作中」与行级「思考中」
  *  重复描述；run 结束后区头随自动收起一起出现，只留「已工作 · 持续 N 秒」摘要行。
  *  用户手动切换过（manual）后完全尊重手动状态，区头始终显示。展开内容无缩进平铺
- *  （对齐 ZCode 组容器），已完成时显示该轮工作的耗时。 */
+ *  （对齐 ZCode 组容器），已完成时显示该轮工作的耗时。
+ *  收起/展开走 grid-template-rows 高度过渡、过渡结束后延迟卸载内容：瞬时条件渲染会让
+ *  整块过程内容无过渡蒸发（数百 px 高度瞬失，是晃动的最大单次来源）；prefers-reduced-motion
+ *  下 transition-none 直接跳变，延迟卸载依旧成立。 */
 function WorkFold({
   parts,
   streaming,
@@ -475,6 +503,16 @@ function WorkFold({
   useEffect(() => {
     if (!manual) setOpen(streaming);
   }, [streaming, manual]);
+  // 内容延迟卸载：收起过渡期间保持挂载，300ms 后移除
+  const [mounted, setMounted] = useState(streaming);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    const timer = setTimeout(() => setMounted(false), FOLD_TRANSITION_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
   const done = !streaming && status !== "streaming";
 
   // 完成态显示秒数（向上取整，与侧栏「思考过程 · 持续了 N 秒」口径一致）
@@ -499,28 +537,75 @@ function WorkFold({
           <ChevronRight className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
       )}
-      {open && (
-        <div className={hideHeader ? "" : "pt-2"}>
-          <WorkLines parts={parts} threadId={threadId} streamingReasoningId={streamingReasoningId} />
+      {mounted && (
+        <div
+          aria-hidden={!open}
+          className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${open ? "" : "pointer-events-none"}`}
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className={hideHeader ? "" : "pt-2"}>
+              <WorkLines
+                parts={parts}
+                threadId={threadId}
+                streamingReasoningId={streamingReasoningId}
+                coalesce={!streaming}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-/** 过程行平铺容器：折叠块展开内容与尾段常驻区共用（对齐 ZCode 的组容器——无缩进、纵向 gap）。
- *  连续同名且已完成的工具行归并成组卡（× N 可展开）；思考行独立折叠，流式中的那段思考
+/** 轮尾运行中指示（对齐 ZCode 轮尾 ChatLoading 槽位）：run 期间常驻固定占位（min-h 槽位，
+ * 出现/消失不推挤上文）；等待审批时由调用方互斥隐藏——审批卡已是唯一进度反馈。
+ * 「工作中」扫光 + 秒数计时（tabular-nums 防数字宽度抖动）。计时起点在挂载时固定一次：
+ * 消息 createdAt（run 开始时刻），旧事件流无时刻（0）时回落挂载时刻——不随渲染漂移。 */
+function RunLoadingSlot({ createdAt }: { createdAt: number }): React.JSX.Element {
+  const [startMs] = useState(() => (createdAt > 0 ? createdAt : Date.now()));
+  return (
+    <div className="min-h-6" role="status">
+      <div className="flex items-center gap-2 text-ui-sm">
+        <span className="shrink-0 whitespace-nowrap animated-gradient-text">工作中</span>
+        <RunLoadingTimer startMs={startMs} />
+      </div>
+    </div>
+  );
+}
+
+/** 独立计时小组件：interval 自刷内部 state，秒数推进只重渲染计时本身，不重渲染对话流。 */
+function RunLoadingTimer({ startMs }: { startMs: number }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, (now - startMs) / 1000);
+  return (
+    <span className="shrink-0 font-mono text-ui-xs tabular-nums text-foreground-subtlest">
+      {seconds.toFixed(1)} 秒
+    </span>
+  );
+}
+
+/** 过程行平铺容器：折叠块展开内容（对齐 ZCode 的组容器——无缩进、纵向 gap）。
+ *  coalesce 控制是否把连续同名且已完成的工具行归并成组卡（× N 可展开）——只在历史折叠块
+ *  中开启（见 coalesceToolRows 注释）。思考行独立折叠，流式中的那段思考
  *  显示「思考中 + 最新一行摘要」。 */
 function WorkLines({
   parts,
   threadId,
   streamingReasoningId,
+  coalesce,
 }: {
   parts: PartSnapshot[];
   threadId: string;
   streamingReasoningId?: string;
+  coalesce: boolean;
 }): React.JSX.Element {
-  const rows = coalesceToolRows(parts);
+  const rows = coalesceToolRows(parts, coalesce);
   return (
     <div className="flex flex-col gap-3">
       {rows.map((row) =>
@@ -572,8 +657,12 @@ type CoalescedRow =
   | { kind: "part"; part: PartSnapshot };
 
 /** 归并连续同名且已完成的工具行；running / error 工具保持独立（运行扫光与失败显眼优先），
- *  不同名工具穿插时各自分组。单元素组还原为普通工具卡。 */
-function coalesceToolRows(parts: PartSnapshot[]): CoalescedRow[] {
+ *  不同名工具穿插时各自分组。单元素组还原为普通工具卡。
+ *  coalesce=false（流式运行中）不归并：每个工具固定独立单行、完成时原位换状态文字——
+ *  若 running 完成瞬间并入组卡，会产生「+1 行 → -1 行」的持续震荡，是对话流垂直晃动的
+ *  主要来源（docs/conversation-flow/spec.md 第 2 条）。合并只作为历史折叠块的压缩呈现。 */
+function coalesceToolRows(parts: PartSnapshot[], coalesce: boolean): CoalescedRow[] {
+  if (!coalesce) return parts.map((part) => ({ kind: "part" as const, part }));
   const out: CoalescedRow[] = [];
   let buf: { name: string; tools: ToolCallPart[]; key: string } | null = null;
   const flush = (): void => {
@@ -604,7 +693,7 @@ function coalesceToolRows(parts: PartSnapshot[]): CoalescedRow[] {
   return out;
 }
 
-/** 工具归并组卡：一行摘要（工具名 + × N + 首个目标 + 总耗时），点击展开组内全部工具卡。 */
+/** 工具归并组卡（仅历史折叠块中呈现）：一行摘要（工具名 + × N + 首个目标 + 总耗时），点击展开组内全部工具卡。 */
 function ToolGroupCard({ name, tools }: { name: string; tools: ToolCallPart[] }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const totalMs = tools.reduce((n, p) => n + (p.durationMs ?? 0), 0);

@@ -12,10 +12,13 @@
 import { code } from "@streamdown/code";
 import { Streamdown } from "streamdown";
 
-/** 流式 Markdown 视图：streaming 时套渐入动画类；安全与字号策略见文件头。 */
-export function Markdown({ text, streaming }: { text: string; streaming: boolean }): React.JSX.Element {
+/** 流式 Markdown 视图。正文不做流式动画：淡入类挂在容器上时，正文增长/切段重组会整段重播
+ *  （重挂载触发 animation both），长淡入还让持续更新的正文始终处于半透明态——正文是内容
+ *  本体，保持稳定不闪（对齐 ZCode：正文无动画，运行状态由过程行与轮尾槽位表达）。
+ *  安全与字号策略见文件头。 */
+export function Markdown({ text }: { text: string }): React.JSX.Element {
   return (
-    <div className={`markdown-body select-text break-words text-ui-base ${streaming ? "stream-fade-in" : ""}`}>
+    <div className="markdown-body select-text break-words text-ui-base">
       <Streamdown
         codeBlockMaxHeight={0}
         tableMaxHeight={0}

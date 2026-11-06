@@ -505,7 +505,9 @@
   animation: animated-gradient 4s linear infinite;
 }
 
-/* 流式内容逐块淡入 */
+/* 一次性入场淡入：仅用于旁路静态内容（图片预览等）。
+   流式正文禁止使用——正文增长/切段重组会整段重播、长淡入让持续更新的正文始终半透明
+   （docs/conversation-flow/spec.md 第 4 条），正文保持无动画。 */
 @keyframes stream-text-in {
   from {
     opacity: 0;
