@@ -98,14 +98,35 @@ const ENV_DENY_PREFIX: &[&str] = &[
     "AWS_", "GITHUB_", "GH_", "OPENAI_", "ANTHROPIC_", "DEEPSEEK_", "ZHIPU_", "DASHSCOPE_",
 ];
 
-/// 清洗当前进程环境：仅放行白名单变量与 LC_* 本地化变量，其余一律不传给子进程。
+/// Python UTF-8 保证：用户显式设置时尊重用户值，否则注入默认值，保证批量脚本的
+/// 输出与文件名处理跨平台均为 UTF-8（非 UTF-8 默认编码的 Windows 尤其受益）。
+/// 两个变量只影响 Python 进程，对其余子进程无害，作为白名单特批放行用户值。
+const PYTHON_UTF8_KEYS: &[&str] = &["PYTHONIOENCODING", "PYTHONUTF8"];
+
+fn ensure_python_utf8(env: &mut Vec<(String, String)>) {
+    for (key, default) in [("PYTHONIOENCODING", "utf-8"), ("PYTHONUTF8", "1")] {
+        let exists = env.iter().any(|(k, _)| k.eq_ignore_ascii_case(key));
+        if !exists {
+            env.push((key.to_string(), default.to_string()));
+        }
+    }
+}
+
+/// 清洗给定环境：仅放行白名单变量与 LC_* 本地化变量，其余一律不保留；
+/// 末尾追加哨兵变量与 Python UTF-8 保证。
 /// 目的：防止模型密钥通过环境变量泄漏给工具子进程。
-pub fn sanitized_env() -> Vec<(String, String)> {
+pub fn sanitize_env_from<I>(vars: I) -> Vec<(String, String)>
+where
+    I: Iterator<Item = (String, String)>,
+{
     let mut env: Vec<(String, String)> = Vec::new();
-    for (key, value) in std::env::vars() {
+    for (key, value) in vars {
         let upper = key.to_uppercase();
         // Windows 环境变量名不区分大小写（返回 "Path" 而非 "PATH"）：白名单按忽略大小写比较
-        if ENV_ALLOW.iter().any(|allowed| allowed.eq_ignore_ascii_case(&key)) || upper.starts_with("LC_") {
+        if ENV_ALLOW.iter().any(|allowed| allowed.eq_ignore_ascii_case(&key))
+            || upper.starts_with("LC_")
+            || PYTHON_UTF8_KEYS.iter().any(|allowed| allowed.eq_ignore_ascii_case(&key))
+        {
             env.push((key, value));
             continue;
         }
@@ -119,7 +140,13 @@ pub fn sanitized_env() -> Vec<(String, String)> {
     }
     // 哨兵变量：子进程可据此感知运行于 CraftWork 环境
     env.push(("CRAFTWORK".to_string(), "1".to_string()));
+    ensure_python_utf8(&mut env);
     env
+}
+
+/// 清洗当前进程环境，规则见 [`sanitize_env_from`]。
+pub fn sanitized_env() -> Vec<(String, String)> {
+    sanitize_env_from(std::env::vars())
 }
 
 // ---------- 子进程执行 ----------
@@ -428,5 +455,38 @@ mod tests {
         assert!(keys.contains(&"CRAFTWORK"));
         unsafe { std::env::remove_var("CRAFTWORK_TEST_API_KEY") };
         unsafe { std::env::remove_var("AWS_SECRET_ACCESS_KEY") };
+    }
+
+    #[test]
+    fn sanitize_env_injects_python_utf8_defaults() {
+        let env = sanitize_env_from([("PATH".to_string(), "/usr/bin".to_string())].into_iter());
+        let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("PYTHONIOENCODING"), Some("utf-8"));
+        assert_eq!(get("PYTHONUTF8"), Some("1"));
+        assert_eq!(get("CRAFTWORK"), Some("1"));
+    }
+
+    #[test]
+    fn sanitize_env_respects_user_python_utf8_values() {
+        let env = sanitize_env_from(
+            [
+                ("PATH".to_string(), "/usr/bin".to_string()),
+                ("PYTHONIOENCODING".to_string(), "gbk".to_string()),
+                ("PYTHONUTF8".to_string(), "0".to_string()),
+            ]
+            .into_iter(),
+        );
+        let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("PYTHONIOENCODING"), Some("gbk"), "用户显式设置时保留用户值");
+        assert_eq!(get("PYTHONUTF8"), Some("0"));
+        // 不重复注入：各变量只出现一次
+        assert_eq!(env.iter().filter(|(k, _)| k == "PYTHONUTF8").count(), 1);
+    }
+
+    #[test]
+    fn sanitize_env_non_utf8_python_locale_vars_still_dropped() {
+        // 白名单外变量（含 PYTHON 系任意变量）静默丢弃，UTF-8 保证只注入两个固定变量
+        let env = sanitize_env_from([("PYTHONPATH".to_string(), "/tmp/x".to_string())].into_iter());
+        assert!(!env.iter().any(|(k, _)| k == "PYTHONPATH"));
     }
 }
