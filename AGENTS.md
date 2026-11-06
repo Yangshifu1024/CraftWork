@@ -234,6 +234,7 @@ pnpm build            # tauri build
 - 自动更新：updater 链路未接线（tauri-plugin-updater 未引入、无签名公钥，仅设置字段留存），签名密钥与更新服务器待凭据后另立项接线（决策 D6）。
 - 沙箱与 MCP（stdio 客户端）：设置页可存储服务器配置，连接能力留桩（决策 D5）。
 - Work 模式限制：Word 只支持同一格式片段内的文本替换；Excel 不计算公式；PDF 只读文本层，不支持 OCR 与编辑。
+- Python 批量操作：环境 UTF-8 补丁、`python` 系只读识别、运行时探测与提示词引导已接线（决策 D10）；确定性内置脚本与技能机制（SKILL.md + 辅助脚本资产）留桩，另立项。
 - 真实密钥验收：OpenAI、Anthropic 或任意 OpenAI 兼容网关需要本地配置密钥后各跑一次工具调用闭环。
 - 跨平台：NSIS/AppImage 配置已备；无原生模块障碍（无 node-pty），Windows / Linux 实机执行与走查待排期；仅 macOS 实测。
 

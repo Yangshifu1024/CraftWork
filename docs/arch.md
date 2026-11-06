@@ -266,11 +266,13 @@ flowchart LR
 | D7 | 仅保障 macOS 实测 | Win / Linux 实机走查单独立项（D1 后打包障碍已消失，配置已备） |
 | D8 | 计划模式 = 提示词 + 审批硬约束双保险 | 「计划模式」是随消息落库的发送选项（user_message payload 的 planMode，run 启动按 trigger 还原；regenerate 跟随上一轮、steer 接力取首条引导），不是会话级档位：系统提示词 dynamic 段注入计划指令之外，run_tool 对 R1+ 风险强制 Ask、跳过已授权缓存、禁用永久授权——不依赖模型自觉，任何审批档位下都不可绕过；确认执行走前端「批准并执行」按钮（取消勾选 + 发送固定确认消息），零新增后端协议 |
 | D9 | worktree 由后端编排、会话级绑定 | 勾选 worktree 发送时由服务层 `ensure_thread_worktree` 直跑 git（platform::run，环境清洗 + 超时杀树），不走 Agent 工具/审批——它是发送编排动作，发生在 run 之前，失败回滚保持「失败零落库」；目录固定在 `<数据目录>/worktrees/<会话id>`（随 CRAFTWORK_HOME 隔离），绑定落 threads 表（V10）后 RunEnv 主要目录切换，fs/命令/Git 全部跟随；不可解绑（避免主目录与工作树状态分裂），删除会话/项目时级联清理 |
+| D10 | Python 批量操作 = 环境底座 + 分类识别 + 提示词引导 + 双护栏 | 支持模型用 Python 做批量文件修改：① 环境底座——`sanitize_env` 白名单特批 `PYTHONIOENCODING`/`PYTHONUTF8`（用户值优先，否则注入 UTF-8 默认）；② 分类识别——`python/python3/py` 仅 `--version/-V/-h` 等纯查询参数判 R0 只读，`-c`/`-m`/脚本路径维持 R2 审批，`pip install` 仍 R3；③ 引导——环境快照探测 python3（缺失回落 python）注入「运行时」，行为契约加批量例外与不可信文件 `-I` 隔离条款；④ 护栏——apply_patch 失败文案禁止转向脚本整体重写。策略层看不进脚本内容（`python x.py` 审批后脚本内写入不受路径校验，与 shell 同级边界，靠提示词约束 + 审计兜底）。确定性内置脚本/技能机制留桩，另立项 |
 
 ## 8. 已知留桩与限制
 
 - 自动更新：updater 未接线（D6）。
 - 沙箱与 MCP：设置可存配置，连接留桩（D5）。
 - Work 模式：Word 只支持同一格式片段内文本替换；Excel 不计算公式；PDF 只读文本层（无 OCR / 编辑）。
+- Python 批量操作：环境补丁 / 分类识别 / 提示词引导已接线（D10）；确定性内置脚本与技能机制（类似 SKILL.md + 辅助脚本资产）留桩，另立项。
 - 会话删除为物理删除且对运行中 / 等待审批的会话无守卫（GLOSSARY 已知限制）。
 - 跨平台：NSIS / AppImage 配置已备，Windows / Linux 实机走查待排期。
