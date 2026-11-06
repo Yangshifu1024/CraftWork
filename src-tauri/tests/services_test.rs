@@ -381,10 +381,13 @@ fn model_reasoning_declaration_persists_and_survives_unrelated_edit() {
 
 // ---------- worktree ----------
 
-/// git 的 porcelain 输出统一使用正斜杠（Windows 也是），测试路径归一化成正斜杠后再比较，
-/// 避免 Windows 反斜杠路径与 git 输出匹配不上（正向匹配不上、反向恒真两类假结果）。
-fn git_path(p: &str) -> String {
-    p.replace('\\', "/")
+/// 「主仓库已登记该工作树」的判定：porcelain 输出的 worktree 路径与目标路径两边都
+/// canonicalize（解析符号链接与 Windows 8.3 短名）后比较。Windows runner 的 TEMP 是
+/// 短名形式（如 RUNNER~1），而 git 输出解析后的长名，仅归一化分隔符匹配不上。
+fn porcelain_contains_path(stdout: &str, target: &std::path::Path) -> bool {
+    stdout.lines().filter_map(|line| line.strip_prefix("worktree ")).any(|entry| {
+        std::fs::canonicalize(entry).is_ok_and(|resolved| resolved == target)
+    })
 }
 
 /// 在测试目录里造一个真实 git 仓库（git init + 首次提交，worktree add 需要 HEAD 存在）。
@@ -470,7 +473,13 @@ fn worktree_ensure_creates_binds_and_is_idempotent() {
 
     // 主仓库的 worktree 登记 + 分支存在
     let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
-    assert!(git_path(&String::from_utf8_lossy(&out.stdout)).contains(&git_path(&path)), "主仓库应登记该工作树");
+    let target = std::fs::canonicalize(&path).expect("工作树目录应存在且可解析");
+    assert!(
+        porcelain_contains_path(&String::from_utf8_lossy(&out.stdout), &target),
+        "主仓库应登记该工作树；porcelain 输出：\n{}\ntarget：{}",
+        String::from_utf8_lossy(&out.stdout),
+        target.display()
+    );
     let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
     assert!(!String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支应存在");
 }
@@ -525,11 +534,13 @@ fn thread_delete_cleans_up_bound_worktree_and_branch() {
     let thread = services::thread_create(&state, "code", ws["id"].as_str().unwrap(), "任务").unwrap();
     let id = thread_id_of(&thread);
     let (path, branch) = services::ensure_thread_worktree(&state, &id).unwrap();
+    // 删除前固定工作树真实路径：删除后目录不存在，无法再 canonicalize 与 git 输出对齐
+    let target = std::fs::canonicalize(&path).expect("工作树目录应存在且可解析");
 
     services::thread_delete(&state, &id).unwrap();
     assert!(!std::path::Path::new(&path).exists(), "工作树目录已清理");
     let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
     assert!(String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支已删除");
     let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
-    assert!(!git_path(&String::from_utf8_lossy(&out.stdout)).contains(&git_path(&path)), "主仓库 worktree 登记已移除");
+    assert!(!porcelain_contains_path(&String::from_utf8_lossy(&out.stdout), &target), "主仓库 worktree 登记已移除");
 }
