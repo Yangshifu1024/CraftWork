@@ -473,10 +473,10 @@ impl Runner {
         // 中断/失败保持无文件——前端「批准并执行」提示条不出现。
         // plan_id 精确持有本次 run 的计划行（exit_plan 批准/拒绝时精确回填，不再 latest 猜测）
         let mut plan_id: Option<String> = None;
-        if plan_mode {
-            if let Ok(plan) = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id) {
-                plan_id = Some(plan.id);
-            }
+        if plan_mode
+            && let Ok(plan) = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id)
+        {
+            plan_id = Some(plan.id);
         }
         // run 级计划态：随消息落库的 planMode 初始化；运行中由 enter_plan/exit_plan 翻转
         let mut plan_active = plan_mode;
@@ -588,17 +588,21 @@ impl Runner {
         } else {
             None
         };
-        let prompt_result = build_prompt(crate::prompt::PromptInput {
+        let mut prompt_active = build_prompt(crate::prompt::PromptInput {
             mode,
             workspace: &env.workspace_path,
             // roots 首项是主要目录（已由 workspace 字段承载），附加目录从第二项起
             additional_folders: &env.roots[env.roots.len().min(1)..],
             workspace_purpose: &env.purpose,
             restricted: env.restricted,
-            plan_mode,
+            // 计划段按 run 级 plan_active 动态注入：enter_plan/exit_plan 中途翻转后，
+            // 下一 iter 的提示词要跟着变（见循环内按 prompt_plan_mode 判断重建）
+            plan_mode: plan_active,
             worktree_branch: worktree_branch_for_prompt.as_deref(),
             env: env_context.as_ref(),
         });
+        // 上次构造提示词时的计划态标记（循环内重建的判断依据）
+        let mut prompt_plan_mode = plan_active;
 
         let specs: Vec<craft_model::types::ToolSpec> = self
             .deps
@@ -775,6 +779,22 @@ impl Runner {
             }
 
             let call_start = now_millis();
+            // 计划态中途翻转后重建提示词（dynamic 块随 plan_active 变化；
+            // 用最后构造时的 plan_mode 标记判断是否需要重建，避免 PromptResult 比较开销）
+            let need_rebuild = prompt_plan_mode != plan_active;
+            if need_rebuild {
+                prompt_plan_mode = plan_active;
+                prompt_active = build_prompt(crate::prompt::PromptInput {
+                    mode,
+                    workspace: &env.workspace_path,
+                    additional_folders: &env.roots[env.roots.len().min(1)..],
+                    workspace_purpose: &env.purpose,
+                    restricted: env.restricted,
+                    plan_mode: plan_active,
+                    worktree_branch: worktree_branch_for_prompt.as_deref(),
+                    env: env_context.as_ref(),
+                });
+            }
             let mut text = String::new();
             let mut reasoning = String::new();
             let mut text_chars = 0usize;
@@ -794,7 +814,7 @@ impl Runner {
                 let req = craft_model::types::Request {
                     model: session.info.id.clone(),
                     mode: mode.to_string(),
-                    system: prompt_result.blocks.clone(),
+                    system: prompt_active.blocks.clone(),
                     messages: history.clone(),
                     tools: specs.clone(),
                     max_tokens: req_max_tokens,
@@ -1304,6 +1324,16 @@ impl Runner {
                 denied = err;
             } else if !self.deps.registry.allows(mode, &call.name) {
                 denied = "当前模式不支持该工具".into();
+            } else if plan_active
+                && matches!(
+                    assessment.risk,
+                    craft_policy::PolicyRisk::R2 | craft_policy::PolicyRisk::R3 | craft_policy::PolicyRisk::R4
+                )
+            {
+                // 计划态只读闸门（D8 修订，对应 ZCode mode.plan.nonReadOnly）：
+                // R2+（执行/网络/破坏性）直接拒绝，不进档位判定——自由档也不例外，
+                // 只拦不放（放行只能来自下方原档位判定）。协议工具在上方分支处理。
+                denied = "计划模式下只允许只读调研；该操作需要先提交计划并获用户批准（exit_plan）".into();
             } else {
                 let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
                 // 写操作按用户所选审批档位判定（计划态的 R2+ 拦截在上方协议分支与闸门处理，

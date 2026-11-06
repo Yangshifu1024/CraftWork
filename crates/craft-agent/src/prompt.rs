@@ -81,7 +81,7 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
     }
     if input.plan_mode {
         dynamic.push(
-            "当前处于计划模式：本轮只做只读调研与分析，不要调用任何修改类操作（写文件、编辑、补丁、执行命令、Git 提交等）。修改类操作将按用户当前选择的审批档位处理：自由档会直接执行、分级档会弹出审批。请先输出一份分步实施计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；输出计划后停下等待用户确认，不要开始实施。用户确认后应用会解除计划模式再执行。"
+            "当前处于计划模式：只做只读调研与分析（读文件、搜索、查看 Git 状态），写类操作（写文件、编辑、补丁、执行命令、Git 提交等）会被直接拒绝。完成调研后调用 exit_plan 工具提交完整计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；计划全文放在 plan 参数中，用户会在审阅卡里看到。计划获批后你将退出计划模式直接开始实施；计划被拒绝时按用户反馈修订后重新提交。"
                 .into(),
         );
     }
@@ -132,7 +132,7 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
     }
 
     // 缓存分层：identity 无缓存标记；stable（跨会话字节一致）与 dynamic（会话内一致）
-    // 各打一个前缀缓存断点
+    // 各打一个前缀缓存断点。计划态中途切换只改 dynamic 块（打断一次缓存），identity/stable 不变。
     let blocks = vec![
         SystemBlock { content: IDENTITY.to_string(), cache_control: false },
         SystemBlock { content: stable_content(), cache_control: true },
@@ -198,8 +198,23 @@ mod tests {
         });
         let dynamic = &result.blocks[2].content;
         assert!(dynamic.contains("计划模式"));
-        assert!(dynamic.contains("按用户当前选择的审批档位处理"));
-        assert!(dynamic.contains("等待用户确认"));
+        // 提示词引导协议工具：调研完成后调用 exit_plan 提交计划（正文放 plan 参数）
+        assert!(dynamic.contains("exit_plan"));
+        assert!(dynamic.contains("plan 参数"));
+        // 写类操作直接拒绝（不再按档位处理——闸门语义，D8 修订）
+        assert!(dynamic.contains("直接拒绝"));
+        // 非计划态不注入
+        let plain = build_prompt(PromptInput {
+            mode: "code",
+            workspace: "/tmp/ws",
+            additional_folders: &[],
+            workspace_purpose: "project",
+            restricted: false,
+            plan_mode: false,
+            worktree_branch: None,
+            env: None,
+        });
+        assert!(!plain.blocks[2].content.contains("计划模式"));
     }
 
     #[test]
