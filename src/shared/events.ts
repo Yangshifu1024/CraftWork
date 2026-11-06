@@ -135,12 +135,15 @@ export interface TodoPart {
 }
 
 /** 用户消息事件载荷；via="steer" 表示运行中引导已入队（前端显示「待送达」标记），
- *  via="plan_feedback" 表示计划审阅的修改意见（渲染为普通用户消息，不显示待送达标记）。 */
+ *  via="plan_feedback" 表示计划审阅的修改意见（渲染为普通用户消息，不显示待送达标记）。
+ *  skillInvoke 表示斜杠技能调用（text 保留原文 `/名称 参数`，模型历史改写为引导 prompt，
+ *  消息流渲染为技能胶囊头 + 参数正文；与 via 正交——普通发送与 steer 均可携带）。 */
 export interface UserMessageData {
   messageId: string;
   text: string;
   attachments: string[];
   via?: "steer" | "plan_feedback";
+  skillInvoke?: { name: string };
 }
 
 /** 引导投递回执：messageId 即引导消息 id（Recorder 自动注入）。

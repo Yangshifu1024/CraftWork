@@ -814,3 +814,38 @@ fn snapshot_user_message_part_carries_plan_mode() {
     assert_eq!(part.payload["planMode"], true);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 快照重建透传斜杠技能调用载荷（skillInvoke，决策 D11）：渲染层胶囊头的依据；
+/// 白名单外字段不透传。
+#[test]
+fn snapshot_preserves_skill_invoke_and_strips_unknown_fields() {
+    let (dir, db) = tmp_db("skill_invoke");
+    create_thread(&db.lock_conn(), thread("th_skill")).unwrap();
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_skill".into(),
+            message_id: "msg_skill".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({
+                "text": "/demo 帮我做 X",
+                "attachments": [],
+                "skillInvoke": { "name": "demo" },
+                "unknownExtra": "不应透传",
+            }),
+        },
+    )
+    .unwrap();
+    let snap = snapshot(&db.lock_conn(), "th_skill", 0, 0).unwrap();
+    let part = snap
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .find(|p| p.kind == "text")
+        .expect("快照应有 user 文本部件");
+    assert_eq!(part.payload["skillInvoke"]["name"], "demo");
+    assert_eq!(part.payload["text"], "/demo 帮我做 X");
+    assert!(part.payload.get("unknownExtra").is_none(), "白名单外字段不透传");
+    let _ = std::fs::remove_dir_all(&dir);
+}

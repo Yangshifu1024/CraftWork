@@ -25,6 +25,7 @@ import type { PlanInfo,
   ProviderInput,
   ProviderView,
   Settings,
+  SkillView,
   Snapshot,
   ThreadView,
   UsageSummary,
@@ -182,6 +183,16 @@ export interface CraftworkApi {
   mcpRemove(serverId: string): Promise<void>;
   mcpConnect(serverId: string): Promise<MCPServerView>;
   mcpDisconnect(serverId: string): Promise<void>;
+
+  // ---------- Skills（技能，决策 D11） ----------
+  /** 扫描技能（用户级 + 指定工作区级；workspaceId 缺省只扫用户级），含禁用与诊断标记 */
+  skillsList(workspaceId?: string): Promise<SkillView[]>;
+  /** 启停单个技能（按 SKILL.md 绝对路径），返回刷新后的技能列表 */
+  skillsSetEnabled(path: string, enabled: boolean, workspaceId?: string): Promise<SkillView[]>;
+  /** 删除技能目录（仅允许技能根内的技能目录），返回刷新后的技能列表 */
+  skillsRemove(path: string, workspaceId?: string): Promise<SkillView[]>;
+  /** 读取技能正文（管理页预览；剥 frontmatter、变量已替换、超长截断） */
+  skillsRead(path: string, workspaceId?: string): Promise<{ content: string }>;
 }
 
 /** 方法名 → 通道名映射（"craftwork:<method>"）。当前无调用方：Tauri 版统一入口

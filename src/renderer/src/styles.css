@@ -82,6 +82,7 @@
   --color-destructive: var(--craft-destructive);
   --color-destructive-surface: var(--craft-destructive-surface);
   --color-destructive-surface-foreground: var(--craft-destructive-surface-foreground);
+  --color-skill: var(--craft-skill);
   --color-mode-code: var(--craft-mode-code);
   --color-mode-code-foreground: var(--craft-mode-code-foreground);
   --color-mode-code-soft: var(--craft-mode-code-soft);
@@ -188,6 +189,8 @@
   --craft-destructive: #e03131;
   --craft-destructive-surface: rgba(224, 49, 49, 0.1);
   --craft-destructive-surface-foreground: #b42020;
+  /* 技能分类色（D11）：消息流 / composer 的斜杠技能 chip 文字与图标（对齐 ZCode skill mention 紫） */
+  --craft-skill: #7c3aed;
 
   /* 模式主色：Code 蓝 / Work 亮黄（soft 为浅底，soft-foreground 为浅底上的文字） */
   --craft-mode-code: #0066dd;
@@ -264,6 +267,7 @@
   --craft-destructive: #ff5c5c;
   --craft-destructive-surface: rgba(255, 92, 92, 0.16);
   --craft-destructive-surface-foreground: #ff8585;
+  --craft-skill: #bda5e6;
 
   /* 模式主色：Code 蓝 / Work 亮黄（暗主题延续「亮底深字」的单色反转结构） */
   --craft-mode-code: #80beff;

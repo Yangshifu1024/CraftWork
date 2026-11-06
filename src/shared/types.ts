@@ -181,6 +181,8 @@ export interface Settings {
   smoothFollow: boolean;
   /** 输入预测：任务结束后静置 5 秒在输入框给出下一句建议，Tab 应用（docs/input-prediction/spec.md） */
   inputPrediction: boolean;
+  /** 技能总开关（决策 D11）：关闭后不注入技能清单、skill 工具报错、斜杠调用不匹配 */
+  skillsEnabled: boolean;
 }
 
 // ---------- 设置 ----------
@@ -395,6 +397,26 @@ export interface MCPServerView {
   connected: boolean;
   error?: string;
   tools: { name: string; description: string }[];
+}
+
+// ---------- Skills（技能，决策 D11） ----------
+
+export interface SkillView {
+  /** frontmatter name；缺失时回退目录名 */
+  name: string;
+  description: string;
+  whenToUse: string;
+  /** user = 用户级（数据目录 / ~/.agents），workspace = 工作区级 */
+  scope: "user" | "workspace";
+  /** craftwork = `.craftwork/skills`，agents = `.agents/skills`（外部生态兼容） */
+  source: "craftwork" | "agents";
+  /** SKILL.md 绝对路径（启停与删除的标识） */
+  path: string;
+  /** 技能目录（辅助脚本/资源基准目录） */
+  dir: string;
+  enabled: boolean;
+  /** 诊断信息；非空表示不可加载（缺 frontmatter 字段、超长、同名冲突等） */
+  error?: string;
 }
 
 // ---------- 差异 ----------

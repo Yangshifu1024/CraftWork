@@ -8,6 +8,7 @@ import type {
   PlanInfo,
   PartSnapshot,
   Settings,
+  SkillView,
   ThreadView,
   WorkspaceView,
 } from "../../../shared/types";
@@ -65,6 +66,8 @@ interface AppState {
   /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
    *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
   plans: Record<string, PlanInfo | undefined>;
+  /** 技能清单（决策 D11）：设置页管理与 composer 斜杠补全共用；打开时按需刷新，不常驻轮询。 */
+  skills: SkillView[];
   sidebarVisible: boolean;
   /** 已解析主题类（system 偏好下随系统亮暗变化更新）。 */
   themeResolved: "theme-craft-light" | "theme-craft-dark";
@@ -90,6 +93,8 @@ interface AppState {
   saveSettings(next: Partial<Settings>): Promise<void>;
   /** 批准计划（approved 置 1，提示条消失）；确认消息由调用方随后发送。 */
   approvePlan(threadId: string): Promise<void>;
+  /** 刷新技能清单：传工作区 id 时同时扫该工作区级技能，缺省只扫用户级。 */
+  refreshSkills(workspaceId?: string): Promise<void>;
   ignorePlan(threadId: string): Promise<void>;
   toggleSidebar(): void;
 }
@@ -179,9 +184,11 @@ export const useApp = create<AppState>((set, get) => ({
     logsLevel: "info",
     smoothFollow: false,
     inputPrediction: true,
+    skillsEnabled: true,
   },
   chats: {},
   plans: {},
+  skills: [],
   sidebarVisible: true,
   themeResolved: "theme-craft-dark",
 
@@ -371,6 +378,15 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => ({
       plans: { ...state.plans, [threadId]: { ...plan, ignored: true } },
     }));
+  },
+  /** 刷新技能清单（决策 D11）：管理页与斜杠补全共用；失败静默保持旧列表（toast 由调用方负责）。 */
+  async refreshSkills(workspaceId?: string): Promise<void> {
+    try {
+      const skills = await api.skillsList(workspaceId ?? "");
+      set({ skills });
+    } catch {
+      // 扫描失败不阻塞界面：保留旧清单
+    }
   },
 
   toggleSidebar() {
@@ -670,6 +686,8 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
               via: data["via"],
               // 计划模式标记：计划 run 结束后前端据此展示「批准并执行」
               planMode: data["planMode"] === true,
+              // 斜杠技能调用（决策 D11）：消息流渲染胶囊头 + 参数正文
+              skillInvoke: data["skillInvoke"],
             },
           },
         ],

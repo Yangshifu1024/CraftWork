@@ -89,6 +89,9 @@ export function CommandPalette(): React.JSX.Element {
               <Item shortcut="⌘D" onSelect={() => run(() => open("settings", "usage"))}>
                 用量 / 审计 / 备份
               </Item>
+              <Item keywords={["skills", "技能"]} onSelect={() => run(() => open("settings", "skills"))}>
+                管理 Skills（技能）
+              </Item>
             </Command.Group>
           </Command.List>
         </Command>

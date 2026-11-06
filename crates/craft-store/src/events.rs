@@ -335,9 +335,11 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         }
         if ev.kind == "user_message" {
             // user_message 只保留 text 与 attachments（via=steer 透传：前端「待送达」标记；
-            // planMode 透传：计划 run 完成后前端展示「批准并执行」）
+            // planMode 透传：计划 run 完成后前端展示「批准并执行」；
+            // skillInvoke 透传：斜杠技能调用，前端渲染胶囊头 + 参数正文）
             let via = payload.get("via").cloned();
             let plan_mode = payload.get("planMode").cloned();
+            let skill_invoke = payload.get("skillInvoke").cloned();
             payload = serde_json::json!({
                 "text": payload.get("text").cloned().unwrap_or(Value::String(String::new())),
                 "attachments": payload.get("attachments").cloned().unwrap_or(Value::Array(vec![])),
@@ -347,6 +349,9 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             }
             if let Some(plan_mode) = plan_mode {
                 payload["planMode"] = plan_mode;
+            }
+            if let Some(skill_invoke) = skill_invoke {
+                payload["skillInvoke"] = skill_invoke;
             }
         }
 

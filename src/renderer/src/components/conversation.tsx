@@ -2,7 +2,7 @@
 // 滚动贴底与「回到底部」由 use-stick-to-bottom 托管；发送 / 引导（steer）/ 停止（armed 二次确认）编排收在 Composer。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Folder, ListChecks, GitBranch } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Folder, ListChecks, GitBranch, WandSparkles, Puzzle } from "lucide-react";
 import { Popover } from "radix-ui";
 import { ModelPicker } from "./model-picker";
 import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT, EMPTY_THREAD_COMPOSER } from "../store/app";
@@ -17,7 +17,7 @@ import { selectableModels } from "../lib/provider-list";
 import { formatSpeed, formatTokens, trimBlankLines } from "../lib/format";
 import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
-import type { MessageSnapshot, PartSnapshot, PlanInfo } from "../../../shared/types";
+import type { MessageSnapshot, PartSnapshot, PlanInfo, SkillView } from "../../../shared/types";
 import { Markdown } from "./markdown";
 import { TodoCard } from "./cards";
 
@@ -62,6 +62,7 @@ export function Conversation(): React.JSX.Element {
         <Timeline
           activeId={activeId}
           draftLayout={draftLayout}
+          workspaceId={thread?.workspaceId ?? ""}
           chat={chat ? { messages: chat.messages, running: chat.running } : undefined}
           footer={
             <Composer
@@ -113,11 +114,14 @@ function WorkspaceHeader({ title, status, mode }: { title: string; status: strin
 function Timeline({
   activeId,
   draftLayout,
+  workspaceId,
   chat,
   footer,
 }: {
   activeId: string;
   draftLayout: boolean;
+  /** 会话绑定的工作区 id：斜杠技能 chip 查询描述时按它刷新技能清单 */
+  workspaceId: string;
   chat?: { messages: MessageSnapshot[]; running: boolean };
   footer?: React.ReactNode;
 }): React.JSX.Element {
@@ -165,7 +169,7 @@ function Timeline({
             </div>
           )}
           {messages.map((message) => (
-            <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} />
+            <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} workspaceId={workspaceId} />
           ))}
         </div>
         {footer && (
@@ -290,10 +294,15 @@ function CopyButton({ getText }: { getText: () => string }): React.JSX.Element {
 function MessageRow({
   message,
   chatRunning,
+  workspaceId,
 }: {
   message: MessageSnapshot;
   chatRunning: boolean;
+  workspaceId: string;
 }): React.JSX.Element {
+  // 技能清单（决策 D11）：斜杠技能 chip 点击弹描述时查询；打开浮层时按需刷新
+  const skills = useApp((s) => s.skills);
+  const refreshSkills = useApp((s) => s.refreshSkills);
   if (message.role === "user") {
     return (
       <div className="group/msg flex w-full flex-col items-end gap-1">
@@ -305,11 +314,70 @@ function MessageRow({
           )}
           {message.parts
             .filter((p) => p.kind === "text")
-            .map((part) => (
-              <div key={part.id} className="whitespace-pre-wrap break-words">
-                {trimBlankLines(String(part.payload["text"] ?? ""))}
-              </div>
-            ))}
+            .map((part) => {
+              // 斜杠技能调用（决策 D11）：胶囊头（技能名）+ 参数正文；原文保留在 payload.text
+              // （复制按钮取原文），渲染层从原文提取参数（`/名称 参数` → 参数）
+              const invoke = part.payload["skillInvoke"] as { name?: string } | undefined;
+              const raw = trimBlankLines(String(part.payload["text"] ?? ""));
+              if (invoke?.name) {
+                const args = raw.replace(/^\/\S*/, "").trim();
+                // chip 不带斜杠（技能名即标识）；点击弹出该技能的描述卡（对齐补全面板信息结构）
+                const meta = skills.find((s) => s.name === invoke.name && s.enabled && !s.error);
+                return (
+                  <div key={part.id} className="flex flex-col gap-1.5">
+                    <Popover.Root
+                      onOpenChange={(open) => {
+                        if (open && !meta) void refreshSkills(workspaceId); // 清单未就绪时按当前工作区补扫
+                      }}
+                    >
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          title="点击查看技能描述"
+                          className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full bg-skill/10 px-2.5 py-0.5 text-ui-base font-medium text-skill transition-colors hover:bg-skill/20"
+                        >
+                          <WandSparkles className="size-4 shrink-0" />
+                          {invoke.name}
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          side="top"
+                          align="end"
+                          sideOffset={6}
+                          className="z-[80] w-80 rounded-xl border border-popover-border bg-popover p-3 shadow-md"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <WandSparkles className="size-3.5 shrink-0 text-skill" />
+                            <span className="truncate text-ui-sm font-medium text-foreground">{invoke.name}</span>
+                            {meta && (
+                              <span className="ml-auto shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-foreground-subtlest">
+                                {meta.source === "agents" ? "agents" : "craftwork"} · {meta.scope === "workspace" ? "工作区" : "用户级"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="pt-1.5 text-ui-sm leading-5 text-foreground-subtle">
+                            {meta ? meta.description || "（该技能没有描述）" : "正在读取技能描述…"}
+                          </p>
+                          {meta?.whenToUse && <p className="pt-1 text-ui-xs text-foreground-subtlest">适用：{meta.whenToUse}</p>}
+                          {meta && (
+                            <p className="truncate pt-1.5 font-mono text-ui-xs text-foreground-subtlest" title={meta.path}>
+                              {meta.path}
+                            </p>
+                          )}
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                    {args && <div className="whitespace-pre-wrap break-words">{args}</div>}
+                  </div>
+                );
+              }
+              return (
+                <div key={part.id} className="whitespace-pre-wrap break-words">
+                  {raw}
+                </div>
+              );
+            })}
           {message.parts
             .filter((p) => p.kind === "text" && Array.isArray(p.payload["attachments"]) && (p.payload["attachments"] as unknown[]).length > 0)
             .map((part) => (
@@ -1370,6 +1438,38 @@ function Composer({
   // 内置临时目录的名称就叫「临时会话」，查不到（孤儿会话）如实显示「未绑定工作区」。
   const metaWsId = isDraft ? draftWsId : (thread?.workspaceId ?? "");
   const metaWs = workspaces.find((w) => w.id === metaWsId);
+  // 斜杠技能调用（决策 D11）：输入区打开时按当前工作区刷新技能清单；文本以 `/` 开头时
+  // 解析首 token 为技能名（前缀匹配出补全候选，精确命中成胶囊）。总开关关闭时不激活。
+  const skills = useApp((s) => s.skills);
+  const refreshSkills = useApp((s) => s.refreshSkills);
+  const skillsEnabled = useApp((s) => s.settings.skillsEnabled);
+  useEffect(() => {
+    void refreshSkills(metaWsId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaWsId]);
+  const availableSkills = useMemo(
+    () => (skillsEnabled ? skills.filter((s) => s.enabled && !s.error) : []),
+    [skills, skillsEnabled],
+  );
+  const slash = useMemo(() => {
+    const m = /^\/(\S*)(\s[\s\S]*)?$/.exec(text);
+    if (!m) return null;
+    const token = m[1] ?? "";
+    const exact = availableSkills.find((s) => s.name === token);
+    const candidates = token === "" ? availableSkills : availableSkills.filter((s) => s.name.startsWith(token));
+    return { token, exact, candidates, args: m[2] ?? "" };
+  }, [text, availableSkills]);
+  // 补全面板状态：名字未成型且有候选时显示；text 每次变化重置高亮到首项
+  const [slashIdx, setSlashIdx] = useState(0);
+  useEffect(() => setSlashIdx(0), [text]);
+  const slashPanel = slash !== null && slash.exact === undefined && slash.candidates.length > 0;
+  // 胶囊激活：名字命中已知技能（完整或前缀）；无匹配的 /xxx 按普通文本不高亮
+  const slashActive = slash !== null && (slash.exact !== undefined || slash.candidates.length > 0);
+  const slashLayerRef = useRef<HTMLDivElement>(null);
+  /** 选中补全候选：填充 `/名称 `（光标置尾，视同用户改动——取消输入预测与翻阅态）。 */
+  const applySlash = (skill: SkillView): void => {
+    setTextAndCursorEnd(`/${skill.name} `);
+  };
   // 发送选项勾选态：草稿态随草稿槽保留；会话态随会话级 composer 桶保留（切走切回不丢、不跨会话串）。
   // worktree 已绑定的会话恒为勾选且锁定（绑定不可解绑，本会话固定在工作树内执行）。
   const boundWorktree = thread?.worktreePath ?? "";
@@ -1664,6 +1764,24 @@ function Composer({
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     // IME 组词中的 Enter 是候选确认（如中文输入法选词），交给输入法处理，不触发发送
     if (isImeComposing(e)) return;
+    // 斜杠技能补全面板激活：↑↓ 移动高亮、Enter/Tab 选中填充（优先于发送 / Tab 建议 / 历史翻阅）；
+    // 面板未激活时 ↓↑/Enter/Tab 走原链路
+    if (slashPanel) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIdx((prev) => {
+          const total = slash.candidates.length;
+          return (prev + (e.key === "ArrowDown" ? 1 : -1) + total) % total;
+        });
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const picked = slash.candidates[slashIdx];
+        if (picked) applySlash(picked);
+        return;
+      }
+    }
     // 输入预测应用（docs/input-prediction/spec.md）：Tab 填入建议、光标置尾、hint 消失
     if (e.key === "Tab" && hint !== "") {
       e.preventDefault();
@@ -1744,7 +1862,9 @@ function Composer({
           </div>
         )}
         <div
-          className="relative flex flex-col gap-3 overflow-hidden rounded-2xl border-[0.5px] border-input-border bg-input p-3 shadow-(--shadow-composer-soft) transition-colors focus-within:border-input-border-focused"
+          // 不加 overflow-hidden：斜杠补全面板从 textarea 区向上浮出（bottom-full），
+          // 裁剪会切掉面板上半截；卡片内子元素全部在 p-3 内边距内，无贴边裁剪需求
+          className="relative flex flex-col gap-3 rounded-2xl border-[0.5px] border-input-border bg-input p-3 shadow-(--shadow-composer-soft) transition-colors focus-within:border-input-border-focused"
           data-composer-layout="conversation"
         >
           {/* 顶部信息行：左 = 工作区名称（项目名 / 临时会话），右 = 发送选项开关（计划模式 / worktree） */}
@@ -1812,6 +1932,20 @@ function Composer({
                 <kbd className="shrink-0 rounded border border-border px-1 text-ui-xs text-foreground-subtlest">Tab</kbd>
               </div>
             )}
+            {/* 斜杠技能胶囊（决策 D11）：底层渲染层完整重绘文本，`/名称` 段套 brand 胶囊；
+                textarea 文字转透明（caret 保持前景色），px-1/-mx-1 让胶囊包住文字而不改变行宽。
+                与 hint 互斥（hint 仅空输入、胶囊仅 / 开头）。 */}
+            {slashActive && (
+              <div
+                ref={slashLayerRef}
+                className="pointer-events-none absolute inset-x-0 top-0 min-h-[48px] overflow-hidden whitespace-pre-wrap break-words text-ui-base leading-6 text-foreground"
+                aria-hidden
+              >
+                {/* 不放图标：底层渲染必须与 textarea 文本逐字符对位，额外图标宽度会使参数文字错位 */}
+                <span className="-mx-1 rounded bg-skill/10 px-1 text-skill">/{slash?.token}</span>
+                {slash?.args}
+              </div>
+            )}
             <textarea
               ref={taRef}
               rows={2}
@@ -1824,10 +1958,43 @@ function Composer({
               }}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
+              onScroll={(e) => {
+                // 胶囊层与 textarea 滚动同步（多行输入超出 8 行高度时）
+                if (slashLayerRef.current) slashLayerRef.current.scrollTop = e.currentTarget.scrollTop;
+              }}
               placeholder={showHint ? "" : running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
               data-composer-input
-              className="max-h-[192px] min-h-[48px] w-full resize-none overscroll-contain bg-transparent text-ui-base leading-6 text-foreground placeholder:text-foreground-subtlest"
+              className={`max-h-[192px] min-h-[48px] w-full resize-none overscroll-contain bg-transparent text-ui-base leading-6 placeholder:text-foreground-subtlest ${
+                slashActive ? "text-transparent caret-foreground" : "text-foreground"
+              }`}
             />
+            {/* 斜杠技能补全面板：/ 前缀未精确命中时浮出候选（名称 + 描述），↑↓ 高亮、Enter/Tab 选中 */}
+            {slashPanel && (
+              <div className="absolute bottom-full left-0 z-30 mb-1 max-h-56 w-80 overflow-auto rounded-xl border border-popover-border bg-popover p-1 shadow-md">
+                {slash.candidates.map((skill, i) => (
+                  <button
+                    key={skill.path}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // 防止 textarea 失焦
+                      applySlash(skill);
+                    }}
+                    onMouseEnter={() => setSlashIdx(i)}
+                    className={`flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left ${i === slashIdx ? "bg-surface-hover" : ""}`}
+                  >
+                    <span className="flex items-center gap-1.5 text-ui-sm font-medium text-foreground">
+                      <Puzzle className="size-3.5 shrink-0 text-foreground-subtle" />
+                      {skill.name}
+                      <span className="rounded border border-border px-1 text-[10px] leading-4 font-normal text-foreground-subtlest">
+                        {skill.source === "agents" ? "agents" : "craftwork"}
+                      </span>
+                      <span className="text-[10px] font-normal text-foreground-subtlest">{skill.scope === "user" ? "用户级" : "工作区"}</span>
+                    </span>
+                    {skill.description && <span className="line-clamp-1 pl-5 text-ui-xs text-foreground-subtle">{skill.description}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="group/toolbar flex items-end gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-0.5" data-composer-leading-actions>

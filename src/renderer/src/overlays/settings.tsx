@@ -16,7 +16,7 @@ import { compactHeaderRows, MAX_CUSTOM_HEADERS, validateHeaderPairs } from "../l
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
-import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, PersonalizationInfo, ProviderView, Settings, UsageSummary } from "../../../shared/types";
+import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, PersonalizationInfo, ProviderView, Settings, SkillView, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "personalization" | "skills" | "usage" | "audit" | "backups";
 
@@ -1154,16 +1154,197 @@ function ModelRow({
   );
 }
 
+/** Skills 管理（决策 D11）：用户级 + 工作区级技能的浏览 / 启停 / 查看 / 删除与总开关。
+ *  技能目录布局与调用语义见 docs/skills/spec.md。 */
 function SkillsSection(): React.JSX.Element {
+  const settings = useApp((s) => s.settings);
+  const save = useApp((s) => s.saveSettings);
+  const skills = useApp((s) => s.skills);
+  const refreshSkills = useApp((s) => s.refreshSkills);
+  const workspaces = useApp((s) => s.workspaces);
+  const pushToast = useToastsPush();
+  // 管理视角的工作区（扫工作区级技能）；空串 = 只扫用户级
+  const [wsId, setWsId] = useState("");
+  const [preview, setPreview] = useState<{ name: string; content: string } | null>(null);
+
+  useEffect(() => {
+    void refreshSkills(wsId);
+    // 切换工作区或打开分区时重扫（磁盘即事实源，无缓存失效问题）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId]);
+
+  const activeWorkspace = workspaces.find((w) => w.id === wsId);
+  const userSkills = skills.filter((s) => s.scope === "user");
+  const wsSkills = skills.filter((s) => s.scope === "workspace");
+
+  const toggleEnabled = (path: string, enabled: boolean): void => {
+    void api
+      .skillsSetEnabled(path, enabled, wsId)
+      .then((next) => {
+        useApp.setState({ skills: next });
+        pushToast("ok", enabled ? "技能已启用" : "技能已禁用", enabled ? "下一个 run 起对 Agent 生效" : "下一个 run 起不再加载");
+      })
+      .catch((err) => pushToast("danger", "技能启停失败", cleanErrorMessage(String(err))));
+  };
+
+  const removeSkill = (path: string): void => {
+    void api
+      .skillsRemove(path, wsId)
+      .then((next) => {
+        useApp.setState({ skills: next });
+        pushToast("ok", "技能已删除");
+      })
+      .catch((err) => pushToast("danger", "技能删除失败", cleanErrorMessage(String(err))));
+  };
+
+  const openPreview = (skill: SkillView): void => {
+    void api
+      .skillsRead(skill.path, wsId)
+      .then((res) => setPreview({ name: skill.name, content: res.content }))
+      .catch((err) => pushToast("danger", "技能正文读取失败", cleanErrorMessage(String(err))));
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-ui-settings-title font-semibold text-foreground">
         <Puzzle className="mr-2 inline size-5" />
         Skills
       </h2>
-      <div className="rounded-xl bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
-        Skills 管理建设中：导入、启停与查看即将提供。
+      <Row title="启用技能" desc="关闭后 Agent 不加载任何技能，斜杠调用也不可用">
+        <Switch checked={settings.skillsEnabled} onChange={(v) => void save({ skillsEnabled: v })} />
+      </Row>
+      {workspaces.length > 0 && (
+        <Row title="查看工作区" desc="切换后同时扫描该工作区下的 .craftwork/skills 与 .agents/skills">
+          <select value={wsId} onChange={(e) => setWsId(e.target.value)} className="h-8 max-w-56 rounded-lg border border-border bg-input px-2 text-ui-sm">
+            <option value="">（仅用户级）</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+      )}
+
+      {skills.length === 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
+          <p>还没有技能。在技能目录下按「一个目录一个技能」放置 SKILL.md 即可：</p>
+          <pre className="overflow-x-auto rounded-lg border border-border/60 bg-background px-3 py-2 text-ui-xs leading-5 text-foreground-subtle">{`~/.craftwork/skills/demo/SKILL.md        （用户级，跨会话可用）
+<工作区>/.craftwork/skills/demo/SKILL.md （工作区级，随仓库分发）
+<工作区>/.agents/skills/demo/SKILL.md    （兼容 agents 生态）`}</pre>
+          <pre className="overflow-x-auto rounded-lg border border-border/60 bg-background px-3 py-2 text-ui-xs leading-5 text-foreground-subtle">{`---
+name: demo
+description: 一句话说明这个技能做什么、何时使用
+---
+
+# 技能正文（Markdown）
+
+具体步骤与约定；辅助脚本放在本目录内，
+正文中用 \${CRAFTWORK_SKILL_DIR} 引用技能目录。`}</pre>
+        </div>
+      ) : (
+        <>
+          <SkillGroup label="用户级" hint="所有会话可用（数据目录与 ~/.agents）" skills={userSkills} onToggle={toggleEnabled} onRemove={removeSkill} onPreview={openPreview} />
+          {wsId !== "" && (
+            <SkillGroup
+              label={activeWorkspace ? `工作区 · ${activeWorkspace.name}` : "工作区"}
+              hint={activeWorkspace?.trust === "restricted" ? "受限工作区：Agent 提示词不自动注入，仅显式调用可用" : "随仓库分发给所有协作者"}
+              skills={wsSkills}
+              onToggle={toggleEnabled}
+              onRemove={removeSkill}
+              onPreview={openPreview}
+            />
+          )}
+        </>
+      )}
+
+      {/* 正文预览（剥 frontmatter、目录变量已替换后的展示文本） */}
+      <Dialog.Root open={preview !== null} onOpenChange={(o) => !o && setPreview(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[80] flex max-h-[72vh] w-[min(720px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border border-border bg-background p-4 shadow-lg">
+            <Dialog.Title className="text-ui-base font-semibold text-foreground">技能预览 · {preview?.name}</Dialog.Title>
+            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-surface px-3 py-2 text-ui-xs leading-5 text-foreground-subtle">
+              {preview?.content}
+            </pre>
+            <div className="flex justify-end">
+              <button className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground hover:bg-surface-hover" onClick={() => setPreview(null)}>
+                关闭
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </div>
+  );
+}
+
+/** 技能分组列表：标题 + 说明 + 条目（名称/来源徽标/描述/诊断/启停/查看/删除）。 */
+function SkillGroup({
+  label,
+  hint,
+  skills,
+  onToggle,
+  onRemove,
+  onPreview,
+}: {
+  label: string;
+  hint: string;
+  skills: SkillView[];
+  onToggle(path: string, enabled: boolean): void;
+  onRemove(path: string): void;
+  onPreview(skill: SkillView): void;
+}): React.JSX.Element {
+  if (skills.length === 0) return <></>;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2 px-1 pt-1">
+        <span className="text-ui-sm font-medium text-foreground">{label}</span>
+        <span className="text-ui-xs text-foreground-subtlest">{hint}</span>
       </div>
+      {skills.map((skill) => (
+        <div
+          key={skill.path}
+          className={`flex items-center gap-3 rounded-xl border border-border/50 bg-panel px-4 py-3 ${skill.enabled ? "" : "opacity-60"}`}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-ui-base text-foreground">{skill.name}</span>
+              <span className="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-foreground-subtlest">
+                {skill.source === "agents" ? "agents" : "craftwork"}
+              </span>
+            </div>
+            {skill.description && <div className="truncate text-ui-sm text-foreground-subtle">{skill.description}</div>}
+            {skill.error ? (
+              <div className="truncate text-ui-xs text-destructive">{skill.error}</div>
+            ) : (
+              <div className="truncate text-ui-xs text-foreground-subtlest" title={skill.path}>
+                {skill.path}
+              </div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              title="查看正文"
+              className="flex size-7 items-center justify-center rounded-lg text-foreground-subtle hover:bg-surface-hover"
+              onClick={() => onPreview(skill)}
+            >
+              <Eye className="size-4" />
+            </button>
+            <Popconfirm message={`删除技能「${skill.name}」？将同时删除其目录内全部文件，不可恢复。`} onConfirm={() => onRemove(skill.path)}>
+              <button
+                type="button"
+                title="删除技能"
+                className="flex size-7 items-center justify-center rounded-lg text-foreground-subtle hover:bg-surface-hover hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </Popconfirm>
+            <Switch checked={skill.enabled} onChange={(v) => onToggle(skill.path, v)} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
