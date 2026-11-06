@@ -243,6 +243,9 @@ pub struct Settings {
     pub update_channel: String,
     pub telemetry: bool,
     pub max_iterations: i64,
+    /// 运行日志等级：off | error | info | debug（会话日志 <dataDir>/logs 的记录密度）
+    #[serde(default)]
+    pub logs_level: String,
 }
 
 // ---------- 审计 / 用量 / 备份 ----------
@@ -484,6 +487,7 @@ mod tests {
             update_channel: String::new(),
             telemetry: false,
             max_iterations: 300,
+            logs_level: "info".into(),
         };
         let audit = AuditEntry {
             id: 0,

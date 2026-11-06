@@ -14,7 +14,7 @@ use craft_core::contract::event_type;
 use craft_core::ids::{id_prefix, new_id};
 use craft_model::errors::ModelError;
 use craft_model::factory::ModelFactory;
-use craft_model::types::{Client, Message, ToolCall, Usage};
+use craft_model::types::{Client, DoneVia, Message, StreamEnd, ToolCall, Usage};
 use craft_policy::engine::{reason_for, Engine};
 use craft_store::db::Db;
 use craft_store::events::EventRecord;
@@ -31,6 +31,7 @@ use crate::context::run_compression_with;
 use crate::envcontext::collect_env_context;
 use crate::history::build_history;
 use crate::prompt::build_prompt;
+use crate::session_log::{tail_snapshot, SessionLog, LEVEL_DEBUG, LEVEL_ERROR, LEVEL_INFO};
 use crate::title::auto_title;
 
 /// 单次模型请求（含流式接收全程）的整体超时。
@@ -83,6 +84,10 @@ pub struct RunnerDeps {
     pub attachment_dir: String,
     /// 数据目录：读取全局 AGENTS.md 等环境上下文用
     pub data_dir: String,
+    /// 会话日志（观测证据：流结束方式 / finish_reason / 落库对照 / 任务退出）
+    pub log: Arc<SessionLog>,
+    /// 应用版本（run_start 行自描述，跨版本排查）
+    pub app_version: String,
 }
 
 /// 已建立的模型会话：客户端实例 + 模型元数据（能力/上下文窗口/计价）。
@@ -183,22 +188,45 @@ impl Runner {
         let message_id = run.message_id.clone();
         let mode = thread.mode.clone();
         let model_id = thread.model_id.clone();
-        // 壳层命令在 tokio 上下文：直接 spawn；测试/同步上下文：起线程驱动 current-thread 运行时
+        // 壳层命令在 tokio 上下文：直接 spawn；测试/同步上下文：起线程驱动 current-thread 运行时。
+        // 两条路径都监控任务退出（run_task_exit 行）：run 任务此前 JoinHandle 被丢弃，
+        // panic 时无声消失、无终态事件——日志在此留下「任务死亡」的可见证据。
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
-                handle.spawn(async move {
+                let log_thread = thread_id.clone();
+                let task = handle.spawn(async move {
                     this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id, trigger_seq).await;
+                });
+                let watcher = Arc::clone(self);
+                tokio::spawn(async move {
+                    let normal = task.await.is_ok();
+                    watcher.deps.log.write_thread(
+                        &log_thread,
+                        LEVEL_INFO,
+                        "run_task_exit",
+                        json!({ "normal": normal, "note": if normal { "" } else { "run 任务 panic，本次运行无终态事件" } }),
+                    );
                 });
             }
             Err(_) => {
+                let watcher = Arc::clone(self);
                 std::thread::spawn(move || {
+                    let log_thread = thread_id.clone();
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                         .expect("craftwork-run 运行时启动失败");
-                    rt.block_on(async move {
-                        this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id, trigger_seq).await;
-                    });
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        rt.block_on(async move {
+                            this.execute(token, &thread_id, &run_id, &message_id, &mode, &model_id, trigger_seq).await;
+                        })
+                    }));
+                    watcher.deps.log.write_thread(
+                        &log_thread,
+                        LEVEL_INFO,
+                        "run_task_exit",
+                        json!({ "normal": result.is_ok(), "note": if result.is_ok() { "" } else { "run 任务 panic，本次运行无终态事件" } }),
+                    );
                 });
             }
         }
@@ -513,6 +541,22 @@ impl Runner {
             .unwrap_or(DEFAULT_MAX_ITERATIONS);
         let mut compression_checked = false;
 
+        // 观测：run 起始（自描述起点：版本 / 模型 / 模式 / 历史规模）
+        self.deps.log.write_thread(
+            thread_id,
+            LEVEL_INFO,
+            "run_start",
+            json!({
+                "runId": run_id,
+                "appVersion": self.deps.app_version,
+                "model": model_id,
+                "mode": mode,
+                "planMode": plan_mode,
+                "messages": history.len(),
+                "historyChars": history.iter().map(|m| m.content.chars().count()).sum::<usize>(),
+            }),
+        );
+
         for iteration in 0.. {
             // 迭代上限：limit <= 0 视为不限制（配置异常兜底），达到上限即退出走 fail
             if limit <= 0 || iteration < limit as u64 {
@@ -571,6 +615,7 @@ impl Runner {
                 let db = Arc::clone(&self.deps.db);
                 let snap_ref = snap.clone();
                 let history_in = history.clone();
+                let before_messages = history_in.len();
                 let thread_id_owned = thread_id.to_string();
                 let run_id_owned = run_id.to_string();
                 let model_id_owned = session.info.id.clone();
@@ -593,8 +638,25 @@ impl Runner {
                     )
                 })
                 .await;
-                if let Ok(compressed) = compressed {
-                    history = compressed;
+                match compressed {
+                    Ok(after) => {
+                        self.deps.log.write_thread(
+                            thread_id,
+                            LEVEL_INFO,
+                            "compaction",
+                            json!({ "runId": run_id, "beforeMessages": before_messages, "afterMessages": after.len() }),
+                        );
+                        history = after;
+                    }
+                    Err(err) => {
+                        // 压缩失败此前被静默吞掉（历史原样保留）；至少留日志可查
+                        self.deps.log.write_thread(
+                            thread_id,
+                            LEVEL_ERROR,
+                            "compaction_failed",
+                            json!({ "runId": run_id, "error": err.to_string() }),
+                        );
+                    }
                 }
             }
 
@@ -626,12 +688,19 @@ impl Runner {
             let call_start = now_millis();
             let mut text = String::new();
             let mut reasoning = String::new();
+            let mut text_chars = 0usize;
+            let mut reasoning_chars = 0usize;
             let mut text_part_id: Option<String> = None;
             let mut reasoning_part_id: Option<String> = None;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut usage: Option<Usage> = None;
             let mut stream_error: Option<ModelError> = None;
+            let mut stream_end_info: Option<StreamEnd> = None;
+            // debug 级聚合统计（每 2s 一行；计数增量为 O(delta)，不做全量重扫）
+            let mut agg_chunks = 0usize;
+            let mut agg_last_ms = call_start;
 
+            let req_max_tokens = if session.info.max_tokens > 0 { session.info.max_tokens } else { 0 };
             {
                 let req = craft_model::types::Request {
                     model: session.info.id.clone(),
@@ -639,7 +708,7 @@ impl Runner {
                     system: prompt_result.blocks.clone(),
                     messages: history.clone(),
                     tools: specs.clone(),
-                    max_tokens: if session.info.max_tokens > 0 { session.info.max_tokens } else { 0 },
+                    max_tokens: req_max_tokens,
                     // 思考档位随会话记忆（threads.reasoning_level）；档位类型由模型元数据决定
                     reasoning_kind: session.info.reasoning_kind.clone(),
                     reasoning_level: thread.reasoning_level.clone(),
@@ -663,6 +732,7 @@ impl Runner {
                                     Some(run_id),
                                     json!({ "partId": part_id, "text": r }),
                                 );
+                                reasoning_chars += r.chars().count();
                                 reasoning.push_str(r);
                             }
                             if let Some(t) = &chunk.text {
@@ -673,6 +743,7 @@ impl Runner {
                                     Some(run_id),
                                     json!({ "partId": part_id, "text": t }),
                                 );
+                                text_chars += t.chars().count();
                                 text.push_str(t);
                             }
                             if let Some(call) = chunk.tool_call {
@@ -680,6 +751,27 @@ impl Runner {
                             }
                             if let Some(u) = chunk.usage {
                                 usage = Some(u);
+                            }
+                            if let Some(end) = chunk.end {
+                                stream_end_info = Some(end);
+                            }
+                            agg_chunks += 1;
+                            let agg_now = now_millis();
+                            if agg_now - agg_last_ms >= 2000 {
+                                self.deps.log.write_thread(
+                                    thread_id,
+                                    LEVEL_DEBUG,
+                                    "stream_progress",
+                                    json!({
+                                        "runId": run_id,
+                                        "iter": iteration,
+                                        "chunks": agg_chunks,
+                                        "reasoningChars": reasoning_chars,
+                                        "textChars": text_chars,
+                                    }),
+                                );
+                                agg_chunks = 0;
+                                agg_last_ms = agg_now;
                             }
                             if chunk.done {
                                 break;
@@ -692,6 +784,53 @@ impl Runner {
                         None => break,
                     }
                 }
+            }
+
+            // 观测：每轮流结束——截断排查的关键行。结束方式 / finish_reason / 传输质量 /
+            // 网关 token 数与本地字节数对照 / 内容尾部快照；写点在错误与落库检查之前，
+            // 保证取消 / 失败路径（内容不落库）也有完整记录。
+            let anomaly = stream_end_info.as_ref().and_then(stream_end_anomaly);
+            self.deps.log.write_thread(thread_id, LEVEL_INFO, "stream_end", {
+                let end = stream_end_info.as_ref();
+                json!({
+                    "runId": run_id,
+                    "iter": iteration,
+                    "model": session.info.id,
+                    "maxTokens": req_max_tokens,
+                    "messages": history.len(),
+                    "doneVia": end.map(|e| done_via_name(&e.done_via)).unwrap_or("none"),
+                    "finishReason": end.and_then(|e| e.finish_reason.clone()),
+                    "usage": usage.as_ref().map(|u| json!({
+                        "input": u.input_tokens, "output": u.output_tokens,
+                        "cache": u.cache_tokens, "reasoning": u.reasoning_tokens,
+                    })),
+                    "sse": end.map(|e| json!({
+                        "invalidUtf8Chunks": e.sse.invalid_utf8_chunks,
+                        "oversizedLines": e.sse.oversized_lines,
+                        "trailingPartialBytes": e.sse.trailing_partial_bytes,
+                    })),
+                    "reasoningChars": reasoning_chars,
+                    "textChars": text_chars,
+                    "reasoningTail": tail_snapshot(&reasoning, 200),
+                    "textTail": tail_snapshot(&text, 200),
+                    "toolCalls": tool_calls.len(),
+                    "durationMs": now_millis() - call_start,
+                    "anomaly": anomaly,
+                })
+            });
+            if let Some(reason) = anomaly {
+                // 异常轮留存提供商侧原始事件尾部（限 4KB；截断瞬间的行为铁证）
+                self.deps.log.write_thread(
+                    thread_id,
+                    LEVEL_INFO,
+                    "stream_raw_tail",
+                    json!({
+                        "runId": run_id,
+                        "iter": iteration,
+                        "reason": reason,
+                        "rawTail": stream_end_info.as_ref().map(|e| e.raw_tail.as_str()).unwrap_or_default(),
+                    }),
+                );
             }
 
             if token.is_cancelled() {
@@ -738,6 +877,20 @@ impl Runner {
                 });
             }
 
+            // 观测：落库对照（与 stream_end 的字节数对账；append_or_warn 失败会静默降级为纯广播）
+            self.deps.log.write_thread(
+                thread_id,
+                LEVEL_INFO,
+                "persist",
+                json!({
+                    "runId": run_id,
+                    "iter": iteration,
+                    "messageId": message_id,
+                    "reasoningPersisted": !reasoning.is_empty(),
+                    "textPersisted": !text.is_empty(),
+                }),
+            );
+
             if let Some(u) = usage {
                 self.record_usage(thread_id, run_id, &session.info, &u, now_millis() - call_start, false);
             }
@@ -762,6 +915,19 @@ impl Runner {
                     self.canceled(thread_id, run_id, started_at);
                     return false;
                 }
+                self.deps.log.write_thread(
+                    thread_id,
+                    LEVEL_DEBUG,
+                    "tool_done",
+                    json!({
+                        "runId": run_id,
+                        "iter": iteration,
+                        "tool": call.name,
+                        "outputChars": result.output.chars().count(),
+                        "isError": result.is_error,
+                        "code": result.code,
+                    }),
+                );
                 let mut tool_msg = Message::new("tool", result.output);
                 tool_msg.tool_call_id = call.id;
                 history.push(tool_msg);
@@ -1108,6 +1274,7 @@ impl Runner {
             Some(run_id),
             json!({ "status": "done", "durationMs": duration_ms }),
         );
+        self.deps.log.write_thread(thread_id, LEVEL_INFO, "run_end", json!({ "runId": run_id, "status": "done", "durationMs": duration_ms }));
         self.notify(thread_id, "CraftWork", "本轮回复已完成。");
     }
 
@@ -1122,6 +1289,7 @@ impl Runner {
             Some(run_id),
             json!({ "status": "canceled", "durationMs": duration_ms }),
         );
+        self.deps.log.write_thread(thread_id, LEVEL_INFO, "run_end", json!({ "runId": run_id, "status": "canceled", "durationMs": duration_ms }));
         // 取消不发通知
     }
 
@@ -1149,6 +1317,12 @@ impl Runner {
             Some(thread_id),
             Some(run_id),
             json!({ "status": "error", "code": code, "message": message, "durationMs": duration_ms }),
+        );
+        self.deps.log.write_thread(
+            thread_id,
+            LEVEL_ERROR,
+            "run_end",
+            json!({ "runId": run_id, "status": "error", "code": code, "message": tail_snapshot(message, 200), "durationMs": duration_ms }),
         );
         self.notify(thread_id, "CraftWork 运行失败", &message.chars().take(120).collect::<String>());
     }
@@ -1206,4 +1380,56 @@ fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// 流结束的异常特征（返回异常描述；None=正常）。
+/// 两条「回复半截」的提供商侧通路：finish_reason 为输出上限类（length / max_tokens），
+/// 或未见显式结束帧（EOF 兜底）——落库前提是流在客户端视角干净结束，这两种形态
+/// 都会原样落库半截内容。EOF 兜底在不规范的网关上是常态，但正因如此值得留原始尾部。
+fn stream_end_anomaly(end: &StreamEnd) -> Option<String> {
+    match end.finish_reason.as_deref() {
+        Some("length") | Some("max_tokens") => Some(format!("finish_reason={}", end.finish_reason.clone().unwrap_or_default())),
+        _ if end.done_via == DoneVia::Eof => Some("eof_without_done_frame".into()),
+        _ => None,
+    }
+}
+
+/// 结束方式的可读名（日志用）。
+fn done_via_name(via: &DoneVia) -> &'static str {
+    match via {
+        DoneVia::DoneLine => "done_line",
+        DoneVia::Eof => "eof",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn end_with(finish_reason: Option<&str>, done_via: DoneVia) -> StreamEnd {
+        StreamEnd {
+            finish_reason: finish_reason.map(String::from),
+            done_via,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn stream_end_anomaly_flags_output_limit_and_missing_done_frame() {
+        // 输出上限截断（OpenAI length / Anthropic max_tokens）
+        assert_eq!(stream_end_anomaly(&end_with(Some("length"), DoneVia::DoneLine)).as_deref(), Some("finish_reason=length"));
+        assert_eq!(stream_end_anomaly(&end_with(Some("max_tokens"), DoneVia::DoneLine)).as_deref(), Some("finish_reason=max_tokens"));
+        // 未见显式结束帧
+        assert_eq!(stream_end_anomaly(&end_with(None, DoneVia::Eof)).as_deref(), Some("eof_without_done_frame"));
+        // 正常结束
+        assert_eq!(stream_end_anomaly(&end_with(Some("stop"), DoneVia::DoneLine)), None);
+        assert_eq!(stream_end_anomaly(&end_with(Some("end_turn"), DoneVia::DoneLine)), None);
+        assert_eq!(stream_end_anomaly(&end_with(None, DoneVia::DoneLine)), None);
+    }
+
+    #[test]
+    fn tail_snapshot_limits_logged_message_length() {
+        let long = "x".repeat(500);
+        assert_eq!(tail_snapshot(&long, 200).chars().count(), 200);
+    }
 }

@@ -175,6 +175,8 @@ export interface Settings {
   updateChannel: string;
   telemetry: boolean;
   maxIterations: number;
+  /** 运行日志等级：off | error | info | debug（会话日志 <数据目录>/logs 的记录密度） */
+  logsLevel: "off" | "error" | "info" | "debug";
 }
 
 // ---------- 提供商与模型 ----------

@@ -98,6 +98,19 @@ struct StaleApproval {
     part_id: Option<String>,
 }
 
+/// 上次退出遗留的 running 运行列表 (run_id, thread_id)（启动恢复的观测记录用；
+/// 读取失败返回空列表——观测路径不向上传播错误）。
+pub fn list_stale_runs(db: &Db) -> Vec<(String, String)> {
+    db.with(|conn| {
+        let mut stmt = conn.prepare("SELECT id, thread_id FROM runs WHERE status = 'running'")?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })
+    .unwrap_or_default()
+}
+
 /// 启动收尾：把上次退出遗留的 running 运行标记为 interrupted、挂起审批标记 canceled、
 /// 会话状态复位，并为每个中断 run 写一条可重试的 error 事件。返回中断数量。
 pub fn interrupt_stale_runs(db: &Db, mut append_event_fn: impl FnMut(EventRecord)) -> StoreResult<usize> {    let stale: Vec<(String, String, String)> = db.with(|conn| {

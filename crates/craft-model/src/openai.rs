@@ -6,8 +6,10 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 
 use crate::errors::{missing_endpoint_error, stream_error, ModelError};
-use crate::sse::{open_sse, line_to_event, LineReader, SseEvent, ToolCallBuilder};
-use crate::types::{attachment_prompt_text, Chunk, Client, Message, Request, SystemBlock, ToolSpec, Usage};
+use crate::sse::{open_sse, line_to_event, LineReader, SseEvent, TailBuffer, ToolCallBuilder};
+use crate::types::{
+    attachment_prompt_text, Chunk, Client, DoneVia, Message, Request, StreamEnd, SystemBlock, ToolSpec, Usage, RAW_TAIL_CAPACITY,
+};
 
 /// 端点 → chat/completions 完整地址（容忍端点尾部斜杠）。
 fn join_url(endpoint: &str) -> String {
@@ -202,6 +204,9 @@ impl Client for OpenAICompatClient {
             let mut usage_seen = false;
             let mut usage = Usage::empty();
             let mut tool_calls = ToolCallBuilder::default();
+            let mut finish_reason: Option<String> = None;
+            let mut seen_done_line = false;
+            let mut tail = TailBuffer::new(RAW_TAIL_CAPACITY);
             let mut bytes_stream = resp.bytes_stream();
             let mut reader = LineReader::new();
 
@@ -225,7 +230,16 @@ impl Client for OpenAICompatClient {
                                 SseEvent::Done => None,
                             })
                         {
-                            match decode_openai_event(&provider, &payload, &mut usage, &mut usage_seen, &mut tool_calls, &mut text_seen) {
+                            tail.push(&payload);
+                            match decode_openai_event(
+                                &provider,
+                                &payload,
+                                &mut usage,
+                                &mut usage_seen,
+                                &mut tool_calls,
+                                &mut text_seen,
+                                &mut finish_reason,
+                            ) {
                                 Some(Ok(Some(chunk))) => yield Ok(chunk),
                                 Some(Ok(None)) => {}
                                 Some(Err(err)) => {
@@ -241,13 +255,23 @@ impl Client for OpenAICompatClient {
                 for line in reader.push_bytes(&bytes) {
                     match line_to_event(&line) {
                         Some(SseEvent::Done) => {
+                            seen_done_line = true;
                             for call in tool_calls.flush() {
                                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
                             }
                             tool_calls = ToolCallBuilder::default();
                         }
                         Some(SseEvent::Data(payload)) => {
-                            match decode_openai_event(&provider, &payload, &mut usage, &mut usage_seen, &mut tool_calls, &mut text_seen) {
+                            tail.push(&payload);
+                            match decode_openai_event(
+                                &provider,
+                                &payload,
+                                &mut usage,
+                                &mut usage_seen,
+                                &mut tool_calls,
+                                &mut text_seen,
+                                &mut finish_reason,
+                            ) {
                                 Some(Ok(Some(chunk))) => yield Ok(chunk),
                                 Some(Ok(None)) => {}
                                 Some(Err(err)) => {
@@ -262,18 +286,33 @@ impl Client for OpenAICompatClient {
                 }
             }
 
-            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记（携带结束元数据）
             for call in tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }
             yield Ok(Chunk { usage: Some(if usage_seen { usage } else { Usage::empty() }), ..Default::default() });
-            yield Ok(Chunk { done: true, ..Default::default() });
+            yield Ok(Chunk {
+                done: true,
+                end: Some(make_stream_end(finish_reason, seen_done_line, std::mem::take(&mut reader.stats), tail.as_str().to_string())),
+                ..Default::default()
+            });
         })
+    }
+}
+
+/// 组装流结束元数据（纯函数，收尾时调用；可单测）。
+pub fn make_stream_end(finish_reason: Option<String>, seen_done_line: bool, sse: crate::types::SseStats, raw_tail: String) -> StreamEnd {
+    StreamEnd {
+        finish_reason,
+        done_via: if seen_done_line { DoneVia::DoneLine } else { DoneVia::Eof },
+        sse,
+        raw_tail,
     }
 }
 
 /// 解码一个 OpenAI SSE 事件：返回 Some(Ok(Some(chunk))) 产出片段；
 /// Some(Ok(None)) 无产出；Some(Err) 流内错误；None 非法载荷忽略。
+/// finish_reason 记入外部状态（带 finish_reason 的 delta 通常无正文），收尾随 done 块带出。
 #[allow(clippy::too_many_arguments)]
 fn decode_openai_event(
     provider: &str,
@@ -282,6 +321,7 @@ fn decode_openai_event(
     usage_seen: &mut bool,
     tool_calls: &mut ToolCallBuilder,
     text_seen: &mut bool,
+    finish_reason: &mut Option<String>,
 ) -> Option<Result<Option<Chunk>, ModelError>> {
     let Ok(event) = serde_json::from_str::<Value>(payload) else {
         return None; // 非 JSON 载荷（心跳 / 注释行）直接忽略
@@ -294,6 +334,16 @@ fn decode_openai_event(
             .and_then(Value::as_str)
             .unwrap_or_default();
         return Some(Err(stream_error(provider, message, kind)));
+    }
+    if let Some(reason) = event
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        *finish_reason = Some(reason.to_string());
     }
     let delta = event
         .get("choices")
@@ -446,6 +496,7 @@ mod tests {
         let mut usage_seen = false;
         let mut tool_calls = ToolCallBuilder::default();
         let mut text_seen = false;
+        let mut finish_reason = None;
         let chunk = decode_openai_event(
             "p",
             r#"{"choices":[{"delta":{"content":"hi"}}]}"#,
@@ -453,6 +504,7 @@ mod tests {
             &mut usage_seen,
             &mut tool_calls,
             &mut text_seen,
+            &mut finish_reason,
         )
         .unwrap()
         .unwrap()
@@ -465,6 +517,7 @@ mod tests {
             &mut usage_seen,
             &mut tool_calls,
             &mut text_seen,
+            &mut finish_reason,
         )
         .unwrap()
         .unwrap();
@@ -474,10 +527,59 @@ mod tests {
     }
 
     #[test]
+    fn finish_reason_extracted_from_empty_delta_and_kept_in_state() {
+        // 带 finish_reason 的 delta 通常无正文（此前整块被丢弃），解析后记入外部状态
+        let mut finish_reason = None;
+        let chunk = decode_openai_event(
+            "p",
+            r#"{"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            &mut Usage::empty(),
+            &mut false,
+            &mut ToolCallBuilder::default(),
+            &mut false,
+            &mut finish_reason,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(chunk.is_none());
+        assert_eq!(finish_reason.as_deref(), Some("length"));
+        // 后续无 finish_reason 的事件不覆盖
+        decode_openai_event(
+            "p",
+            r#"{"choices":[{"delta":{"content":"x"}}]}"#,
+            &mut Usage::empty(),
+            &mut false,
+            &mut ToolCallBuilder::default(),
+            &mut false,
+            &mut finish_reason,
+        )
+        .unwrap();
+        assert_eq!(finish_reason.as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn stream_end_done_via_distinguishes_done_line_and_eof() {
+        let end = make_stream_end(Some("length".into()), true, Default::default(), String::new());
+        assert_eq!(end.done_via, DoneVia::DoneLine);
+        assert_eq!(end.finish_reason.as_deref(), Some("length"));
+        let end = make_stream_end(None, false, Default::default(), String::new());
+        assert_eq!(end.done_via, DoneVia::Eof);
+        assert!(end.finish_reason.is_none());
+    }
+
+    #[test]
     fn event_decoding_in_stream_error() {
-        let err = decode_openai_event("p", r#"{"error":{"message":"bad","type":"auth"}}"#, &mut Usage::empty(), &mut false, &mut ToolCallBuilder::default(), &mut false)
-            .unwrap()
-            .unwrap_err();
+        let err = decode_openai_event(
+            "p",
+            r#"{"error":{"message":"bad","type":"auth"}}"#,
+            &mut Usage::empty(),
+            &mut false,
+            &mut ToolCallBuilder::default(),
+            &mut false,
+            &mut None,
+        )
+        .unwrap()
+        .unwrap_err();
         assert!(err.message.contains("bad"));
     }
 }

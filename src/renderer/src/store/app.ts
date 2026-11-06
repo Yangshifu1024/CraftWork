@@ -142,6 +142,7 @@ export const useApp = create<AppState>((set, get) => ({
     updateChannel: "stable",
     telemetry: false,
     maxIterations: 300,
+    logsLevel: "info",
   },
   chats: {},
   plans: {},

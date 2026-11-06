@@ -50,8 +50,13 @@ impl Recorder {
     }
 
     /// 运行中部件落库：失败只降级为纯广播，不中断运行。
+    /// 降级时 stderr 留痕——部件将永久缺席事件表（排查「内容消失」的关键线索），不能完全静默。
     pub fn append_or_warn(&self, rec: &EventRecord) {
-        if let Err(_err) = self.append(rec) {
+        if let Err(err) = self.append(rec) {
+            eprintln!(
+                "craftwork: 事件落库失败 kind={} thread={}（降级为纯广播，部件不入库）: {err}",
+                rec.kind, rec.thread_id
+            );
             self.bus.emit(event_type::NOTICE, Some(&rec.thread_id), rec.run_id.as_deref(), rec.payload.clone());
         }
     }

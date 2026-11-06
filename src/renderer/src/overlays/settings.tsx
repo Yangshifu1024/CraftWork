@@ -16,7 +16,7 @@ import { isImeComposing } from "../lib/ime";
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
-import type { AuditEntry, Backup, ConnectionResult, ModelView, ProviderView, UsageSummary } from "../../../shared/types";
+import type { AuditEntry, Backup, ConnectionResult, ModelView, ProviderView, Settings, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
@@ -125,6 +125,11 @@ function GeneralSection(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
   const save = useApp((s) => s.saveSettings);
   const setMode = useApp((s) => s.setMode);
+  // 日志目录随数据目录（getInfo 返回），控件旁展示便于取文件
+  const [dataDir, setDataDir] = useState("");
+  useEffect(() => {
+    void api.getInfo().then((info) => setDataDir(info.dataDir));
+  }, []);
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-ui-settings-title font-semibold text-foreground">通用</h2>
@@ -150,6 +155,21 @@ function GeneralSection(): React.JSX.Element {
           onChange={(e) => void save({ maxIterations: Math.max(0, Math.min(1000, Number(e.target.value) || 0)) })}
           className="h-8 w-20 rounded-lg border border-border bg-input px-2 text-ui-sm"
         />
+      </Row>
+      <Row
+        title="运行日志等级"
+        desc={`排查回复截断等问题的观测时间线，保存即生效；目录 ${dataDir ? `${dataDir}/logs/` : "（<数据目录>/logs/）"}`}
+      >
+        <select
+          value={settings.logsLevel}
+          onChange={(e) => void save({ logsLevel: e.target.value as Settings["logsLevel"] })}
+          className="h-8 rounded-lg border border-border bg-input px-2 text-ui-sm"
+        >
+          <option value="off">关闭</option>
+          <option value="error">仅错误</option>
+          <option value="info">标准</option>
+          <option value="debug">调试</option>
+        </select>
       </Row>
     </div>
   );

@@ -9,6 +9,7 @@ pub mod services;
 pub mod system;
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU8;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -17,6 +18,7 @@ use tauri::Manager;
 use craft_agent::approvals::Approvals;
 use craft_agent::grants::Grants;
 use craft_agent::runner::{Runner, RunnerDeps};
+use craft_agent::session_log::{parse_level as parse_log_level, SessionLog, LEVEL_ERROR, LEVEL_INFO};
 use craft_core::bus::Bus;
 use craft_core::contract::{Batch, Settings};
 use craft_core::secret::SecretStore;
@@ -27,6 +29,7 @@ use craft_policy::parse_level;
 use craft_store::db::Db;
 use craft_store::recorder::Recorder;
 use craft_store::records::get_setting;
+use craft_store::runs::list_stale_runs;
 use craft_tools::registry::Registry;
 use services::AppState;
 
@@ -86,17 +89,57 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
     let data_dir_str = data_dir.to_string_lossy().to_string();
     let db = Arc::new(Db::open(&data_dir.join("craftwork.db")).map_err(|e| e.to_string())?);
 
-    // 事件出口：Bus 批次 → tauri emit craftwork:events
+    // 运行日志等级：设置初值 → 内存缓存（设置保存时更新，写入侧只读，改即生效）
+    let saved_logs_level = db
+        .with(|conn| get_setting(conn, "app"))
+        .ok()
+        .flatten()
+        .and_then(|v| v.get("logsLevel").and_then(Value::as_str).map(String::from))
+        .unwrap_or_else(|| "info".into());
+    let log_level = Arc::new(AtomicU8::new(parse_log_level(&saved_logs_level)));
+    let session_log = Arc::new(SessionLog::new(&data_dir, Arc::clone(&log_level)));
+
+    // 事件出口：Bus 批次 → tauri emit craftwork:events。
+    // emit 失败此前静默丢弃（后端在跑、前端收不到、无缺口检测不补拉）——
+    // 至少留 error 日志，排查「界面停在半截而数据完整」时与后端时间线对照。
     let handle = app.clone();
+    let emit_log = Arc::clone(&session_log);
     let bus = Arc::new(Bus::new(move |batch: Batch| {
-        if let Ok(payload) = serde_json::to_value(&batch) {
-            let _ = tauri::Emitter::emit(&handle, "craftwork:events", payload);
+        let emit_result = serde_json::to_value(&batch).map(|payload| tauri::Emitter::emit(&handle, "craftwork:events", payload));
+        if !matches!(&emit_result, Ok(Ok(()))) {
+            let reason = match emit_result {
+                Ok(Err(err)) => err.to_string(),
+                Err(err) => err.to_string(),
+                _ => String::new(),
+            };
+            eprintln!("craftwork: 事件广播失败（batch={} 条）: {reason}", batch.events.len());
+            if let Some(thread_id) = &batch.thread_id {
+                emit_log.write_thread(
+                    thread_id,
+                    LEVEL_ERROR,
+                    "emit_failed",
+                    json!({ "events": batch.events.len(), "error": reason }),
+                );
+            } else {
+                emit_log.write_app(LEVEL_ERROR, "emit_failed", json!({ "events": batch.events.len(), "error": reason }));
+            }
         }
     }));
 
-    // 启动收尾：上次退出遗留的 running 运行标记 interrupted + error 事件
+    // 启动收尾：上次退出遗留的 running 运行标记 interrupted + error 事件；
+    // 观测：启动恢复行留下上次异常退出的现场（哪些 run 被中断）。
     let recorder = Recorder::new(Arc::clone(&db), Arc::clone(&bus));
+    let stale_runs = list_stale_runs(&db);
     let _ = recorder.interrupt_stale_runs();
+    if !stale_runs.is_empty() {
+        session_log.write_app(
+            LEVEL_INFO,
+            "startup_recovery",
+            json!({
+                "interruptedRuns": stale_runs.iter().map(|(run, thread)| json!({ "runId": run, "threadId": thread })).collect::<Vec<_>>(),
+            }),
+        );
+    }
 
     let secrets = Arc::new(SecretStore::open(&data_dir));
     let keys_path_warning = secrets.warnings().first().cloned();
@@ -134,7 +177,15 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         models: Arc::clone(&models),
         attachment_dir: data_dir.join("attachments").to_string_lossy().to_string(),
         data_dir: data_dir.to_string_lossy().to_string(),
+        log: Arc::clone(&session_log),
+        app_version: services::APP_VERSION.to_string(),
     }));
+
+    // 提供商层观测：重试等事件写入共享日志 model.log（thread 关联靠时间与 per-thread 流日志对照）
+    models.set_log_hook({
+        let session_log = Arc::clone(&session_log);
+        Arc::new(move |message| session_log.write_model(LEVEL_INFO, "provider_event", message))
+    });
 
     // 系统通知：审批待决/完成/失败三类（Runner 内置钩子），仅窗口失焦时发（聚焦时应用内已有
     // 完整反馈），受设置「系统通知」开关门控（实时读设置，改开关立即生效）。此前从未装配。
@@ -201,6 +252,7 @@ fn build_app_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         data_dir: data_dir_str,
         attachment_dir: data_dir.join("attachments").to_string_lossy().to_string(),
         backup_dir,
+        log_level,
     })
 }
 

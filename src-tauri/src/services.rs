@@ -49,6 +49,8 @@ pub struct AppState {
     pub data_dir: String,
     pub attachment_dir: String,
     pub backup_dir: String,
+    /// 运行日志等级缓存（设置保存侧更新，会话日志写入侧只读；与 Runner 的 SessionLog 共享）
+    pub log_level: Arc<std::sync::atomic::AtomicU8>,
 }
 
 /// 参数按位置取值（渲染层桥按 TS 服务签名传位置数组）。
@@ -119,6 +121,7 @@ pub fn default_settings() -> Settings {
         update_channel: "stable".into(),
         telemetry: false,
         max_iterations: 300,
+        logs_level: "info".into(),
     }
 }
 
@@ -208,6 +211,9 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     if let Some(iterations) = next.get("maxIterations").and_then(Value::as_i64) {
         merged.max_iterations = if (0..=1000).contains(&iterations) { iterations } else { 300 };
     }
+    if let Some(level) = next.get("logsLevel").and_then(Value::as_str) {
+        merged.logs_level = level.into();
+    }
     if let Some(v) = next.get("defaultModel").and_then(Value::as_str) {
         merged.default_model = v.into();
     }
@@ -223,6 +229,10 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
         .map_err(|e| e.to_string())?;
     // 档位热切换：引擎仅在启动时按设置初始化，保存必须同步生效（否则切换档位要重启才起作用）
     state.engine.lock().unwrap().set_level(craft_policy::parse_level(&merged.approval_level));
+    // 运行日志等级热切换：写每行日志前读缓存，保存即生效（Runner 的会话日志即时跟随）
+    state
+        .log_level
+        .store(craft_agent::session_log::parse_level(&merged.logs_level), std::sync::atomic::Ordering::Relaxed);
     settings_get(state)
 }
 

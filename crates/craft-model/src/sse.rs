@@ -8,10 +8,12 @@ use crate::errors::ModelError;
 /// 单行长度上限：超过即截断保留尾部，防异常超长行撑爆内存。
 const MAX_SSE_LINE_BYTES: usize = 4 * 1024 * 1024;
 
-/// 按 SSE 帧拆行（容忍超长行截断；跨 chunk 缓冲拼接）。
+/// 按 SSE 帧拆行（容忍超长行截断；跨 chunk 缓冲拼接），同时记录传输质量统计。
 #[derive(Default)]
 pub struct LineReader {
     buffer: String,
+    /// 传输质量统计：排查内容损伤（UTF-8 跨块撕裂 / 超长行截断 / 尾部半行）
+    pub stats: crate::types::SseStats,
 }
 
 impl LineReader {
@@ -23,6 +25,10 @@ impl LineReader {
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Vec<String> {
         // 直接按字节追加：SSE 行内容以 UTF-8 为主，超长行截断按字符边界处理成本高，
         // 采用与 TS 版一致的「按字符串长度截断」语义（lossy 转换交给行级处理）。
+        if std::str::from_utf8(bytes).is_err() {
+            // 含多字节字符跨块撕裂：lossy 替换会产生 U+FFFD 损坏该处文本
+            self.stats.invalid_utf8_chunks += 1;
+        }
         self.buffer.push_str(&String::from_utf8_lossy(bytes));
         if self.buffer.len() > MAX_SSE_LINE_BYTES {
             // 保留尾部 1024 字节（TS 版语义）
@@ -34,6 +40,7 @@ impl LineReader {
                 start += 1;
             }
             self.buffer = self.buffer[start..].to_string();
+            self.stats.oversized_lines += 1;
         }
         let mut lines = Vec::new();
         while let Some(idx) = self.buffer.find('\n') {
@@ -47,8 +54,9 @@ impl LineReader {
         lines
     }
 
-    /// 流结束：残留缓冲作为最后一行（无换行结尾）。
+    /// 流结束：残留缓冲作为最后一行（无换行结尾）；残留字节数计入统计。
     pub fn finish(&mut self) -> Option<String> {
+        self.stats.trailing_partial_bytes = self.buffer.len();
         if self.buffer.is_empty() {
             return None;
         }
@@ -57,6 +65,39 @@ impl LineReader {
             line.pop();
         }
         Some(line)
+    }
+}
+
+/// 原始事件行尾部缓冲：限长保留最近内容（字符边界安全），用于异常时留存截断瞬间的原始行为。
+#[derive(Default)]
+pub struct TailBuffer {
+    buf: String,
+    cap: usize,
+}
+
+impl TailBuffer {
+    pub fn new(cap: usize) -> Self {
+        Self { buf: String::new(), cap }
+    }
+
+    /// 追加一段原始文本（每段以换行分隔）；超容量时丢弃头部、对齐字符边界。
+    pub fn push(&mut self, text: &str) {
+        if !text.is_empty() {
+            self.buf.push_str(text);
+            self.buf.push('\n');
+        }
+        if self.buf.len() > self.cap {
+            let mut start = self.buf.len() - self.cap;
+            while start < self.buf.len() && !self.buf.is_char_boundary(start) {
+                start += 1;
+            }
+            self.buf = self.buf[start..].to_string();
+        }
+    }
+
+    /// 取当前尾部内容。
+    pub fn as_str(&self) -> &str {
+        &self.buf
     }
 }
 

@@ -7,25 +7,44 @@ use futures_core::stream::BoxStream;
 use futures_util::StreamExt;
 
 use crate::errors::{retryable_code, ModelError};
-use crate::types::{Chunk, Client, Request};
+use crate::types::{Chunk, Client, LogHook, Request};
 
 /// 客户端装饰器：包裹内层 Client，对建流阶段的可重试错误做指数退避重试。
 pub struct RetryClient {
     inner: Box<dyn Client>,
+    /// 提供商显示名（重试日志的归因上下文）
+    provider: String,
     attempts: u32,
     base_delay_ms: u64,
     max_delay_ms: u64,
+    /// 观测日志回调（重试与耗尽事件；None=不记录）
+    log: Option<LogHook>,
 }
 
 impl RetryClient {
-    /// 参数依次为：最大尝试次数、基础退避毫秒、退避上限毫秒（_provider 预留未用，
+    /// 参数依次为：最大尝试次数、基础退避毫秒、退避上限毫秒（provider 用于重试日志归因，
     /// 错误归因由内层客户端携带）。
-    pub fn new(inner: Box<dyn Client>, _provider: &str, attempts: u32, base_delay_ms: u64, max_delay_ms: u64) -> Self {
+    pub fn new(
+        inner: Box<dyn Client>,
+        provider: &str,
+        attempts: u32,
+        base_delay_ms: u64,
+        max_delay_ms: u64,
+        log: Option<LogHook>,
+    ) -> Self {
         Self {
             inner,
+            provider: provider.to_string(),
             attempts,
             base_delay_ms,
             max_delay_ms,
+            log,
+        }
+    }
+
+    fn log_line(&self, message: &str) {
+        if let Some(log) = &self.log {
+            log(message);
         }
     }
 }
@@ -34,9 +53,11 @@ impl Client for RetryClient {
     fn clone_box(&self) -> Box<dyn Client> {
         Box::new(RetryClient {
             inner: self.inner.clone_box(),
+            provider: self.provider.clone(),
             attempts: self.attempts,
             base_delay_ms: self.base_delay_ms,
             max_delay_ms: self.max_delay_ms,
+            log: self.log.clone(),
         })
     }
 
@@ -62,6 +83,15 @@ impl Client for RetryClient {
                                 yield Err(err);
                                 break;
                             }
+                            self.log_line(&format!(
+                                "retry provider={} model={} attempt={}/{} code={} delay_ms={}",
+                                self.provider,
+                                req.model,
+                                attempt,
+                                attempts,
+                                err.code,
+                                (base.saturating_mul(1u64 << (attempt - 1).min(16))).min(max),
+                            ));
                             last_err = Some(err);
                             break;
                         }
@@ -79,8 +109,70 @@ impl Client for RetryClient {
                 let _ = err;
             }
             if let Some(err) = last_err {
+                self.log_line(&format!(
+                    "retry_exhausted provider={} model={} code={} attempts={}",
+                    self.provider, req.model, err.code, attempts
+                ));
                 yield Err(err);
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::DoneVia;
+
+    /// stub 客户端：固定产出 N 次可重试错误后成功。
+    struct FailThenOk {
+        failures: std::sync::atomic::AtomicU32,
+    }
+
+    impl Client for FailThenOk {
+        fn stream<'a>(&'a self, _req: &'a Request) -> BoxStream<'a, Result<Chunk, ModelError>> {
+            let n = self.failures.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(futures_util::stream::once(async move {
+                if n > 1 {
+                    Err(ModelError::new("rate_limit", "p", "慢点", 1))
+                } else {
+                    Ok(Chunk { done: true, end: Some(crate::types::StreamEnd { done_via: DoneVia::DoneLine, ..Default::default() }), ..Default::default() })
+                }
+            }))
+        }
+
+        fn clone_box(&self) -> Box<dyn Client> {
+            Box::new(FailThenOk { failures: std::sync::atomic::AtomicU32::new(self.failures.load(std::sync::atomic::Ordering::SeqCst)) })
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_attempts_logged_via_hook() {
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&lines);
+        let client = RetryClient::new(
+            Box::new(FailThenOk { failures: std::sync::atomic::AtomicU32::new(2) }),
+            "prov",
+            3,
+            1,
+            4,
+            Some(std::sync::Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string()))),
+        );
+        let req = Request {
+            model: "m".into(),
+            mode: String::new(),
+            system: vec![],
+            messages: vec![],
+            tools: vec![],
+            max_tokens: 0,
+            reasoning_kind: String::new(),
+            reasoning_level: String::new(),
+        };
+        use futures_util::StreamExt;
+        let chunks: Vec<_> = client.stream(&req).collect().await;
+        assert!(chunks.iter().all(|r| r.is_ok()));
+        let got = lines.lock().unwrap();
+        assert_eq!(got.len(), 1, "一次重试应记一行: {got:?}");
+        assert!(got[0].contains("retry provider=prov model=m attempt=1/3"), "{got:?}");
     }
 }

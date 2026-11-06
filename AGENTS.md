@@ -35,7 +35,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 
 ### 数据目录
 
-- 默认 `~/.craftwork`：`craftwork.db`、`keys.json`（0600）、`backups/`、`attachments/`、`workspace/default`（内置临时会话目录）。
+- 默认 `~/.craftwork`：`craftwork.db`、`keys.json`（0600）、`backups/`、`attachments/`、`workspace/default`（内置临时会话目录）、`logs/`（运行日志：`<thread-id>.log` 会话 run 时间线 + `app.log`/`model.log` 共享日志；JSONL 追加写，等级在设置 → 通用调整，用于观测模型流截断/界面停滞等问题）。
 - `CRAFTWORK_HOME=/tmp/...` 可隔离数据目录，测试与冒烟必须使用隔离目录。
 - SQLite schema 与事件表格式与 Electron 版（历史版本）双向兼容：老库原位可读，迁移链逐版本追加。
 
@@ -92,7 +92,8 @@ crates/
   craft-tools/           工具框架（Registry）与内置工具：fs_*、apply_patch、shell_exec、
                          git_*、doc_*、xlsx_set_cell、todo_write
   craft-agent/           Run 循环、审批状态机、授权缓存、历史重建、上下文压缩、
-                         自动命名、系统提示词组装、附件加载、环境上下文
+                         自动命名、系统提示词组装、附件加载、环境上下文、会话日志
+                         （session_log：JSONL 运行时间线，观测流截断/任务异常退出）
   craft-doc/             文档读写：docx / xlsx / pdf 文本级处理（低层 zip + XML）
 tests/fixtures/          golden 数据库样本（Node 版生成，Rust 侧兼容测试用）
 scripts/                 modelsync.mjs（拉取 models.dev 目录）

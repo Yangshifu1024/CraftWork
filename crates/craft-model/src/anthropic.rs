@@ -8,8 +8,9 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 
 use crate::errors::{missing_endpoint_error, stream_error, ModelError};
-use crate::sse::{line_to_event, open_sse, LineReader, SseEvent, ToolCallBuilder};
-use crate::types::{attachment_prompt_text, Chunk, Client, Request, Usage};
+use crate::sse::{line_to_event, open_sse, LineReader, SseEvent, TailBuffer, ToolCallBuilder};
+use crate::types::{attachment_prompt_text, Chunk, Client, Request, Usage, RAW_TAIL_CAPACITY};
+use crate::openai::make_stream_end;
 
 /// 端点拼接：base 已含 /v1 时跳过 path 的第一段，避免重复 /v1。
 pub fn join_api_path(base: &str, path: &str) -> String {
@@ -180,6 +181,10 @@ struct AnthropicStreamState {
     tool_calls: ToolCallBuilder,
     /// index → 已见 content_block_start 的 tool_use（参数稍后增量给出）
     pending: std::collections::HashMap<i64, (String, String)>,
+    /// message_delta 携带的结束原因（"end_turn" / "max_tokens" / "tool_use"…），原样带出
+    stop_reason: Option<String>,
+    /// 是否已收到 message_stop（显式结束帧；EOF 兜底判定用）
+    seen_stop: bool,
 }
 
 impl AnthropicStreamState {
@@ -189,6 +194,8 @@ impl AnthropicStreamState {
             usage_seen: false,
             tool_calls: ToolCallBuilder::default(),
             pending: std::collections::HashMap::new(),
+            stop_reason: None,
+            seen_stop: false,
         }
     }
 
@@ -271,6 +278,14 @@ impl AnthropicStreamState {
                 }
             }
             "message_delta" => {
+                if let Some(reason) = event
+                    .get("delta")
+                    .and_then(|d| d.get("stop_reason"))
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    self.stop_reason = Some(reason.to_string());
+                }
                 if let Some(u) = event.get("usage") {
                     self.usage_seen = true;
                     if let Some(output) = u.get("output_tokens").and_then(Value::as_i64) {
@@ -281,6 +296,10 @@ impl AnthropicStreamState {
                         self.usage.input_tokens = input;
                     }
                 }
+                Some(Ok(None))
+            }
+            "message_stop" => {
+                self.seen_stop = true;
                 Some(Ok(None))
             }
             _ => Some(Ok(None)),
@@ -326,6 +345,7 @@ impl Client for AnthropicClient {
             };
 
             let mut state = AnthropicStreamState::new();
+            let mut tail = TailBuffer::new(RAW_TAIL_CAPACITY);
             let mut bytes_stream = resp.bytes_stream();
             let mut reader = LineReader::new();
 
@@ -347,6 +367,7 @@ impl Client for AnthropicClient {
                                 SseEvent::Done => None,
                             })
                         {
+                            tail.push(&payload);
                             match state.decode(&provider, &payload) {
                                 Some(Ok(Some(chunk))) => yield Ok(chunk),
                                 Some(Err(err)) => {
@@ -362,25 +383,37 @@ impl Client for AnthropicClient {
                 for line in reader.push_bytes(&bytes) {
                     match line_to_event(&line) {
                         Some(SseEvent::Done) => {}
-                        Some(SseEvent::Data(payload)) => match state.decode(&provider, &payload) {
-                            Some(Ok(Some(chunk))) => yield Ok(chunk),
-                            Some(Err(err)) => {
-                                yield Err(err);
-                                return;
+                        Some(SseEvent::Data(payload)) => {
+                            tail.push(&payload);
+                            match state.decode(&provider, &payload) {
+                                Some(Ok(Some(chunk))) => yield Ok(chunk),
+                                Some(Err(err)) => {
+                                    yield Err(err);
+                                    return;
+                                }
+                                _ => {}
                             }
-                            _ => {}
-                        },
+                        }
                         None => {}
                     }
                 }
             }
 
-            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记（携带结束元数据）
             for call in state.tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }
             yield Ok(Chunk { usage: Some(if state.usage_seen { state.usage } else { Usage::empty() }), ..Default::default() });
-            yield Ok(Chunk { done: true, ..Default::default() });
+            yield Ok(Chunk {
+                done: true,
+                end: Some(make_stream_end(
+                    state.stop_reason,
+                    state.seen_stop,
+                    std::mem::take(&mut reader.stats),
+                    tail.as_str().to_string(),
+                )),
+                ..Default::default()
+            });
         })
     }
 }
@@ -538,10 +571,15 @@ mod tests {
             .unwrap()
             .unwrap();
         state
-            .decode("p", r#"{"type":"message_delta","usage":{"output_tokens":42}}"#)
+            .decode("p", r#"{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":42}}"#)
             .unwrap()
             .unwrap();
         assert_eq!(state.usage.output_tokens, 42);
+        // stop_reason 原样带出（max_tokens 即输出上限截断的标志）
+        assert_eq!(state.stop_reason.as_deref(), Some("max_tokens"));
+        assert!(!state.seen_stop);
+        state.decode("p", r#"{"type":"message_stop"}"#).unwrap().unwrap();
+        assert!(state.seen_stop);
         // 流内错误
         assert!(state.decode("p", r#"{"type":"error","error":{"message":"overloaded","type":"x"}}"#).unwrap().is_err());
         let calls = state.tool_calls.flush();

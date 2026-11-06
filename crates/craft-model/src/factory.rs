@@ -7,7 +7,7 @@ use crate::catalog::Catalog;
 use crate::errors::{missing_endpoint_error, ModelError};
 use crate::openai::OpenAICompatClient;
 use crate::retry::RetryClient;
-use crate::types::{Client, ModelInfo};
+use crate::types::{Client, LogHook, ModelInfo};
 use crate::errors;
 
 /// 密钥来源抽象（生产为 craft_core::secret::SecretStore 适配，测试注入 stub）。
@@ -36,6 +36,8 @@ pub struct ModelFactory {
     pub catalog: Arc<Catalog>,
     keys: Box<dyn KeyProvider>,
     fallback_resolver: Mutex<Option<FallbackResolver>>,
+    /// 观测日志回调（重试等提供商层事件；构造客户端时下传）
+    log_hook: Mutex<Option<LogHook>>,
 }
 
 impl ModelFactory {
@@ -45,7 +47,13 @@ impl ModelFactory {
             catalog,
             keys,
             fallback_resolver: Mutex::new(None),
+            log_hook: Mutex::new(None),
         }
+    }
+
+    /// 注册观测日志回调（重试等事件；改注册立即生效）。
+    pub fn set_log_hook(&self, hook: LogHook) {
+        *self.log_hook.lock().unwrap() = Some(hook);
     }
 
     /// 解析引用或原始 ID 为模型信息（找不到返回 None）。
@@ -118,8 +126,9 @@ impl ModelFactory {
             // openai 与 openai-compatible 共用 OpenAI 协议适配器
             Box::new(OpenAICompatClient::new(&provider.endpoint, &key, &display_name))
         };
-        // 重试参数：3 次尝试、700ms 基础退避、5s 上限
-        Ok(Box::new(RetryClient::new(inner, &display_name, 3, 700, 5000)))
+        // 重试参数：3 次尝试、700ms 基础退避、5s 上限；重试事件经日志回调观测
+        let log_hook = self.log_hook.lock().unwrap().clone();
+        Ok(Box::new(RetryClient::new(inner, &display_name, 3, 700, 5000, log_hook)))
     }
 
     /// 失败转移候选：备用引用存在、与当前不同、可解析、未停用、需要密钥时密钥可得，

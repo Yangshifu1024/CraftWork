@@ -43,6 +43,11 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
         models: Arc::clone(&models),
         attachment_dir: dir.path().join("attachments").to_string_lossy().to_string(),
         data_dir: data_dir.clone(),
+        log: Arc::new(craft_agent::session_log::SessionLog::new(
+            dir.path(),
+            Arc::new(std::sync::atomic::AtomicU8::new(craft_agent::session_log::LEVEL_INFO)),
+        )),
+        app_version: "test".into(),
     }));
     let attachment_dir = dir.path().join("attachments").to_string_lossy().to_string();
     (
@@ -60,6 +65,7 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
             attachment_dir,
             data_dir,
             backup_dir,
+            log_level: Arc::new(std::sync::atomic::AtomicU8::new(craft_agent::session_log::LEVEL_INFO)),
         }),
     )
 }

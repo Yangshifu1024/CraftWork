@@ -260,7 +260,49 @@ pub struct Chunk {
     pub tool_call: Option<ToolCall>,
     pub usage: Option<Usage>,
     pub done: bool,
+    /// 仅随 done 块携带：流结束元数据（结束原因 / 传输质量 / 原始尾部），观测用。
+    pub end: Option<StreamEnd>,
 }
+
+/// done 块的来源：区分「提供商显式结束帧」与「字节流 EOF 兜底」——
+/// EOF 兜底意味着流没有正常收尾（排查截断的关键信号）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum DoneVia {
+    /// 收到提供商显式结束帧（OpenAI `data: [DONE]` / Anthropic `message_stop`）
+    #[default]
+    DoneLine,
+    /// 字节流 EOF 但未收到显式结束帧
+    Eof,
+}
+
+/// SSE 传输质量统计（排查内容损伤：UTF-8 跨块撕裂、超长行截断、尾部半行）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SseStats {
+    /// 无效 UTF-8 字节块的次数（含多字节字符跨块撕裂，lossy 替换会损坏文本）
+    pub invalid_utf8_chunks: usize,
+    /// 超长行被截断（保留尾部）的次数
+    pub oversized_lines: usize,
+    /// EOF 时残留缓冲的字节数（无换行结尾的半行）
+    pub trailing_partial_bytes: usize,
+}
+
+/// 流结束元数据（仅随 done 块携带）。
+#[derive(Debug, Clone, Default)]
+pub struct StreamEnd {
+    /// 提供商侧结束原因原样带出：OpenAI `choices[].finish_reason` / Anthropic
+    /// `delta.stop_reason`——"length"/"max_tokens" 即输出上限截断，此前客户端不解析而静默通过。
+    pub finish_reason: Option<String>,
+    pub done_via: DoneVia,
+    pub sse: SseStats,
+    /// 原始 SSE 事件行尾部（限长保留，排查截断瞬间的提供商行为；不含请求头）
+    pub raw_tail: String,
+}
+
+/// 原始尾部缓冲的默认容量（字节）。
+pub const RAW_TAIL_CAPACITY: usize = 4096;
+
+/// 观测日志回调（提供商层事件——重试等——经此交给调用方落日志文件；None=不记录）。
+pub type LogHook = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 // 错误类型重导出：调用方统一从 types 取。
 pub use errors::ModelError;

@@ -12,8 +12,10 @@ pub mod grants;
 pub mod history;
 pub mod prompt;
 pub mod runner;
+pub mod session_log;
 pub mod title;
 
 pub use approvals::{ApprovalOutcome, ApprovalRequest, ApprovalScope, Approvals};
 pub use grants::{command_prefix, Grants};
 pub use runner::{estimate_cost_micros, RunEnv, Runner, RunnerDeps, SteerItem};
+pub use session_log::SessionLog;
