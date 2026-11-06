@@ -8,6 +8,8 @@ const GIT_TIMEOUT_MS: u64 = 3000;
 const GIT_OUTPUT_LIMIT: usize = 64 * 1024;
 const MAX_INSTRUCTION_LINES: usize = 200;
 const MAX_INSTRUCTION_CHARS: usize = 25000;
+const RUNTIME_TIMEOUT_MS: u64 = 3000;
+const RUNTIME_OUTPUT_LIMIT: usize = 1024;
 
 /// 一份指令文件（AGENTS.md）的内容：scope 标明层级，超长时截断并标记。
 #[derive(Debug, Clone)]
@@ -34,6 +36,8 @@ pub struct EnvContextSnapshot {
     pub today: String,
     pub platform: String,
     pub shell: String,
+    /// 可用的脚本运行时（如 "python3 3.12.4"）；探测失败为空，模型可据此决定批量操作方式
+    pub runtimes: Vec<String>,
     /// Git 摘要；不在 Git 工作区内为 None
     pub git: Option<GitSnapshot>,
     pub instructions: Vec<EnvInstruction>,
@@ -49,6 +53,38 @@ fn git_run(workspace: &str, args: &[&str]) -> craft_core::platform::RunResult {
     })
 }
 
+/// 探测单个运行时：`<file> <flag>` 成功退出即视为可用，取输出首行作版本描述（如 "python3 3.12.4"）。
+fn detect_runtime(file: &str, flag: &str) -> Option<String> {
+    let result = run(RunSpec {
+        file: file.to_string(),
+        args: vec![flag.to_string()],
+        dir: None,
+        timeout_ms: Some(RUNTIME_TIMEOUT_MS),
+        output_limit: Some(RUNTIME_OUTPUT_LIMIT),
+    });
+    if result.timed_out || result.exit_code != 0 {
+        return None;
+    }
+    let line = result.output.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    // "Python 3.12.4" → "3.12.4"，避免 "python3 Python 3.12.4" 式重复
+    let version = line.strip_prefix("Python ").unwrap_or(line);
+    Some(format!("{file} {version}"))
+}
+
+/// 探测可用的脚本运行时：优先 python3，缺失时回落 python；全部失败静默省略。
+fn detect_runtimes() -> Vec<String> {
+    let mut runtimes = Vec::new();
+    if let Some(desc) = detect_runtime("python3", "--version") {
+        runtimes.push(desc);
+    } else if let Some(desc) = detect_runtime("python", "--version") {
+        runtimes.push(desc);
+    }
+    runtimes
+}
+
 /// 采集环境快照（Git 失败或超时返回空串并跳过；任何失败都降级省略）。
 pub fn collect_env_context(data_dir: &str, workspace: &str) -> EnvContextSnapshot {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -59,6 +95,7 @@ pub fn collect_env_context(data_dir: &str, workspace: &str) -> EnvContextSnapsho
             .ok()
             .and_then(|s| s.rsplit('/').next().map(str::to_string))
             .unwrap_or_default(),
+        runtimes: detect_runtimes(),
         git: None,
         instructions: Vec::new(),
     };
@@ -166,5 +203,18 @@ mod tests {
         assert!(!snap.platform.is_empty());
         assert!(!snap.today.is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detect_runtime_missing_program_returns_none() {
+        assert!(detect_runtime("craftwork-nonexistent-runtime-xyz", "--version").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_runtime_reports_existing_interpreter() {
+        // /bin/echo 稳定存在且成功退出，用它的输出验证「成功即探测到」的路径
+        let desc = detect_runtime("/bin/echo", "probe-ok").expect("echo 应探测成功");
+        assert!(desc.contains("probe-ok"));
     }
 }
