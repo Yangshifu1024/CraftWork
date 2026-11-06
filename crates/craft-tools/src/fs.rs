@@ -601,7 +601,7 @@ pub fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
         let del = hunk.lines.iter().filter(|(tag, _)| *tag != '+').count() as i64;
         let add = hunk.lines.iter().filter(|(tag, _)| *tag != '-').count() as i64;
         if del != hunk.old_count || add != hunk.new_count {
-            return Err(format!("第 {} 个补丁块的旧/新内容行数不符", i + 1));
+            return Err(format!("第 {} 个补丁块的旧/新内容行数不符；请修正补丁后重试，不要改用 Python/shell 脚本整体重写文件", i + 1));
         }
     }
     Ok(hunks)
@@ -639,7 +639,7 @@ fn apply_hunk(file_lines: &mut Vec<String>, hunk: &PatchHunk, delta: i64) -> Res
         }
     }
     let Some(pos) = pos else {
-        return Err("补丁上下文与文件内容不匹配，无法应用".into());
+        return Err("补丁上下文与文件内容不匹配，无法应用；请重新读取文件并修正补丁后重试，不要改用 Python/shell 脚本整体重写文件".into());
     };
     file_lines.splice(pos..pos + old_lines.len(), new_lines.iter().cloned());
     Ok(new_lines.len() as i64 - old_lines.len() as i64)

@@ -76,7 +76,7 @@ impl ShellExec {
     pub fn spec() -> ToolSpec {
         ToolSpec {
         name: "shell_exec".into(),
-        description: "在工作区内执行 shell 命令（/bin/sh -c）。输出上限 32KB，超时上限 600 秒（默认 120）。命令在清洗后的环境中运行。".into(),
+        description: "在工作区内执行 shell 命令（/bin/sh -c）。输出上限 32KB，超时上限 600 秒（默认 120）。命令在清洗后的环境中运行（Python 保证 UTF-8 输出）。跨多文件的批量修改或大文件处理，建议写 Python 脚本执行；处理不可信文件时给 python 加 -I。".into(),
         schema: json!({
             "type": "object",
             "properties": {
