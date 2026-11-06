@@ -9,9 +9,17 @@ use crate::errors::ModelError;
 const MAX_SSE_LINE_BYTES: usize = 4 * 1024 * 1024;
 
 /// 按 SSE 帧拆行（容忍超长行截断；跨 chunk 缓冲拼接），同时记录传输质量统计。
+///
+/// 解码策略（P0 修复）：**字节域缓冲，按行边界解码**。多字节字符可能被网络
+/// 分块从中间切开（如「划」= e5 88 92 被 TCP/TLS 分块劈成两半），按 chunk 独立
+/// lossy 解码会把一个汉字损坏成 2~3 个 U+FFFD。字节域缓冲 + 行边界解码天然
+/// 避免撕裂：\n 是单字节、永不参与多字节序列，行边界切割一定落在字符边界上。
+/// `from_utf8_lossy` 只兜底服务器真的发出非法字节的场景（换行缺失的超长行受
+/// MAX_SSE_LINE_BYTES 约束，不会无限缓冲）。
 #[derive(Default)]
 pub struct LineReader {
-    buffer: String,
+    /// 字节域缓冲：原始字节按序累积，在行边界（\n）处才解码成行
+    buffer: Vec<u8>,
     /// 传输质量统计：排查内容损伤（UTF-8 跨块撕裂 / 超长行截断 / 尾部半行）
     pub stats: crate::types::SseStats,
 }
@@ -23,32 +31,34 @@ impl LineReader {
 
     /// 喂入字节，返回本次切出的完整行（已去除行尾 \r）。
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Vec<String> {
-        // 直接按字节追加：SSE 行内容以 UTF-8 为主，超长行截断按字符边界处理成本高，
-        // 采用与 TS 版一致的「按字符串长度截断」语义（lossy 转换交给行级处理）。
-        if std::str::from_utf8(bytes).is_err() {
-            // 含多字节字符跨块撕裂：lossy 替换会产生 U+FFFD 损坏该处文本
-            self.stats.invalid_utf8_chunks += 1;
-        }
-        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        self.buffer.extend_from_slice(bytes);
+        // 行内容超长保护：按字节截断保留尾部（此时 buffer 可能切开多字节字符，
+        // 故意按 lossy 解码并在统计里留痕——超长行本身就是异常，损坏可接受）
         if self.buffer.len() > MAX_SSE_LINE_BYTES {
-            // 保留尾部 1024 字节（TS 版语义）
             let keep = 1024;
-            let start = self.buffer.len().saturating_sub(keep);
-            // 从字符边界对齐
-            let mut start = start;
-            while start < self.buffer.len() && !self.buffer.is_char_boundary(start) {
-                start += 1;
+            let mut start = self.buffer.len().saturating_sub(keep);
+            while start < self.buffer.len() && (self.buffer[start] & 0xC0) == 0x80 {
+                start += 1; // 跳过 UTF-8 续字节，对齐字符边界
             }
-            self.buffer = self.buffer[start..].to_string();
+            self.buffer.drain(..start);
             self.stats.oversized_lines += 1;
         }
         let mut lines = Vec::new();
-        while let Some(idx) = self.buffer.find('\n') {
-            let mut line = self.buffer[..idx].to_string();
-            if line.ends_with('\r') {
-                line.pop();
-            }
+        while let Some(idx) = self.buffer.iter().position(|&b| b == b'\n') {
+            let mut line_bytes = self.buffer[..idx].to_vec();
             self.buffer.drain(..idx + 1);
+            if line_bytes.last() == Some(&b'\r') {
+                line_bytes.pop();
+            }
+            // 行边界解码：\n 永不参与多字节序列，此处字节一定是完整字符；
+            // lossy 只兜底服务器发送非法 UTF-8 的场景，并计入统计
+            let line = match std::str::from_utf8(&line_bytes) {
+                Ok(text) => text.to_string(),
+                Err(_) => {
+                    self.stats.invalid_utf8_chunks += 1;
+                    String::from_utf8_lossy(&line_bytes).into_owned()
+                }
+            };
             lines.push(line);
         }
         lines
@@ -60,10 +70,18 @@ impl LineReader {
         if self.buffer.is_empty() {
             return None;
         }
-        let mut line = std::mem::take(&mut self.buffer);
-        if line.ends_with('\r') {
-            line.pop();
+        let mut line_bytes = std::mem::take(&mut self.buffer);
+        if line_bytes.last() == Some(&b'\r') {
+            line_bytes.pop();
         }
+        // EOF 残留行同样行边界解码（此时是完整事件行，不应有撕裂）
+        let line = match std::str::from_utf8(&line_bytes) {
+            Ok(text) => text.to_string(),
+            Err(_) => {
+                self.stats.invalid_utf8_chunks += 1;
+                String::from_utf8_lossy(&line_bytes).into_owned()
+            }
+        };
         Some(line)
     }
 }
@@ -209,6 +227,43 @@ mod tests {
         let lines = reader.push_bytes(b"lo\r\ndata: world\n\n");
         assert_eq!(lines, vec!["data: hello", "data: world", ""]);
         assert_eq!(reader.finish(), None);
+    }
+
+    #[test]
+    fn multibyte_char_split_across_chunks_survives() {
+        // P0 回归：「计划」两个字的多字节序列被网络分块从中间劈开。
+        // 旧实现按 chunk 独立 lossy 解码，会把汉字损坏成 U+FFFD；字节域缓冲后必须完整还原。
+        let mut reader = LineReader::new();
+        // 「计划」= e8 ae a1 e5 88 92；在「划」的首字节 e5 之后切开（e5 在上一块、88 92 在下一块）
+        let mut first_chunk = b"data: ".to_vec();
+        first_chunk.extend_from_slice(&"计划".as_bytes()[..4]); // "计" + e5
+        assert!(reader.push_bytes(&first_chunk).is_empty(), "半行不应被切出");
+        let mut second_chunk = "计划".as_bytes()[4..].to_vec(); // 88 92
+        second_chunk.extend_from_slice(b"\n\n");
+        let lines = reader.push_bytes(&second_chunk);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "data: 计划", "跨块劈开的汉字必须完整还原");
+        assert_eq!(reader.stats.invalid_utf8_chunks, 0, "正常撕裂不应计入非法统计");
+
+        // 三字劈两刀：每个字节边界都可能是分块点
+        let mut reader = LineReader::new();
+        let text = "单行修复";
+        for b in text.as_bytes() {
+            let lines = reader.push_bytes(std::slice::from_ref(b));
+            let _ = lines; // 中间块的输出允许为空或半行，最终一致性只看 EOF
+        }
+        assert_eq!(reader.finish().as_deref(), Some(text), "逐字节喂入必须完整还原");
+        assert_eq!(reader.stats.invalid_utf8_chunks, 0);
+    }
+
+    #[test]
+    fn genuinely_invalid_utf8_still_counted_and_lossy() {
+        // 服务器真的发送非法字节：统计留痕 + lossy 兜底（不 panic、不丢行）
+        let mut reader = LineReader::new();
+        let lines = reader.push_bytes(&[b'd', b'a', b't', b'a', b':', b' ', 0xFF, b'\n']);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains('\u{FFFD}'));
+        assert_eq!(reader.stats.invalid_utf8_chunks, 1);
     }
 
     #[test]
