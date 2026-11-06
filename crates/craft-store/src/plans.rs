@@ -12,8 +12,7 @@ use craft_core::contract::PlanInfo;
 use craft_core::ids::{id_prefix, new_id};
 
 /// 当前会话的最新计划（按创建时间倒序取一）；无计划返回 None。
-pub fn latest_plan(conn: &rusqlite::Connection, thread_id: &str) -> StoreResult<Option<PlanInfo>> {
-    let mut stmt = conn
+pub fn latest_plan(conn: &rusqlite::Connection, thread_id: &str) -> StoreResult<Option<PlanInfo>> {    let mut stmt = conn
         .prepare(
             "SELECT id, thread_id, run_id, file_path, approved, ignored, updated_at FROM plans \
              WHERE thread_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -21,6 +20,32 @@ pub fn latest_plan(conn: &rusqlite::Connection, thread_id: &str) -> StoreResult<
         .map_err(other_err)?;
     let mut rows = stmt
         .query_map([thread_id], |row| {
+            Ok(PlanInfo {
+                id: row.get(0)?,
+                thread_id: row.get(1)?,
+                run_id: row.get(2)?,
+                file_path: row.get(3)?,
+                approved: row.get::<_, i64>(4)? != 0,
+                ignored: row.get::<_, i64>(5)? != 0,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(other_err)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row.map_err(other_err)?)),
+        None => Ok(None),
+    }
+}
+
+/// 按精确 id 取计划行（Runner 持有 plan_id 回填时用，避免 latest_plan 在并发场景取错行）。
+pub fn get_plan(conn: &rusqlite::Connection, plan_id: &str) -> StoreResult<Option<PlanInfo>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, thread_id, run_id, file_path, approved, ignored, updated_at FROM plans WHERE id = ?1",
+        )
+        .map_err(other_err)?;
+    let mut rows = stmt
+        .query_map([plan_id], |row| {
             Ok(PlanInfo {
                 id: row.get(0)?,
                 thread_id: row.get(1)?,

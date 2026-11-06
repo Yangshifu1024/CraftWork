@@ -95,7 +95,7 @@ export interface CraftworkApi {
   chatSteer(threadId: string, text: string, attachments: string[], planMode: boolean): Promise<{ queued: boolean; runId?: string }>;
   chatRegenerate(threadId: string): Promise<string>;
   chatCancel(threadId: string): Promise<boolean>;
-  chatDecideApproval(approvalId: string, allow: boolean, scope: ApprovalScope): Promise<void>;
+  chatDecideApproval(approvalId: string, allow: boolean, scope: ApprovalScope, feedback?: string): Promise<void>;
 
   // ---------- 计划 ----------
   /** 会话的最新计划（无则 null）。file_path 非空且未批准才显示「批准并执行」提示条 */

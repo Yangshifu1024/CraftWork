@@ -27,6 +27,11 @@ use craft_tools::registry::{Registry, ToolResult};
 use craft_tools::todo::normalize_items;
 
 use crate::approvals::{ApprovalFact, ApprovalRequest, Approvals};
+use craft_tools::plan::{EnterPlan, ExitPlan};
+
+/// run 级计划状态在 run_tool 间传递的最终值：退出计划态时为 false。
+/// 批准路径由 exit_plan 特判分支翻转；调用方据此更新 Run 循环的 plan_active。
+pub type PlanExit = bool;
 use crate::attachments::load_attachments;
 use crate::context::run_compression_with;
 use crate::envcontext::collect_env_context;
@@ -466,9 +471,15 @@ impl Runner {
             craft_store::events::plan_mode_for_trigger(&self.deps.db.lock_conn(), thread_id, trigger_seq).unwrap_or(false);
         // 计划数据：计划 run 启动即建行（未批准、无文件）；完成时 finalize_plan 落盘回填。
         // 中断/失败保持无文件——前端「批准并执行」提示条不出现。
+        // plan_id 精确持有本次 run 的计划行（exit_plan 批准/拒绝时精确回填，不再 latest 猜测）
+        let mut plan_id: Option<String> = None;
         if plan_mode {
-            let _ = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id);
+            if let Ok(plan) = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id) {
+                plan_id = Some(plan.id);
+            }
         }
+        // run 级计划态：随消息落库的 planMode 初始化；运行中由 enter_plan/exit_plan 翻转
+        let mut plan_active = plan_mode;
         let worktree_path = thread.worktree_path.clone();
         let worktree_branch = thread.worktree_branch.clone();
         self.deps.records.emit(
@@ -980,7 +991,7 @@ impl Runner {
                 self.complete(thread_id, run_id, started_at);
                 self.spawn_input_prediction(thread_id, &session, &history, &text);
                 if plan_mode {
-                    self.finalize_plan(thread_id, run_id);
+                    self.finalize_plan(thread_id, run_id, plan_id.as_deref());
                 }
                 return true;
             }
@@ -989,12 +1000,27 @@ impl Runner {
             assistant.tool_calls = tool_calls.clone();
             history.push(assistant);
             for call in tool_calls {
-                let (result, aborted) = self
-                    .run_tool(token, thread_id, run_id, &message_id, &call, &env, mode)
+                let (result, aborted, plan_ended, plan_active_after, plan_feedback_msg) = self
+                    .run_tool(token, thread_id, run_id, &message_id, &call, &env, mode, plan_active, plan_id.as_deref())
                     .await;
+                // 计划态随协议工具翻转（enter_plan 进入 / exit_plan 批准退出），影响后续 iter
+                plan_active = plan_active_after;
                 if aborted {
                     self.canceled(thread_id, run_id, started_at);
                     return false;
+                }
+                // 计划被无反馈拒绝：终止本轮，按正常完成收尾（会话保持计划态等待新输入；
+                // 计划文件已落盘未批准，前端提示条数据就绪）。不是 canceled 也不是 fail。
+                if plan_ended {
+                    self.complete(thread_id, run_id, started_at);
+                    return true;
+                }
+                // 拒绝带反馈：反馈作为真实用户消息注入本 run 历史（持久化已在 run_tool 完成），
+                // 模型下一 iter 在计划态下看到反馈并修订计划
+                if let Some((feedback_message_id, feedback_text)) = plan_feedback_msg {
+                    let mut msg = Message::new("user", feedback_text);
+                    msg.id = Some(feedback_message_id);
+                    history.push(msg);
                 }
                 self.deps.log.write_thread(
                     thread_id,
@@ -1083,6 +1109,14 @@ impl Runner {
     // ---------- 工具执行 ----------
 
     /// 单工具调用全流程：评估 → tool.started → 拦截判定/审批 → 执行 → 落库 → 审计。
+    /// plan_active 为本 run 当前是否处于计划态：进入分支会翻转它，返回值第 3 元带回
+    /// 最终值；Run 循环据此更新自己的 plan_active（影响后续 iter 的提示词与闸门）。
+    /// plan_id 为本 run 的计划行 id（exit_plan 批准/拒绝时精确回填，None=无计划行）。
+    /// 返回 (结果, 取消, 正常终止轮次, 计划态最终值, 反馈用户消息)：
+    /// - 取消为 true：Run 循环按 canceled 收尾（审批取消 / 执行中取消）；
+    /// - 正常终止轮次为 true：计划被无反馈拒绝，Run 循环按正常完成（done）收尾；
+    /// - 反馈用户消息 Some((message_id, 正文)) 时 Run 循环把它 push 进本 run 历史
+    ///   （模型下一 iter 看到反馈；持久化已在本函数完成）。
     #[allow(clippy::too_many_arguments)]
     async fn run_tool(
         self: &Arc<Self>,
@@ -1093,7 +1127,9 @@ impl Runner {
         call: &ToolCall,
         env: &RunEnv,
         mode: &str,
-    ) -> (ToolResult, bool) {
+        mut plan_active: bool,
+        plan_id: Option<&str>,
+    ) -> (ToolResult, bool, bool, bool, Option<(String, String)>) {
         let part_id = new_id(id_prefix::PART);
         let assessment = self.deps.registry.assess(
             &if env.roots.is_empty() { vec![".".to_string()] } else { env.roots.clone() },
@@ -1127,17 +1163,152 @@ impl Runner {
         let mut denied = String::new();
         let mut scope = "auto".to_string();
 
-        if !assessment.exists {
-            denied = format!("未知工具：{}", call.name);
-        } else if let Some(err) = assessment.prepared.as_ref().and_then(|p| p.err.clone()) {
-            denied = err;
-        } else if !self.deps.registry.allows(mode, &call.name) {
-            denied = "当前模式不支持该工具".into();
-        } else {
-            let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
-            // 计划模式不介入审批（决策 D8）：写操作遵循用户所选审批档位的原定义——
-            // 自由档静默放行、分级档按风险弹卡；计划模式仅靠提示词约束模型「只调研出计划」。
-            match action {
+        // ---------- 计划模式协议分支（对应 ZCode EnterPlanMode / ExitPlanMode）----------
+        //
+        // 工具 execute 是薄壳（参数校验 + 确认文本），状态切换与审批边界在 Runner：
+        // 这里修改本函数局部副本 plan_active，最终状态经返回值第 3 元带回 Run 循环
+        // （Run 循环据此更新自己的 plan_active，影响下一 iter 的提示词注入与闸门）。
+        // exit_plan 三种结果（对齐 ZCode plan-mode-approval-boundary 的审阅边界）：
+        // - 批准：退出计划态（返回值带 plan_exit=true），计划正文落盘回填（approved=1），
+        //   run 继续迭代直接实施；
+        // - 拒绝带反馈：保持计划态，反馈升级为真实用户消息（本分支落库，返回值带回
+        //   (message_id, 正文) 供 Run 循环注入本 run 历史），工具结果只给桥接说明，
+        //   模型修订后重新提交；
+        // - 拒绝无反馈（含关闭卡片）：保持计划态，计划正文落盘（未批准，提示条数据
+        //   就绪），置 denied + 终止轮次信号，Run 循环按正常完成收尾，等待用户新输入。
+        let mut plan_feedback: Option<(String, String)> = None;
+        let mut plan_overridden: Option<ToolResult> = None;
+        if call.name == EnterPlan::NAME {
+            // 进入计划态：幂等（已在计划态不重复广播）。纯广播不入库（plan.entered
+            // 是运行期瞬态，重启后由用户重新勾选，不持久化）。
+            if !plan_active {
+                plan_active = true;
+                self.deps.records.emit(
+                    event_type::PLAN_ENTERED,
+                    Some(thread_id),
+                    Some(run_id),
+                    json!({ "partId": part_id, "threadId": thread_id }),
+                );
+            }
+        } else if call.name == ExitPlan::NAME {
+            if !plan_active {
+                // 对应 ZCode mode.plan.exitOnly：不在计划态时拒绝（普通错误结果，模型可自行纠正）
+                denied = "当前不在计划模式：exit_plan 只用于提交计划结束计划态。如果计划已获批准，请直接继续实施。".into();
+            } else {
+                let plan_text = call.args.get("plan").and_then(Value::as_str).unwrap_or_default();
+                // 参数校验失败按普通拒绝处理（模型可修正重试），不弹审批卡
+                if plan_text.trim().is_empty() {
+                    denied = "计划内容不能为空，请把完整计划作为 plan 参数重新提交".into();
+                } else if plan_text.chars().count() > craft_tools::plan::PLAN_MAX_CHARS {
+                    denied = format!(
+                        "计划过长（{} 字符），上限 {} 字符，请精简后重新提交",
+                        plan_text.chars().count(),
+                        craft_tools::plan::PLAN_MAX_CHARS
+                    );
+                } else {
+                    // 无条件审批（D8 修订）：exit_plan 不看档位——自由档也必须经用户确认
+                    let request = ApprovalRequest {
+                        part_id: part_id.clone(),
+                        thread_id: thread_id.to_string(),
+                        run_id: run_id.to_string(),
+                        message_id: message_id.to_string(),
+                        tool_call_id: call.id.clone(),
+                        tool: call.name.clone(),
+                        risk: assessment.risk.as_str().to_string(),
+                        title: "计划审阅".into(),
+                        target: String::new(),
+                        detail: "模型提交了实施计划，等待你的决定".into(),
+                        facts: vec![
+                            ApprovalFact {
+                                label: "计划长度".into(),
+                                value: format!("{} 字符", plan_text.chars().count()),
+                            },
+                            ApprovalFact {
+                                label: "批准后".into(),
+                                value: "立即开始按计划实施（写操作遵循当前审批档位）".into(),
+                            },
+                        ],
+                        args: call.args.clone(),
+                        allow_permanent: false,
+                        grant_target: None,
+                    };
+                    let outcome = self.deps.approvals.request(&request, token.clone()).await;
+                    if outcome.status == "canceled" {
+                        // 审批取消也落审计（AGENTS 6.2：取消统一按取消落审计）
+                        let _ = add_audit(
+                            &self.deps.db.lock_conn(),
+                            craft_store::records::AuditRecord {
+                                ts: None,
+                                thread_id: Some(thread_id),
+                                run_id: Some(run_id),
+                                tool: call.name.as_str(),
+                                risk: assessment.risk.as_str(),
+                                decision: "canceled",
+                                scope: None,
+                                detail: Some("计划审批已取消"),
+                            },
+                        );
+                        return (ToolResult::err_code("计划审批已取消", "tool_error"), true, false, plan_active, None);
+                    }
+                    if outcome.allow {
+                        // 批准：退出计划态 → 计划落盘回填（approved=1）→ run 继续迭代直接实施
+                        plan_active = false;
+                        self.persist_plan_text(thread_id, run_id, plan_id, plan_text, true);
+                        plan_overridden = Some(ToolResult::ok(
+                            "用户已批准计划，开始实施。写操作恢复按当前审批档位处理；实施过程中如需偏离计划，先向用户说明。",
+                        ));
+                    } else if let Some(feedback) = outcome.feedback {
+                        // 拒绝带反馈：保持计划态，反馈升级为真实用户消息（历史注入由调用方完成）
+                        self.persist_plan_text(thread_id, run_id, plan_id, plan_text, false);
+                        let user_message_id = new_id(id_prefix::MESSAGE);
+                        // 落库（快照/恢复可见）+ 广播 user.message（用户气泡）；via=plan_feedback
+                        // 标记来源，前端渲染为普通用户消息。反馈本体在这里持久化，
+                        // resolved 事件只带长度摘要。
+                        let append_ok = self
+                            .deps
+                            .records
+                            .append(&EventRecord {
+                                thread_id: thread_id.to_string(),
+                                message_id: user_message_id.clone(),
+                                run_id: None,
+                                kind: "user_message".into(),
+                                payload: json!({
+                                    "text": feedback,
+                                    "attachments": [],
+                                    "planMode": true,
+                                    "via": "plan_feedback",
+                                }),
+                            })
+                            .is_ok();
+                        if append_ok {
+                            plan_feedback = Some((user_message_id, feedback));
+                        }
+                        plan_overridden = Some(ToolResult::ok(
+                            "用户没有批准这份计划，并将修改意见作为下一条用户消息给出。请结合反馈修订计划，修订完成后重新调用 exit_plan 提交。",
+                        ));
+                    } else {
+                        // 拒绝无反馈：保持计划态，计划落盘（未批准），终止当前轮次等待用户新输入。
+                        // 注意这里不是 fail/canceled——会话与 run 都按正常完成收尾。
+                        self.persist_plan_text(thread_id, run_id, plan_id, plan_text, false);
+                        denied = "用户没有批准这份计划。本轮到此为止，等待用户的下一步指示（批准、修改意见或取消）。".into();
+                        return (ToolResult::err(denied), false, true, plan_active, None);
+                    }
+                }
+            }
+        }
+
+        if plan_overridden.is_none() {
+            if !assessment.exists {
+                denied = format!("未知工具：{}", call.name);
+            } else if let Some(err) = assessment.prepared.as_ref().and_then(|p| p.err.clone()) {
+                denied = err;
+            } else if !self.deps.registry.allows(mode, &call.name) {
+                denied = "当前模式不支持该工具".into();
+            } else {
+                let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
+                // 写操作按用户所选审批档位判定（计划态的 R2+ 拦截在上方协议分支与闸门处理，
+                // 这里保持档位原语义：自由档静默放行、分级档按风险弹卡）
+                match action {
                 craft_policy::Action::Deny => denied = "当前审批档位拒绝该操作".into(),
                 craft_policy::Action::Allow => {}
                 craft_policy::Action::Ask => {
@@ -1203,7 +1374,7 @@ impl Runner {
                                     detail: Some(&format!("审批已取消：{summary}")),
                                 },
                             );
-                            return (ToolResult::err_code("审批已取消", "tool_error"), true);
+                            return (ToolResult::err_code("审批已取消", "tool_error"), true, false, plan_active, None);
                         }
                         if !outcome.allow {
                             denied = "用户拒绝了该操作".into();
@@ -1212,12 +1383,16 @@ impl Runner {
                         }
                     }
                 }
+                }
             }
-        }
+        } // if plan_overridden.is_none() 包裹层闭合
 
-        // 执行（阻塞段放阻塞线程，保持取消响应性）
+        // 执行：协议分支接管时用其预置结果（enter_plan 的薄壳结果 / exit_plan 的批准或反馈桥接），
+        // 其余按「拒绝即错误结果、否则进注册表执行」的统一出口。
         let was_denied = !denied.is_empty();
-        let result = if was_denied {
+        let result = if let Some(overridden) = plan_overridden {
+            overridden
+        } else if was_denied {
             ToolResult { output: denied, is_error: true, code: "tool_error".into(), meta: None }
         } else {
             let exec_start = now_millis();
@@ -1229,7 +1404,7 @@ impl Runner {
             meta["durationMs"] = json!(now_millis() - exec_start);
             result.meta = Some(meta);
             if token.is_cancelled() {
-                return (result, true);
+                return (result, true, false, plan_active, plan_feedback);
             }
             result
         };
@@ -1295,20 +1470,60 @@ impl Runner {
             });
         }
 
-        (result, false)
+        (result, false, false, plan_active, plan_feedback)
     }
 
     // ---------- 结束路径 ----------
 
+    /// 计划正文落盘 + 回填 + 广播 plan.created（exit_plan 的批准/拒绝路径调用）。
+    /// approved 表示用户是否已批准（批准=true 置 approved=1，拒绝/反馈=false 仅落盘供提示条展示）。
+    /// 任一步失败只降级为「无文件」（提示条不出现），不中断工具结果处理。
+    /// plan_id 为 None（历史数据或无计划行）时跳过落库回填，只返回落盘路径。
+    fn persist_plan_text(&self, thread_id: &str, run_id: &str, plan_id: Option<&str>, text: &str, approved: bool) {
+        let dir = match craft_store::plans::plans_dir(&self.deps.db) {
+            Ok(dir) => dir,
+            Err(_) => return,
+        };
+        // 文件名与 finalize_plan 兜底路径一致：plan_<剥前缀 id>.md；无 id 用 run_id 剥前缀兜底
+        let stem = plan_id
+            .map(|id| id.trim_start_matches(id_prefix::PLAN).to_string())
+            .unwrap_or_else(|| run_id.trim_start_matches(id_prefix::RUN).to_string());
+        let file = dir.join(format!("plan_{stem}.md"));
+        if craft_core::platform::write_file_atomic_str(&file, text, 0o600).is_err() {
+            return;
+        }
+        if let Some(plan_id) = plan_id {
+            let conn = self.deps.db.lock_conn();
+            let _ = craft_store::plans::set_plan_file(&conn, plan_id, file.to_string_lossy().as_ref());
+            if approved {
+                let _ = craft_store::plans::approve_plan(&conn, plan_id);
+            }
+        }
+        self.deps.records.emit(
+            event_type::PLAN_CREATED,
+            Some(thread_id),
+            Some(run_id),
+            json!({ "planId": plan_id.unwrap_or_default(), "threadId": thread_id, "filePath": file.to_string_lossy(), "updatedAt": now_millis() }),
+        );
+    }
+
     /// 计划收尾（仅计划模式 run 正常完成后调用）：把该 run 的最终正文写入
     /// ~/.craftwork/plans/plan_<id>.md，回填计划记录并广播 plan.created。
     /// 中断/失败不走到这里——计划保持无文件，前端提示条不出现。
-    fn finalize_plan(&self, thread_id: &str, run_id: &str) {
+    /// exit_plan 提交过计划的 run 不走这里（正文已按原文落盘），保留启发式兜底：
+    /// 模型没调 exit_plan、只把计划写在回复里时，仍按「最后一段非空 text」落盘。
+    fn finalize_plan(&self, thread_id: &str, run_id: &str, plan_id: Option<&str>) {
         let conn = self.deps.db.lock_conn();
         // 该 run 名下的计划行（run 启动时创建；找不到说明历史数据，静默跳过）
-        let plan = match craft_store::plans::latest_plan(&conn, thread_id) {
-            Ok(Some(p)) if p.run_id.as_deref() == Some(run_id) => p,
-            _ => return,
+        let plan = {
+            let found = match plan_id {
+                Some(id) => craft_store::plans::get_plan(&conn, id).ok().flatten(),
+                None => craft_store::plans::latest_plan(&conn, thread_id).ok().flatten(),
+            };
+            match found {
+                Some(p) if p.run_id.as_deref() == Some(run_id) => p,
+                _ => return,
+            }
         };
         // 最终正文 = 该 run 最后一段非空 text（就是用户在聊天里看到的那份计划）
         let Ok(Some(text)) = craft_store::plans::last_text_of_run(&conn, run_id) else {

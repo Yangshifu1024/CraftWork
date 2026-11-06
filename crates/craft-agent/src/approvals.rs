@@ -74,6 +74,10 @@ pub struct ApprovalOutcome {
     pub decision: String,
     /// 用户选择的授权范围：once | session | workspace（canceled 时为 once 占位）
     pub scope: String,
+    /// 拒绝时用户填写的修改意见（计划审阅卡专用；普通工具审批为空）。
+    /// 反馈的持久化本体是「真实用户消息」（由调用方落 user_message 事件），
+    /// 这里只做进程内回传与 resolved 事件/审计的摘要来源。
+    pub feedback: Option<String>,
 }
 
 impl ApprovalOutcome {
@@ -83,6 +87,7 @@ impl ApprovalOutcome {
             status: "canceled".into(),
             decision: "canceled".into(),
             scope: "once".into(),
+            feedback: None,
         }
     }
 }
@@ -212,20 +217,27 @@ impl Approvals {
             message_id: req.message_id.clone(),
             run_id: Some(req.run_id.clone()),
             kind: "approval_resolved".into(),
-            payload: json!({
-                "partId": req.part_id,
-                "approvalId": approval_id,
-                "status": outcome.status,
-                "decision": outcome.decision,
-                "scope": outcome.scope,
-            }),
+            payload: {
+                // 反馈只带长度摘要（反馈本体作为用户消息另行落库，避免事件表存两份）
+                let feedback_len = outcome.feedback.as_ref().map(|f| f.chars().count()).unwrap_or(0);
+                json!({
+                    "partId": req.part_id,
+                    "approvalId": approval_id,
+                    "status": outcome.status,
+                    "decision": outcome.decision,
+                    "scope": outcome.scope,
+                    "feedbackChars": feedback_len,
+                })
+            },
         });
         outcome
     }
 
     /// 用户决定：状态校验 → scope 归一（拒绝一律 once）→ 并发保护落库 →
     /// 授权缓存 → 唤醒等待方（resolved 事件在 request 侧唤醒后广播）。
-    pub async fn decide(&self, approval_id: &str, allow: bool, scope: &str) -> Result<(), String> {
+    /// feedback 仅计划审阅卡的「提出修改」使用：随 resolved 事件透传给等待方，
+    /// 反馈本体的持久化由等待方（Runner）以真实用户消息完成。
+    pub async fn decide(&self, approval_id: &str, allow: bool, scope: &str, feedback: Option<&str>) -> Result<(), String> {
         let approval = get_approval(&self.db.lock_conn(), approval_id).map_err(|e| e.to_string())?;
         if approval.decision.as_ref().is_some_and(|d| !d.is_empty()) {
             return Err(format!("审批已处理：{}", approval.decision.clone().unwrap_or_default()));
@@ -255,6 +267,13 @@ impl Approvals {
             normalized.as_str(),
         )
         .map_err(|e| e.to_string())?;
+        // 审计摘要带反馈前缀（截到 80 字符）：审计要能回答「为什么拒绝重提」，但审计行不是反馈本体
+        let feedback_owned = feedback.map(|f| f.trim()).filter(|f| !f.is_empty()).map(|f| f.to_string());
+        let audit_detail = feedback_owned.as_ref().map(|f| {
+            let mut text = "计划反馈：".to_string();
+            text.extend(f.chars().take(80));
+            text
+        });
         // 审批决定写审计（AGENTS 6.2：审批决定必须落 audit_log）
         let _ = craft_store::records::add_audit(
             &self.db.lock_conn(),
@@ -266,7 +285,7 @@ impl Approvals {
                 risk: &approval.risk,
                 decision: if allow { "allow" } else { "deny" },
                 scope: Some(normalized.as_str()),
-                detail: None,
+                detail: audit_detail.as_deref(),
             },
         );
         let entry = self.pending.lock().await.remove(approval_id);
@@ -282,6 +301,7 @@ impl Approvals {
                     status: if allow { "approved".into() } else { "denied".into() },
                     decision: if allow { "allow".into() } else { "deny".into() },
                     scope: normalized.as_str().to_string(),
+                    feedback: if allow { None } else { feedback_owned },
                 });
         }
         let _ = new_id(id_prefix::PART); // 保留 ID 生成引用（未来扩展部件用）

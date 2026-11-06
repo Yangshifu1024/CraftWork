@@ -364,6 +364,8 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
             let approval_id = a.str_at(0);
             let allow = a.bool_at(1);
             let scope = a.str_at(2);
+            // 第 3 参为修改意见（可选；仅计划审阅卡的「提出修改」使用）
+            let feedback = a.value_at(3).as_str().map(|s| s.to_string());
             // dispatch 在 spawn_blocking 里——decide 需要 tokio 上下文：用 Handle::current 不可得，
             // 改为起一个临时 current-thread 运行时驱动（审批等待是 oneshot，开销可忽略）
             let approvals = Arc::clone(&state.approvals);
@@ -371,7 +373,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
                 .enable_all()
                 .build()
                 .map_err(|e| e.to_string())?;
-            rt.block_on(async move { approvals.decide(&approval_id, allow, &scope).await })?;
+            rt.block_on(async move { approvals.decide(&approval_id, allow, &scope, feedback.as_deref()).await })?;
             Ok(json!(null))
         }
         // ---------- 工作区与文件 ----------

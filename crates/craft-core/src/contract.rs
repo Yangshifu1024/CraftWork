@@ -18,6 +18,9 @@ pub mod event_type {
     pub const APPROVAL_REQUESTED: &str = "approval.requested";
     pub const APPROVAL_RESOLVED: &str = "approval.resolved";
     pub const PLAN_CREATED: &str = "plan.created";
+    /// 计划态切换（纯广播，不入库）：enter_plan 工具执行时广播，前端据此同步 composer 勾选态。
+    /// 运行期瞬态——重启后由用户重新勾选，不持久化。
+    pub const PLAN_ENTERED: &str = "plan.entered";
     pub const TODO_UPDATED: &str = "todo.updated";
     pub const USER_MESSAGE: &str = "user.message";
     /// 引导（steer）已投递：消费点或收尾丢弃时发，前端据此摘除「待送达」标记；
