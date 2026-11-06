@@ -15,6 +15,7 @@ import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprova
 import { reasoningLabel } from "../lib/reasoning";
 import { selectableModels } from "../lib/provider-list";
 import { formatTokens } from "../lib/format";
+import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot, PlanInfo } from "../../../shared/types";
 import { Markdown } from "./markdown";
@@ -1331,6 +1332,8 @@ function Composer({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    // IME 组词中的 Enter 是候选确认（如中文输入法选词），交给输入法处理，不触发发送
+    if (isImeComposing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
