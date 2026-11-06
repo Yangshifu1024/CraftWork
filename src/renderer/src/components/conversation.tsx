@@ -321,10 +321,11 @@ function MessageRow({
               const raw = trimBlankLines(String(part.payload["text"] ?? ""));
               if (invoke?.name) {
                 const args = raw.replace(/^\/\S*/, "").trim();
-                // chip 不带斜杠（技能名即标识）；点击弹出该技能的描述卡（对齐补全面板信息结构）
+                // chip 不带斜杠（技能名即标识）；点击弹出该技能的描述卡（对齐补全面板信息结构）。
+                // chip 与参数同行内联排布（外层 whitespace-pre-wrap 沿用参数原文换行），不强制分列
                 const meta = skills.find((s) => s.name === invoke.name && s.enabled && !s.error);
                 return (
-                  <div key={part.id} className="flex flex-col gap-1.5">
+                  <div key={part.id} className="whitespace-pre-wrap break-words">
                     <Popover.Root
                       onOpenChange={(open) => {
                         if (open && !meta) void refreshSkills(workspaceId); // 清单未就绪时按当前工作区补扫
@@ -334,9 +335,10 @@ function MessageRow({
                         <button
                           type="button"
                           title="点击查看技能描述"
-                          className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-full bg-skill/10 px-2.5 py-0.5 text-ui-base font-medium text-skill transition-colors hover:bg-skill/20"
+                          // -my-0.5 抵消 py-0.5 的行盒增量：胶囊背景略超出但不撑高文本行
+                          className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-skill/10 px-2.5 py-0.5 -my-0.5 align-middle text-ui-base font-medium text-skill transition-colors hover:bg-skill/20"
                         >
-                          <WandSparkles className="size-4 shrink-0" />
+                          <WandSparkles className="size-3.5 shrink-0" />
                           {invoke.name}
                         </button>
                       </Popover.Trigger>
@@ -368,7 +370,7 @@ function MessageRow({
                         </Popover.Content>
                       </Popover.Portal>
                     </Popover.Root>
-                    {args && <div className="whitespace-pre-wrap break-words">{args}</div>}
+                    {args && ` ${args}`}
                   </div>
                 );
               }
