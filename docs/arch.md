@@ -267,13 +267,14 @@ flowchart LR
 | D7 | 仅保障 macOS 实测 | Win / Linux 实机走查单独立项（D1 后打包障碍已消失，配置已备） |
 | D8 | 计划模式 = 显式协议（enter_plan / exit_plan 工具）+ 计划态只读闸门 | 「计划模式」仍是随消息落库的发送选项（user_message payload 的 planMode，run 启动按 trigger 还原；regenerate 跟随上一轮、steer 接力取首条引导），不是会话级档位。2026-11 修订（对齐 ZCode EnterPlanMode/ExitPlanMode，修订理由：纯提示词在自由档可被提示注入借道执行写操作；计划模式的用户意图本身是「先批准再动手」）：模型可经 `enter_plan` 工具主动进入计划态（R0 免审批，广播 plan.entered 同步前端勾选）；完成调研后必须经 `exit_plan` 工具提交完整计划（正文放 plan 参数，1~20000 字符），该工具**无条件走审批**（自由档也弹卡）。计划态下 R2+ 操作在档位判定之前**直接拒绝**（只拦不放，放行只能来自原档位判定）；R0/R1 照走原档位。审批三路径：批准 → 退出计划态、计划原文落盘（approved=1）、同 run 继续迭代直接实施（后续写操作恢复档位判定）；拒绝带反馈 → 保持计划态，反馈升级为真实用户消息（via=plan_feedback）注入历史，模型修订重提；拒绝无反馈 → 保持计划态、计划落盘（未批准，提示条数据就绪）、run 按正常完成收尾。已批准计划全文在 compact 后与跨 run（提示条兜底路径）注入历史头部；finalize 的「最后一段非空 text」落盘保留为模型未走协议时的兜底。前端勾选态为会话级（threadComposer 分桶），由 plan.entered（开）与批准结果（关）定向同步 |
 | D9 | worktree 由后端编排、会话级绑定 | 勾选 worktree 发送时由服务层 `ensure_thread_worktree` 直跑 git（platform::run，环境清洗 + 超时杀树），不走 Agent 工具/审批——它是发送编排动作，发生在 run 之前，失败回滚保持「失败零落库」；目录固定在 `<数据目录>/worktrees/<会话id>`（随 CRAFTWORK_HOME 隔离），绑定落 threads 表（V10）后 RunEnv 主要目录切换，fs/命令/Git 全部跟随；不可解绑（避免主目录与工作树状态分裂），删除会话/项目时级联清理 |
-| D10 | Python 批量操作 = 环境底座 + 分类识别 + 提示词引导 + 双护栏 | 支持模型用 Python 做批量文件修改：① 环境底座——`sanitize_env` 白名单特批 `PYTHONIOENCODING`/`PYTHONUTF8`（用户值优先，否则注入 UTF-8 默认）；② 分类识别——`python/python3/py` 仅 `--version/-V/-h` 等纯查询参数判 R0 只读，`-c`/`-m`/脚本路径维持 R2 审批，`pip install` 仍 R3；③ 引导——环境快照探测 python3（缺失回落 python）注入「运行时」，行为契约加批量例外与不可信文件 `-I` 隔离条款；④ 护栏——apply_patch 失败文案禁止转向脚本整体重写。策略层看不进脚本内容（`python x.py` 审批后脚本内写入不受路径校验，与 shell 同级边界，靠提示词约束 + 审计兜底）。确定性内置脚本/技能机制留桩，另立项 |
+| D10 | Python 批量操作 = 环境底座 + 分类识别 + 提示词引导 + 双护栏 | 支持模型用 Python 做批量文件修改：① 环境底座——`sanitize_env` 白名单特批 `PYTHONIOENCODING`/`PYTHONUTF8`（用户值优先，否则注入 UTF-8 默认）；② 分类识别——`python/python3/py` 仅 `--version/-V/-h` 等纯查询参数判 R0 只读，`-c`/`-m`/脚本路径维持 R2 审批，`pip install` 仍 R3；③ 引导——环境快照探测 python3（缺失回落 python）注入「运行时」，行为契约加批量例外与不可信文件 `-I` 隔离条款；④ 护栏——apply_patch 失败文案禁止转向脚本整体重写。策略层看不进脚本内容（`python x.py` 审批后脚本内写入不受路径校验，与 shell 同级边界，靠提示词约束 + 审计兜底）。确定性内置脚本/技能机制由 D11 立项 |
+| D11 | 技能（Skills）= 用户级 + 工作区级 SKILL.md 目录 + 两层加载 + 斜杠显式调用 | 目录四级优先（`~/.craftwork/skills` → `~/.agents/skills` → `<工作区>/.craftwork/skills` → `<工作区>/.agents/skills`，`.agents` 兼容外部生态；先扫者胜、按 SKILL.md 路径去重、同名先发现者生效；递归深度 8）。两层加载：每 run 重扫注入「可用技能」清单（20K 字符预算、超限降级仅名称）→ 模型调 `skill` 工具（R0、Work 可用、按名加载不收路径）读正文（`<skill_content>` 包裹 + 基础目录 + `${CLAUDE_SKILL_DIR}` 变量替换；加载即重扫，禁用/删除下一 run 生效）。禁用持久化 `skills.disabled`（SKILL.md 绝对路径数组）+ 总开关 `Settings.skillsEnabled`。受限工作区不扫工作区级技能（自动面），显式斜杠调用不受限（用户主动、加载 R0、后续命令照常审批）。斜杠调用走 prompt 改写（对齐 ZCode Manual Command）：落库与消息流保留原文（`skillInvoke` 载荷 + 胶囊美化），模型历史替换为「先调 skill 工具再执行」的引导 prompt（历史重建与 steer 投递统一走 `manual_skill_prompt_from_text`）；不匹配清单按普通消息发送。frontmatter 自写扁平 YAML 解析（不引 yaml 依赖）。行为规格见 `docs/skills/spec.md` |
 
 ## 8. 已知留桩与限制
 
 - 自动更新：updater 未接线（D6）。
 - 沙箱与 MCP：设置可存配置，连接留桩（D5）。
 - Work 模式：Word 只支持同一格式片段内文本替换；Excel 不计算公式；PDF 只读文本层（无 OCR / 编辑）。
-- Python 批量操作：环境补丁 / 分类识别 / 提示词引导已接线（D10）；确定性内置脚本与技能机制（类似 SKILL.md + 辅助脚本资产）留桩，另立项。
+- 技能（Skills）：管理、Agent 调用与斜杠显式调用已接线（D11）；附加目录扫描、插件技能源、创建脚手架与 frontmatter 扩展字段留桩（`docs/skills/spec.md` 第 10 节）。
 - 会话删除为物理删除且对运行中 / 等待审批的会话无守卫（GLOSSARY 已知限制）。
 - 跨平台：NSIS / AppImage 配置已备，Windows / Linux 实机走查待排期。
