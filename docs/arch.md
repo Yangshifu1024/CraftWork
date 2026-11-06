@@ -88,6 +88,7 @@ sequenceDiagram
     RN->>ST: snapshot + build_history 重建历史
     RN->>RN: collect_env_context + build_prompt（三层缓存）
     loop 每轮迭代（上限默认 300，实时读设置）
+        RN->>RN: 消费 steer 队列：注入 history + 切换新 assistant 消息 + steer.delivered 回执
         RN->>MC: open_session_with_failover → stream(request)
         Note over RN: 首轮：上下文压缩检查（阈值 70%）+ 自动命名（并行）
         MC-->>RN: 流式片段（text/reasoning delta 只广播不落库）
@@ -99,7 +100,7 @@ sequenceDiagram
             RN->>RN: 逐个 run_tool（见 3.2 审批流）
         end
     end
-    Note over RN: execute_run 返回且 has_steers → 接力新 run 消费 steer
+    Note over RN: execute_run 返回且 has_steers → 接力新 run 消费 steer；收尾丢弃的 steer 也回执 steer.delivered
 ```
 
 要点：
@@ -191,6 +192,7 @@ flowchart LR
 - 停止按钮（armed 二次确认 800ms）与运行中双击 Esc 共享 armed 态，都走 `chatCancel` → `Runner.cancel`：从 `cancels` 表取出该会话的 `CancellationToken` 并 cancel；流消费与审批等待处 `tokio::select!` 感知，分别进入 `canceled` 终态与审批取消收尾。
 - 窗口关闭 / 应用退出：`on_window_event(CloseRequested)` 与 `RunEvent::ExitRequested` 两处调 `cancel_all_runs`（逐会话 cancel + 审计 decision="canceled"）；异步收尾未完成的由下次启动 `interrupt_stale_runs` 标记 interrupted 兜底。
 - 运行中引导 steer：入队暂存（上限 `MAX_STEER_QUEUE`），当前工具批次结束后并入下一次模型请求；run 正常结束后若有未消费 steer，自动接力为新 run。
+- **steer 投递回执**（`steer.delivered`）：每条引导在消费（注入 history）或收尾丢弃时落库 + 广播回执，前端据此摘除「待送达」标记（via）——标记生命周期完全由回执驱动，`run.started` 不再全量清除（接力时队列里的引导尚未消费，提前清除会误伤）；快照重建同样按回执摘除 via（无回执的引导重启后仍显示待送达）。消费点同时切换新 assistant 消息（`nextMessageId`）：后续输出与引导气泡之间的时间线时序和视觉位置一致，旧消息就此封口。
 
 ### 3.6 快照装载与草稿
 
