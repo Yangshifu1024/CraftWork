@@ -14,7 +14,7 @@ import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import { reasoningLabel } from "../lib/reasoning";
 import { selectableModels } from "../lib/provider-list";
-import { formatTokens } from "../lib/format";
+import { formatSpeed, formatTokens } from "../lib/format";
 import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot, PlanInfo } from "../../../shared/types";
@@ -1104,7 +1104,7 @@ function ContextChip(): React.JSX.Element | null {
         >
           <ContextRing percent={percent / 100} />
           <span className="tabular-nums">{percent}%</span>
-          {shownSpeed > 0 && <span className="tabular-nums text-foreground-subtlest">{Math.round(shownSpeed)} tok/s</span>}
+          {shownSpeed > 0 && <span className="tabular-nums text-foreground-subtlest">{formatSpeed(shownSpeed)} tok/s</span>}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -1131,7 +1131,7 @@ function ContextChip(): React.JSX.Element | null {
             />
             <ContextRow
               label="最近一轮速度"
-              value={shownSpeed > 0 ? `${Math.round(shownSpeed)} tok/s` : "—"}
+              value={shownSpeed > 0 ? `${formatSpeed(shownSpeed)} tok/s` : "—"}
               muted={shownSpeed <= 0}
             />
           </dl>
