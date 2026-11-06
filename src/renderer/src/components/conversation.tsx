@@ -1,6 +1,6 @@
 // 对话区：工作区标题栏 + 消息流（Timeline）+ 沉底输入区（Composer）。
 // 滚动贴底与「回到底部」由 use-stick-to-bottom 托管；发送 / 引导（steer）/ 停止（armed 二次确认）编排收在 Composer。
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Folder, ListChecks, GitBranch } from "lucide-react";
 import { Popover } from "radix-ui";
@@ -28,6 +28,12 @@ import { TodoCard } from "./cards";
 const CONTENT_WIDTH_CLASS =
   "max-w-full transition-[max-width] duration-150 ease-out @min-[864px]/conversation:max-w-4xl @min-[1280px]/conversation:max-w-6xl";
 const DRAFT_WIDTH_CLASS = "max-w-2xl transition-[max-width] duration-150 ease-out";
+
+/** 批准计划后由前端发送的固定确认消息（approvePlan）：非用户真实输入，历史翻阅时排除。 */
+const PLAN_CONFIRM_TEXT = "计划已确认，请按计划执行。";
+
+/** 空 messages 占位：selector 稳定引用，避免未装载会话时 useMemo 因新数组字面量反复重算。 */
+const NO_MESSAGES: MessageSnapshot[] = [];
 
 /** 对话区整体：标题取活动会话，草稿态（无活动会话）显示草稿槽归属的工作区名。 */
 export function Conversation(): React.JSX.Element {
@@ -1247,6 +1253,33 @@ function Composer({
   const stopArmed = useOverlays((s) => s.stopArmed);
   const setStopArmed = useOverlays((s) => s.setStopArmed);
 
+  // 历史翻阅（docs/composer-history/spec.md）：当前会话的用户消息倒序回溯，仅恢复文本。
+  // steer / 计划模式消息是真实输入纳入；批准计划的固定确认消息与空白消息排除；相邻去重
+  // 避免重试场景连发同样内容时「按了没动」的假象。
+  const messages = useApp((s) => s.chats[activeId]?.messages ?? NO_MESSAGES);
+  const userHistory = useMemo(() => {
+    const items: string[] = [];
+    for (const m of messages) {
+      if (m.role !== "user") continue;
+      const content = m.parts
+        .filter((p) => p.kind === "text")
+        .map((p) => String(p.payload["text"] ?? ""))
+        .join("\n")
+        .trim();
+      if (!content || content === PLAN_CONFIRM_TEXT || items[items.length - 1] === content) continue;
+      items.push(content);
+    }
+    return items;
+  }, [messages]);
+  // 翻阅游标：index = -1 未在翻阅；stash 暂存进入翻阅前的原始输入（↓ 越过最新时还原）。
+  // cursorEnd 置位后由自适应高度 effect 在受控更新完成后把光标移到末尾。
+  const historyRef = useRef({ index: -1, stash: "" });
+  const cursorEndRef = useRef(false);
+  // Composer 不按 activeId 重挂载，切换会话显式重置翻阅态。
+  useEffect(() => {
+    historyRef.current = { index: -1, stash: "" };
+  }, [activeId]);
+
   const pickAndAttach = async (): Promise<void> => {
     try {
       const files = await api.pickFiles();
@@ -1285,12 +1318,17 @@ function Composer({
     })().catch((err) => pushToast("danger", "粘贴上传失败", cleanErrorMessage(err)));
   };
 
-  // 自适应高度（2→8 行）
+  // 自适应高度（2→8 行）；历史翻阅回填后顺带把光标移到末尾（受控更新完成后 DOM 才可定位）
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 8 * 24)}px`;
+    if (cursorEndRef.current) {
+      cursorEndRef.current = false;
+      const end = ta.value.length;
+      ta.setSelectionRange(end, end);
+    }
   }, [text]);
 
   /** 计划确认执行：后端置批准状态（提示条消失）→ 取消勾选 → 发送固定确认消息（写操作回到审批档位管控）。 */
@@ -1300,12 +1338,13 @@ function Composer({
       .approvePlan(activeId)
       .then(() => {
         setPlanOn(false);
-        return api.chatSend(activeId, "计划已确认，请按计划执行。", [], false, false);
+        return api.chatSend(activeId, PLAN_CONFIRM_TEXT, [], false, false);
       })
       .catch((err: unknown) => pushToast("danger", "发送失败", cleanErrorMessage(err)));
   };
 
   const submit = (): void => {
+    historyRef.current = { index: -1, stash: "" }; // 发送即退出翻阅态（失败还原走程序化回填，不影响游标）
     const clean = text.trim();
     if (!clean && attachments.length === 0) return;
     const sendAttachments = attachments;
@@ -1356,12 +1395,62 @@ function Composer({
     }
   };
 
+  /** 回填文本并置光标于末尾：受控值变化时经 effect 置尾；未变化（effect 不会跑）直接在 DOM 上置。 */
+  const setTextAndCursorEnd = (value: string): void => {
+    setText(value);
+    if (value === text) {
+      const ta = taRef.current;
+      if (ta) {
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+      }
+    } else {
+      cursorEndRef.current = true;
+    }
+  };
+
+  /** 历史翻阅（docs/composer-history/spec.md）：dir = -1 回溯（↑）、+1 前进（↓），命中返回 true（调用方 preventDefault）。
+      进入翻阅前暂存当前输入；↓ 越过最新一条时还原暂存并退出翻阅态；到最旧后停留。 */
+  const recallHistory = (dir: -1 | 1): boolean => {
+    if (isDraft || userHistory.length === 0) return false;
+    const h = historyRef.current;
+    if (h.index === -1) {
+      if (dir === 1) return false; // 非翻阅态 ↓ 交给光标
+      h.stash = text;
+      h.index = userHistory.length - 1;
+    } else {
+      const next = h.index + dir;
+      if (next >= userHistory.length) {
+        h.index = -1;
+        const stash = h.stash;
+        h.stash = "";
+        setTextAndCursorEnd(stash);
+        return true;
+      }
+      if (next < 0) return true; // 已到最旧
+      h.index = next;
+    }
+    const item = userHistory[h.index];
+    if (item !== undefined) setTextAndCursorEnd(item);
+    return true;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     // IME 组词中的 Enter 是候选确认（如中文输入法选词），交给输入法处理，不触发发送
     if (isImeComposing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
+      return;
+    }
+    // 历史翻阅：非翻阅态 ↑ 仅在光标位于第一行时进入（多行输入不抢光标上移）；翻阅态 ↑/↓ 无条件翻阅
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const ta = e.currentTarget;
+      const inRecall = historyRef.current.index !== -1;
+      const onFirstLine = !ta.value.slice(0, ta.selectionStart).includes("\n");
+      if ((inRecall || (e.key === "ArrowUp" && onFirstLine)) && recallHistory(e.key === "ArrowUp" ? -1 : 1)) {
+        e.preventDefault();
+      }
     }
   };
 
@@ -1466,7 +1555,10 @@ function Composer({
             ref={taRef}
             rows={2}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              historyRef.current = { index: -1, stash: "" }; // 手动键入退出翻阅态（程序化回填不触发 onChange）
+              setText(e.target.value);
+            }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={running ? "任务执行中，输入补充指令（将并入当前任务）…" : "描述你的任务…"}
@@ -1521,7 +1613,7 @@ function Composer({
           </div>
         </div>
         <div className="px-1 text-center text-ui-xs text-foreground-subtlest">
-          Enter 发送 · Shift+Enter 换行 · 运行中输入为引导指令 · ⌘K 命令面板 · ⌘, 设置
+          Enter 发送 · Shift+Enter 换行 · ↑ 翻阅历史 · 运行中输入为引导指令 · ⌘K 命令面板 · ⌘, 设置
         </div>
       </div>
     </div>
