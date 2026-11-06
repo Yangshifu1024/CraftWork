@@ -339,16 +339,19 @@ function MessageRow({
     <div className="group/msg flex w-full flex-col gap-2">
       <TurnBody message={message} chatRunning={chatRunning} />
       {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动。
-          时间戳只在回复结束后显示，且取结束时刻（finishedAt）而非开始时刻 */}
+          复制按钮与时间戳只在回复结束后出现（流式中占位为空，hover 也不显示任何内容）；
+          时间戳取结束时刻（finishedAt）而非开始时刻 */}
       <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100">
-        <CopyButton
-          getText={() =>
-            message.parts
-              .filter((p) => p.kind === "text")
-              .map((p) => String(p.payload["text"] ?? ""))
-              .join("\n")
-          }
-        />
+        {message.status !== "streaming" && (
+          <CopyButton
+            getText={() =>
+              message.parts
+                .filter((p) => p.kind === "text")
+                .map((p) => String(p.payload["text"] ?? ""))
+                .join("\n")
+            }
+          />
+        )}
         {message.status !== "streaming" && (message.finishedAt ?? message.createdAt) > 0 && (
           <span className="select-none text-ui-xs text-foreground-subtlest">
             {fmtDateTime(message.finishedAt ?? message.createdAt)}
