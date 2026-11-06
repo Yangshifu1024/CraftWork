@@ -143,6 +143,7 @@ export const useApp = create<AppState>((set, get) => ({
     telemetry: false,
     maxIterations: 300,
     logsLevel: "info",
+    smoothFollow: false,
   },
   chats: {},
   plans: {},

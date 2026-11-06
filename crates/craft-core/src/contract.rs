@@ -246,6 +246,9 @@ pub struct Settings {
     /// 运行日志等级：off | error | info | debug（会话日志 <dataDir>/logs 的记录密度）
     #[serde(default)]
     pub logs_level: String,
+    /// 流式输出贴底的平滑（弹簧）动画开关；false=即时跟随（直接跳到底）
+    #[serde(default)]
+    pub smooth_follow: bool,
 }
 
 // ---------- 审计 / 用量 / 备份 ----------
@@ -488,6 +491,7 @@ mod tests {
             telemetry: false,
             max_iterations: 300,
             logs_level: "info".into(),
+            smooth_follow: false,
         };
         let audit = AuditEntry {
             id: 0,

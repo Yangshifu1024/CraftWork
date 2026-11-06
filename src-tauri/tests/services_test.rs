@@ -131,10 +131,12 @@ fn startup_ensure_and_settings_roundtrip() {
     // 设置默认值与保存往返
     let settings = services::settings_get(&state).unwrap();
     assert_eq!(settings["theme"], "system");
-    let saved = services::settings_save(&state, &json!({ "theme": "dark", "fontSize": 20, "panelWidth": 9999 })).unwrap();
+    assert_eq!(settings["smoothFollow"], false, "平滑跟随默认关闭");
+    let saved = services::settings_save(&state, &json!({ "theme": "dark", "fontSize": 20, "panelWidth": 9999, "smoothFollow": true })).unwrap();
     assert_eq!(saved["theme"], "dark");
     assert_eq!(saved["fontSize"], 15, "越界字号回退默认");
     assert_eq!(saved["panelWidth"], 760, "越界面板宽度收口上限");
+    assert_eq!(saved["smoothFollow"], true, "平滑跟随保存往返");
 }
 
 #[test]

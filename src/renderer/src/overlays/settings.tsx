@@ -143,6 +143,9 @@ function GeneralSection(): React.JSX.Element {
           <option value="work">Work</option>
         </select>
       </Row>
+      <Row title="流式平滑跟随" desc="流式输出时以弹簧动画平滑贴底；关闭后即时跟随（直接跳到底）">
+        <Switch checked={settings.smoothFollow} onChange={(v) => void save({ smoothFollow: v })} />
+      </Row>
       <Row title="系统通知" desc="窗口失焦时的审批 / 完成 / 失败提醒">
         <Switch checked={settings.notifications} onChange={(v) => void save({ notifications: v })} />
       </Row>

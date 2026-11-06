@@ -122,6 +122,7 @@ pub fn default_settings() -> Settings {
         telemetry: false,
         max_iterations: 300,
         logs_level: "info".into(),
+        smooth_follow: false,
     }
 }
 
@@ -199,11 +200,12 @@ pub fn settings_save(state: &AppState, next: &Value) -> SvcResult {
     if let Some(v) = next.get("updateChannel").and_then(Value::as_str).filter(|v| !v.is_empty()) {
         merged.update_channel = v.into();
     }
-    for key in ["autoUpdate", "notifications", "telemetry"] {
+    for key in ["autoUpdate", "notifications", "telemetry", "smoothFollow"] {
         if let Some(v) = next.get(key).and_then(Value::as_bool) {
             match key {
                 "autoUpdate" => merged.auto_update = v,
                 "notifications" => merged.notifications = v,
+                "smoothFollow" => merged.smooth_follow = v,
                 _ => merged.telemetry = v,
             }
         }

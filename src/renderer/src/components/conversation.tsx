@@ -115,7 +115,12 @@ function Timeline({
   chat?: { messages: MessageSnapshot[]; running: boolean };
   footer?: React.ReactNode;
 }): React.JSX.Element {
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom, stopScroll } = useStickToBottom();
+  // 流式跟随动画由设置控制：默认关闭（resize=instant，新内容直接跳到底），开启走库默认弹簧。
+  // 库每次渲染把 options 写进内部 ref，切换开关立即生效，无需重建实例。
+  const smoothFollow = useApp((s) => s.settings.smoothFollow);
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom, stopScroll } = useStickToBottom({
+    resize: smoothFollow ? undefined : "instant",
+  });
   const messages = chat?.messages ?? [];
 
   useEffect(() => {

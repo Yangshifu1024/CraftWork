@@ -177,6 +177,8 @@ export interface Settings {
   maxIterations: number;
   /** 运行日志等级：off | error | info | debug（会话日志 <数据目录>/logs 的记录密度） */
   logsLevel: "off" | "error" | "info" | "debug";
+  /** 流式输出贴底的平滑（弹簧）动画开关；false=即时跟随（直接跳到底） */
+  smoothFollow: boolean;
 }
 
 // ---------- 提供商与模型 ----------
