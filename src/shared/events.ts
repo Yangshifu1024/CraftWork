@@ -18,6 +18,7 @@ export const EventType = {
   PlanCreated: "plan.created",
   TodoUpdated: "todo.updated",
   UserMessage: "user.message",
+  SteerDelivered: "steer.delivered",
   Notice: "notice",
   ContextCompressed: "context.compressed",
   Error: "error",
@@ -136,6 +137,14 @@ export interface UserMessageData {
   via?: "steer";
 }
 
+/** 引导投递回执：messageId 即引导消息 id（Recorder 自动注入）。
+ * nextMessageId 有值表示引导已被消费，后续输出切换到该新 assistant 消息；
+ * 缺省表示去重跳过或收尾丢弃（内容已在事件表，仅摘「待送达」标记）。 */
+export interface SteerDeliveredData {
+  messageId: string;
+  nextMessageId?: string;
+}
+
 export interface NoticePart {
   partId: string;
   text: string;
@@ -217,7 +226,8 @@ export type EventKind =
   | "run_finished"
   | "context_summary"
   | "approval_resolved"
-  | "context_compressed";
+  | "context_compressed"
+  | "steer_delivered";
 
 /** events 表行（落库形态）：快照重建（Snapshot）的输入；与推送 Envelope 是同一事实的两种形态。 */
 export interface StoredEvent {

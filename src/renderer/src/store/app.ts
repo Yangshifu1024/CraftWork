@@ -377,19 +377,64 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
   switch (event.type) {
     case "run.started": {
       const messageId = String(data["messageId"] ?? "");
-      // 回复已开始：清掉用户消息上的「待送达」（via=steer）标记
-      const cleared = chat.messages.map((m) =>
-        m.parts.some((p) => p.payload["via"])
-          ? { ...m, parts: m.parts.map((p) => (p.payload["via"] ? { ...p, payload: { ...p.payload, via: undefined } } : p)) }
-          : m,
-      );
+      // 「待送达」（via=steer）标记不在此处清除：接力新 run 时队列里的引导尚未消费，
+      // 提前全清会误伤；标记生命周期完全由 steer.delivered 回执驱动（消费/丢弃逐条摘除）
       setChat(set, threadId, {
         ...chat,
         running: true,
-        messages: cleared.some((m) => m.id === messageId)
-          ? cleared
-          : [...cleared, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: event.ts }],
+        messages: chat.messages.some((m) => m.id === messageId)
+          ? chat.messages
+          : [...chat.messages, { id: messageId, role: "assistant", parts: [], status: "streaming", seq: 0, createdAt: event.ts }],
       });
+      break;
+    }
+    case "steer.delivered": {
+      // 引导投递回执：按 messageId 摘除「待送达」标记；带 nextMessageId 时把旧
+      // streaming 消息封口（空壳占位直接删除），新 streaming 消息插到引导气泡之后——
+      // 后续输出在气泡下方续流，时间线时序与视觉位置一致
+      const steerMessageId = String(data["messageId"] ?? "");
+      const nextMessageId = data["nextMessageId"] == null ? "" : String(data["nextMessageId"]);
+      // 空壳 streaming 消息（run.started 刚建的占位、尚无部件）先移除，避免与封口判断互斥
+      const withoutShell = chat.messages.filter(
+        (m) => !(m.role === "assistant" && m.status === "streaming" && m.parts.length === 0 && m.id !== nextMessageId),
+      );
+      const messages = withoutShell.map((m) => {
+        if (m.id === steerMessageId) {
+          return {
+            ...m,
+            parts: m.parts.map((p) => (p.payload["via"] ? { ...p, payload: { ...p.payload, via: undefined } } : p)),
+          };
+        }
+        if (nextMessageId && m.id !== nextMessageId && m.role === "assistant" && m.status === "streaming") {
+          return { ...m, status: "complete" as const };
+        }
+        return m;
+      });
+      if (!nextMessageId) {
+        setChat(set, threadId, { ...chat, messages });
+        break;
+      }
+      const steerIdx = messages.findIndex((m) => m.id === steerMessageId);
+      // 同迭代多条引导共用同一 nextMessageId：已存在（前一条回执刚建）则不重复插入
+      if (messages.some((m) => m.id === nextMessageId)) {
+        setChat(set, threadId, { ...chat, messages });
+        break;
+      }
+      const fresh: MessageSnapshot = {
+        id: nextMessageId,
+        role: "assistant",
+        parts: [],
+        status: "streaming",
+        seq: 0,
+        createdAt: event.ts,
+      };
+      if (steerIdx < 0) {
+        setChat(set, threadId, { ...chat, messages: [...messages, fresh] });
+      } else {
+        const next = [...messages];
+        next.splice(steerIdx + 1, 0, fresh);
+        setChat(set, threadId, { ...chat, messages: next });
+      }
       break;
     }
     case "run.completed":
