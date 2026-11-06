@@ -575,6 +575,15 @@ impl Runner {
                 return false;
             }
         };
+        // 跨 run 注入（提示条兜底路径）：用户在计划 run 结束后点「批准并执行」发起的新 run，
+        // 历史里只有固定确认消息——把已批准计划全文作为 reminder 拼在历史头部，
+        // 执行 run 的模型才能拿到计划（压缩保护与 compact 注入共用一份 reminder 格式）。
+        // 计划模式主路径（批准同 run 继续）不经过这里——计划已在上下文里，无需重复注入。
+        if !plan_mode
+            && let Some(plan_text) = Self::read_approved_plan_text(&self.deps.db, thread_id)
+        {
+            history.insert(0, Message::new("user", crate::context::plan_reminder_text(&plan_text)));
+        }
 
         // 环境上下文 + 提示词（阻塞段）
         let data_dir = self.deps.data_dir.clone();
@@ -716,6 +725,8 @@ impl Runner {
                 let client = session.client.clone_box();
                 let records = self.deps.records.clone();
                 let compressed = tokio::task::spawn_blocking(move || {
+                    // 已批准计划的全文：有则读盘（压缩后拼保留窗头部，ZCode plan-file continuity）
+                    let approved_plan = Self::read_approved_plan_text(&db, thread_id_owned.as_str());
                     run_compression_with(
                         crate::context::CompressionArgs {
                             db: &db,
@@ -726,6 +737,7 @@ impl Runner {
                             client: client.as_ref(),
                             model_id: &model_id_owned,
                             context_k,
+                            approved_plan,
                         },
                         history_in,
                     )
@@ -1504,6 +1516,20 @@ impl Runner {
     }
 
     // ---------- 结束路径 ----------
+
+    /// 已批准计划的全文（compact 注入与跨 run 注入共用）：取会话最新计划行，
+    /// 已批准且有文件时读盘返回；任何一步不满足返回 None（无计划/未批准/文件丢失都不注入）。
+    fn read_approved_plan_text(db: &Arc<Db>, thread_id: &str) -> Option<String> {
+        let (file_path, approved) = {
+            let conn = db.lock_conn();
+            let plan = craft_store::plans::latest_plan(&conn, thread_id).ok().flatten()?;
+            (plan.file_path, plan.approved)
+        };
+        if !approved || file_path.is_empty() {
+            return None;
+        }
+        std::fs::read_to_string(&file_path).ok().filter(|t| !t.trim().is_empty())
+    }
 
     /// 计划正文落盘 + 回填 + 广播 plan.created（exit_plan 的批准/拒绝路径调用）。
     /// approved 表示用户是否已批准（批准=true 置 approved=1，拒绝/反馈=false 仅落盘供提示条展示）。
