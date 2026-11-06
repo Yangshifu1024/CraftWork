@@ -60,6 +60,12 @@ const GIT_READONLY_SUBCOMMANDS: &[&str] = &[
     "log", "status", "diff", "show", "blame", "shortlog", "describe", "rev-parse", "ls-files", "grep",
 ];
 
+/// Python 系解释器：不进只读程序白名单（`python x.py` 会执行任意脚本），
+/// 只对纯版本/帮助参数放行只读；`-c`、`-m`、脚本路径一律不判只读。
+const PYTHON_EXECUTABLES: &[&str] = &["python", "python3", "py"];
+/// Python 解释器的只读参数：仅版本查询与帮助，无文件副作用。
+const PYTHON_READONLY_FLAGS: &[&str] = &["--version", "-V", "-VV", "-h", "--help"];
+
 /// 包管理器的只读查询子命令（install/add/update 等写类不入选）。
 const PNPM_READONLY_SUBCOMMANDS: &[&str] = &["ls", "list", "why", "outdated"];
 const NPM_READONLY_SUBCOMMANDS: &[&str] = &["ls", "list", "outdated"];
@@ -81,6 +87,7 @@ fn is_readonly_segment(segment: &str) -> bool {
     let program = program.rsplit('/').next().unwrap_or(program);
     match program {
         p if READONLY_PROGRAMS.contains(&p) => true,
+        p if PYTHON_EXECUTABLES.contains(&p) => words.all(|w| PYTHON_READONLY_FLAGS.contains(&w)),
         "git" => {
             let sub = words.next().unwrap_or_default();
             GIT_READONLY_SUBCOMMANDS.contains(&sub)
@@ -184,5 +191,28 @@ mod tests {
         assert_eq!(classify_command("ls\nrm x"), (PolicyRisk::R2, "在工作区内执行命令"), "多行多命令拒绝只读");
         assert_eq!(classify_command("git log | xargs rm"), (PolicyRisk::R2, "在工作区内执行命令"), "管道尾段不在白名单");
         assert_eq!(classify_command("sudo ls"), (PolicyRisk::R4, "包含破坏性命令"), "sudo 优先于只读");
+    }
+
+    #[test]
+    fn python_version_flags_map_to_r0() {
+        assert_eq!(classify_command("python --version"), (PolicyRisk::R0, "只读命令"));
+        assert_eq!(classify_command("python3 -V"), (PolicyRisk::R0, "只读命令"));
+        assert_eq!(classify_command("python -VV"), (PolicyRisk::R0, "只读命令"));
+        assert_eq!(classify_command("py -h"), (PolicyRisk::R0, "只读命令"));
+        assert_eq!(classify_command("/usr/bin/python3 --version"), (PolicyRisk::R0, "只读命令"), "绝对路径按程序名匹配");
+        assert_eq!(classify_command("python --version | cat"), (PolicyRisk::R0, "只读命令"), "管道两端都只读");
+        assert_eq!(classify_command("python --version && git status"), (PolicyRisk::R0, "只读命令"));
+    }
+
+    #[test]
+    fn python_execution_stays_non_readonly() {
+        assert_eq!(classify_command("python script.py"), (PolicyRisk::R2, "在工作区内执行命令"), "脚本执行不判只读");
+        assert_eq!(classify_command("python -c \"open('x','w')\""), (PolicyRisk::R2, "在工作区内执行命令"), "-c 任意代码不判只读");
+        assert_eq!(classify_command("python -m http.server"), (PolicyRisk::R2, "在工作区内执行命令"), "-m 模块执行不判只读");
+        assert_eq!(classify_command("python --version --user x"), (PolicyRisk::R2, "在工作区内执行命令"), "未知参数落只读白名单外");
+        assert_eq!(classify_command("python --version > out.txt"), (PolicyRisk::R2, "在工作区内执行命令"), "重定向拒绝只读");
+        assert_eq!(classify_command("python --version &"), (PolicyRisk::R2, "在工作区内执行命令"), "后台执行拒绝只读");
+        assert_eq!(classify_command("python -m pip install requests"), (PolicyRisk::R3, "命令可能访问网络"), "网络优先于只读");
+        assert_eq!(classify_command("sudo python --version"), (PolicyRisk::R4, "包含破坏性命令"), "sudo 优先于只读");
     }
 }
