@@ -40,7 +40,7 @@ jobs:
         run: pnpm typecheck
 
   # Rust 侧（cargo workspace：src-tauri + crates/craft-*）。
-  # 迁移期 macOS 必绿；ubuntu/windows 允许失败占位（docs/tauri-migration/issues/01）。
+  # 三平台都必须全绿，run 才算通过（无占位放行）。
   rust:
     name: Rust 检查（${{ matrix.os }}）
     strategy:
@@ -48,7 +48,6 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os != 'macos-latest' }}
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4

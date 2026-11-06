@@ -1,6 +1,6 @@
 name: Release
 
-# 仅 v* 标签推送触发发布（Tauri bundler 打包；macOS 必产出，win/linux 允许失败占位）。
+# 仅 v* 标签推送触发发布（Tauri bundler 打包）；三平台打包全绿才创建草稿 release。
 on:
   push:
     tags:
@@ -29,7 +29,6 @@ jobs:
               target/release/bundle/appimage/*.AppImage
               target/release/bundle/deb/*.deb
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os != 'macos-latest' }}
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4

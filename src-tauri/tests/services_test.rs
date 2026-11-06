@@ -381,6 +381,12 @@ fn model_reasoning_declaration_persists_and_survives_unrelated_edit() {
 
 // ---------- worktree ----------
 
+/// git 的 porcelain 输出统一使用正斜杠（Windows 也是），测试路径归一化成正斜杠后再比较，
+/// 避免 Windows 反斜杠路径与 git 输出匹配不上（正向匹配不上、反向恒真两类假结果）。
+fn git_path(p: &str) -> String {
+    p.replace('\\', "/")
+}
+
 /// 在测试目录里造一个真实 git 仓库（git init + 首次提交，worktree add 需要 HEAD 存在）。
 fn git_repo(dir: &std::path::Path) -> std::path::PathBuf {
     let repo = dir.join("repo");
@@ -464,7 +470,7 @@ fn worktree_ensure_creates_binds_and_is_idempotent() {
 
     // 主仓库的 worktree 登记 + 分支存在
     let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
-    assert!(String::from_utf8_lossy(&out.stdout).contains(&path), "主仓库应登记该工作树");
+    assert!(git_path(&String::from_utf8_lossy(&out.stdout)).contains(&git_path(&path)), "主仓库应登记该工作树");
     let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
     assert!(!String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支应存在");
 }
@@ -525,5 +531,5 @@ fn thread_delete_cleans_up_bound_worktree_and_branch() {
     let out = std::process::Command::new("git").args(["branch", "--list", &branch]).current_dir(&repo).output().unwrap();
     assert!(String::from_utf8_lossy(&out.stdout).trim().is_empty(), "分支已删除");
     let out = std::process::Command::new("git").args(["worktree", "list", "--porcelain"]).current_dir(&repo).output().unwrap();
-    assert!(!String::from_utf8_lossy(&out.stdout).contains(&path), "主仓库 worktree 登记已移除");
+    assert!(!git_path(&String::from_utf8_lossy(&out.stdout)).contains(&git_path(&path)), "主仓库 worktree 登记已移除");
 }
