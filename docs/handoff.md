@@ -1,154 +1,159 @@
-# Handoff：注释整理过程中发现的问题清单
+# 输出上限截断：取证与修复方案
 
-> 来源：2026-11-05 全仓库注释整理（只读审查）。本次改动**未修改任何代码逻辑**（仅注释与文档），
-> 下列问题均按原样保留，供后续排期修复。每条给出位置、现象、影响与建议。
+> 对象：会话 `th_54874a9392ebb60b`（标题「各系统Shell选择逻辑」）——末尾回答要求给出三条原则，
+> 实际只完整输出第一条，第二条在 `2. **破坏性/网络` 处断在半句，界面无任何提示。
+>
+> 状态：**只读取证完成，尚未修改任何代码**。日期 2026-11-06。
 
-## P1 功能性缺陷（建议优先修复）
+## 1. 结论
 
-### 1. docx 段落/表格深度统计按标签前缀误匹配派生标签
-- 位置：`crates/craft-doc/src/docx.rs:49`（段落）、`docx.rs:157`（表格 `find_balanced`）
-- 现象：`starts_with_at(.., b"<w:p")` 会把 `<w:pPr`、`<w:proofErr`、`<w:pict` 也计为段落开标签（depth +1），而对应的 `</w:pPr>` 闭合不会 -1；表格侧 `<w:tbl`/`<w:tr`/`<w:tc` 同理命中 `<w:tblPr`/`<w:trPr`/`<w:tcPr`。
-- 影响：真实 Word 文档几乎必含这些子元素，段落闭合判定失效会合并段落；含 `<w:tblPr`（表格标配）时连 `</w:tbl>` 都配对失败，`read()` 在首个表格处中断并丢弃其后全部内容。合成测试样例不含这些元素，故测试全绿。
-- 建议：比较完整标签名；或利用「OOXML 段落/表格不嵌套」直接定位最近闭合标签，去掉 depth 逻辑。
+**这不是网络故障，也不是 SSE 流损坏，而是输出上限（max_tokens）被打满后的正常截断。**
 
-### 2. RetryClient 流错误终态用 break 而非 return
-- 位置：`crates/craft-model/src/retry.rs:62,81`
-- 现象：`Some(Err)` 分支 `yield Err(err)` 后 `break`：(a) 最后一次尝试失败时，循环后的兜底会把更早一次尝试的旧 `last_err` 再 yield 一次（同一条流投递两个 Err）；(b) 第 1 次可重试失败、第 2 次遇到**不可重试**错误时，仍会退避并继续第 3 次尝试。
-- 影响：当前依赖消费方「见 Err 即 drop 流」才无实际表现；语义脆弱。
-- 建议：yield Err 后一律 `return`；顺带清理 `last_err.clone()` + `let _ = err;` 冗余。
+三层原因，缺一不可：
 
-### 3. SSE 整体超时会掐断长流
-- 位置：`crates/craft-model/src/sse.rs:147`
-- 现象：`open_sse` 的 `.timeout(600s)` 是 reqwest「从建连覆盖到响应体读完」的整体超时，SSE 流超过 10 分钟被以 timeout 错误切断；该错误可重试，会白白整轮重来。
-- 影响：长推理输出 / 慢网关的长回合可能中途失败。
-- 建议：改为 `connect_timeout` + 无总超时（或上层空闲超时）。
+1. **直接原因**：该模型的 `maxTokens` 被手动设为 `10240`，而目录中同一模型的值是 `384000`。末轮调用的
+   `output_tokens` 精确等于 `10240`——上限被打满。
+2. **放大因素**：思考型模型的 reasoning 与正文共享同一份输出预算。该轮 `reasoning_tokens = 8005`，
+   正文实际只剩约 2235 token，所以刚写完第一条原则就用尽了空间。
+3. **为什么你没察觉**：客户端已经识别出截断，但只写进日志文件，**不投递任何用户可见事件**；
+   run 以 `status=done`、`error_code` 空收尾，界面显示「正常完成」。
 
-### 4. apply_patch 的 added 行数统计翻倍
-- 位置：`crates/craft-tools/src/fs.rs:711`
-- 现象：`added += (new_len - new_len.min(old_len)) + (new_len - old_len).max(0)` 两半恒等，净效果 `added = 2 × max(new_len − old_len, 0)`；removed 却是净变化口径。
-- 影响：结果卡片「+N −M 行」虚增（纯新增 -0,+5 报 +10）；不影响补丁应用正确性，测试未覆盖该统计。
-- 建议：与 removed 统一口径（净变化或 diffstat 二选一）并补单测。
+即：前两层是配置与产品语义问题，第三层才是需要改代码的缺陷。
 
-### 5. fs_write 把「读取失败」当「文件不存在」绕过备份
-- 位置：`crates/craft-tools/src/fs.rs:424`
-- 现象：`if let Ok(existing) = std::fs::read(...)` 在读取失败（如权限不足）时 `had_existing=false`，不备份直接覆盖。
-- 影响：原内容与权限在异常路径下丢失，违背「写前备份」承诺。
-- 建议：先 `metadata` 判存在；存在但读取失败时报错而非静默覆盖。
+## 2. 现场证据
 
-### 6. 原子写固定 0o644 重置已存在文件权限
-- 位置：`crates/craft-tools/src/fs.rs:437,505,728`（`write_file_atomic(.., 0o644)`）
-- 现象：临时文件 + rename + set_mode 的原子写对已有文件固定设 0644。
-- 影响：编辑可执行脚本（0755）或私有文件（0600）后权限被改写。
-- 建议：目标已存在时读取原 mode 传入保留。
+| 项 | 值 |
+| --- | --- |
+| 触发消息 | `events.seq=58`（2026-11-06 09:43:03），`msg_36259fe33edb6f97` |
+| 运行 | `run_49c6aa9d9d792d92`，09:43:03 → 09:50:05，`status=done`，`error_code` 空 |
+| 末轮调用 | `usage.id=797`：input 87770 / **output 10240** / cache 86016 / **reasoning 8005** |
+| 正文事件 | `events.seq=137`（kind `text`，4497 字符），末尾停在 `2. **破坏性/网络` |
+| 末轮推理 | `events.seq=136`（kind `reasoning`，30014 字节，即 8005 reasoning token） |
+| 配置值 | `settings.model.custom_providers` → `commandcode` → `deepseek/deepseek-v4.1-flash-fast`，`maxTokens: 10240` |
+| 目录值 | `assets/catalog` 同一模型 `maxTokens: 384000` |
+| 模型能力 | `caps.reasoning = true`，`reasoningKind = "effort"`，档位 `none/low/high/max` |
 
-### 7. 权限配置项：可拖拽侧栏分隔条是假的
-- 位置：`src/renderer/src/App.tsx:57`；关联 `store/app.ts` 的 `settings.panelWidth`（默认 320）
-- 现象：元素带 `role="separator"`、`aria-label="调整侧栏宽度"`、`cursor-ew-resize`，但全渲染层无任何拖拽实现；侧栏宽度固定 `w-[264px]`；`panelWidth` 无任何布局消费。
-- 影响：可访问性语义与视觉暗示「可拖拽」但实际无效；死配置误导。
-- 建议：实现拖拽接线，或移除 role/aria-label/拖拽光标并清理 `panelWidth` 字段。
+支撑推断的两点：
 
-## P2 行为隐患（建议排期）
+- `output_tokens` 与配置上限**精确相等**（10240），恰好等于上限的概率极低；
+- 正文尾部是 `2. **破坏性/网络` —— 加粗标记未闭合、句子未收束，是被硬切断的形态，而非模型自然停笔。
 
-### 8. SQLite 前向版本静默放行
-- 位置：`crates/craft-store/src/db.rs:241-243`
-- 现象：`user_version >= SCHEMA_VERSION` 直接返回 Ok，新版应用产出的新库被旧版应用打开不报错，随后写入可能破坏新 schema。
-- 建议：显式拒绝打开并提示「数据库版本高于当前应用」。
+**证据的局限（如实说明）**：该会话没有 `logs/th_54874a9392ebb60b.log`。`session_log` 是本次诊断前若干小时
+才落地的能力（commit `d6fe02f`），历史 run 无日志落盘，因此**提供商侧 `finish_reason` 无法回放**，
+「`length` / `max_tokens`」是由 token 数与文本形态反推的结论，不是直接读到的字段。
+下一次复现即可用 `stream_end` 行直接确认。
 
-### 9. `MODEL_REQUEST_TIMEOUT_MS` 声明未接线
-- 位置：`crates/craft-agent/src/runner.rs:37`
-- 现象：常量（3 分钟）全仓库无引用，模型请求实际没有整体超时保护（仅有 P1#3 的 SSE 600s）。
-- 建议：接到模型流消费（`tokio::time::timeout` 包裹流循环）或删除，避免暗示存在保护。
+## 3. 代码链路
 
-### 10. 工具「开始执行」借用完成态事件类型
-- 位置：`crates/craft-agent/src/runner.rs:742-743`
-- 现象：广播工具开始执行用 `event_type::TOOL_COMPLETED`（`"tool.completed"`），载荷却是 `"status": "running"`；事件类型表缺 `tool.started`。
-- 影响：渲染层若只按 kind 判断会显示错误状态（当前靠 payload.status 区分）。
-- 建议：在 craft-core contract 增加 `TOOL_STARTED` 常量供增量广播使用。
+### 3.1 截断已被识别，但没有出口
 
-### 11. `APP_VERSION` 双源维护
-- 位置：`src-tauri/src/services.rs:27`
-- 现象：硬编码 `"0.1.0"` 与 `tauri.conf.json` 的 `version`（发布版本事实源）双源，发版漏改会使 getInfo 返回旧版本。
-- 建议：改用 `env!("CARGO_PKG_VERSION")`，或发版脚本加一致性校验。
+- `crates/craft-agent/src/runner.rs:792` 计算 `anomaly`；`stream_end_anomaly()`（`:1389`）对
+  `finish_reason` 为 `length` / `max_tokens` 返回异常描述，识别逻辑本身是对的。
+- `runner.rs:821` 拿到 `anomaly` 后，仅通过 `:823` 的 `stream_raw_tail` 写日志文件，**除此之外没有任何动作**。
+- `runner.rs:899`：`tool_calls.is_empty()` 成立即 `complete()`，于是 run 落 `done`、`error_code` 为空。
+- 渲染层其实早有准备：`crates/craft-core/src/contract.rs:26` 定义了 `NOTICE` 契约常量，
+  `src/renderer/src/store/app.ts` 的 `notice` 分支与 `src/renderer/src/components/conversation.tsx:414`
+  都已能渲染该部件。**能力齐备，只是没有任何一方投递它。**
 
-### 12. 环境清洗 deny 词表无效
-- 位置：`crates/craft-core/src/platform.rs:92-115`
-- 现象：`sanitized_env` 是纯白名单语义（白名单外一律不收），`ENV_DENY_SUBSTR`/`ENV_DENY_PREFIX` 永不改变结果。
-- 影响：无行为缺陷，但误导读者以为存在「黑名单 + 放行」两级语义。
-- 建议：删除两表，或改为「白名单外放行、命中 deny 才剔除」语义（需明确决策）。
+### 3.2 `max_tokens = 0` 的语义在两种协议下相反
 
-### 13. masked_for 按字节回退可能 panic
-- 位置：`crates/craft-core/src/secret.rs:132`
-- 现象：`&key[key.len() - 4..]` 在密钥含多字节 UTF-8 尾字符时可能不在字符边界导致 panic。
-- 影响：实际 API key 均为 ASCII，风险低。
-- 建议：改用字符切片。
+- `crates/craft-model/src/openai.rs:124`：`if req.max_tokens > 0` 才写入请求体，填 0 = 省略字段、由网关决定。
+- `crates/craft-model/src/anthropic.rs:117`：`if req.max_tokens > 0 { .. } else { 4096 }`，填 0 = 最紧的 4096。
 
-### 14. docx 段落末尾 `<w:tab/>`/`<w:br/>` 丢失
-- 位置：`crates/craft-doc/src/docx.rs:126`
-- 现象：命中 `"<w:t"` 前缀后必须找到后续 `</w:t>` 才能落到自闭合处理，若段内其后再无 `<w:t>` 则提前 break，该 tab/br 不输出。
-- 建议：命中前缀后先判断自闭合再走对应路径。
+同一个设置项，换个协议从「不限」变成「最小」，这是容易踩的陷阱；本案是它的反向情形（把「不限」误改成 10240）。
 
-### 15. `sudo` 提权匹配有缝隙
-- 位置：`crates/craft-policy/src/command.rs:58`
-- 现象：`lower.contains("sudo ")` 需要尾随空格，裸 `sudo` 或 `sudo\t` 落 R2——而 R2 属可永久授权档位，提权命令语义上不应进入永久授权候选。
-- 建议：对 `sudo` 单独做前缀匹配。
+### 3.3 配置侧无任何提示
 
-### 16. 自动命名（sidecar）用量未记账
-- 位置：`crates/craft-agent/src/title.rs`、`runner.rs:483-505,988`
-- 现象：`auto_title` 流消费后丢弃 usage；`record_usage(.., sidecar=true)` 分支是死代码（唯一调用点恒传 false）。
-- 影响：自动命名消耗的 token 不进用量统计（数据不完整不致错）。
-- 建议：`auto_title` 返回流末尾 usage，由 Runner 以 `sidecar=true` 记账。
+`src/renderer/src/overlays/provider-model-dialog.tsx:201` 的「最大输出（tokens）」字段，
+只受 `src/renderer/src/lib/model-form.ts:9` 的 `MAX_TOKENS_LIMIT = 4_000_000` 边界约束，
+不与目录同模型的值比对。把 384000 改成 10240，界面照收，直到下一次长回复才以「静默半截」暴露。
 
-### 17. 恢复备份失败用全局 alert()
-- 位置：`src/renderer/src/overlays/settings.tsx:1130`
-- 现象：`BackupsSection` 恢复失败用 `alert()` 提示，违反「后端错误渲染层 toast 展示」约定（同文件其余错误路径均走 `pushToast`）。
-- 建议：改为 toast。
+## 4. 修复方案
 
-### 18. error 事件空会话兜底产生空 id 消息
-- 位置：`src/renderer/src/store/app.ts:430`（`run.started` 分支 ：328 同理）
-- 现象：`lastStreamingId(...) ?? ... ?? ""` 兜底为空串后未像 notice 分支那样判空，空会话收到 error 事件会创建 id 为 `""` 的幽灵消息（React key 也为空串）。
-- 建议：补空值守卫，或给合成 id（如 `error_${event.seq}`）。
+### 第 0 步：先恢复这个会话（不改代码）
 
-## P3 死代码与轻微问题（顺手清理）
+设置 → 提供商 → CommandCode → 该模型 → 「最大输出」由 `10240` 改为 **`384000`**（对齐目录值），
+再对该会话发「继续：第 2、3 条原则接着写完」。
 
-| # | 位置 | 现象与建议 |
-| --- | --- | --- |
-| 19 | `crates/craft-store/src/runs.rs:97` | `interrupt_stale_runs` 签名与函数体挤在一行（历史编辑事故），rustfmt 可修复 |
-| 20 | `crates/craft-store/src/view.rs:59-62` | `let speed = match ..` 块缩进不对齐 |
-| 21 | `crates/craft-store/src/view.rs:82` | `use crate::db::StoreResult;` 位于文件末尾，建议归位到顶部 use 区 |
-| 22 | `crates/craft-store/src/db.rs:220-222` | V7 迁移删空 threads 时不清理名下孤儿 runs 行（影响极小，可在后续迁移顺带清理） |
-| 23 | `crates/craft-store/src/threads.rs` | `deleted_at` 软删列只读残留：所有读取过滤它，但无任何写入路径；无 Node 版软删场景可删列 |
-| 24 | `crates/craft-doc/src/xlsx.rs:76` | 空 if 分支无任何效果（历史遗留死代码），建议删除 |
-| 25 | `crates/craft-doc/src/xlsx.rs:351` | `is_plain_number` 不支持正号与科学计数法（与 TS 版行为一致则属有意取舍，建议在行为 spec 记一句） |
-| 26 | `crates/craft-doc/src/docx.rs:186-188` | `extract_table` 每轮从 0 重找 + `max(i)` 对齐，guard 近乎不可达，建议改前向 find |
-| 27 | `crates/craft-doc/src/lib.rs:95` | `replace()` 对不支持格式的错误文案与 `read_file` 不一致，建议统一 |
-| 28 | `crates/craft-policy/src/resolve.rs:80,130` | 词法段反斜杠检查不一致（`\\` vs `\`），实际影响极小，建议统一前缀黑名单 |
-| 29 | `crates/craft-model/src/openai.rs:201,228,250` | `text_seen` 只写不读的死状态，建议删除 |
-| 30 | `crates/craft-model/src/retry.rs:23` | `RetryClient::new` 的 `_provider` 参数未使用，建议移除或真正使用 |
-| 31 | `crates/craft-model/src/factory.rs:110-111` | 缺密钥错误归因用 `provider.name`、停用错误用 `provider.id`，且未复用 `display_name`（name 空时文案以空格开头），建议统一 |
-| 32 | `crates/craft-model/src/types.rs:266-269` | `types::ModelError` 与 `types::errors::ModelError` 双通道重导出，可二选一 |
-| 33 | `crates/craft-tools/src/shell.rs:104` | `git()` 返回 `(RunResult, String)`，第二项全是调用点丢弃的克隆，建议直接返回 `RunResult` |
-| 34 | `crates/craft-agent/src/approvals.rs:273` | `let _ = new_id(id_prefix::PART);` 空调用（压 unused 警告），每次 decide 白白生成一个 ID，建议删除 |
-| 35 | `crates/craft-agent/src/runner.rs:483-504` | `title_pending` 防重复窗口只覆盖任务派发瞬间（remove 未入任务内），保护几乎无效；建议 remove 移入任务内部 |
-| 36 | `crates/craft-agent/src/runner.rs:710` | failover 失败路径以 `now_millis()` 作为 started_at，run.durationMs 略失真 |
-| 37 | `crates/craft-agent/src/runner.rs:523` | 恒等三元 `max_tokens: if >0 {x} else {0}` 可简化 |
-| 38 | `crates/craft-agent/src/runner.rs:1021-1023` | `command_prefix_of` 纯转发包装，可删除 |
-| 39 | `crates/craft-agent/src/grants.rs`、`history.rs` | `Grants::snapshot` 与 `HistoryResult.seqs` 无调用方（死代码；`seqs` 每次 build 都白构造） |
-| 40 | `src-tauri/src/system.rs:115` | `null_value()` 全仓库零调用（死代码） |
-| 41 | `src/shared/channels.ts:160` | `channelOf()` 死代码（Electron 遗留，注释已修正） |
-| 42 | `src/shared/channels.ts:120,128,135` | 三个死通道（catalogLookup / workspaceSetActive / workspaceLocateFile）：dispatch 缺臂，受 dispatch_test 白名单登记，去留待定 |
-| 43 | `src/renderer/src/store/app.ts:467` | `thread.updated` 分支 deleted 与 else 动作完全相同，可合并 |
-| 44 | `src/renderer/src/lib/paste.ts:27` | 「超限丢弃」注释与实现（continue 跳过后更小文件仍可入选）语义不一致——注释已按实现修正；若产品本意是整批截断则代码是缺陷，需确认 |
-| 45 | `src/renderer/src/overlays/dialogs.tsx:30-47` | 完全相同的 `useEffect`（prompt 时 setValue + 延迟 select）重复两次，建议删一个 |
-| 46 | `src/renderer/src/components/conversation.tsx:570` | `ApprovalCard` 尾部 `<span className="hidden">{threadId}</span>` 疑似压 unused 警告的 hack，建议删 prop 链或真正使用 |
-| 47 | `src/renderer/src/components/panel.tsx:192` | `DocView` 的 `<span className="hidden">{setText.name}</span>` 同为压警告 hack，建议 `const [text] = useState(..)` |
-| 48 | `src/renderer/src/components/sidebar.tsx:536-537` | 文件尾 `void api;` 残留（`api` 已在复制会话 ID 处实际使用），可删除 |
-| 49 | `src/renderer/src/components/sidebar.tsx:487-489` | threads 为空且有项目分组时同屏双空态（项目组「暂无任务」+ 全局「还没有会话」） |
-| 50 | `src/renderer/src/components/cards.tsx:25` | TodoCard 条目 `key={i}` 用数组索引（TodoItem 无 id 字段）；整批替换当前无碍，若支持删除/重排会错位，建议后端加 id |
-| 51 | `crates/craft-doc/src/pdf.rs:28` | `"stream"` 字样定界是启发式近似（压缩数据偶现同名字节会误判边界），解压失败回落原文兜底；彻底解决需解析 xref/对象结构 |
-| 52 | `src-tauri/gen/schemas/` | 4 个生成物（acl-manifests / capabilities / desktop-schema / macOS-schema）被 git 跟踪，与 AGENTS.md「不能提交的生成物」清单矛盾；建议 `git rm -r --cached src-tauri/gen` 并加入 `.gitignore` |
+**不要填 0**：按 4.3 的现状，OpenAI 协议下 0 是「交给网关」，一旦换到 Anthropic 协议就退化成 4096，比现在还紧。
+等 4.3 修完再考虑用 0 表达「不限」。
 
-## 已知行为差异说明（非缺陷，供对照）
+### 4.1 让截断对用户可见（核心修复，优先级最高）
 
-- fs_list 保留 `.env.example`，fs_glob / fs_grep 跳过一切隐藏文件——有意设计（展示可见性 vs 避免误搜敏感文件）。
-- `expectedHash` 防覆盖只在用户编辑保存链（`services.rs` workspaceWriteFile），Agent 工具链按设计以写前备份兜底。
-- 全部事件（含 token 流增量）统一走 Bus 攒批 → emit `craftwork:events`；历史文档中「tauri::ipc::Channel 攒批」的表述未落地，已从现行文档移除。
+**文件**：`crates/craft-agent/src/runner.rs`
+
+- 位置：`runner.rs:821` 的 `if let Some(reason) = anomaly` 分支内。
+- 做法：除现有日志外，投递一条 `notice` 部件事件（`craft-core/src/contract.rs:26` 的 `NOTICE`），文案形如：
+  > 本次回复触发了模型输出上限（10240 tokens），内容可能不完整。可在设置中调高该模型的「最大输出」，或让我继续写。
+- 同时：该轮 run 不应被计为干净完成。建议在 `runs` 侧保留一个可区分的标记（如 `error_code = "output_limit"` 但状态仍为可继续），
+  使重放与统计能识别「这类 `done` 是半截的」。**具体落法需先确认**：直接复用 `error_code` 会让界面走错误分支，
+  可能反而更差；备选是新增 `notice` + 保持 `done`，仅靠 notice 提示。见第 6 节待决策项。
+- 验证：构造 `finish_reason = "length"` 的假流用例，断言产出 `notice` 且 `text` 已落库；`pnpm test:rust`。
+- 风险：低。只新增事件，不动既有 `text`/`reasoning` 落库路径。
+
+### 4.2 配置侧提示低值（建议同期做）
+
+**文件**：`src/renderer/src/overlays/provider-model-dialog.tsx`、`src/renderer/src/lib/model-form.ts`
+
+- 当目录中存在同 `canonicalId` 的模型、且用户填的值显著偏低（如 < 目录值 1/4）时，给**非阻断**警告，
+  文案指明「目录值为 N，当前值可能不足以完成长回答」。不阻断保存——手动声明低值可能是刻意控制成本。
+- 字段说明补一句「思考 token 与正文共享此上限」，这是本案 8005/10240 的实际教训。
+- 验证：`src/renderer` 侧 vitest（`tests/model-form.test.ts` 已有同类校验用例）。
+
+### 4.3 统一 `max_tokens = 0` 的语义
+
+**文件**：`crates/craft-model/src/types.rs`、`openai.rs`、`anthropic.rs`、模型弹窗文案
+
+- 建议语义：`0` = 不主动设限，由提供商默认决定；`> 0` = 用户显式上限。
+- Anthropic 的 `max_tokens` 是必填字段，无法真正「不设」，需要**区分「用户填 0」与「缺省未填」两种情况**，
+  而不是像现在这样共用同一个 4096 兜底（例如缺失时取模型目录值，用户显式填 0 时取目录值而非 4096）。
+- 验证：`openai.rs:484` 已有 `request_body_omits_fields_when_max_tokens_zero_and_tools_empty`，补 Anthropic 侧对应用例。
+- 风险：中。Anthropic 侧行为会变化，需同步 `docs/arch.md` 的模型层说明。
+
+### 4.4 超限自动续写（待决策，默认不做）
+
+检测到 `finish_reason = length` / `max_tokens` 时，自动追加一次「从断点继续」的请求，上限 1~2 次。
+
+- 收益：用户不必手动催「继续」。
+- 代价：多一轮 token 消耗；存在续写重复、开头截断、自激循环（一直续也一直超限）的风险，需要次数上限与去重策略。
+- 前置：这是行为规格级改动，应先写 `docs/<feature>/spec.md` 再落地，不要在 runner 里悄悄加。
+
+## 5. 验证与回归
+
+| 项 | 命令 / 方法 |
+| --- | --- |
+| Rust 单测 | `pnpm test:rust`（重点 `craft-agent`、`craft-model`） |
+| 静态检查 | `pnpm check:rust`、`pnpm lint:rust`、`pnpm typecheck` |
+| 端到端复现 | `CRAFTWORK_HOME=/tmp/cw-trunc pnpm dev`，把某模型「最大输出」调到极小（如 64），发一条长要求，确认界面出现 notice |
+| 日志对照 | 复现后查 `/tmp/cw-trunc/logs/<thread-id>.log` 的 `stream_end`，确认 `finishReason` 字段与 `anomaly` |
+
+回归要点：正常结束（`stop` / `end_turn`）不得出现 notice；工具调用轮（`finishReason: tool_calls`）不得误报。
+
+## 6. 待决策
+
+1. **截断时的 run 终态**：保持 `done` + notice，还是给可区分的 `error_code`？前者界面友好，后者利于统计与重放识别。
+2. **4.4 自动续写做不做**？默认不做。
+3. **4.2 的告警阈值**（< 目录值 1/4）是否合适，抑或只在「明显低于上下文窗口」时提示。
+
+## 7. 附：证据复现命令（只读）
+
+```sh
+cd ~/.craftwork
+# 末轮用量：output 打满 10240，reasoning 占 8005
+sqlite3 -readonly craftwork.db \
+  "select input_tokens,output_tokens,cache_tokens,reasoning_tokens from usage where id=797;"
+# 正文尾部：断在 "2. **破坏性/网络"
+sqlite3 -readonly craftwork.db \
+  "select payload from events where thread_id='th_54874a9392ebb60b' and seq=137;" | tail -c 300
+# 运行终态：done 且无 error_code
+sqlite3 -readonly -header craftwork.db \
+  "select id,status,error_code,started_at,finished_at from runs where thread_id='th_54874a9392ebb60b';"
+# 配置值 vs 目录值
+sqlite3 -readonly craftwork.db "select value from settings where key='model.custom_providers';"
+gunzip -c ~/Code/CraftWork/assets/catalog/catalog.json.gz | grep -o '"maxTokens": 384000' | head -1
+```
+
+---
+
+> 迁移说明：本文件此前是 2026-11-05 全仓库注释整理产出的 52 条问题清单，已按指示以本方案整体覆盖。
+> 需要旧清单时从 git 取回：`git show HEAD:docs/handoff.md`。
