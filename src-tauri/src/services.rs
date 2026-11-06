@@ -166,6 +166,10 @@ pub fn settings_get(state: &AppState) -> SvcResult {
     let mut merged = saved.unwrap_or_else(default_settings);
     // 历史档位（strict/readonly，已移除）与未知值回落分级档，保证前端拿到的档位恒合法
     merged.approval_level = craft_policy::parse_level(&merged.approval_level).as_str().into();
+    // 历史库可能存了空日志等级（select 无匹配显示空白）：回落标准档
+    if merged.logs_level.is_empty() {
+        merged.logs_level = "info".into();
+    }
     serde_json::to_value(merged).map_err(|e| e.to_string())
 }
 
