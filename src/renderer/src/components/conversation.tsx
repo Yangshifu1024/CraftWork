@@ -447,9 +447,11 @@ function useActiveThreadId(): string {
   return useApp((s) => s.activeThreadId[s.mode]);
 }
 
-/** 工作过程折叠块（一段正文章节前的过程行）。运行中自动展开让过程可见，结束后自动收起只留摘要行；
- * 用户手动切换过（manual）后完全尊重手动状态。展开内容无缩进平铺（对齐 ZCode 组容器），
- * 已完成时显示该轮工作的耗时。 */
+/** 工作过程折叠块（一段正文章节前的过程行）。运行中自动展开让过程可见，且自动展开态
+ *  隐藏区头——过程行平铺本身就是当前动作，避免区头「正在思考/工作中」与行级「思考中」
+ *  重复描述；run 结束后区头随自动收起一起出现，只留「已工作 · 持续 N 秒」摘要行。
+ *  用户手动切换过（manual）后完全尊重手动状态，区头始终显示。展开内容无缩进平铺
+ *  （对齐 ZCode 组容器），已完成时显示该轮工作的耗时。 */
 function WorkFold({
   parts,
   streaming,
@@ -477,24 +479,28 @@ function WorkFold({
 
   // 完成态显示秒数（向上取整，与侧栏「思考过程 · 持续了 N 秒」口径一致）
   const duration = done && durationMs && durationMs > 0 ? `持续 ${Math.ceil(durationMs / 1000)} 秒` : "";
+  // 运行中自动展开态隐藏区头（手动折叠过则恢复显示，保证还有展开入口）
+  const hideHeader = streaming && open && !manual;
   return (
     <div className="flex w-full flex-col">
-      <button
-        className="group/reasoning inline-flex min-w-0 max-w-full items-center gap-2 self-start rounded-md px-1 py-0.5 text-ui-base text-foreground-subtlest hover:text-foreground-subtle"
-        onClick={() => {
-          setManual(true);
-          setOpen(!open);
-        }}
-      >
-        <Brain className="size-4 shrink-0" />
-        <span className={`shrink-0 whitespace-nowrap ${hasRunning || !done ? "animated-gradient-text" : ""}`}>
-          {hasRunning ? "工作中" : done ? "已工作" : "正在思考"}
-        </span>
-        {duration && <span className="shrink-0 whitespace-nowrap text-foreground-subtlest">{duration}</span>}
-        <ChevronRight className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
-      </button>
+      {!hideHeader && (
+        <button
+          className="group/reasoning inline-flex min-w-0 max-w-full items-center gap-2 self-start rounded-md px-1 py-0.5 text-ui-base text-foreground-subtlest hover:text-foreground-subtle"
+          onClick={() => {
+            setManual(true);
+            setOpen(!open);
+          }}
+        >
+          <Brain className="size-4 shrink-0" />
+          <span className={`shrink-0 whitespace-nowrap ${hasRunning || !done ? "animated-gradient-text" : ""}`}>
+            {hasRunning ? "工作中" : done ? "已工作" : "正在思考"}
+          </span>
+          {duration && <span className="shrink-0 whitespace-nowrap text-foreground-subtlest">{duration}</span>}
+          <ChevronRight className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+        </button>
+      )}
       {open && (
-        <div className="pt-2">
+        <div className={hideHeader ? "" : "pt-2"}>
           <WorkLines parts={parts} threadId={threadId} streamingReasoningId={streamingReasoningId} />
         </div>
       )}
