@@ -1340,6 +1340,11 @@ function Composer({
     }
   };
 
+  // 右侧单按钮互斥：运行中输入了待发内容 → 发送态（点击=引导并入当前任务）；
+  // 运行中清空内容 → 停止态；空闲恒为发送态（无内容禁用）。任一时刻只有一个按钮。
+  const hasDraft = text.trim() !== "" || attachments.length > 0;
+  const showStop = running && !hasDraft;
+
   return (
     <div className="shrink-0 px-4 pb-4">
       {/* 宽度档位与消息列共用常量（docs/conversation-width/spec.md），草稿档收窄聚焦。 */}
@@ -1463,7 +1468,9 @@ function Composer({
                 onOpenChange={(o) => (o ? openPicker("model") : closePicker())}
                 trigger={<ModelChip />}
               />
-              {running ? (
+              {/* 运行中且无待发内容时显示停止钮；输入了内容切换为发送钮（点击=引导并入当前任务），
+                  避免禁用态圆钮与停止钮并排被误读为两个发送键 */}
+              {showStop ? (
                 <button
                   type="button"
                   onClick={stop}
@@ -1474,16 +1481,13 @@ function Composer({
                 >
                   <Square className="size-3.5" />
                 </button>
-              ) : null}
-              {/* 运行中且无待发内容时隐藏发送钮：禁用态圆钮与停止钮并排会被误读为两个发送键；
-                  输入了补充指令后出现（此时点击=引导并入当前任务），空闲态恒显示 */}
-              {(!running || text.trim() !== "" || attachments.length > 0) && (
+              ) : (
                 <button
                   type="button"
                   onClick={submit}
-                  disabled={!text.trim()}
+                  disabled={!running && !text.trim()}
                   className="flex size-8 items-center justify-center gap-1 rounded-full bg-brand text-foreground-inverse transition-opacity disabled:opacity-30"
-                  title="发送（Enter）"
+                  title={running ? "发送（Enter），并入当前任务" : "发送（Enter）"}
                 >
                   <ArrowUp className="size-4" />
                 </button>
