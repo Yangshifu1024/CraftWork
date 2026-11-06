@@ -16,3 +16,8 @@ futures-util = "0.3"
 async-stream = "0.3"
 flate2 = "1"
 base64 = "0.22"
+
+[dev-dependencies]
+# #[tokio::test] 需要 macros 特性：workspace 构建靠其他 crate 的特性并集带过，
+# 单独构建本 crate（cargo test -p craft-model）必须自持
+tokio = { version = "1", features = ["rt", "time", "macros"] }

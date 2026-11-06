@@ -6,7 +6,7 @@ use crate::anthropic::AnthropicClient;
 use crate::catalog::Catalog;
 use crate::errors::{missing_endpoint_error, ModelError};
 use crate::openai::OpenAICompatClient;
-use crate::retry::RetryClient;
+use crate::retry::{ClampMaxTokensClient, RetryClient};
 use crate::types::{Client, LogHook, ModelInfo};
 use crate::errors;
 
@@ -126,9 +126,13 @@ impl ModelFactory {
             // openai 与 openai-compatible 共用 OpenAI 协议适配器
             Box::new(OpenAICompatClient::new(&provider.endpoint, &key, &display_name))
         };
-        // 重试参数：3 次尝试、700ms 基础退避、5s 上限；重试事件经日志回调观测
+        // 重试参数：3 次尝试、700ms 基础退避、5s 上限；重试事件经日志回调观测。
+        // max_tokens 超限自愈包在协议客户端外、退避重试内：网关 400 换参重发后，
+        // 仍交给退避层处理后续的可重试错误。
         let log_hook = self.log_hook.lock().unwrap().clone();
-        Ok(Box::new(RetryClient::new(inner, &display_name, 3, 700, 5000, log_hook)))
+        let healed: Box<dyn Client> =
+            Box::new(ClampMaxTokensClient::new(inner, &display_name, log_hook.clone()));
+        Ok(Box::new(RetryClient::new(healed, &display_name, 3, 700, 5000, log_hook)))
     }
 
     /// 失败转移候选：备用引用存在、与当前不同、可解析、未停用、需要密钥时密钥可得，
