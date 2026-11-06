@@ -493,7 +493,7 @@ mod tests {
     fn persisted_provider_deserializes_without_headers_field() {
         // 老数据兼容：settings 里的旧提供商 JSON 无 headers 字段 → 缺省空，可正常解析
         let provider: PersistedProvider = serde_json::from_str(
-            r#"{"id":"p1","name":"���关","kind":"openai-compatible","endpoint":"https://gw.example.com/v1","keyRequired":true,"models":[]}"#,
+            r#"{"id":"p1","name":"网关","kind":"openai-compatible","endpoint":"https://gw.example.com/v1","keyRequired":true,"models":[]}"#,
         )
         .unwrap();
         assert!(provider.headers.is_empty());

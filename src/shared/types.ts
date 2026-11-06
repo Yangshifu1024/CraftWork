@@ -183,6 +183,18 @@ export interface Settings {
   inputPrediction: boolean;
 }
 
+// ---------- 设置 ----------
+
+/** 个性化全局指令（<数据目录>/AGENTS.md）：加载时机与注入规则见 craft-agent::envcontext。 */
+export interface PersonalizationInfo {
+  /** 文件是否存在（首次使用前为 false，展示空编辑器） */
+  exists: boolean;
+  /** 文件内容（不存在时为空串） */
+  content: string;
+  /** 字节数（计数与 100KB 上限展示用） */
+  size: number;
+}
+
 // ---------- 提供商与模型 ----------
 
 export interface Capabilities {

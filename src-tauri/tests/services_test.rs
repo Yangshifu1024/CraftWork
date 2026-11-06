@@ -693,3 +693,52 @@ fn thread_clear_temp_deletes_idle_and_skips_running_awaiting_and_archived() {
         audits.iter().map(|a| (a.tool.as_str(), a.decision.as_str())).collect::<Vec<_>>()
     );
 }
+
+// ---------- 个性化（<数据目录>/AGENTS.md 读写） ----------
+
+#[test]
+fn personalization_roundtrip_and_first_read_missing_file() {
+    let (dir, state) = test_state("personal-roundtrip");
+    // 首次读取：文件不存在，exists=false 空内容，不报错
+    let first = services::personalization_get(&state).unwrap();
+    assert_eq!(first["exists"], json!(false));
+    assert_eq!(first["content"], json!(""));
+    assert_eq!(first["size"], json!(0));
+
+    // 保存 → 覆盖读取往返；文件落在 <数据目录>/AGENTS.md（envcontext 注入同一文件）
+    let saved = services::personalization_save(&state, "## 语言约束\n1. 使用中文").unwrap();
+    assert_eq!(saved["exists"], json!(true));
+    assert_eq!(saved["content"], json!("## 语言约束\n1. 使用中文"));
+    assert_eq!(saved["size"], json!(saved["content"].as_str().unwrap().len()));
+    let on_disk = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert_eq!(on_disk, "## 语言约束\n1. 使用中文");
+
+    // 再次保存覆盖（不是追加）
+    let saved = services::personalization_save(&state, "second").unwrap();
+    assert_eq!(saved["content"], json!("second"));
+    let on_disk = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert_eq!(on_disk, "second");
+}
+
+#[test]
+fn personalization_over_limit_rejected_and_empty_clears_file() {
+    let (dir, state) = test_state("personal-limit");
+    let agents_md = || dir.path().join("AGENTS.md");
+    // 超过 100KB 拒绝且不落盘
+    let big = "x".repeat(100 * 1024 + 1);
+    let err = services::personalization_save(&state, &big).unwrap_err();
+    assert!(err.contains("上限"), "超限错误应可读：{err}");
+    assert!(!agents_md().exists(), "超限拒绝不应落盘");
+    // 恰好 100KB 允许（边界）
+    let exact = "y".repeat(100 * 1024);
+    services::personalization_save(&state, &exact).unwrap();
+    // 清空保存 = 删除文件；再读取 exists=false
+    let cleared = services::personalization_save(&state, "").unwrap();
+    assert_eq!(cleared["exists"], json!(false));
+    assert!(!agents_md().exists(), "清空后文件应删除");
+    // 纯空白等价清空
+    services::personalization_save(&state, "内容").unwrap();
+    let cleared = services::personalization_save(&state, "   \n  ").unwrap();
+    assert_eq!(cleared["exists"], json!(false));
+    assert!(!agents_md().exists(), "空白保存同样应删除文件");
+}

@@ -1,7 +1,7 @@
-// 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/Skills/数据）。
+// 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/个性化/Skills/数据）。
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
-import { Palette, Puzzle, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, type LucideIcon } from "lucide-react";
+import { Palette, Puzzle, UserRound, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, type LucideIcon } from "lucide-react";
 import { Dialog, DropdownMenu, Popover, Switch as RadixSwitch } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
@@ -16,9 +16,9 @@ import { compactHeaderRows, MAX_CUSTOM_HEADERS, validateHeaderPairs } from "../l
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
-import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, ProviderView, Settings, UsageSummary } from "../../../shared/types";
+import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, PersonalizationInfo, ProviderView, Settings, UsageSummary } from "../../../shared/types";
 
-type Section = "general" | "appearance" | "providers" | "skills" | "usage" | "audit" | "backups";
+type Section = "general" | "appearance" | "providers" | "personalization" | "skills" | "usage" | "audit" | "backups";
 
 /** 侧栏分组导航（对齐 ZCode 设置侧栏）：分组标题 + 图标导航项。 */
 const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; icon: LucideIcon }> }> = [
@@ -32,7 +32,10 @@ const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: stri
   },
   {
     label: "Agent 能力",
-    items: [{ id: "skills", label: "Skills", icon: Puzzle }],
+    items: [
+      { id: "personalization", label: "个性化", icon: UserRound },
+      { id: "skills", label: "Skills", icon: Puzzle },
+    ],
   },
   {
     label: "数据与统计",
@@ -97,6 +100,7 @@ export function SettingsOverlay(): React.JSX.Element {
             {section === "general" && <GeneralSection />}
             {section === "appearance" && <AppearanceSection />}
             {section === "providers" && <ProvidersSection />}
+            {section === "personalization" && <PersonalizationSection />}
             {section === "skills" && <SkillsSection />}
             {section === "usage" && <UsageSection />}
             {section === "audit" && <AuditSection />}
@@ -1159,6 +1163,100 @@ function SkillsSection(): React.JSX.Element {
       </h2>
       <div className="rounded-xl bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
         Skills 管理建设中：导入、启停与查看即将提供。
+      </div>
+    </div>
+  );
+}
+
+/** 个性化指令字节上限（与后端 PERSONALIZATION_MAX_BYTES 对齐）。 */
+const PERSONALIZATION_MAX_BYTES = 100 * 1024;
+
+/** 字节数的 KB 展示（上限对齐场景，1 位小数内自适应）。 */
+function formatKb(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+}
+
+/** 个性化分节：编辑 <数据目录>/AGENTS.md（全局私人指令，每轮 run 注入系统提示词，见 craft-agent::envcontext）。
+ *  载入后本地编辑，保存覆盖写（空内容删除文件）；100KB 硬上限——计数超限禁用保存。 */
+function PersonalizationSection(): React.JSX.Element {
+  const pushToast = useToastsPush();
+  const [info, setInfo] = useState<PersonalizationInfo | null>(null);
+  const [text, setText] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    void api
+      .personalizationGet()
+      .then((res) => {
+        setInfo(res);
+        setText(res.content);
+      })
+      .catch((err) => pushToast("danger", "个性化指令读取失败", cleanErrorMessage(String(err))));
+    // 仅装载时读取一次；「取消」回滚到 info.content
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const bytes = new TextEncoder().encode(text).length;
+  const overLimit = bytes > PERSONALIZATION_MAX_BYTES;
+  const changed = dirty && text !== (info?.content ?? "");
+  const canSave = !saving && !overLimit && changed;
+
+  const save = () => {
+    setSaving(true);
+    void api
+      .personalizationSave(text)
+      .then((res) => {
+        setInfo(res);
+        setText(res.content);
+        setDirty(false);
+        pushToast("ok", "个性化指令已保存", res.exists ? "对后续会话生效" : "全局指令已清除");
+      })
+      .catch((err) => pushToast("danger", "个性化指令保存失败", cleanErrorMessage(String(err))))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-ui-settings-title font-semibold text-foreground">个性化</h2>
+      <p className="text-ui-sm text-foreground-subtle">
+        添加自定义指令来个性化 Agent 的回复，指令会应用到本机 Agent 的后续会话（保存到 &lt;数据目录&gt;/AGENTS.md，随每轮会话注入）。
+      </p>
+      <textarea
+        ref={areaRef}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setDirty(true);
+        }}
+        spellCheck={false}
+        placeholder={"## 语言约束\n1. 使用中文进行思考和回复\n\n## 开发约束\n1. 所有相关 SDK 都安装到了 ~/Developer 中，必须使用这些工具"}
+        className="h-80 w-full resize-y rounded-xl border border-border bg-input px-4 py-3 font-mono text-ui-sm leading-relaxed text-foreground outline-none placeholder:text-foreground-subtlest focus:border-brand"
+      />
+      <div className="flex items-center justify-between">
+        <div className={`text-ui-xs ${overLimit ? "text-destructive" : "text-foreground-subtlest"}`}>
+          {formatKb(bytes)} / 100 KB{overLimit && " · 已超出上限，请精简后保存"}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            className="h-8 rounded-lg border border-border px-4 text-ui-sm text-foreground-subtle hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!canSave && !dirty}
+            onClick={() => {
+              setText(info?.content ?? "");
+              setDirty(false);
+            }}
+          >
+            取消
+          </button>
+          <button
+            className="h-8 rounded-lg bg-brand px-4 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!canSave}
+            onClick={save}
+          >
+            保存
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -313,6 +313,8 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         // ---------- 设置 ----------
         "settingsGet" => settings_get(state),
         "settingsSave" => settings_save(state, &a.value_at(0)),
+        "personalizationGet" => personalization_get(state),
+        "personalizationSave" => personalization_save(state, &a.str_at(0)),
         // ---------- 会话 ----------
         "threadList" => thread_list(state, &a.str_at(0), a.bool_at(1)),
         "threadSearch" => thread_search(state, &a.str_at(0), &a.str_at(1)),

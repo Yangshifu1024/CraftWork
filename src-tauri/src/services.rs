@@ -104,6 +104,55 @@ pub fn get_info(state: &AppState) -> SvcResult {
 
 // ---------- 设置 ----------
 
+use craft_core::contract::PersonalizationInfo;
+
+/// 个性化全局指令上限：100KB（字节）。超出拒绝保存，前端同步展示计数。
+const PERSONALIZATION_MAX_BYTES: usize = 100 * 1024;
+
+/// 个性化全局指令文件路径（<数据目录>/AGENTS.md）。
+fn personalization_path(data_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(data_dir).join("AGENTS.md")
+}
+
+/// 读取个性化全局指令；文件缺失/不可读时返回 exists=false 与空内容（不视为错误）。
+pub fn personalization_get(state: &AppState) -> SvcResult {
+    let path = personalization_path(&state.data_dir);
+    let (exists, content) = match std::fs::read(&path) {
+        Ok(bytes) => (true, String::from_utf8_lossy(&bytes).into_owned()),
+        Err(_) => (false, String::new()),
+    };
+    let info = PersonalizationInfo {
+        exists,
+        size: content.len(),
+        content,
+    };
+    serde_json::to_value(info).map_err(|e| e.to_string())
+}
+
+/// 保存个性化全局指令：原子覆盖写入；空内容删除文件（清空 = 无全局指令）。
+/// 上限 100KB 硬校验；目录随数据目录启动时已创建，create_dir_all 兜底首启竞态。
+pub fn personalization_save(state: &AppState, content: &str) -> SvcResult {
+    let bytes_len = content.len();
+    if bytes_len > PERSONALIZATION_MAX_BYTES {
+        return Err(format!(
+            "个性化指令超出上限：{bytes_len} 字节（上限 100KB），请精简后保存"
+        ));
+    }
+    let path = personalization_path(&state.data_dir);
+    if content.trim().is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| format!("删除个性化指令文件失败：{e}"))?;
+        }
+    } else {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("创建数据目录失败：{e}"))?;
+        }
+        craft_core::platform::write_file_atomic_str(&path, content, 0o644)
+            .map_err(|e| format!("保存个性化指令失败：{e}"))?;
+    }
+    personalization_get(state)
+}
+
 /// 默认设置：无持久化设置或反序列化失败时的整体兜底（不做字段级部分合并）。
 pub fn default_settings() -> Settings {
     Settings {
@@ -1116,7 +1165,7 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
         "models": input.get("models").cloned().unwrap_or(json!([])),
     });
     let provider: PersistedProvider =
-        serde_json::from_value(entry).map_err(|e| format!("提供商数据��效：{e}"))?;
+        serde_json::from_value(entry).map_err(|e| format!("提供商数据无效：{e}"))?;
     if let Some(slot) = providers.iter_mut().find(|p| p.id == id) {
         *slot = provider;
     } else {

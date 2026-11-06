@@ -370,6 +370,18 @@ pub struct AppInfo {
     pub user_name: String,
 }
 
+/// 个性化全局指令（<数据目录>/AGENTS.md）：设置「个性化」分节的读取/保存载荷。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalizationInfo {
+    /// 文件是否存在（首次使用前为 false，界面展示空编辑器）。
+    pub exists: bool,
+    /// 文件内容（不存在时为空串）。
+    pub content: String,
+    /// 字节数（计数与 100KB 上限展示用）。
+    pub size: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

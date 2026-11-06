@@ -21,6 +21,7 @@ import type { PlanInfo,
   LocatedFile,
   MCPServerView,
   ModelInput,
+  PersonalizationInfo,
   ProviderInput,
   ProviderView,
   Settings,
@@ -113,6 +114,10 @@ export interface CraftworkApi {
   // ---------- 设置 ----------
   settingsGet(): Promise<Settings>;
   settingsSave(next: Settings): Promise<Settings>;
+  /** 个性化全局指令（<数据目录>/AGENTS.md）读取 */
+  personalizationGet(): Promise<PersonalizationInfo>;
+  /** 个性化全局指令保存（覆盖写入；空串删除文件；上限 100KB） */
+  personalizationSave(content: string): Promise<PersonalizationInfo>;
 
   // ---------- 提供商与模型 ----------
   providerList(): Promise<ProviderView[]>;
