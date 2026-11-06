@@ -16,6 +16,7 @@ import { CreateProjectDialog } from "./overlays/create-project";
 import { ImagePreview } from "./overlays/image-preview";
 import { useOverlays } from "./store/overlays";
 import { useShortcuts } from "./hooks/shortcuts";
+import { useNativeContextMenuGuard } from "./hooks/context-menu";
 
 /** 应用根组件：一次性启动装配（boot），订阅事件/toast 推送并接入 applyBatch 与 toast 队列，组装布局与浮层。 */
 export default function App(): React.JSX.Element {
@@ -25,6 +26,7 @@ export default function App(): React.JSX.Element {
   const pushToast = useToasts((s) => s.push);
   const overlay = useOverlays((s) => s.overlay);
   useShortcuts();
+  useNativeContextMenuGuard();
   const started = useRef(false);
 
   useEffect(() => {
