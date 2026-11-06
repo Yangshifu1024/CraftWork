@@ -22,7 +22,7 @@ fn tmp_db(tag: &str) -> (PathBuf, Db) {
         "cw-store-{}-{}-{}",
         tag,
         std::process::id(),
-        n + 1000 * (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_millis() as u32)
+        n + 1000 * std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_millis()
     ));
     let _ = std::fs::remove_dir_all(&dir);
     let db = Db::open(&dir.join("test.db")).expect("打开测试库失败");
@@ -258,6 +258,98 @@ fn snapshot_keeps_via_flag_for_undelivered_steer() {
     let snap = snapshot(&db.lock_conn(), "th_steer2", 0, 0).unwrap();
     assert_eq!(snap.messages.len(), 1);
     assert_eq!(snap.messages[0].parts[0].payload["via"], "steer");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 已投递引导按投递时刻（回执 seq）定序：引导落库早、投递晚，排序 seq 推进到
+/// 回执处，才能排在它触发的回复之后、后续用户输入之前（时间线真实位置）。
+#[test]
+fn snapshot_delivered_steer_orders_by_delivery_receipt_seq() {
+    let (dir, db) = tmp_db("steer-order");
+    create_thread(&db.lock_conn(), thread("th_steer3")).unwrap();
+    // 真实时序：旧回复 → 引导落库(via=steer) → 投递回执(run 在途) → 触发的新回复
+    let events = [
+        EventRecord {
+            thread_id: "th_steer3".into(),
+            message_id: "m_a1".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p_a1", "text": "旧回复" }),
+        },
+        EventRecord {
+            thread_id: "th_steer3".into(),
+            message_id: "m_s".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "补充要求", "attachments": [], "via": "steer" }),
+        },
+        EventRecord {
+            thread_id: "th_steer3".into(),
+            message_id: "m_s".into(),
+            run_id: Some("run_x".into()),
+            kind: "steer_delivered".into(),
+            payload: serde_json::json!({ "nextMessageId": "m_a2" }),
+        },
+        EventRecord {
+            thread_id: "th_steer3".into(),
+            message_id: "m_a2".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p_a2", "text": "新回复" }),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_steer3", 0, 0).unwrap();
+    assert_eq!(
+        snap.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["m_a1", "m_s", "m_a2"],
+        "引导应按投递时刻排在旧回复之后、新回复之前"
+    );
+    let steer = snap.messages.iter().find(|m| m.id == "m_s").unwrap();
+    assert_eq!(steer.seq, 3, "排序 seq 应推进到投递回执的 seq");
+    assert!(steer.parts[0].payload.get("via").is_none(), "投递回执应摘除「待送达」标记");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 丢弃回执（收尾批量回执，run_id=None）不推进排序 seq：未获回复的引导消息
+/// 留在用户发送时刻的位置，仍摘除「待送达」标记。
+#[test]
+fn snapshot_discarded_steer_receipt_keeps_original_seq() {
+    let (dir, db) = tmp_db("steer-drop");
+    create_thread(&db.lock_conn(), thread("th_steer4")).unwrap();
+    let events = [
+        EventRecord {
+            thread_id: "th_steer4".into(),
+            message_id: "m_a1".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p_a1", "text": "回复" }),
+        },
+        EventRecord {
+            thread_id: "th_steer4".into(),
+            message_id: "m_s".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "没轮上就被丢弃", "attachments": [], "via": "steer" }),
+        },
+        EventRecord {
+            thread_id: "th_steer4".into(),
+            message_id: "m_s".into(),
+            run_id: None,
+            kind: "steer_delivered".into(),
+            payload: serde_json::json!({}),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_steer4", 0, 0).unwrap();
+    assert_eq!(snap.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m_a1", "m_s"]);
+    let steer = snap.messages.iter().find(|m| m.id == "m_s").unwrap();
+    assert_eq!(steer.seq, 2, "丢弃回执不应推进排序 seq");
+    assert!(steer.parts[0].payload.get("via").is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

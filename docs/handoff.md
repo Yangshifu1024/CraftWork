@@ -157,3 +157,48 @@ gunzip -c ~/Code/CraftWork/assets/catalog/catalog.json.gz | grep -o '"maxTokens"
 
 > 迁移说明：本文件此前是 2026-11-05 全仓库注释整理产出的 52 条问题清单，已按指示以本方案整体覆盖。
 > 需要旧清单时从 git 取回：`git show HEAD:docs/handoff.md`。
+
+---
+
+# OpenCode Go 网关 400（MissingSessionID）：自定义请求头支持
+
+> 日期 2026-11-06。状态：**已实现**。
+
+## 现象
+
+OpenCode Go 提供商返回 HTTP 400：
+
+> Request is missing x-opencode-session and cannot be routed efficiently（MissingSessionID）
+
+网关要求每个请求携带 `x-opencode-session` 头做会话路由，而 CraftWork 此前只发协议标准头
+（OpenAI 的 `Authorization` / Anthropic 的 `x-api-key` + `anthropic-version`），没有透传自定义头的入口。
+
+## 实现（通用能力，不写死任何网关）
+
+- **数据**：`PersistedProvider.headers: Vec<HeaderPair>`（settings 的 `model.custom_providers`，serde default 兼容旧数据）。
+- **校验**：`craft_model::types::validate_headers`——名称限 RFC 7230 token、值禁换行（防头注入）、
+  `authorization` / `x-api-key` 与密钥字段冲突拒绝（密钥可能来自环境变量，不能被静态头遮蔽）、
+  大小写不敏感去重、16 条 / 单值 4KB 上限；保存时服务端复检，未携带 `headers` 的部分更新（端点保存路径）保留现值。
+- **发送**：`OpenAICompatClient` / `AnthropicClient` 经 `with_headers` 接收，请求时在认证头之后逐个附加；
+  工厂从提供商配置下传；`provider_test`（测试连接）与 `provider_fetch_models`（拉取模型）同源附加，行为一致。
+- **会话占位符**：头值中的 `{sessionId}` 在发送时替换为当前 CraftWork 会话 ID——`Request.session_id`
+  由 Agent 四个调用点（主对话 / 自动命名 / 输入预测 / 上下文压缩）填入 `thread_id`，
+  因此每个会话自动获得独立路由值，配置一次即可，新建会话无需再改配置。
+  无会话上下文的场景（测试连接 / 拉取模型）跳过含占位符的头，不发字面 `{sessionId}` 给网关。
+- **界面**：设置 → 提供商详情卡新增「请求头」行——表单形式逐条编辑（名称 + 值两个输入框一行，
+  可增删行，⌘↩ 保存 / Esc 取消），保存时整理为 `HeaderPair[]` 以 JSON 提交（存储格式即 JSON 数组）；
+  整理与预校验收敛在 `src/renderer/src/lib/provider-headers.ts`，规则与服务端对齐（最终以服务端为准）。
+
+## 使用（OpenCode Go）
+
+设置 → 模型与提供商 → 该提供商 → 请求头 → 添加请求头，名称填 `x-opencode-session`、值填 `{sessionId}`：
+
+保存即全局生效：每个 CraftWork 会话的请求自动携带自己的会话 ID 作为路由头，新建会话零操作。
+如果网关要求固定值（如绑定控制台会话），直接填字面值即可，不带占位符就原样发送。
+
+## 验证
+
+- `cargo test -p craft-model`：`validate_headers_*` 8 项 + 旧数据无 `headers` 字段反序列化兼容。
+- `cargo test --workspace`：202 项全过；`cargo clippy --workspace --all-targets -- -D warnings` 干净。
+- `pnpm typecheck` 通过；服务层集成测试 `provider_custom_headers_save_validate_and_partial_update_preservation`
+  覆盖保存 / 冲突拒绝 / 注入拒绝 / 部分更新保留 / 显式清空 / 目录导入不覆盖。

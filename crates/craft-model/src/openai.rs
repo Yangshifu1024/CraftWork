@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use crate::errors::{missing_endpoint_error, stream_error, ModelError};
 use crate::sse::{open_sse, line_to_event, LineReader, SseEvent, TailBuffer, ToolCallBuilder};
 use crate::types::{
-    attachment_prompt_text, Chunk, Client, DoneVia, Message, Request, StreamEnd, SystemBlock, ToolSpec, Usage, RAW_TAIL_CAPACITY,
+    attachment_prompt_text, header_has_session_placeholder, resolve_header_value, Chunk, Client, DoneVia, Message, Request, StreamEnd,
+    SystemBlock, ToolSpec, Usage, RAW_TAIL_CAPACITY,
 };
 
 /// 端点 → chat/completions 完整地址（容忍端点尾部斜杠）。
@@ -149,6 +150,8 @@ pub struct OpenAICompatClient {
     endpoint: String,
     api_key: String,
     provider_name: String,
+    /// 提供商级自定义请求头（用户在提供商配置里声明，随每次请求附加）。
+    extra_headers: Vec<crate::types::HeaderPair>,
 }
 
 impl OpenAICompatClient {
@@ -159,7 +162,14 @@ impl OpenAICompatClient {
             endpoint: endpoint.to_string(),
             api_key: api_key.to_string(),
             provider_name: provider_name.to_string(),
+            extra_headers: Vec::new(),
         }
+    }
+
+    /// 附加提供商级自定义请求头（链式）。
+    pub fn with_headers(mut self, headers: Vec<crate::types::HeaderPair>) -> Self {
+        self.extra_headers = headers;
+        self
     }
 }
 
@@ -170,6 +180,7 @@ impl Client for OpenAICompatClient {
             endpoint: self.endpoint.clone(),
             api_key: self.api_key.clone(),
             provider_name: self.provider_name.clone(),
+            extra_headers: self.extra_headers.clone(),
         })
     }
 
@@ -179,6 +190,7 @@ impl Client for OpenAICompatClient {
         let api_key = self.api_key.clone();
         let provider = self.provider_name.clone();
         let http = self.http.clone();
+        let extra_headers = self.extra_headers.clone();
         Box::pin(async_stream::stream! {
             if endpoint.is_empty() {
                 yield Err(missing_endpoint_error(&provider));
@@ -190,6 +202,15 @@ impl Client for OpenAICompatClient {
                 .header("Accept", "text/event-stream");
             if !api_key.is_empty() {
                 request = request.header("Authorization", format!("Bearer {api_key}"));
+            }
+            // 提供商自定义头最后附加：与认证头同名时可覆盖（保存侧已禁止冲突名，防御性兜底）；
+            // {sessionId} 占位符按请求的会话 ID 替换，未携带会话 ID 的头跳过（不发坏路由值）
+            for h in &extra_headers {
+                if header_has_session_placeholder(&h.value) && req.session_id.is_empty() {
+                    continue;
+                }
+                request = request
+                    .header(h.name.as_str(), resolve_header_value(&h.value, &req.session_id).as_str());
             }
             request = request.json(&body);
             let resp = match open_sse(request, &provider).await {
@@ -435,6 +456,7 @@ mod tests {
             max_tokens: 1024,
             reasoning_kind: String::new(),
             reasoning_level: String::new(),
+            session_id: "th_sample".into(),
         }
     }
 
@@ -553,6 +575,7 @@ mod tests {
             &mut false,
             &mut finish_reason,
         )
+        .unwrap()
         .unwrap();
         assert_eq!(finish_reason.as_deref(), Some("length"));
     }

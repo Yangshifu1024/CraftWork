@@ -12,6 +12,33 @@ use crate::registry::{Tool, ToolCtx, ToolResult, ToolSpec};
 /// 更新任务清单（R0，Work 模式可用）。
 pub struct TodoWrite;
 
+/// 状态别名归一化：模型不一定遵守 schema 枚举（常见输出 completed / in_progress），
+/// 统一映射回规范值，未知值回退 pending。工具输出与事件广播共用，保证两侧一致。
+pub fn normalize_status(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "done" | "completed" | "complete" => "done",
+        "active" | "in_progress" | "in-progress" => "active",
+        _ => "pending",
+    }
+}
+
+/// 归一化 items 数组中的 status 字段（原样保留其余字段），供 todo 事件广播前调用。
+pub fn normalize_items(items: &Value) -> Value {
+    match items {
+        Value::Array(arr) => Value::Array(
+            arr.iter()
+                .map(|raw| {
+                    let mut item = raw.clone();
+                    let status = raw.get("status").and_then(Value::as_str).map(normalize_status);
+                    item["status"] = Value::String(status.unwrap_or("pending").into());
+                    item
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 impl Tool for TodoWrite {
     fn spec(&self) -> ToolSpec {
         TodoWrite::spec()
@@ -28,8 +55,7 @@ impl Tool for TodoWrite {
             .map(|raw| {
                 let text = raw.get("text").and_then(Value::as_str).unwrap_or_default();
                 let text: String = text.chars().take(200).collect(); // 单条文本截断（按字符，不切坏多字节）
-                let status = raw.get("status").and_then(Value::as_str).unwrap_or("pending");
-                // 未知状态回退 pending（○）
+                let status = raw.get("status").and_then(Value::as_str).map(normalize_status).unwrap_or("pending");
                 let mark = match status {
                     "active" => "◐",
                     "done" => "●",
@@ -57,7 +83,8 @@ impl TodoWrite {
                         "type": "object",
                         "properties": {
                             "text": { "type": "string" },
-                            "status": { "type": "string", "enum": ["pending", "active", "done"] },
+                            "status": { "type": "string", "enum": ["pending", "active", "done"],
+                                "description": "只能取 pending / active / done；不要用 completed 或 in_progress 等别名" },
                         },
                         "required": ["text", "status"],
                     },
@@ -124,5 +151,34 @@ mod tests {
     fn todo_list_empty_items_rejected() {
         let ctx = make_ctx(json!({"items": []}));
         assert!(TodoWrite.execute(&ctx).is_error);
+    }
+
+    #[test]
+    fn todo_list_normalizes_status_aliases() {
+        let ctx = make_ctx(json!({"items": [
+            {"text": "任务一", "status": "completed"},
+            {"text": "任务二", "status": "in_progress"},
+            {"text": "任务三", "status": "DONE"},
+            {"text": "任务四", "status": "奇怪的"},
+            {"text": "任务五"},
+        ]}));
+        let result = TodoWrite.execute(&ctx);
+        assert!(!result.is_error);
+        assert!(result.output.contains("● 任务一"), "completed 归一化为 done");
+        assert!(result.output.contains("◐ 任务二"), "in_progress 归一化为 active");
+        assert!(result.output.contains("● 任务三"), "大小写不敏感");
+        assert!(result.output.contains("○ 任务四"), "未知值回退 pending");
+        assert!(result.output.contains("○ 任务五"), "缺失 status 回退 pending");
+
+        let items = normalize_items(ctx.args.get("items").unwrap());
+        assert_eq!(items[0]["status"], "done");
+        assert_eq!(items[1]["status"], "active");
+        assert_eq!(items[2]["status"], "done");
+        assert_eq!(items[3]["status"], "pending");
+        assert_eq!(items[4]["status"], "pending");
+        assert_eq!(items[0]["text"], "任务一", "其余字段原样保留");
+
+        // 非数组输入原样返回，不 panic
+        assert_eq!(normalize_items(&Value::Null), Value::Null);
     }
 }

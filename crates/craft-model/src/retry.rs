@@ -296,6 +296,7 @@ mod tests {
             max_tokens,
             reasoning_kind: String::new(),
             reasoning_level: String::new(),
+            session_id: String::new(),
         }
     }
 
@@ -414,6 +415,7 @@ mod tests {
             max_tokens: 0,
             reasoning_kind: String::new(),
             reasoning_level: String::new(),
+            session_id: String::new(),
         };
         use futures_util::StreamExt;
         let chunks: Vec<_> = client.stream(&req).collect().await;

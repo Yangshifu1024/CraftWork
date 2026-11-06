@@ -5,7 +5,9 @@ import type { TodoItem } from "../../../shared/events";
 
 /** 任务清单卡片：完成进度条 + 条目列表（待办 ○ / 进行中 ◐ / 完成 ●，完成项划线弱化）。 */
 export function TodoCard({ items }: { items: TodoItem[] }): React.JSX.Element {
-  const done = items.filter((i) => i.status === "done").length;
+  // 历史事件里模型可能输出别名 completed（新事件后端已归一化），渲染前统一映射
+  const statusOf = (s: TodoItem["status"]) => (s === "completed" ? "done" : s);
+  const done = items.filter((i) => statusOf(i.status) === "done").length;
   const mark = { pending: "○", active: "◐", done: "●" } as const;
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border/60 bg-popover">
@@ -23,17 +25,20 @@ export function TodoCard({ items }: { items: TodoItem[] }): React.JSX.Element {
         </div>
       </div>
       <ul className="border-t border-border/40 px-3 py-1.5">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-center gap-2 py-0.5 text-ui-sm">
-            <span className={`shrink-0 ${item.status === "done" ? "text-success" : item.status === "active" ? "text-icon-blue" : "text-foreground-subtlest"}`}>
-              {mark[item.status]}
-            </span>
-            <span className={item.status === "done" ? "text-foreground-subtlest line-through" : "text-foreground"}>
-              {item.text}
-            </span>
-            {item.status === "active" && <span className="ml-auto shrink-0 text-ui-xs text-icon-blue">进行中</span>}
-          </li>
-        ))}
+        {items.map((item, i) => {
+          const status = statusOf(item.status);
+          return (
+            <li key={i} className="flex items-center gap-2 py-0.5 text-ui-sm">
+              <span className={`shrink-0 ${status === "done" ? "text-success" : status === "active" ? "text-icon-blue" : "text-foreground-subtlest"}`}>
+                {mark[status]}
+              </span>
+              <span className={status === "done" ? "text-foreground-subtlest line-through" : "text-foreground"}>
+                {item.text}
+              </span>
+              {status === "active" && <span className="ml-auto shrink-0 text-ui-xs text-icon-blue">进行中</span>}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

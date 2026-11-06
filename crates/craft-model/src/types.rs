@@ -128,8 +128,70 @@ pub struct PersistedProvider {
     /// 旧数据无此字段时缺省视为启用
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 随每次模型请求附加的自定义 HTTP 头（如网关路由头 x-opencode-session）；
+    /// 顺序保持写入顺序，老数据无此字段时缺省为空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers: Vec<HeaderPair>,
     #[serde(default)]
     pub models: Vec<PersistedModel>,
+}
+
+/// 一个自定义请求头：名称 + 值（发送时原样附加，不做插值）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderPair {
+    pub name: String,
+    pub value: String,
+}
+
+/// 自定义请求头数量上限。
+pub const MAX_CUSTOM_HEADERS: usize = 16;
+/// 单个头值的字节上限。
+pub const MAX_HEADER_VALUE_BYTES: usize = 4096;
+
+/// 自定义请求头校验与清理（服务端与渲染层共享同一规则）：
+/// 名称非空且仅含 RFC 7230 token 字符；值不允许换行（防头注入）；
+/// authorization / x-api-key 与密钥字段冲突（密钥可能来自环境变量，不能被静态头遮蔽）；
+/// 同名（大小写不敏感）重复拒绝；最多 16 条；单值上限 4KB。
+/// 返回 (trim 后的头列表, 错误文案)；错误文案为空表示通过。
+pub fn validate_headers(headers: &[HeaderPair]) -> (Vec<HeaderPair>, String) {
+    if headers.len() > MAX_CUSTOM_HEADERS {
+        return (Vec::new(), format!("自定义请求头最多 {} 条", MAX_CUSTOM_HEADERS));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut cleaned = Vec::with_capacity(headers.len());
+    for h in headers {
+        let name = h.name.trim();
+        let value = h.value.trim();
+        if name.is_empty() && value.is_empty() {
+            continue; // 名称值全空的行视为占位行，静默跳过
+        }
+        if name.is_empty() {
+            return (Vec::new(), "请求头名称不能为空".into());
+        }
+        if !name.chars().all(is_header_name_char) {
+            return (Vec::new(), format!("请求头名称含非法字符：{name}"));
+        }
+        if name.eq_ignore_ascii_case("authorization") || name.eq_ignore_ascii_case("x-api-key") {
+            return (Vec::new(), format!("请求头 {name} 与密钥字段冲突，请使用密钥设置"));
+        }
+        if value.contains('\n') || value.contains('\r') {
+            return (Vec::new(), format!("请求头 {name} 的值不能包含换行"));
+        }
+        if !seen.insert(name.to_ascii_lowercase()) {
+            return (Vec::new(), format!("请求头 {name} 重复"));
+        }
+        if !value.is_empty() && value.len() > MAX_HEADER_VALUE_BYTES {
+            return (Vec::new(), format!("请求头 {name} 的值过长（上限 4KB）"));
+        }
+        cleaned.push(HeaderPair { name: name.to_string(), value: value.to_string() });
+    }
+    (cleaned, String::new())
+}
+
+/// 头名称合法字符（RFC 7230 token：字母数字与 !#$%&'*+-.^_`|~）。
+fn is_header_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c)
 }
 
 // ---------- 消息与请求 ----------
@@ -232,7 +294,29 @@ pub struct Request {
     pub reasoning_kind: String,
     /// 思考档位（空串=未选择，请求不带任何 reasoning 参数）
     pub reasoning_level: String,
+    /// 当前会话 ID（CraftWork thread id）：头值占位符 `{sessionId}` 的替换来源；
+    /// sidecar 小请求（命名/预测/压缩）同样填入，保证网关路由归并到同一会话。
+    pub session_id: String,
 }
+
+/// 自定义请求头值解析：`{sessionId}` 占位符替换为当前会话 ID；
+/// 未填 session_id（旧调用方/无会话上下文）时占位符原样保留，由调用方决定是否跳过该头。
+/// 检测函数：头值是否含未解析的占位符。
+pub fn header_has_session_placeholder(value: &str) -> bool {
+    value.contains(SESSION_ID_PLACEHOLDER)
+}
+
+/// 解析后的头值：占位符已替换。
+pub fn resolve_header_value(value: &str, session_id: &str) -> String {
+    if session_id.is_empty() {
+        value.to_string()
+    } else {
+        value.replace(SESSION_ID_PLACEHOLDER, session_id)
+    }
+}
+
+/// 会话 ID 占位符（头值中出现即按当前会话 ID 替换）。
+pub const SESSION_ID_PLACEHOLDER: &str = "{sessionId}";
 
 // ---------- 流 ----------
 
@@ -318,4 +402,110 @@ pub trait Client: Send + Sync {
     fn stream<'a>(&'a self, req: &'a Request) -> futures_core::stream::BoxStream<'a, Result<Chunk, ModelError>>;
     /// 克隆为 boxed 实例（Runner 把客户端移入阻塞任务时使用）。
     fn clone_box(&self) -> Box<dyn Client>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(name: &str, value: &str) -> HeaderPair {
+        HeaderPair { name: name.into(), value: value.into() }
+    }
+
+    #[test]
+    fn validate_headers_accepts_and_trims_pairs() {
+        let (cleaned, err) = validate_headers(&[h(" x-opencode-session ", " ses_123 "), h("X-Team", "a")]);
+        assert!(err.is_empty());
+        assert_eq!(cleaned, vec![h("x-opencode-session", "ses_123"), h("X-Team", "a")]);
+    }
+
+    #[test]
+    fn validate_headers_blank_rows_skipped_and_empty_ok() {
+        // 全空行静默跳过；空列表合法
+        let (cleaned, err) = validate_headers(&[h("  ", "  ")]);
+        assert!(err.is_empty());
+        assert!(cleaned.is_empty());
+        assert_eq!(validate_headers(&[]).0, Vec::<HeaderPair>::new());
+    }
+
+    #[test]
+    fn validate_headers_rejects_illegal_name_and_empty_name() {
+        let (_, err) = validate_headers(&[h("bad header", "v")]);
+        assert!(err.contains("非法字符"), "{err}");
+        let (_, err) = validate_headers(&[h("", "v")]);
+        assert!(err.contains("名称不能为空"), "{err}");
+    }
+
+    #[test]
+    fn validate_headers_rejects_key_conflict_names() {
+        for name in ["Authorization", "authorization", "x-api-key", "X-API-KEY"] {
+            let (_, err) = validate_headers(&[h(name, "sk-x")]);
+            assert!(err.contains("密钥字段冲突"), "{name}: {err}");
+        }
+    }
+
+    #[test]
+    fn validate_headers_rejects_header_injection_newlines() {
+        let (_, err) = validate_headers(&[h("X-A", "v1\nB: v2")]);
+        assert!(err.contains("换行"), "{err}");
+        let (_, err) = validate_headers(&[h("X-A", "v1\r\nX")]);
+        assert!(err.contains("换行"), "{err}");
+    }
+
+    #[test]
+    fn validate_headers_rejects_duplicate_names_case_insensitive() {
+        let (_, err) = validate_headers(&[h("X-Team", "a"), h("x-team", "b")]);
+        assert!(err.contains("重复"), "{err}");
+    }
+
+    #[test]
+    fn validate_headers_enforces_count_and_value_size_limits() {
+        let many: Vec<HeaderPair> = (0..17).map(|i| h(&format!("X-H{i}"), "v")).collect();
+        let (_, err) = validate_headers(&many);
+        assert!(err.contains("最多 16 条"), "{err}");
+        let big = "x".repeat(MAX_HEADER_VALUE_BYTES + 1);
+        let (_, err) = validate_headers(&[h("X-Big", &big)]);
+        assert!(err.contains("过长"), "{err}");
+        // 恰好在限额内通过
+        let ok = "x".repeat(MAX_HEADER_VALUE_BYTES);
+        let (cleaned, err) = validate_headers(&[h("X-Ok", &ok)]);
+        assert!(err.is_empty());
+        assert_eq!(cleaned.len(), 1);
+    }
+
+    #[test]
+    fn header_value_session_placeholder_resolution() {
+        // 占位符替换：整值与嵌入式
+        assert_eq!(resolve_header_value("{sessionId}", "th_abc"), "th_abc");
+        assert_eq!(resolve_header_value("gw-{sessionId}-route", "th_abc"), "gw-th_abc-route");
+        // 无占位符原样返回
+        assert_eq!(resolve_header_value("static", "th_abc"), "static");
+        // 未填会话 ID：占位符保留（调用方按 header_has_session_placeholder 决定跳过）
+        assert_eq!(resolve_header_value("{sessionId}", ""), "{sessionId}");
+        // 检测函数
+        assert!(header_has_session_placeholder("{sessionId}"));
+        assert!(header_has_session_placeholder("a{sessionId}b"));
+        assert!(!header_has_session_placeholder("static"));
+        assert!(!header_has_session_placeholder("{SessionId}")); // 大小写敏感，不误替换
+    }
+
+    #[test]
+    fn persisted_provider_deserializes_without_headers_field() {
+        // 老数据兼容：settings 里的旧提供商 JSON 无 headers 字段 → 缺省空，可正常解析
+        let provider: PersistedProvider = serde_json::from_str(
+            r#"{"id":"p1","name":"���关","kind":"openai-compatible","endpoint":"https://gw.example.com/v1","keyRequired":true,"models":[]}"#,
+        )
+        .unwrap();
+        assert!(provider.headers.is_empty());
+        assert!(provider.enabled);
+        // roundtrip：带 headers 时序列化保留（camelCase）
+        let with_headers = PersistedProvider {
+            headers: vec![h("x-opencode-session", "ses_1")],
+            ..provider
+        };
+        let json = serde_json::to_value(&with_headers).unwrap();
+        assert_eq!(json["headers"][0]["name"], "x-opencode-session");
+        let back: PersistedProvider = serde_json::from_value(json).unwrap();
+        assert_eq!(back.headers, with_headers.headers);
+    }
 }

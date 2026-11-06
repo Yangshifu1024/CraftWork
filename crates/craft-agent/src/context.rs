@@ -186,6 +186,8 @@ pub fn run_compression_with(args: CompressionArgs<'_>, messages: Vec<Message>) -
             // 上下文压缩 sidecar 不需要思考档位
             reasoning_kind: String::new(),
             reasoning_level: String::new(),
+            // sidecar 同样携带会话 ID（自定义请求头 {sessionId} 替换，网关路由归并）
+            session_id: thread_id.to_string(),
         };
         // 阻塞消费流
         let mut summary = String::new();

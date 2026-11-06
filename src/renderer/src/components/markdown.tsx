@@ -6,6 +6,10 @@
 // 表格工具按钮（controls），外框样式在 CSS 层移除。
 // 高度全展开：streamdown 默认表格限高 300px、代码块限高 400px（内联 max-height + 滚动），
 // 显式置 0 禁用，表格与代码块始终按真实内容高度展开（docs/conversation-width/spec.md 第 7 条）。
+// 语法高亮：streamdown 核心不含高亮器，代码块默认退化为单色纯文本；着色由可选的
+// @streamdown/code 插件（shiki）提供，双主题 [light, dark] 由 .markdown-body 的 CSS 变量切换，
+// 行为约定见 docs/markdown-code-highlight/spec.md。
+import { code } from "@streamdown/code";
 import { Streamdown } from "streamdown";
 
 /** 流式 Markdown 视图：streaming 时套渐入动画类；安全与字号策略见文件头。 */
@@ -16,6 +20,7 @@ export function Markdown({ text, streaming }: { text: string; streaming: boolean
         codeBlockMaxHeight={0}
         tableMaxHeight={0}
         controls={{ table: false, code: { download: false } }}
+        plugins={{ code }}
       >
         {text}
       </Streamdown>

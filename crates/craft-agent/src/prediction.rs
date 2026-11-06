@@ -122,7 +122,7 @@ pub fn build_prompt(history: &[Message]) -> Option<String> {
 
 /// 生成输入预测（同步执行，调用方放阻塞线程）；无上下文、调用失败或输出无效
 /// 均返回 None，调用方静默放弃。
-pub fn generate_prediction(client: &dyn Client, model_id: &str, history: &[Message]) -> Option<String> {
+pub fn generate_prediction(client: &dyn Client, model_id: &str, thread_id: &str, history: &[Message]) -> Option<String> {
     let prompt = build_prompt(history)?;
 
     let req = craft_model::types::Request {
@@ -135,6 +135,8 @@ pub fn generate_prediction(client: &dyn Client, model_id: &str, history: &[Messa
         // sidecar 预测不需要思考档位
         reasoning_kind: String::new(),
         reasoning_level: String::new(),
+        // sidecar 同样携带会话 ID（自定义请求头 {sessionId} 替换，网关路由归并）
+        session_id: thread_id.to_string(),
     };
     let mut generated = String::new();
     // sidecar 流消费：失败静默放弃（客户端层有整体超时上限）

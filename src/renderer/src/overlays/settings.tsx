@@ -1,7 +1,7 @@
 // 设置中心：左侧导航 + 右侧内容（通用/外观/模型与提供商/工具与权限/数据）。
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
-import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, type LucideIcon } from "lucide-react";
+import { Palette, ShieldCheck, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, User, ChartColumn, ScrollText, DatabaseBackup, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, type LucideIcon } from "lucide-react";
 import { Dialog, DropdownMenu, Popover, Switch as RadixSwitch } from "radix-ui";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
@@ -13,10 +13,11 @@ import { groupProviders, providerStatus, type ProviderStatusTone } from "../lib/
 import { formatContextK, formatContextTitle } from "../lib/format-context";
 import { cleanErrorMessage } from "../lib/errors";
 import { isImeComposing } from "../lib/ime";
+import { compactHeaderRows, MAX_CUSTOM_HEADERS, validateHeaderPairs } from "../lib/provider-headers";
 import { ProviderLogo } from "../components/provider-logo";
 import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
-import type { AuditEntry, Backup, ConnectionResult, ModelView, ProviderView, Settings, UsageSummary } from "../../../shared/types";
+import type { AuditEntry, Backup, ConnectionResult, HeaderPair, ModelView, ProviderView, Settings, UsageSummary } from "../../../shared/types";
 
 type Section = "general" | "appearance" | "providers" | "permissions" | "usage" | "audit" | "backups";
 
@@ -420,6 +421,60 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionResult | null>(null);
 
+  // 自定义请求头（编辑态行表单 + 报错）：随每次模型请求附加（如网关路由头 x-opencode-session）
+  const [headersEditing, setHeadersEditing] = useState(false);
+  const [headersDraft, setHeadersDraft] = useState<HeaderPair[]>([]);
+  const [headersError, setHeadersError] = useState("");
+  const [savingHeaders, setSavingHeaders] = useState(false);
+
+  const saveHeaders = (): void => {
+    if (savingHeaders) return;
+    const pairs: HeaderPair[] = compactHeaderRows(headersDraft);
+    const localErr = validateHeaderPairs(pairs);
+    if (localErr) {
+      setHeadersError(localErr);
+      return;
+    }
+    setSavingHeaders(true);
+    api.providerSave({
+      id: provider.id,
+      name: provider.name,
+      kind: provider.kind,
+      endpoint: provider.endpoint,
+      keyRequired: provider.keyRequired,
+      headers: pairs,
+      models: provider.models.map((m) => ({
+        id: m.id,
+        name: m.name,
+        contextK: m.contextK,
+        maxTokens: m.maxTokens,
+        caps: m.caps,
+        cost: m.cost,
+      })),
+    })
+      .then(() => {
+        setHeadersEditing(false);
+        setHeadersError("");
+        onChanged();
+        pushToast("ok", "请求头已保存");
+      })
+      .catch((err) => setHeadersError(cleanErrorMessage(err)))
+      .finally(() => setSavingHeaders(false));
+  };
+
+  // 请求头行输入框共用按键：⌘↩ 保存、Esc 退出编辑（IME 组合中不拦截）
+  const headerRowKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (isImeComposing(e)) return;
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      saveHeaders();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setHeadersEditing(false);
+      setHeadersError("");
+    }
+  };
+
   // 模型增改弹窗（受控）：null 关闭；{ mode: "add" } 新增；{ mode: "edit", model } 编辑
   const [modelDialog, setModelDialog] = useState<{ mode: "add" } | { mode: "edit"; model: ModelView } | null>(null);
 
@@ -477,6 +532,7 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
       kind: provider.kind,
       endpoint: next,
       keyRequired: provider.keyRequired,
+      headers: provider.headers, // 部分更新仍显式带回现值（服务端对缺省字段本就保留，双保险）
       models: provider.models.map((m) => ({
         id: m.id,
         name: m.name,
@@ -812,6 +868,126 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
                 )}
               </div>
             </div>
+          )}
+        </div>
+
+        <div className="flex items-start gap-2.5">
+          <span className="w-9 shrink-0 pt-1.5 text-ui-xs text-foreground-subtlest">请求头</span>
+          {headersEditing ? (
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1">
+                {headersDraft.map((row, i) => (
+                  <div key={i} className="flex min-w-0 items-center gap-1.5">
+                    <input
+                      autoFocus={i === 0}
+                      value={row.name}
+                      disabled={savingHeaders}
+                      placeholder="x-opencode-session"
+                      title="请求头名称"
+                      onChange={(e) => {
+                        setHeadersDraft(headersDraft.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)));
+                        if (headersError) setHeadersError("");
+                      }}
+                      onKeyDown={headerRowKeyDown}
+                      className="h-7 w-40 shrink-0 rounded-lg border border-border bg-input px-2 font-mono text-ui-xs"
+                    />
+                    <input
+                      value={row.value}
+                      disabled={savingHeaders}
+                      placeholder={"{sessionId}"}
+                      title="请求头值"
+                      onChange={(e) => {
+                        setHeadersDraft(headersDraft.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)));
+                        if (headersError) setHeadersError("");
+                      }}
+                      onKeyDown={headerRowKeyDown}
+                      className="h-7 min-w-0 flex-1 rounded-lg border border-border bg-input px-2 font-mono text-ui-xs"
+                    />
+                    <button
+                      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-foreground-subtlest hover:bg-surface-hover hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                      title="删除此行"
+                      disabled={savingHeaders}
+                      onClick={() => {
+                        setHeadersDraft(headersDraft.filter((_, j) => j !== i));
+                        if (headersError) setHeadersError("");
+                      }}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="flex h-6 items-center gap-1 self-start rounded-lg border border-border px-2 text-ui-xs text-foreground-subtle hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={savingHeaders || headersDraft.length >= MAX_CUSTOM_HEADERS}
+                title={headersDraft.length >= MAX_CUSTOM_HEADERS ? `最多 ${MAX_CUSTOM_HEADERS} 条` : undefined}
+                onClick={() => {
+                  setHeadersDraft([...headersDraft, { name: "", value: "" }]);
+                  setHeadersError("");
+                }}
+              >
+                <Plus className="size-3" />
+                添加一条
+              </button>
+              {headersError ? (
+                <p className="text-ui-xs text-destructive">{headersError}</p>
+              ) : (
+                <p className="text-ui-xs text-foreground-subtlest">
+                  随每次模型请求附加；<code className="font-mono">{"{sessionId}"}</code> 自动替换为当前会话 ID（每会话独立），不能与密钥头同名。
+                </p>
+              )}
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="h-7 rounded-lg bg-brand px-3 text-ui-sm text-foreground-inverse disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={savingHeaders}
+                  onClick={saveHeaders}
+                >
+                  {savingHeaders ? "保存中…" : "保存"}
+                </button>
+                <button
+                  className="h-7 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+                  onClick={() => {
+                    setHeadersEditing(false);
+                    setHeadersError("");
+                  }}
+                >
+                  取消
+                </button>
+                <span className="ml-auto text-ui-xs text-foreground-subtlest">⌘↩ 保存 · Esc 取消</span>
+              </div>
+            </div>
+          ) : provider.headers.length > 0 ? (
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex min-w-0 flex-col gap-0.5 rounded-lg bg-surface px-2.5 py-1.5">
+                {provider.headers.map((h) => (
+                  <div key={h.name} className="flex min-w-0 items-baseline gap-2 font-mono text-ui-xs">
+                    <span className="shrink-0 text-foreground">{h.name}</span>
+                    <span className="min-w-0 truncate text-foreground-subtlest" title={h.value}>{h.value}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="h-6 self-start rounded-lg border border-border px-2 text-ui-xs text-foreground-subtle hover:bg-surface-hover"
+                onClick={() => {
+                  setHeadersDraft(provider.headers.map((h) => ({ name: h.name, value: h.value })));
+                  setHeadersError("");
+                  setHeadersEditing(true);
+                }}
+              >
+                编辑
+              </button>
+            </div>
+          ) : (
+            <button
+              className="h-7 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+              onClick={() => {
+                setHeadersDraft([{ name: "", value: "" }]);
+                setHeadersError("");
+                setHeadersEditing(true);
+              }}
+            >
+              添加请求头
+            </button>
           )}
         </div>
 

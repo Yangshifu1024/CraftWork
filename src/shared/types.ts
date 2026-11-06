@@ -239,7 +239,15 @@ export interface ProviderView {
   docUrl: string;
   catalogId: string;
   source: string; // manual | catalog
+  /** 自定义请求头（随每次模型请求附加，如网关路由头 x-opencode-session） */
+  headers: HeaderPair[];
   models: ModelView[];
+}
+
+/** 一个自定义请求头（名称 + 值）；服务端保存时校验（冲突名/换行/重复/上限）。 */
+export interface HeaderPair {
+  name: string;
+  value: string;
 }
 
 export interface ModelInput {
@@ -261,6 +269,8 @@ export interface ProviderInput {
   kind: "openai" | "anthropic" | "openai-compatible";
   endpoint: string;
   keyRequired: boolean;
+  /** 自定义请求头：携带时整体替换（服务端校验），缺省保留现值 */
+  headers?: HeaderPair[];
   models: ModelInput[];
 }
 

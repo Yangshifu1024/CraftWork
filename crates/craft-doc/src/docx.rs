@@ -290,16 +290,16 @@ mod tests {
         std::fs::write(&tmp, minimal_docx(SAMPLE)).unwrap();
         let path = tmp.to_string_lossy().to_string();
         let path: &str = &path;
-        replace(&path, &DocEdit { kind: "text".into(), old: Some("标题段落".to_string()), new: Some("改后标题".to_string()), sheet: None, cell: None, value: None }).unwrap();
-        let result = read(std::fs::read(&path).unwrap().as_slice()).unwrap();
+        replace(path, &DocEdit { kind: "text".into(), old: Some("标题段落".to_string()), new: Some("改后标题".to_string()), sheet: None, cell: None, value: None }).unwrap();
+        let result = read(std::fs::read(path).unwrap().as_slice()).unwrap();
         assert!(result.text.contains("改后标题"));
         assert!(!result.text.contains("标题段落"));
 
         // 两处命中拒绝
-        let err = replace(&path, &DocEdit { kind: "text".into(), old: Some("A".to_string()), new: Some("X".to_string()), sheet: None, cell: None, value: None }).unwrap_err();
+        let err = replace(path, &DocEdit { kind: "text".into(), old: Some("A".to_string()), new: Some("X".to_string()), sheet: None, cell: None, value: None }).unwrap_err();
         assert!(err.contains("2 处"));
         // 无命中提示
-        let err = replace(&path, &DocEdit { kind: "text".into(), old: Some("不存在的内容".to_string()), new: Some("X".into()), sheet: None, cell: None, value: None }).unwrap_err();
+        let err = replace(path, &DocEdit { kind: "text".into(), old: Some("不存在的内容".to_string()), new: Some("X".into()), sheet: None, cell: None, value: None }).unwrap_err();
         assert!(err.contains("没有找到"));
         std::fs::remove_file(&tmp).ok();
     }

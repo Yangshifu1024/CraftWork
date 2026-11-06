@@ -16,6 +16,7 @@ use craft_core::platform::{is_binary, sha256_hex, write_file_atomic};
 use craft_core::secret::SecretStore;
 use craft_model::catalog::{catalog_model_to_persisted, catalog_provider_env, Catalog};
 use craft_model::factory::ModelFactory;
+use craft_model::types::{validate_headers, HeaderPair, PersistedProvider};
 use craft_policy::engine::Engine;
 use craft_policy::resolve::resolve_existing;
 use craft_store::db::Db;
@@ -1028,11 +1029,16 @@ fn provider_view_one(state: &AppState, provider_id: &str) -> SvcResult {
     Ok(provider_view_json(state, &provider))
 }
 
-fn provider_view_json(state: &AppState, p: &craft_model::types::PersistedProvider) -> Value {
+fn provider_view_json(state: &AppState, p: &PersistedProvider) -> Value {
     let secrets = &*state.secrets;
     let env_refs: Vec<&str> = p.env_vars.iter().map(String::as_str).collect();
     let key_source = secrets.source_for(&p.id, &env_refs);
     let key_masked = secrets.masked_for(&p.id, &env_refs);
+    let headers: Vec<Value> = p
+        .headers
+        .iter()
+        .map(|h| json!({ "name": h.name, "value": h.value }))
+        .collect();
     let models: Vec<Value> = p
         .models
         .iter()
@@ -1053,7 +1059,7 @@ fn provider_view_json(state: &AppState, p: &craft_model::types::PersistedProvide
         "id": p.id, "name": p.name, "kind": p.kind, "endpoint": p.endpoint,
         "keyRequired": p.key_required, "keySource": key_source, "keyMasked": key_masked,
         "available": true, "enabled": p.enabled, "docUrl": "", "catalogId": p.catalog_id,
-        "source": p.source, "models": models,
+        "source": p.source, "headers": headers, "models": models,
     })
 }
 
@@ -1063,7 +1069,7 @@ pub fn provider_list(state: &AppState) -> SvcResult {
 }
 
 pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
-    let mut providers: Vec<craft_model::types::PersistedProvider> = state
+    let mut providers: Vec<PersistedProvider> = state
         .db
         .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
         .ok()
@@ -1075,6 +1081,29 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
         // 空串由服务端生成 ID（custom_*）：对齐渲染层手动新增提供商的语义
         id = craft_core::ids::new_id(craft_core::ids::id_prefix::CUSTOM_PROVIDER);
     }
+    // 自定义请求头：输入携带 headers 字段时整体替换（服务端复检，trim + 冲突/注入校验）；
+    // 未携带（如端点保存路径）时保留现值，避免部分更新抹掉已配置的请求头。
+    let headers = match input.get("headers") {
+        Some(Value::Array(items)) => {
+            let pairs: Vec<HeaderPair> = items
+                .iter()
+                .map(|v| HeaderPair {
+                    name: v.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    value: v.get("value").and_then(Value::as_str).unwrap_or_default().to_string(),
+                })
+                .collect();
+            let (cleaned, header_err) = validate_headers(&pairs);
+            if !header_err.is_empty() {
+                return err(header_err);
+            }
+            cleaned
+        }
+        _ => providers
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.headers.clone())
+            .unwrap_or_default(),
+    };
     let entry = json!({
         "id": id,
         "name": input.get("name").and_then(Value::as_str).unwrap_or(&id),
@@ -1083,10 +1112,11 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
         "keyRequired": input.get("keyRequired").and_then(Value::as_bool).unwrap_or(false),
         "note": "", "source": "manual", "catalogId": "", "catalogVersion": "", "envVars": [],
         "enabled": true,
+        "headers": headers,
         "models": input.get("models").cloned().unwrap_or(json!([])),
     });
-    let provider: craft_model::types::PersistedProvider =
-        serde_json::from_value(entry).map_err(|e| format!("提供商数据无效：{e}"))?;
+    let provider: PersistedProvider =
+        serde_json::from_value(entry).map_err(|e| format!("提供商数据��效：{e}"))?;
     if let Some(slot) = providers.iter_mut().find(|p| p.id == id) {
         *slot = provider;
     } else {
@@ -1096,7 +1126,7 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
     provider_view_one(state, &id)
 }
 
-fn save_providers(state: &AppState, providers: &[craft_model::types::PersistedProvider]) -> Result<(), String> {
+fn save_providers(state: &AppState, providers: &[PersistedProvider]) -> Result<(), String> {
     let value = serde_json::to_value(providers).map_err(|e| e.to_string())?;
     state.db.with(|conn| set_setting(conn, CUSTOM_PROVIDERS_KEY, &value)).map_err(|e| e.to_string())?;
     state.catalog.reload();
@@ -1104,7 +1134,7 @@ fn save_providers(state: &AppState, providers: &[craft_model::types::PersistedPr
 }
 
 pub fn provider_delete(state: &AppState, id: &str) -> SvcResult {
-    let providers: Vec<craft_model::types::PersistedProvider> = state
+    let providers: Vec<PersistedProvider> = state
         .db
         .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
         .ok()
@@ -1117,7 +1147,7 @@ pub fn provider_delete(state: &AppState, id: &str) -> SvcResult {
 }
 
 pub fn provider_set_enabled(state: &AppState, id: &str, enabled: bool) -> SvcResult {
-    let mut providers: Vec<craft_model::types::PersistedProvider> = state
+    let mut providers: Vec<PersistedProvider> = state
         .db
         .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
         .ok()
@@ -1164,6 +1194,14 @@ pub fn provider_test(state: &AppState, id: &str) -> SvcResult {
         req = req.header("x-api-key", &key).header("anthropic-version", "2023-06-01");
     } else if !key.is_empty() {
         req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    // 提供商自定义请求头（与模型调用同源，保证测试连接与真实调用行为一致）；
+    // {sessionId} 占位符无会话上下文可替换，跳过不发（避免把字面占位符发给网关）
+    for h in &provider.headers {
+        if craft_model::types::header_has_session_placeholder(&h.value) {
+            continue;
+        }
+        req = req.header(h.name.as_str(), h.value.as_str());
     }
     match req.send() {
         Ok(resp) => {
@@ -1254,14 +1292,14 @@ pub fn catalog_import(state: &AppState, provider_id: &str, all: bool, model_ids:
     if models.is_empty() {
         return err("没有选择要导入的模型");
     }
-    let mut providers: Vec<craft_model::types::PersistedProvider> = state
+    let mut providers: Vec<PersistedProvider> = state
         .db
         .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
         .ok()
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
-    let provider = craft_model::types::PersistedProvider {
+    let provider = PersistedProvider {
         id: p.id.clone(),
         name: p.name.clone(),
         kind: if p.kind == "anthropic" { "anthropic".into() } else { "openai-compatible".into() },
@@ -1273,6 +1311,8 @@ pub fn catalog_import(state: &AppState, provider_id: &str, all: bool, model_ids:
         catalog_version: String::new(),
         env_vars: catalog_provider_env(p),
         enabled: true,
+        // 目录导入不覆盖已存的请求头配置（合并路径下仅新建时生效，取默认空）
+        headers: providers.iter().find(|x| x.id == p.id).map(|x| x.headers.clone()).unwrap_or_default(),
         models,
     };
     if let Some(slot) = providers.iter_mut().find(|x| x.id == provider.id) {
@@ -1345,7 +1385,7 @@ pub fn read_attachment(state: &AppState, name: &str) -> SvcResult {
 
 // ---------- 提供商模型级操作与拉取 ----------
 
-fn load_providers(state: &AppState) -> Vec<craft_model::types::PersistedProvider> {
+fn load_providers(state: &AppState) -> Vec<PersistedProvider> {
     state
         .db
         .with(|conn| get_setting(conn, CUSTOM_PROVIDERS_KEY))
@@ -1513,6 +1553,13 @@ pub fn provider_fetch_models(state: &AppState, provider_id: &str) -> SvcResult {
         req = req.header("x-api-key", &key).header("anthropic-version", "2023-06-01");
     } else if !key.is_empty() {
         req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    // {sessionId} 占位符无会话上下文可替换，跳过不发（避免把字面占位符发给网关）
+    for h in &provider.headers {
+        if craft_model::types::header_has_session_placeholder(&h.value) {
+            continue;
+        }
+        req = req.header(h.name.as_str(), h.value.as_str());
     }
     let resp = req.send().map_err(|e| format!("拉取失败：{e}"))?;
     let status = resp.status();

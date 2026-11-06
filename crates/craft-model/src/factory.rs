@@ -121,10 +121,10 @@ impl ModelFactory {
             ));
         }
         let inner: Box<dyn Client> = if provider.kind == "anthropic" {
-            Box::new(AnthropicClient::new(&provider.endpoint, &key, &display_name))
+            Box::new(AnthropicClient::new(&provider.endpoint, &key, &display_name).with_headers(provider.headers.clone()))
         } else {
             // openai 与 openai-compatible 共用 OpenAI 协议适配器
-            Box::new(OpenAICompatClient::new(&provider.endpoint, &key, &display_name))
+            Box::new(OpenAICompatClient::new(&provider.endpoint, &key, &display_name).with_headers(provider.headers.clone()))
         };
         // 重试参数：3 次尝试、700ms 基础退避、5s 上限；重试事件经日志回调观测。
         // max_tokens 超限自愈包在协议客户端外、退避重试内：网关 400 换参重发后，

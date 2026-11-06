@@ -313,6 +313,14 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
                 for part in &mut msg.parts {
                     part.payload.as_object_mut().map(|obj| obj.remove("via"));
                 }
+                // 排序 seq 推进到投递时刻：引导消息「落库早、投递晚」，按部件 seq（落库
+                // 时刻）排序会排到它触发的回复之前、与其上方的用户消息连排；投递回执的
+                // seq 恰在其触发的回复之后、后续输入之前，才是时间线上的真实位置。
+                // 丢弃回执（run_id=None，收尾批量回执）不推进：未获回复的引导消息留在
+                // 用户发送时刻的位置更符合直觉。
+                if ev.run_id.is_some() && ev.seq > msg.seq {
+                    msg.seq = ev.seq;
+                }
             }
             continue;
         }

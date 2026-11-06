@@ -18,3 +18,15 @@ export function formatSpeed(value: number): string {
   if (value >= 10) return String(Math.round(value));
   return Math.max(0.1, value).toFixed(1);
 }
+
+/**
+ * 去除首尾空行（`whitespace-pre-wrap` 原样渲染的场景用）。
+ *
+ * 模型常在正文末尾多吐几个换行（`\n\n\n\n`）。走 Markdown 渲染时解析器会自动吞掉
+ * 尾部空行；但折叠区里的中间解说按纯文本 + `whitespace-pre-wrap` 渲染，尾随换行
+ * 会变成真实空行（实测每多一个 `\n` 多出 21px），在时间线上呈现为突兀的空白块。
+ * 只裁首尾、不动中间——段内的空行是作者有意的分段。
+ */
+export function trimBlankLines(text: string): string {
+  return text.replace(/^(?:[ \t]*\n)+/, "").replace(/\n(?:[ \t]*\n)*[ \t]*$/, "");
+}

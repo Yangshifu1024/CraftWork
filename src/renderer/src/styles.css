@@ -3,6 +3,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* dark 变体绑定到主题类而非系统偏好：本项目主题由 html 上的 .theme-craft-light /
+   .theme-craft-dark 类驱动（可手动切换），Tailwind v4 默认的
+   @media (prefers-color-scheme: dark) 会在「系统浅色 + 应用深色」时给出浅色样式。
+   受影响的不只是 shiki 双主题 token（streamdown 用 dark:text-[var(--shiki-dark)] 表达），
+   任何 dark: 工具类都统一走这条规则。 */
+@custom-variant dark (&:where(.theme-craft-dark, .theme-craft-dark *));
+
 /* streamdown 组件输出的 Tailwind 类名在 node_modules 内，默认不在 v4 自动扫描范围；
    不加 @source 时表格、代码块等渲染为裸 HTML（无边框与间距）。 */
 @source "../../../node_modules/streamdown/dist";
@@ -33,6 +40,11 @@
   --color-header: var(--craft-header);
   --color-surface: var(--craft-surface);
   --color-surface-hover: var(--craft-surface-hover);
+  /* muted / muted-foreground：streamdown 输出的 bg-muted（行内代码底色）、
+     text-muted-foreground（代码块语言标签与行号）、border-muted-foreground/30 需要，
+     复用既有变量，不新增色值。 */
+  --color-muted: var(--craft-surface);
+  --color-muted-foreground: var(--craft-foreground-subtle);
   --color-hover: var(--craft-hover);
   --color-selected: var(--craft-selected);
   --color-user-message-bubble: var(--craft-user-message-bubble);
@@ -456,6 +468,18 @@
 .markdown-body [data-streamdown="code-block"] > .pointer-events-none.absolute {
   top: calc(2rem + 8px);
   right: 8px;
+}
+
+/* 代码块底色归到语义 token：shiki 主题自带 --sdm-bg（github-light #fff / github-dark #24292e），
+   与应用主题脱节（浅色主题下是一块纯白、深色主题下是另一套深灰）。底色改用 --craft-surface，
+   内层 pre 的 shiki 背景置透明，只保留 token 前景色（--sdm-c / --shiki-dark）。
+   选择器特异性高于 streamdown 的 .bg-[var(--sdm-bg)] 与 dark:bg-[var(--shiki-dark-bg)]。 */
+.markdown-body [data-streamdown="code-block-body"] {
+  background-color: var(--craft-surface);
+  border-color: var(--craft-border);
+}
+.markdown-body [data-streamdown="code-block-body"] pre {
+  background-color: transparent;
 }
 
 /* 运行态扫光文字（统一语言：不旋转图标，用文字扫光） */

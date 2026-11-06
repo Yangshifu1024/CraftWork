@@ -14,7 +14,7 @@ import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import { reasoningLabel } from "../lib/reasoning";
 import { selectableModels } from "../lib/provider-list";
-import { formatSpeed, formatTokens } from "../lib/format";
+import { formatSpeed, formatTokens, trimBlankLines } from "../lib/format";
 import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot, PlanInfo } from "../../../shared/types";
@@ -307,7 +307,7 @@ function MessageRow({
             .filter((p) => p.kind === "text")
             .map((part) => (
               <div key={part.id} className="whitespace-pre-wrap break-words">
-                {String(part.payload["text"] ?? "")}
+                {trimBlankLines(String(part.payload["text"] ?? ""))}
               </div>
             ))}
           {message.parts
@@ -548,10 +548,12 @@ function WorkLine({
     case "reasoning":
       return <ReasoningFold part={part} streaming={part.id === streamingReasoningId} />;
     case "text":
-      // 折叠区内的中间解说正文（「边做边说」的过程叙述），弱化展示
+      // 折叠区内的中间解说正文（「边做边说」的过程叙述），弱化展示。
+      // 纯文本 + whitespace-pre-wrap 原样渲染，尾随换行会变成真实空行（模型常多吐几个），
+      // 先裁首尾空行——最终正文走 Markdown 渲染，解析器本就会吞掉尾部空行。
       return (
         <div className="select-text whitespace-pre-wrap break-words text-ui-base text-foreground-subtle">
-          {String(part.payload["text"] ?? "")}
+          {trimBlankLines(String(part.payload["text"] ?? ""))}
         </div>
       );
     case "tool":
@@ -687,7 +689,7 @@ function ReasoningFold({ part, streaming }: { part: PartSnapshot; streaming: boo
       </button>
       {open && (
         <div className="select-text whitespace-pre-wrap break-words pt-1.5 text-ui-base text-foreground-subtlest">
-          {text}
+          {trimBlankLines(text)}
         </div>
       )}
     </div>

@@ -121,7 +121,8 @@ export interface ApprovalResolvedData {
 
 export interface TodoItem {
   text: string;
-  status: "pending" | "active" | "done";
+  /** "completed" 为历史事件中的模型别名（旧事件未归一化），渲染时映射回 "done"。 */
+  status: "pending" | "active" | "done" | "completed";
 }
 
 export interface TodoPart {

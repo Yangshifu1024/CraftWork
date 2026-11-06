@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::errors::{missing_endpoint_error, stream_error, ModelError};
 use crate::sse::{line_to_event, open_sse, LineReader, SseEvent, TailBuffer, ToolCallBuilder};
-use crate::types::{attachment_prompt_text, Chunk, Client, Request, Usage, RAW_TAIL_CAPACITY};
+use crate::types::{
+    attachment_prompt_text, header_has_session_placeholder, resolve_header_value, Chunk, Client, Request, Usage, RAW_TAIL_CAPACITY,
+};
 use crate::openai::make_stream_end;
 
 /// 端点拼接：base 已含 /v1 时跳过 path 的第一段，避免重复 /v1。
@@ -160,6 +162,8 @@ pub struct AnthropicClient {
     endpoint: String,
     api_key: String,
     provider_name: String,
+    /// 提供商级自定义请求头（用户在提供商配置里声明，随每次请求附加）。
+    extra_headers: Vec<crate::types::HeaderPair>,
 }
 
 impl AnthropicClient {
@@ -170,7 +174,14 @@ impl AnthropicClient {
             endpoint: endpoint.to_string(),
             api_key: api_key.to_string(),
             provider_name: provider_name.to_string(),
+            extra_headers: Vec::new(),
         }
+    }
+
+    /// 附加提供商级自定义请求头（链式）。
+    pub fn with_headers(mut self, headers: Vec<crate::types::HeaderPair>) -> Self {
+        self.extra_headers = headers;
+        self
     }
 }
 
@@ -314,6 +325,7 @@ impl Client for AnthropicClient {
             endpoint: self.endpoint.clone(),
             api_key: self.api_key.clone(),
             provider_name: self.provider_name.clone(),
+            extra_headers: self.extra_headers.clone(),
         })
     }
 
@@ -323,19 +335,29 @@ impl Client for AnthropicClient {
         let api_key = self.api_key.clone();
         let provider = self.provider_name.clone();
         let http = self.http.clone();
+        let extra_headers = self.extra_headers.clone();
         Box::pin(async_stream::stream! {
             if endpoint.is_empty() {
                 yield Err(missing_endpoint_error(&provider));
                 return;
             }
             let url = join_api_path(&endpoint, "/v1/messages");
-            let request = http
+            let mut request = http
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
                 .header("x-api-key", &api_key)
-                .header("anthropic-version", "2023-06-01")
-                .json(&body);
+                .header("anthropic-version", "2023-06-01");
+            // 提供商自定义头最后附加：与协议固定头同名时可覆盖（保存侧已禁止冲突名，防御性兜底）；
+            // {sessionId} 占位符按请求的会话 ID 替换，未携带会话 ID 的头跳过（不发坏路由值）
+            for h in &extra_headers {
+                if header_has_session_placeholder(&h.value) && req.session_id.is_empty() {
+                    continue;
+                }
+                request = request
+                    .header(h.name.as_str(), resolve_header_value(&h.value, &req.session_id).as_str());
+            }
+            let request = request.json(&body);
             let resp = match open_sse(request, &provider).await {
                 Ok(resp) => resp,
                 Err(err) => {
@@ -457,6 +479,7 @@ mod tests {
             max_tokens: 2048,
             reasoning_kind: String::new(),
             reasoning_level: String::new(),
+            session_id: "th_sample".into(),
         }
     }
 

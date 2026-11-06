@@ -276,6 +276,59 @@ fn provider_save_empty_id_generated_server_side_returns_single_object() {
     assert_eq!(updated["name"], "改名");
 }
 
+/// 自定义请求头：保存时服务端校验（trim / 冲突名拒绝 / 换行拒绝），视图带出；
+/// 未携带 headers 的部分更新（端点保存路径）保留现值；目录导入保留已存请求头。
+#[test]
+fn provider_custom_headers_save_validate_and_partial_update_preservation() {
+    let (_dir, state) = test_state("provider-headers");
+    // 保存带自定义头（网关路由头场景）
+    let view = services::provider_save(&state, &json!({
+        "id": "gw", "name": "网关", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": true,
+        "headers": [{ "name": " x-opencode-session ", "value": " ses_1 " }],
+        "models": [],
+    })).unwrap();
+    assert_eq!(view["headers"][0]["name"], "x-opencode-session", "保存时应 trim");
+    assert_eq!(view["headers"][0]["value"], "ses_1");
+
+    // 与密钥字段冲突：拒绝保存
+    let err = services::provider_save(&state, &json!({
+        "id": "gw", "name": "网关", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": true,
+        "headers": [{ "name": "Authorization", "value": "Bearer x" }],
+        "models": [],
+    })).unwrap_err();
+    assert!(err.contains("密钥字段冲突"), "{err}");
+
+    // 值含换行（头注入）：拒绝保存
+    let err = services::provider_save(&state, &json!({
+        "id": "gw", "name": "网关", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": true,
+        "headers": [{ "name": "X-A", "value": "v\nX-Evil: 1" }],
+        "models": [],
+    })).unwrap_err();
+    assert!(err.contains("换行"), "{err}");
+
+    // 不带 headers 的部分更新（端点保存路径）：保留现值
+    let untouched = services::provider_save(&state, &json!({
+        "id": "gw", "name": "网关", "kind": "openai-compatible",
+        "endpoint": "https://gw2.invalid/v1", "keyRequired": true, "models": [],
+    })).unwrap();
+    assert_eq!(untouched["headers"][0]["name"], "x-opencode-session", "部分更新不得抹掉已存请求头");
+
+    // 显式传空数组：整体清空（清空也是合法操作）
+    let cleared = services::provider_save(&state, &json!({
+        "id": "gw", "name": "网关", "kind": "openai-compatible",
+        "endpoint": "https://gw2.invalid/v1", "keyRequired": true, "headers": [], "models": [],
+    })).unwrap();
+    assert!(cleared["headers"].as_array().unwrap().is_empty());
+
+    // 目录导入：新导入的提供商无请求头，不继承其他提供商的配置
+    let imported = services::catalog_import(&state, "openai", false, &["gpt-4o".into()]).unwrap();
+    let imported_entry = imported.as_array().unwrap().iter().find(|p| p["id"] == json!("openai")).unwrap();
+    assert!(imported_entry["headers"].as_array().unwrap().is_empty());
+}
+
 #[test]
 fn workspace_add_empty_name_derivation_dedup_ordinal_and_single_object() {
     let (dir, state) = test_state("ws-add-project");

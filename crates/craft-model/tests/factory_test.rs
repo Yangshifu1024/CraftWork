@@ -12,6 +12,7 @@ use craft_store::records::set_setting;
 use craft_model::types::PersistedModel;
 
 /// 密钥桩：按提供商 ID 查表，缺省返回空串。
+#[derive(Default)]
 struct StubKeys {
     keys: std::collections::HashMap<String, String>,
 }
@@ -21,7 +22,6 @@ impl KeyProvider for StubKeys {
         self.keys.get(provider_id).cloned().unwrap_or_default()
     }
 }
-
 /// 建隔离临时库（目录名含 tag + pid + 纳秒，避免并行冲突）；调用方负责清理目录。
 fn tmp_db(tag: &str) -> (PathBuf, Arc<Db>) {
     let dir = std::env::temp_dir().join(format!(
@@ -175,7 +175,7 @@ fn fallback_chain_excludes_disabled_same_reference_and_missing_key_candidates() 
     // 无 resolver → 空
     assert_eq!(factory.fallback_model("cur/m"), "");
     // resolver 返回空 → 空
-    factory.set_fallback_resolver(Box::new(|| String::new()));
+    factory.set_fallback_resolver(Box::new(String::new));
     assert_eq!(factory.fallback_model("cur/m"), "");
     // 正常回退
     factory.set_fallback_resolver(Box::new(|| "fb/m".into()));
@@ -217,10 +217,4 @@ fn provider_kind_for_cost_branches() {
 fn event_type_constants_aligned_with_contract() {
     // 烟雾：event_type 常量可访问（contract 与 events.ts 对齐由黄金文件测试保障）
     assert_eq!(event_type::RUN_STARTED, "run.started");
-}
-
-impl Default for StubKeys {
-    fn default() -> Self {
-        Self { keys: std::collections::HashMap::new() }
-    }
 }

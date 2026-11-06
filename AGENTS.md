@@ -23,7 +23,7 @@ CraftWork 是一个本地优先、可审计的桌面 Agent，采用 **Tauri 2 + 
 | 存储 | rusqlite（bundled/json/backup）+ 单连接 Mutex 串行 + WAL |
 | 终端执行 | `shell_exec`：独立进程组、环境白名单清洗、超时杀树（tokio::process + command-group 预留 Windows） |
 | 界面 | React 19、zustand、Tailwind CSS v4（`@theme inline` 语义色 token）、radix-ui、cmdk、lucide-react |
-| 对话渲染 | streamdown（流式 Markdown，不渲染原始 HTML） |
+| 对话渲染 | streamdown（流式 Markdown，不渲染原始 HTML）+ @streamdown/code（shiki 语法高亮，纯 JS 引擎、不加载 wasm） |
 | 打包 | Tauri bundler：`pnpm dist:dir`（.app 目录）/ `pnpm dist`（dmg）；`tauri.conf.json` 为版本事实源 |
 
 规则：

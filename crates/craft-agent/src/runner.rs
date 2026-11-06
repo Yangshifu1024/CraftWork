@@ -24,6 +24,7 @@ use craft_store::runs::{create_run, finish_run};
 use craft_store::threads::{add_thread_tokens, get_thread};
 use craft_store::workspaces::get_workspace;
 use craft_tools::registry::{Registry, ToolResult};
+use craft_tools::todo::normalize_items;
 
 use crate::approvals::{ApprovalFact, ApprovalRequest, Approvals};
 use crate::attachments::load_attachments;
@@ -632,11 +633,17 @@ impl Runner {
             }
 
             // 引导投递点：每个迭代开始（按消息 ID 去重，接力历史可能已包含）。
-            // 每条取出的引导都回执 steer_delivered（落库 + 广播，前端据此摘「待送达」标记）：
-            // 实际注入的附带 nextMessageId——后续输出切换到新 assistant 消息，
-            // 不再挂在引导气泡上方的旧消息里；去重跳过的（接力 trigger 消息已随历史重建进入）只摘标记。
+            // 每条取出的引导都回执 steer_delivered（落库 + 广播，前端据此摘「待送达」标记）。
+            // 先注入收集回执、再统一落库：nextMessageId 取决于全批结果——
+            // 注入批次：实际注入的附带新 assistant 消息 id，后续输出切换过去，
+            // 不再挂在引导气泡上方的旧消息里；混合批次中已随历史重建进入的去重项不带。
+            // 全去重批次（接力 trigger 单独成批、本批无注入）：回复仍流到接力 run 自己的
+            // assistant 消息，回执必须带上它的 id——前端流式输出只往「最后一条 streaming
+            // 消息」续写，run.started 建的正主占位若无回执背书，会被 steer.delivered 的
+            // 空壳清理误删，整条回复从此无处可挂而静默丢失。
             let delivered = self.take_steers(thread_id);
             if !delivered.is_empty() {
+                let mut receipts: Vec<(String, Value)> = Vec::with_capacity(delivered.len());
                 let mut injected = false;
                 let mut next_message_id = String::new();
                 for item in delivered {
@@ -656,10 +663,18 @@ impl Runner {
                         history.push(msg);
                         payload["nextMessageId"] = json!(next_message_id);
                     }
+                    receipts.push((item.message_id, payload));
+                }
+                if !injected {
+                    for (_, payload) in receipts.iter_mut() {
+                        payload["nextMessageId"] = json!(message_id);
+                    }
+                }
+                for (receipt_message_id, payload) in receipts {
                     self.deps.records.append_or_warn(&EventRecord {
                         thread_id: thread_id.to_string(),
                         run_id: Some(run_id.to_string()),
-                        message_id: item.message_id,
+                        message_id: receipt_message_id,
                         kind: "steer_delivered".into(),
                         payload,
                     });
@@ -1262,7 +1277,7 @@ impl Runner {
             },
         );
 
-        // 任务清单部件（前端渲染待办卡片）
+        // 任务清单部件（前端渲染待办卡片）；status 别名先归一化，事件落库即规范值
         if call.name == "todo_write" && !result.is_error {
             self.deps.records.append_or_warn(&EventRecord {
                 thread_id: thread_id.to_string(),
@@ -1271,7 +1286,11 @@ impl Runner {
                 kind: "todo".into(),
                 payload: json!({
                     "partId": new_id(id_prefix::PART),
-                    "items": call.args.get("items").cloned().unwrap_or(Value::Array(vec![])),
+                    "items": call
+                        .args
+                        .get("items")
+                        .map(normalize_items)
+                        .unwrap_or(Value::Array(vec![])),
                 }),
             });
         }

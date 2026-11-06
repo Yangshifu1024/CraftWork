@@ -171,6 +171,8 @@ pub fn auto_title(db: &Db, input: AutoTitleInput<'_>) {
         // sidecar 起标题不需要思考档位
         reasoning_kind: String::new(),
         reasoning_level: String::new(),
+        // sidecar 同样携带会话 ID（自定义请求头 {sessionId} 替换，网关路由归并）
+        session_id: input.thread_id.to_string(),
     };
     let mut generated = String::new();
     // sidecar 流消费（无整体超时依赖：客户端层有 600s 上限；失败静默放弃）
