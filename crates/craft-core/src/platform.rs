@@ -83,6 +83,36 @@ pub fn backup_name(abs_path: &Path) -> String {
     format!("{base}.{}", now.format("%Y%m%d-%H%M%S%.3f"))
 }
 
+// ---------- 用户身份探测 ----------
+
+/// 解析 `git config --get user.name` 的 stdout：退出成功且去首尾空白后非空才算配置过。
+fn parse_git_user_name(output: &std::process::Output) -> Option<String> {
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// 用户显示名：git 全局 user.name → 系统用户名（USER / USERNAME）→ 兜底 "CraftWork"。
+/// git 未安装或未配置 user.name 时回退系统用户名；仅供侧栏账户位展示，不参与任何授权判断。
+pub fn user_display_name() -> String {
+    let git_name = std::process::Command::new("git")
+        .args(["config", "--global", "--get", "user.name"])
+        .output()
+        .ok()
+        .and_then(|out| parse_git_user_name(&out));
+    if let Some(name) = git_name {
+        return name;
+    }
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "CraftWork".into())
+}
+
 // ---------- 环境清洗 ----------
 
 /// 子进程环境白名单：只保留无害变量。
@@ -394,6 +424,24 @@ mod tests {
     fn binary_probe_contains_nul_is_binary() {
         assert!(!is_binary(b"plain text"));
         assert!(is_binary(&[0x50, 0x4b, 0x00, 0x01]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_user_name_requires_success_and_non_empty_output() {
+        let ok = std::process::Command::new("echo").arg("张三").output().unwrap();
+        assert_eq!(parse_git_user_name(&ok).as_deref(), Some("张三"));
+        // 退出成功但无输出：视为未配置
+        let empty = std::process::Command::new("true").output().unwrap();
+        assert_eq!(parse_git_user_name(&empty), None);
+        // 退出失败（如 user.name 未配置时 git 返回非零）
+        let failed = std::process::Command::new("false").output().unwrap();
+        assert_eq!(parse_git_user_name(&failed), None);
+    }
+
+    #[test]
+    fn user_display_name_always_returns_non_empty() {
+        assert!(!user_display_name().is_empty());
     }
 
     #[cfg(unix)]

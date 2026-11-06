@@ -96,6 +96,7 @@ pub fn get_info(state: &AppState) -> SvcResult {
         platform: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
         data_dir: state.data_dir.clone(),
+        user_name: craft_core::platform::user_display_name(),
     };
     serde_json::to_value(info).map_err(|e| e.to_string())
 }

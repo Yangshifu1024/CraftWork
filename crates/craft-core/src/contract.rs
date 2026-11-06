@@ -366,6 +366,8 @@ pub struct AppInfo {
     pub platform: String,
     pub arch: String,
     pub data_dir: String,
+    /// 用户显示名：git 全局 user.name → 系统用户名 → "CraftWork"（侧栏账户位展示用）。
+    pub user_name: String,
 }
 
 #[cfg(test)]
@@ -532,7 +534,7 @@ mod tests {
         };
         let line = DiffLine { kind: "ctx".into(), old: 0, r#new: 0, text: "t".into() };
         let diff = DiffResult { additions: 0, deletions: 0, hunks: vec![DiffHunk { header: "h".into(), lines: vec![line] }], truncated: false };
-        let info = AppInfo { name: "n".into(), version: "v".into(), platform: "p".into(), arch: "a".into(), data_dir: "/d".into() };
+        let info = AppInfo { name: "n".into(), version: "v".into(), platform: "p".into(), arch: "a".into(), data_dir: "/d".into(), user_name: "u".into() };
         let workspace = WorkspaceView { id: "w".into(), name: "n".into(), path: "/p".into(), trust: "trusted".into(), purpose: "project".into(), last_opened_at: 0, folders: vec![folder] };
 
         let samples: Vec<(&str, Value)> = vec![

@@ -425,6 +425,8 @@ export interface AppInfo {
   platform: string;
   arch: string;
   dataDir: string;
+  /** 用户显示名：git 全局 user.name → 系统用户名 → "CraftWork"（侧栏账户位展示用） */
+  userName: string;
 }
 
 // ---------- 工具声明（发往模型的规格 & 前端展示共用） ----------

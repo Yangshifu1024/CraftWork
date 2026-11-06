@@ -1,7 +1,7 @@
 // 会话侧栏：结构与视觉对齐参考侧栏的分层——
 // 顶部拖拽留白 → 模式切换（Code / Work 两段 pill）→ 导航按钮列（新建对话 / 数据 / 设置）→ 列表区（标题行 + 滚动体）→ 底部 footer。
 // 任务行：16px 状态槽 + 标题 + 右侧相对时间；hover bg-surface-hover、激活 bg-selected。
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MessageCirclePlus,
   Search,
@@ -287,6 +287,12 @@ export function Sidebar(): React.JSX.Element {
   const [showAll, setShowAll] = useState<Set<string>>(new Set());
   /** 临时会话分组头的右键菜单坐标（null = 关闭）。 */
   const [tempMenu, setTempMenu] = useState<{ x: number; y: number } | null>(null);
+  /** 账户位显示名：git 全局 user.name → 系统用户名（后端探测，启动时取一次）。 */
+  const [userName, setUserName] = useState("");
+
+  useEffect(() => {
+    void api.getInfo().then((info) => setUserName(info.userName));
+  }, []);
 
   /** 每组默认可见条数，超出折叠为「显示更多」（对齐 ZCode 任务列表）。 */
   const VISIBLE_LIMIT = 5;
@@ -549,7 +555,7 @@ export function Sidebar(): React.JSX.Element {
                     <User className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-left text-ui-base font-semibold text-foreground">
-                    CraftWork
+                    {userName}
                   </span>
                 </button>
                 <div className="flex shrink-0 items-center gap-1.5">
