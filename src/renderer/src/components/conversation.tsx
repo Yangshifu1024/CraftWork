@@ -1009,7 +1009,7 @@ function ContextRow({ label, value, muted }: { label: string; value: string; mut
 /** 上下文占用 chip：圆环 + 百分比 + 输出速度，点击弹出详情浮层（口径沿袭历史版 contextHint：
  *  占用实测优先（thread.contextTokens = 最近一轮输入+输出，覆盖语义），没有调用记录时按
  *  「会话累计 token + 全部正文 UTF-16 长度 ÷ 4」估算兜底；窗口取模型目录 contextK，缺省 32k；
- *  速度运行中用流式实时估算（字符/4 ÷ 首增量起秒数），空闲显示最近一轮后端实测值，从未产生则不渲染。
+ *  速度运行中按当前输出段实时估算（段内字符/4 ÷ 段起秒数，迭代边界重置），空闲显示最近一轮后端实测值，从未产生则不渲染。
  *  空态收口：未选择模型时整块不渲染。正文长度用 UTF-16 length 近似码点数（中文等价，emoji 有微差，仅用于提示）。 */
 function ContextChip(): React.JSX.Element | null {
   const mode = useApp((s) => s.mode);
@@ -1048,20 +1048,39 @@ function ContextChip(): React.JSX.Element | null {
     }
     return chars;
   });
-  const streamChars = useApp((s) => {
-    let chars = 0;
-    for (const m of s.chats[activeId]?.messages ?? []) {
-      if (m.role !== "assistant" || m.status !== "streaming") continue;
-      for (const p of m.parts) {
-        if (p.kind === "text") chars += String(p.payload["text"] ?? "").length;
+  // 当前流式输出段：最后一条 streaming 消息里最后一个 text part（后端每轮迭代重置
+  // part id，即一段新输出）。编码为 "partId|chars" 字符串保持 selector 值稳定：
+  // null = 无流式消息（空闲/工具执行中）；"id|0" = 思考中（尚无正文）。
+  const streamSeg = useApp((s) => {
+    const msgs = s.chats[activeId]?.messages ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (!m || m.role !== "assistant" || m.status !== "streaming") continue;
+      for (let j = m.parts.length - 1; j >= 0; j--) {
+        const p = m.parts[j];
+        if (p && p.kind === "text") {
+          return `${p.id}|${String(p.payload["text"] ?? "").length}`;
+        }
       }
+      return "|0";
     }
-    return chars;
+    return null;
   });
-  // 实时速度的计时起点：首个流式增量出现时起表，流式结束清零
+  const segParts = streamSeg ? streamSeg.split("|") : ["", "0"];
+  const segId = segParts[0] ?? "";
+  const streamChars = Number(segParts[1]) || 0;
+  // 实时速度按「当前输出段」计时：段起点 = 该段首个增量到达时刻，段切换（迭代边界）
+  // 即重置。若跨段累计字符而起点只设一次，长任务里分母持续增长会把速度稀释成 0.x，
+  // Math.round 后恒显「0 tok/s」并劫持实测速度的展示。
   const streamStartRef = useRef(0);
-  if (streamChars > 0 && streamStartRef.current === 0) streamStartRef.current = Date.now();
-  if (streamChars === 0) streamStartRef.current = 0;
+  const segIdRef = useRef("");
+  if (streamSeg === null) {
+    streamStartRef.current = 0;
+    segIdRef.current = "";
+  } else if (segId !== "" && segId !== segIdRef.current) {
+    streamStartRef.current = Date.now();
+    segIdRef.current = segId;
+  }
 
   if (!modelId) return null;
 
@@ -1070,7 +1089,8 @@ function ContextChip(): React.JSX.Element | null {
   const maxTokens = contextK * 1000;
   const percent = maxTokens > 0 ? Math.min(100, Math.round((used / maxTokens) * 100)) : 0;
   const elapsed = streamStartRef.current > 0 ? (Date.now() - streamStartRef.current) / 1000 : 0;
-  const liveSpeed = streamChars > 0 && elapsed > 0 ? streamChars / 4 / elapsed : 0;
+  // 段起始 1 秒内样本太少（速度虚高跳动），不启用实时估算，回落实测速度
+  const liveSpeed = streamChars > 0 && elapsed >= 1 ? streamChars / 4 / elapsed : 0;
   const shownSpeed = running && liveSpeed > 0 ? liveSpeed : (thread?.contextSpeed ?? 0);
   const tone = percent >= 80 ? "text-destructive" : percent >= 50 ? "text-warning" : "text-foreground-subtle";
 
