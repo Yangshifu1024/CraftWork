@@ -8,6 +8,7 @@
 
 pub mod doc;
 pub mod fs;
+pub mod plan;
 pub mod registry;
 pub mod shell;
 pub mod todo;

@@ -272,6 +272,8 @@ fn register_builtin_tools(registry: &Registry) {
     registry.register(Box::new(craft_tools::shell::GitLog));
     registry.register(Box::new(craft_tools::shell::GitCommit));
     registry.register(Box::new(craft_tools::todo::TodoWrite));
+    registry.register(Box::new(craft_tools::plan::EnterPlan));
+    registry.register(Box::new(craft_tools::plan::ExitPlan));
     registry.register(Box::new(craft_tools::doc::DocRead));
     registry.register(Box::new(craft_tools::doc::DocEdit));
     registry.register(Box::new(craft_tools::doc::XlsxSetCell));
