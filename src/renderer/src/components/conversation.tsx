@@ -13,6 +13,8 @@ import { cleanErrorMessage } from "../lib/errors";
 import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from "../lib/paste";
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import { reasoningLabel } from "../lib/reasoning";
+import { selectableModels } from "../lib/provider-list";
+import { formatTokens } from "../lib/format";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot, PlanInfo } from "../../../shared/types";
 import { Markdown } from "./markdown";
@@ -970,6 +972,155 @@ function LevelChip(): React.JSX.Element {
   );
 }
 
+/** 上下文占用圆环（14px、2px 描边）：底环整圆 + 进度弧从 12 点方向顺时针（SVG dasharray + rotate -90），
+ *  颜色三档与审批告警同源（<50% subtle、50–80% warning、≥80% destructive），超出窗口画满环。 */
+function ContextRing({ percent, size = 14, strokeWidth = 2 }: { percent: number; size?: number; strokeWidth?: number }): React.JSX.Element {
+  const r = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * r;
+  const ratio = Math.max(0, Math.min(1, percent));
+  const tone = percent >= 0.8 ? "stroke-destructive" : percent >= 0.5 ? "stroke-warning" : "stroke-foreground-subtle";
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90" aria-hidden>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="stroke-border" strokeWidth={strokeWidth} />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        className={tone}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeDasharray={`${ratio * circumference} ${circumference}`}
+      />
+    </svg>
+  );
+}
+
+function ContextRow({ label, value, muted }: { label: string; value: string; muted?: boolean }): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-foreground-subtle">{label}</dt>
+      <dd className={`text-right tabular-nums ${muted ? "text-foreground-subtlest" : "text-foreground"}`}>{value}</dd>
+    </div>
+  );
+}
+
+/** 上下文占用 chip：圆环 + 百分比 + 输出速度，点击弹出详情浮层（口径沿袭历史版 contextHint：
+ *  占用实测优先（thread.contextTokens = 最近一轮输入+输出，覆盖语义），没有调用记录时按
+ *  「会话累计 token + 全部正文 UTF-16 长度 ÷ 4」估算兜底；窗口取模型目录 contextK，缺省 32k；
+ *  速度运行中用流式实时估算（字符/4 ÷ 首增量起秒数），空闲显示最近一轮后端实测值，从未产生则不渲染。
+ *  空态收口：未选择模型时整块不渲染。正文长度用 UTF-16 length 近似码点数（中文等价，emoji 有微差，仅用于提示）。 */
+function ContextChip(): React.JSX.Element | null {
+  const mode = useApp((s) => s.mode);
+  const activeId = useApp((s) => s.activeThreadId[mode]);
+  const settings = useApp((s) => s.settings);
+  const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
+  const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
+  const running = useApp((s) => s.chats[activeId]?.running ?? false);
+  const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
+
+  // 当前模型上下文窗口（千 token）：目录查不到（手动模型无目录信息）缺省 32k，保证界面仍有合理分母
+  const [contextK, setContextK] = useState(32);
+  useEffect(() => {
+    if (!modelId) return;
+    let alive = true;
+    void api
+      .providerList()
+      .then((providers) => {
+        const found = selectableModels(providers).flatMap((g) => g.models).find((m) => m.ref === modelId);
+        // 查不到（手动模型无目录信息）回落缺省 32k，不保留上一个模型的窗口值
+        if (alive) setContextK(found && found.contextK > 0 ? found.contextK : 32);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [modelId]);
+
+  // 字符数派生（selector 返回数字：流式 delta 高频时仅在数值变化时触发重渲染）
+  const textChars = useApp((s) => {
+    let chars = 0;
+    for (const m of s.chats[activeId]?.messages ?? []) {
+      for (const p of m.parts) {
+        if (p.kind === "text") chars += String(p.payload["text"] ?? "").length;
+      }
+    }
+    return chars;
+  });
+  const streamChars = useApp((s) => {
+    let chars = 0;
+    for (const m of s.chats[activeId]?.messages ?? []) {
+      if (m.role !== "assistant" || m.status !== "streaming") continue;
+      for (const p of m.parts) {
+        if (p.kind === "text") chars += String(p.payload["text"] ?? "").length;
+      }
+    }
+    return chars;
+  });
+  // 实时速度的计时起点：首个流式增量出现时起表，流式结束清零
+  const streamStartRef = useRef(0);
+  if (streamChars > 0 && streamStartRef.current === 0) streamStartRef.current = Date.now();
+  if (streamChars === 0) streamStartRef.current = 0;
+
+  if (!modelId) return null;
+
+  const reported = thread?.contextTokens ?? 0;
+  const used = reported > 0 ? reported : Math.round((thread?.tokens ?? 0) + textChars / 4);
+  const maxTokens = contextK * 1000;
+  const percent = maxTokens > 0 ? Math.min(100, Math.round((used / maxTokens) * 100)) : 0;
+  const elapsed = streamStartRef.current > 0 ? (Date.now() - streamStartRef.current) / 1000 : 0;
+  const liveSpeed = streamChars > 0 && elapsed > 0 ? streamChars / 4 / elapsed : 0;
+  const shownSpeed = running && liveSpeed > 0 ? liveSpeed : (thread?.contextSpeed ?? 0);
+  const tone = percent >= 80 ? "text-destructive" : percent >= 50 ? "text-warning" : "text-foreground-subtle";
+
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-xs transition-colors hover:bg-surface-hover ${tone}`}
+          title={`上下文占用 ${percent}%`}
+        >
+          <ContextRing percent={percent / 100} />
+          <span className="tabular-nums">{percent}%</span>
+          {shownSpeed > 0 && <span className="tabular-nums text-foreground-subtlest">{Math.round(shownSpeed)} tok/s</span>}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="start"
+          sideOffset={8}
+          aria-label="上下文详情"
+          onCloseAutoFocus={(e) => {
+            // 关闭后焦点回 composer 输入框（与模型 / 档位浮层同约定）。
+            e.preventDefault();
+            document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
+          }}
+          className="z-50 w-80 rounded-xl border border-popover-border bg-popover p-3 shadow-md"
+        >
+          <p className="pb-2 text-ui-sm font-medium text-foreground">上下文</p>
+          <dl className="flex flex-col gap-1.5 text-ui-xs">
+            <ContextRow label="当前上下文" value={`${formatTokens(used)} / ${contextK}k（${percent}%）`} />
+            <ContextRow label="本会话累计" value={formatTokens(thread?.tokens ?? 0)} />
+            <ContextRow
+              label="最近一轮缓存命中"
+              value={(thread?.contextCacheTokens ?? 0) > 0 ? formatTokens(thread!.contextCacheTokens) : "—"}
+              muted={(thread?.contextCacheTokens ?? 0) <= 0}
+            />
+            <ContextRow
+              label="最近一轮速度"
+              value={shownSpeed > 0 ? `${Math.round(shownSpeed)} tok/s` : "—"}
+              muted={shownSpeed <= 0}
+            />
+          </dl>
+          <p className="pt-2 text-ui-xs text-foreground-subtlest">占用为最近一轮模型请求的实测值；没有调用记录时按消息内容估算。</p>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 /** 输入区：草稿态读写当前草稿槽（内容随槽保留）、会话态用本地 state；运行中发送转为引导（steer），停止走 armed 二次确认（与双击 Esc 共享状态）。
  * 顶部信息行：左侧始终显示工作区名称（项目名 / 临时会话），右侧为计划模式与 worktree 两个发送选项开关。 */
 function Composer({
@@ -1300,6 +1451,7 @@ function Composer({
                 <Plus className="size-4" />
               </button>
               <LevelChip />
+              <ContextChip />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
               {/* 模型选择器贴发送簇左侧（对齐 ZCode：模型/思考簇紧挨停止/发送） */}

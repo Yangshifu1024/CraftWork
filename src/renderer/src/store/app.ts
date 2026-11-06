@@ -589,6 +589,29 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       setChat(set, threadId, { ...chat, messages: [...chat.messages, message] });
       break;
     }
+    case "usage.updated": {
+      // 用量事件：会话累计 token 累加；上下文占用/缓存命中/输出速度是覆盖语义
+      // （仅主对话请求携带这些字段，自动命名等 sidecar 小请求缺失时保持原值）。
+      // 本地累加只服务实时展示，重拉快照时以后端为权威。
+      const input = Number(data["inputTokens"] ?? 0);
+      const output = Number(data["outputTokens"] ?? 0);
+      const contextTokens = Number(data["contextTokens"] ?? 0);
+      const cacheTokens = Number(data["cacheTokens"] ?? 0);
+      const speed = Number(data["tokensPerSecond"] ?? 0);
+      const patchThreads = (list: ThreadView[]): ThreadView[] =>
+        list.map((t) => {
+          if (t.id !== threadId) return t;
+          const next = { ...t, tokens: t.tokens + input + output };
+          if (contextTokens > 0) {
+            next.contextTokens = contextTokens;
+            next.contextCacheTokens = cacheTokens;
+            next.contextSpeed = speed;
+          }
+          return next;
+        });
+      set((state) => ({ threads: { code: patchThreads(state.threads.code), work: patchThreads(state.threads.work) } }));
+      break;
+    }
     case "thread.updated": {
       if (data["deleted"] === true) {
         void get().refreshThreads();
