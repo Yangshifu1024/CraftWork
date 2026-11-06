@@ -165,6 +165,84 @@ fn event_seq_monotonically_increasing_and_snapshot_rebuilds_messages() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// steer 快照重建：steer_delivered 回执摘除「待送达」标记（via），
+/// 消费切换的新旧 assistant 消息按事件序夹住引导消息。
+#[test]
+fn snapshot_steer_delivered_removes_via_flag_and_splits_assistant_messages() {
+    let (dir, db) = tmp_db("steer-snap");
+    create_thread(&db.lock_conn(), thread("th_steer")).unwrap();
+    // 事件序：旧 assistant 输出 → 引导用户消息（via=steer）→ 新 assistant 输出 → 投递回执
+    let events = [
+        EventRecord {
+            thread_id: "th_steer".into(),
+            message_id: "m_a1".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p_a1", "text": "前半段" }),
+        },
+        EventRecord {
+            thread_id: "th_steer".into(),
+            message_id: "m_s".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "还要考虑 Windows", "attachments": [], "via": "steer", "planMode": false }),
+        },
+        EventRecord {
+            thread_id: "th_steer".into(),
+            message_id: "m_a2".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p_a2", "text": "后半段" }),
+        },
+        EventRecord {
+            thread_id: "th_steer".into(),
+            message_id: "m_s".into(),
+            run_id: None,
+            kind: "steer_delivered".into(),
+            payload: serde_json::json!({ "nextMessageId": "m_a2" }),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_steer", 0, 0).unwrap();
+    assert_eq!(snap.messages.len(), 3);
+    assert_eq!(snap.messages[0].id, "m_a1");
+    assert_eq!(snap.messages[0].parts[0].payload["text"], "前半段");
+    assert_eq!(snap.messages[1].id, "m_s");
+    assert_eq!(snap.messages[1].role, "user");
+    assert!(
+        snap.messages[1].parts[0].payload.get("via").is_none(),
+        "投递回执后「待送达」标记应被摘除"
+    );
+    assert_eq!(snap.messages[1].parts[0].payload["text"], "还要考虑 Windows");
+    assert_eq!(snap.messages[2].id, "m_a2");
+    assert_eq!(snap.messages[2].parts[0].payload["text"], "后半段");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 尚未投递的引导（无 steer_delivered 回执）保留 via 标记。
+#[test]
+fn snapshot_keeps_via_flag_for_undelivered_steer() {
+    let (dir, db) = tmp_db("steer-keep");
+    create_thread(&db.lock_conn(), thread("th_steer2")).unwrap();
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_steer2".into(),
+            message_id: "m_s2".into(),
+            run_id: None,
+            kind: "user_message".into(),
+            payload: serde_json::json!({ "text": "排队中", "attachments": [], "via": "steer" }),
+        },
+    )
+    .unwrap();
+    let snap = snapshot(&db.lock_conn(), "th_steer2", 0, 0).unwrap();
+    assert_eq!(snap.messages.len(), 1);
+    assert_eq!(snap.messages[0].parts[0].payload["via"], "steer");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 审批决定幂等保护：首个决定生效，重复决定返回 NotFound（WHERE decision IS NULL）。
 #[test]
 fn approval_concurrency_protection_and_repeated_decision_rejected() {

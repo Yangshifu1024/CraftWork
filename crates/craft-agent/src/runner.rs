@@ -322,8 +322,18 @@ impl Runner {
             trigger_seq = next_trigger_seq;
             let _ = self.deps.records.set_thread_status(thread_id, Some(&run_id), "running");
         }
-        // 收尾临界区：丢弃未投递的排队引导（它们已写入事件表，下次运行的历史仍可见）
-        self.steers.lock().unwrap().remove(thread_id);
+        // 收尾临界区：丢弃未投递的排队引导（它们已写入事件表，下次运行的历史仍可见）。
+        // 丢弃也回执 steer_delivered：内容不会丢，「待送达」语义不再成立（实时流摘标记，
+        // 快照重建同样摘除）。
+        for item in self.steers.lock().unwrap().remove(thread_id).unwrap_or_default() {
+            self.deps.records.append_or_warn(&EventRecord {
+                thread_id: thread_id.to_string(),
+                run_id: None,
+                message_id: item.message_id,
+                kind: "steer_delivered".into(),
+                payload: json!({}),
+            });
+        }
         // 回收本 run 的取消令牌：只移除仍归属本 run 的条目（新 run 已覆盖时不动）。
         // 残留会让 try_steer 误判有在途运行（steer 回退分支不可达）、chat_cancel 误报。
         {
@@ -341,18 +351,21 @@ impl Runner {
         token: &CancellationToken,
         thread_id: &str,
         run_id: &str,
-        message_id: &str,
+        first_message_id: &str,
         mode: &str,
         model_id: &str,
         titled: bool,
         trigger_seq: Option<i64>,
     ) -> bool {
+        // assistant 消息 id 在 run 内可变：消费引导（steer）时切换新消息，
+        // 后续输出不再挂在引导气泡上方的旧消息里（时间线时序与视觉位置一致）
+        let mut message_id = first_message_id.to_string();
         let started_at = now_millis();
         // 运行环境是值不是全局态：开始时一次性解析，沿调用图下发
         let thread = match get_thread(&self.deps.db.lock_conn(), thread_id) {
             Ok(thread) => thread,
             Err(err) => {
-                self.fail(thread_id, run_id, message_id, "history_failed", &err.to_string(), true, started_at);
+                self.fail(thread_id, run_id, &message_id, "history_failed", &err.to_string(), true, started_at);
                 return false;
             }
         };
@@ -371,7 +384,7 @@ impl Runner {
             Some(thread_id),
             Some(run_id),
             json!({
-                "messageId": message_id,
+                "messageId": message_id.as_str(),
                 "modelId": model_id,
                 "planMode": plan_mode,
                 "worktreePath": worktree_path.as_str(),
@@ -392,7 +405,7 @@ impl Runner {
                     self.fail(
                         thread_id,
                         run_id,
-                        message_id,
+                        &message_id,
                         "workspace_missing",
                         "会话绑定的工作区不存在或已被移除，请在侧栏重新选择工作区后重试",
                         false,
@@ -410,7 +423,7 @@ impl Runner {
                 self.fail(
                     thread_id,
                     run_id,
-                    message_id,
+                    &message_id,
                     "worktree_missing",
                     "会话绑定的 git 工作树目录已不存在，请重新发送消息以自动重建",
                     true,
@@ -451,11 +464,11 @@ impl Runner {
         let (mut history, snap) = match history_and_snap {
             Ok(Ok(pair)) => pair,
             Ok(Err(err)) => {
-                self.fail(thread_id, run_id, message_id, "history_failed", &err, true, started_at);
+                self.fail(thread_id, run_id, &message_id, "history_failed", &err, true, started_at);
                 return false;
             }
             Err(err) => {
-                self.fail(thread_id, run_id, message_id, "history_failed", &err.to_string(), true, started_at);
+                self.fail(thread_id, run_id, &message_id, "history_failed", &err.to_string(), true, started_at);
                 return false;
             }
         };
@@ -511,20 +524,46 @@ impl Runner {
                 return false;
             }
 
-            // 引导投递点：每个迭代开始（按消息 ID 去重，接力历史可能已包含）
-            for item in self.take_steers(thread_id) {
-                if history.iter().any(|m| m.id.as_deref() == Some(item.message_id.as_str())) {
-                    continue;
+            // 引导投递点：每个迭代开始（按消息 ID 去重，接力历史可能已包含）。
+            // 每条取出的引导都回执 steer_delivered（落库 + 广播，前端据此摘「待送达」标记）：
+            // 实际注入的附带 nextMessageId——后续输出切换到新 assistant 消息，
+            // 不再挂在引导气泡上方的旧消息里；去重跳过的（接力 trigger 消息已随历史重建进入）只摘标记。
+            let delivered = self.take_steers(thread_id);
+            if !delivered.is_empty() {
+                let mut injected = false;
+                let mut next_message_id = String::new();
+                for item in delivered {
+                    let already =
+                        history.iter().any(|m| m.id.as_deref() == Some(item.message_id.as_str()));
+                    let mut payload = json!({});
+                    if !already {
+                        if !injected {
+                            injected = true;
+                            next_message_id = new_id(id_prefix::MESSAGE);
+                        }
+                        let loaded =
+                            load_attachments(&env.workspace_path, &self.deps.attachment_dir, &item.attachments);
+                        let mut msg = Message::new("user", item.text.clone());
+                        msg.attachments = loaded.attachments;
+                        msg.id = Some(item.message_id.clone());
+                        history.push(msg);
+                        payload["nextMessageId"] = json!(next_message_id);
+                    }
+                    self.deps.records.append_or_warn(&EventRecord {
+                        thread_id: thread_id.to_string(),
+                        run_id: Some(run_id.to_string()),
+                        message_id: item.message_id,
+                        kind: "steer_delivered".into(),
+                        payload,
+                    });
                 }
-                let loaded = load_attachments(&env.workspace_path, &self.deps.attachment_dir, &item.attachments);
-                let mut msg = Message::new("user", item.text.clone());
-                msg.attachments = loaded.attachments;
-                msg.id = Some(item.message_id);
-                history.push(msg);
+                if injected {
+                    message_id = next_message_id;
+                }
             }
 
             // 建立模型会话（含失败转移）；压缩只在首轮做一次
-            let Some(session) = self.open_session_with_failover(model_id, thread_id, run_id, message_id) else {
+            let Some(session) = self.open_session_with_failover(model_id, thread_id, run_id, &message_id) else {
                 return false; // 已写过结束事件
             };
             if !compression_checked {
@@ -665,11 +704,11 @@ impl Runner {
                     return false;
                 }
                 if err.code == "timeout" {
-                    self.fail(thread_id, run_id, message_id, "model_timeout", &format!("模型响应超时：{}", err.message), err.retryable(), started_at);
+                    self.fail(thread_id, run_id, &message_id, "model_timeout", &format!("模型响应超时：{}", err.message), err.retryable(), started_at);
                     return false;
                 }
                 let code = if err.code == "unknown" { "model_stream_error".to_string() } else { err.code.clone() };
-                self.fail(thread_id, run_id, message_id, &code, &err.message, err.retryable(), started_at);
+                self.fail(thread_id, run_id, &message_id, &code, &err.message, err.retryable(), started_at);
                 return false;
             }
 
@@ -678,7 +717,7 @@ impl Runner {
                 self.deps.records.append_or_warn(&EventRecord {
                     thread_id: thread_id.to_string(),
                     run_id: Some(run_id.to_string()),
-                    message_id: message_id.to_string(),
+                    message_id: message_id.clone(),
                     kind: "reasoning".into(),
                     payload: json!({
                         "partId": reasoning_part_id.unwrap_or_else(|| new_id(id_prefix::PART)),
@@ -690,7 +729,7 @@ impl Runner {
                 self.deps.records.append_or_warn(&EventRecord {
                     thread_id: thread_id.to_string(),
                     run_id: Some(run_id.to_string()),
-                    message_id: message_id.to_string(),
+                    message_id: message_id.clone(),
                     kind: "text".into(),
                     payload: json!({
                         "partId": text_part_id.unwrap_or_else(|| new_id(id_prefix::PART)),
@@ -717,7 +756,7 @@ impl Runner {
             history.push(assistant);
             for call in tool_calls {
                 let (result, aborted) = self
-                    .run_tool(token, thread_id, run_id, message_id, &call, &env, mode, plan_mode)
+                    .run_tool(token, thread_id, run_id, &message_id, &call, &env, mode, plan_mode)
                     .await;
                 if aborted {
                     self.canceled(thread_id, run_id, started_at);
@@ -732,7 +771,7 @@ impl Runner {
         self.fail(
             thread_id,
             run_id,
-            message_id,
+            &message_id,
             "max_iterations",
             &format!("达到模型调用上限（{limit} 轮），已停止本次运行"),
             false,

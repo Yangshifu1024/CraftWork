@@ -20,6 +20,9 @@ pub mod event_type {
     pub const PLAN_CREATED: &str = "plan.created";
     pub const TODO_UPDATED: &str = "todo.updated";
     pub const USER_MESSAGE: &str = "user.message";
+    /// 引导（steer）已投递：消费点或收尾丢弃时发，前端据此摘除「待送达」标记；
+    /// payload 带 nextMessageId 时表示后续输出切换到新 assistant 消息。
+    pub const STEER_DELIVERED: &str = "steer.delivered";
     pub const NOTICE: &str = "notice";
     pub const CONTEXT_COMPRESSED: &str = "context.compressed";
     pub const ERROR: &str = "error";

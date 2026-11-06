@@ -305,6 +305,18 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
             continue;
         }
 
+        if ev.kind == "steer_delivered" {
+            // 引导投递回执：摘除对应用户消息部件的 via（「待送达」标记）。
+            // 事件行的 message_id 即引导消息 id，必然先于本事件落库（seq 有序）；
+            // 不产生部件，后续输出的新 assistant 消息由事件表 message_id 自然分组。
+            if let Some(msg) = messages.get_mut(&ev.message_id) {
+                for part in &mut msg.parts {
+                    part.payload.as_object_mut().map(|obj| obj.remove("via"));
+                }
+            }
+            continue;
+        }
+
         let Some(kind) = snapshot_part_kind(&ev.kind) else {
             continue;
         };

@@ -177,6 +177,9 @@ pub fn part_event(kind: &str) -> Option<&'static str> {
         // 审批终态：落库（快照回填状态）+ 广播（前端翻卡）。只 emit 不落库会让
         // 重启后的已决定审批卡回显「等待决定」成僵尸卡（migration-parity 票 03）。
         "approval_resolved" => Some(crate::contract::event_type::APPROVAL_RESOLVED),
+        // 引导投递回执：落库（快照重建摘「待送达」标记）+ 广播（前端实时摘标记、
+        // 切换后续输出到新 assistant 消息）。不带 nextMessageId 时仅摘标记。
+        "steer_delivered" => Some(crate::contract::event_type::STEER_DELIVERED),
         "todo" => Some(crate::contract::event_type::TODO_UPDATED),
         "error" => Some(crate::contract::event_type::ERROR),
         "notice" => Some(crate::contract::event_type::NOTICE),
@@ -220,6 +223,7 @@ mod tests {
     fn part_event_mapping_is_complete() {
         assert_eq!(part_event("user_message"), Some("user.message"));
         assert_eq!(part_event("tool_call"), Some("tool.completed"));
+        assert_eq!(part_event("steer_delivered"), Some("steer.delivered"));
         assert_eq!(part_event("draft"), None);
     }
 }
