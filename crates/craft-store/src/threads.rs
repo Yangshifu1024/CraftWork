@@ -255,18 +255,19 @@ pub fn add_thread_tokens(conn: &Connection, id: &str, tokens: i64) -> StoreResul
     Ok(())
 }
 
-/// 物理删除：事务内删 events + approvals + runs + threads。
+/// 物理删除：事务内删 events + approvals + runs + plans + threads。
 pub fn delete_thread(db: &Db, id: &str) -> StoreResult<()> {
     db.transaction(|conn| {
         conn.execute("DELETE FROM events WHERE thread_id = ?1", [id]).map_err(other_err)?;
         conn.execute("DELETE FROM approvals WHERE thread_id = ?1", [id]).map_err(other_err)?;
         conn.execute("DELETE FROM runs WHERE thread_id = ?1", [id]).map_err(other_err)?;
+        conn.execute("DELETE FROM plans WHERE thread_id = ?1", [id]).map_err(other_err)?;
         conn.execute("DELETE FROM threads WHERE id = ?1", [id]).map_err(other_err)?;
         Ok(())
     })
 }
 
-/// 删除工作区下全部会话（事件 / 审批 / 运行一并清理），返回删除数。项目删除时级联调用。
+/// 删除工作区下全部会话（事件 / 审批 / 运行 / 计划一并清理），返回删除数。项目删除时级联调用。
 pub fn delete_threads_by_workspace(db: &Db, workspace_id: &str) -> StoreResult<usize> {
     let ids: Vec<String> = db.with(|conn| {
         let mut stmt = conn

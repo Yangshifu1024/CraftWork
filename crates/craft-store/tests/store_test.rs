@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use craft_store::db::{Db, StoreError, SCHEMA_VERSION};
 use craft_store::events::{append_event, latest_context_summary, plan_mode_for_trigger, record_event, snapshot, EventRecord};
+use craft_store::plans::{create_plan, latest_plan};
 use craft_store::records::{add_audit, get_setting, list_audit, set_setting};
 use craft_store::runs::{create_approval, create_run, finish_run, get_approval, resolve_approval};
 use craft_store::threads::{
@@ -117,6 +118,23 @@ fn threads_basic_read_write_and_delete() {
     assert!(!get_thread(&db.lock_conn(), &t.id).unwrap().title_auto);
     delete_thread(&db, &t.id).unwrap();
     assert!(matches!(get_thread(&db.lock_conn(), &t.id), Err(StoreError::NotFound(_))));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 删除会话级联清理计划行：plans 不留孤儿（批准提示条以 plans 为准，残留会误指向已删会话）。
+#[test]
+fn delete_thread_cascades_plan_rows() {
+    let (dir, db) = tmp_db("thread-plan-cascade");
+    create_thread(&db.lock_conn(), thread("th_plan")).unwrap();
+    let plan = create_plan(&db.lock_conn(), "th_plan", "run_plan").unwrap();
+    assert!(latest_plan(&db.lock_conn(), "th_plan").unwrap().is_some());
+    delete_thread(&db, "th_plan").unwrap();
+    assert!(latest_plan(&db.lock_conn(), "th_plan").unwrap().is_none());
+    // 行已物理移除，而非仅 latest_plan 查不到
+    let count: i64 = db
+        .with(|conn| Ok(conn.query_row("SELECT COUNT(*) FROM plans WHERE id = ?1", [&plan.id], |row| row.get(0)).unwrap_or(-1)))
+        .unwrap();
+    assert_eq!(count, 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
