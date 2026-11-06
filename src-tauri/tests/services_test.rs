@@ -379,6 +379,59 @@ fn model_reasoning_declaration_persists_and_survives_unrelated_edit() {
     assert!(view.to_string().contains(r#""reasoningLevels":[]"#));
 }
 
+#[test]
+fn model_update_renames_manual_model_id_and_rewires_default_model() {
+    let (_dir, state) = test_state("model-rename-id");
+    let caps = json!({"stream": true, "tools": true, "vision": false, "reasoning": false, "structured": false});
+    let provider = json!({
+        "id": "gw", "name": "GW", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": false,
+        "models": [
+            { "id": "m1", "name": "模型一", "contextK": 8, "maxTokens": 512,
+              "caps": caps, "status": "", "source": "manual", "enabled": true },
+            { "id": "m2", "name": "模型二", "contextK": 8, "maxTokens": 512,
+              "caps": caps, "status": "", "source": "manual", "enabled": true },
+        ],
+    });
+    services::provider_save(&state, &provider).unwrap();
+    services::settings_save(&state, &json!({ "defaultModel": "gw/m1", "fallbackModel": "gw/m2" })).unwrap();
+
+    // 手动模型改 ID：成功；default 引用同步改写，fallback（指向别的模型）不受影响
+    let view = services::provider_update_model(&state, "gw", "m1", &json!({
+        "id": "m1-renamed", "name": "模型一", "contextK": 8, "maxTokens": 512, "caps": caps,
+    })).unwrap();
+    assert!(view.to_string().contains(r#""id":"m1-renamed""#));
+    assert!(!view.to_string().contains(r#""id":"m1""#), "旧 ID 应消失");
+    let settings = services::settings_get(&state).unwrap();
+    assert_eq!(settings["defaultModel"], "gw/m1-renamed");
+    assert_eq!(settings["fallbackModel"], "gw/m2");
+
+    // 同名不改 ID 的编辑照常工作
+    let view = services::provider_update_model(&state, "gw", "m1-renamed", &json!({
+        "id": "m1-renamed", "name": "改名", "contextK": 8, "maxTokens": 512, "caps": caps,
+    })).unwrap();
+    assert!(view.to_string().contains(r#""name":"改名""#));
+
+    // 改成同提供商下已存在的 ID：拒绝
+    let dup = services::provider_update_model(&state, "gw", "m1-renamed", &json!({
+        "id": "m2", "name": "模型一", "contextK": 8, "maxTokens": 512, "caps": caps,
+    }));
+    assert!(dup.is_err() && dup.unwrap_err().contains("已存在"), "应报 ID 冲突");
+
+    // 目录来源模型改 ID：拒绝（目录事实源，改 ID 等于换了模型）
+    let catalog_provider = json!({
+        "id": "cat", "name": "Cat", "kind": "openai",
+        "endpoint": "https://cat.invalid/v1", "keyRequired": false,
+        "models": [{ "id": "gpt-x", "name": "GPT X", "contextK": 8, "maxTokens": 512,
+                     "caps": caps, "status": "", "source": "catalog", "enabled": true }],
+    });
+    services::provider_save(&state, &catalog_provider).unwrap();
+    let locked = services::provider_update_model(&state, "cat", "gpt-x", &json!({
+        "id": "gpt-y", "name": "GPT X", "contextK": 8, "maxTokens": 512, "caps": caps,
+    }));
+    assert!(locked.is_err() && locked.unwrap_err().contains("不可修改 ID"), "目录来源应拒绝改 ID");
+}
+
 // ---------- worktree ----------
 
 /// 「主仓库已登记该工作树」的判定：porcelain 输出的 worktree 路径与目标路径两边都

@@ -1355,19 +1355,62 @@ pub fn provider_add_model(state: &AppState, provider_id: &str, model: &Value) ->
 pub fn provider_update_model(state: &AppState, provider_id: &str, model_id: &str, model: &Value) -> SvcResult {
     let mut providers = load_providers(state);
     let provider = providers.iter_mut().find(|p| p.id == provider_id).ok_or("提供商不存在")?;
-    let slot = provider.models.iter_mut().find(|m| m.id == model_id).ok_or("模型不存在")?;
+    let idx = provider.models.iter().position(|m| m.id == model_id).ok_or("模型不存在")?;
     let mut persisted = model_input_to_persisted(model)?;
-    // 档位保留语义：请求未携带 reasoningLevels 字段时保留现值（目录归一值或上次手动声明），
-    // 避免编辑显示名等操作把目录导入的档位元数据抹掉
-    if model.get("reasoningLevels").is_none() {
-        persisted.reasoning_kind = std::mem::take(&mut slot.reasoning_kind);
-        persisted.reasoning_levels = std::mem::take(&mut slot.reasoning_levels);
+    let new_id = persisted.id.clone();
+    let (old_id, old_source) = {
+        let slot = &provider.models[idx];
+        // 档位保留语义：请求未携带 reasoningLevels 字段时保留现值（目录归一值或上次手动声明），
+        // 避免编辑显示名等操作把目录导入的档位元数据抹掉
+        if model.get("reasoningLevels").is_none() {
+            persisted.reasoning_kind = slot.reasoning_kind.clone();
+            persisted.reasoning_levels = slot.reasoning_levels.clone();
+        }
+        (slot.id.clone(), slot.source.clone())
+    };
+    // ID 修改：目录来源不可变（目录事实源，改 ID 等于换了模型）；手动/拉取来源允许改名，
+    // 但不得与本提供商下其他模型冲突。历史会话的模型引用不批量改写——
+    // 悬空引用在发送时有可读错误（模型不存在或已被删除），由用户重新选择。
+    if old_source == "catalog" && new_id != old_id {
+        return err("目录来源的模型不可修改 ID");
     }
-    // ID 不可变：保留原 ID
-    let id = slot.id.clone();
-    *slot = craft_model::types::PersistedModel { id, ..persisted };
+    if new_id != old_id {
+        if new_id.trim().is_empty() {
+            return err("模型 ID 不能为空");
+        }
+        if provider.models.iter().any(|m| m.id == new_id) {
+            return err(format!("模型 ID 已存在：{new_id}"));
+        }
+    }
+    provider.models[idx] = craft_model::types::PersistedModel { id: new_id.clone(), ..persisted };
     save_providers(state, &providers)?;
+    if new_id != old_id {
+        // 改 ID 后同步设置里的模型引用（default/fallback），避免默认模型悄悄悬空
+        rewire_model_refs(state, provider_id, &old_id, &new_id)?;
+    }
     provider_view_one(state, provider_id)
+}
+
+/// 模型改 ID 后同步设置里的模型引用（default/fallback），避免默认模型悄悄悬空。
+fn rewire_model_refs(state: &AppState, provider_id: &str, old_id: &str, new_id: &str) -> Result<(), String> {
+    let old_ref = format!("{provider_id}/{old_id}");
+    let new_ref = format!("{provider_id}/{new_id}");
+    let mut merged: Settings =
+        serde_json::from_value(settings_get(state)?).unwrap_or_else(|_| default_settings());
+    let mut changed = false;
+    for slot in [&mut merged.default_model, &mut merged.fallback_model] {
+        if *slot == old_ref {
+            *slot = new_ref.clone();
+            changed = true;
+        }
+    }
+    if changed {
+        state
+            .db
+            .with(|conn| set_setting(conn, "app", &serde_json::to_value(&merged).unwrap_or(Value::Null)))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn provider_remove_model(state: &AppState, provider_id: &str, model_id: &str) -> SvcResult {
