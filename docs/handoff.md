@@ -202,3 +202,44 @@ OpenCode Go 提供商返回 HTTP 400：
 - `cargo test --workspace`：202 项全过；`cargo clippy --workspace --all-targets -- -D warnings` 干净。
 - `pnpm typecheck` 通过；服务层集成测试 `provider_custom_headers_save_validate_and_partial_update_preservation`
   覆盖保存 / 冲突拒绝 / 注入拒绝 / 部分更新保留 / 显式清空 / 目录导入不覆盖。
+
+---
+
+# 命令只读判定：`;` 不切分导致白名单首词被借用（R0 审批绕过）
+
+> 日期 2026-11-07。状态：**已修复**。
+
+## 现象
+
+计划模式下两条只读调研命令被「计划模式下只允许只读调研」闸门拒绝（runner.rs 计划态只读闸门，
+R2+ 一律拒）：
+
+- `sed -n '1,80p' src-tauri/src/lib.rs; echo ---; grep -n "a\|b" … | head -40`
+- `ls src-tauri/tests 2>/dev/null; grep -rn "skillsList" … | head`
+
+排查发现比误拒更严重的是**误放**：`craft-policy::command` 的 `is_readonly_command` 只按
+`&&`/`||`/`|` 切段，`;` 不参与，段级判定只看首词——因此 `cat x; rm y`、`ls ; rm x`
+这类「白名单首词 + 分号链」整条被判 R0「只读命令」，分级档下 `Engine::action` 直接放行、
+不弹审批卡，分号后的任意非破坏性/非联网命令（如 `python evil.py`）静默执行。
+
+## 根因与修复（`crates/craft-policy/src/command.rs`）
+
+1. **`;` 纳入切分**：重写 `is_readonly_command` 为引号感知的单趟字符扫描，未加引号的
+   `&&`/`||`/`;` 切段、逐段独立过白名单（`all()` 语义不变），堵住首词借用；引号内元字符
+   按字面并入当前段（顺带修复 grep 交替模式 `"a\|b"` 被误切为管道）；未加引号裸 `&`
+   与未闭合引号一律拒绝，方向安全。
+2. **丢弃型重定向剥除**：新增 `DISCARD_REDIRECTS`（`2>/dev/null`、`>/dev/null`、`2>&1`
+   等字面形态），`classify_command` 入口先剥除再匹配——既放行 `ls x 2>/dev/null` 这类
+   无副作用调研命令，也消除 `> /dev/null` 对破坏性子串 `> /dev/`（写设备）的误命中；
+   剥除要求目标后跟边界符，`>/dev/nullfoo` 前缀伪装照旧拒绝。
+3. **sed 维持整程序排除**（-i 写文件、`e` 执行、`w` 写出，2026-11 复核维持），计划模式
+   在系统提示词计划态动态块（`craft-agent/src/prompt.rs`）注入白名单引导：改用
+   head/cat/grep/fs_read 取片段。
+
+## 验证
+
+- `cargo test -p craft-policy`：新增 `semicolon_chain_cannot_borrow_first_word_whitelist`
+  （绕过回归）、`discard_redirections_to_dev_null_map_to_r0`、`write_redirections_stay_rejected`
+  （含 `>/dev/nullfoo` 伪装）、`quoted_metacharacters_are_literal_text`、
+  `sed_print_mode_stays_non_readonly` 等；既有分类用例全部保持通过。
+- `cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings` 干净。

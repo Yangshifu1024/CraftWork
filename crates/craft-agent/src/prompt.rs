@@ -84,7 +84,7 @@ pub fn build_prompt(input: PromptInput<'_>) -> PromptResult {
     }
     if input.plan_mode {
         dynamic.push(
-            "当前处于计划模式：只做只读调研与分析（读文件、搜索、查看 Git 状态），写类操作（写文件、编辑、补丁、执行命令、Git 提交等）会被直接拒绝。完成调研后调用 exit_plan 工具提交完整计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；计划全文放在 plan 参数中，用户会在审阅卡里看到。计划获批后你将退出计划模式直接开始实施；计划被拒绝时按用户反馈修订后重新提交。"
+            "当前处于计划模式：只做只读调研与分析（读文件、搜索、查看 Git 状态），写类操作（写文件、编辑、补丁、执行命令、Git 提交等）会被直接拒绝。shell_exec 只放行白名单只读命令（ls/cat/head/tail/grep/stat/wc/file/git 只读子命令等）；sed、awk、find、rg、xargs 与一切重定向都会被拒绝——读文件用 fs_read，取行片段用 head/tail，检索用 grep。完成调研后调用 exit_plan 工具提交完整计划：目标、将要改动或新增的文件、每一步的做法、验证方式与风险；计划全文放在 plan 参数中，用户会在审阅卡里看到。计划获批后你将退出计划模式直接开始实施；计划被拒绝时按用户反馈修订后重新提交。"
                 .into(),
         );
     }
@@ -214,6 +214,9 @@ mod tests {
         assert!(dynamic.contains("plan 参数"));
         // 写类操作直接拒绝（不再按档位处理——闸门语义，D8 修订）
         assert!(dynamic.contains("直接拒绝"));
+        // 只读命令白名单引导：sed 等被拒时 agent 应改用 head/tail/grep/fs_read
+        assert!(dynamic.contains("白名单只读命令"));
+        assert!(dynamic.contains("用 fs_read"));
         // 非计划态不注入
         let plain = build_prompt(PromptInput {
             mode: "code",
