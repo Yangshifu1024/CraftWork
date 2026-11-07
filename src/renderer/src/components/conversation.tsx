@@ -961,6 +961,11 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
             ))}
           </div>
         )}
+        {isPlanReview && typeof part.args.plan === "string" && (
+          <pre className="select-text max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface px-3 py-2 font-mono text-ui-sm text-foreground-subtle">
+            {part.args.plan}
+          </pre>
+        )}
         {waiting && isPlanReview && (
           <div className="flex flex-col gap-2 pt-1">
             {feedbackOpen ? (
