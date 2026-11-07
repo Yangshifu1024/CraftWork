@@ -50,6 +50,10 @@ pub const MAX_STEER_QUEUE: usize = 10;
 /// 单次运行的模型调用轮数上限（每轮一次模型请求）；达到上限统一走 fail 路径结束。
 pub const DEFAULT_MAX_ITERATIONS: i64 = 300;
 
+/// 计划软闸门：非计划态 run 内写类（R2+）工具调用达到该次数且从未调用过 enter_plan，
+/// 下一迭代在系统提示词注入提醒（不硬拦截，把跑偏的模型拉回计划协议）。
+pub const PLAN_NUDGE_THRESHOLD: usize = 4;
+
 /// 运行环境（值对象）：运行开始时从会话绑定的工作区一次性解析，沿调用图下发，
 /// 不做全局查询；无工作区绑定的会话为默认空值。
 #[derive(Debug, Clone, Default)]
@@ -513,6 +517,9 @@ impl Runner {
         }
         // run 级计划态：随消息落库的 planMode 初始化；运行中由 enter_plan/exit_plan 翻转
         let mut plan_active = plan_mode;
+        // 计划软闸门状态：run 内写类（R2+）工具调用计数 + 是否调过 enter_plan
+        let mut plan_write_calls = 0usize;
+        let mut plan_entered = plan_mode;
         let worktree_path = thread.worktree_path.clone();
         let worktree_branch = thread.worktree_branch.clone();
         self.deps.records.emit(
@@ -650,12 +657,14 @@ impl Runner {
             // 计划段按 run 级 plan_active 动态注入：enter_plan/exit_plan 中途翻转后，
             // 下一 iter 的提示词要跟着变（见循环内按 prompt_plan_mode 判断重建）
             plan_mode: plan_active,
+            plan_nudge: false,
             worktree_branch: worktree_branch_for_prompt.as_deref(),
             env: env_context.as_ref(),
             skills: &skill_list,
         });
-        // 上次构造提示词时的计划态标记（循环内重建的判断依据）
+        // 上次构造提示词时的计划态与软闸门提醒标记（循环内重建的判断依据）
         let mut prompt_plan_mode = plan_active;
+        let mut prompt_plan_nudge = false;
 
         let specs: Vec<craft_model::types::ToolSpec> = self
             .deps
@@ -838,11 +847,18 @@ impl Runner {
             }
 
             let call_start = now_millis();
-            // 计划态中途翻转后重建提示词（dynamic 块随 plan_active 变化；
-            // 用最后构造时的 plan_mode 标记判断是否需要重建，避免 PromptResult 比较开销）
-            let need_rebuild = prompt_plan_mode != plan_active;
+            // 计划软闸门：非计划态 + 写类调用达到阈值 + 本 run 从未调过 enter_plan + 无已批准计划
+            // （豁免跨 run「批准并执行」的实施续跑）→ 提醒拉回协议。只提醒不拦截。
+            let plan_nudge = !plan_active
+                && !plan_entered
+                && plan_write_calls >= PLAN_NUDGE_THRESHOLD
+                && Self::read_approved_plan_text(&self.deps.db, thread_id).is_none();
+            // 计划态中途翻转后重建提示词（dynamic 块随 plan_active / plan_nudge 变化；
+            // 用最后构造时的标记判断是否需要重建，避免 PromptResult 比较开销）
+            let need_rebuild = prompt_plan_mode != plan_active || prompt_plan_nudge != plan_nudge;
             if need_rebuild {
                 prompt_plan_mode = plan_active;
+                prompt_plan_nudge = plan_nudge;
                 prompt_active = build_prompt(crate::prompt::PromptInput {
                     mode,
                     workspace: &env.workspace_path,
@@ -850,6 +866,7 @@ impl Runner {
                     workspace_purpose: &env.purpose,
                     restricted: env.restricted,
                     plan_mode: plan_active,
+                    plan_nudge,
                     worktree_branch: worktree_branch_for_prompt.as_deref(),
                     env: env_context.as_ref(),
                     skills: &skill_list,
@@ -1132,6 +1149,22 @@ impl Runner {
                     .await;
                 // 计划态随协议工具翻转（enter_plan 进入 / exit_plan 批准退出），影响后续 iter
                 plan_active = plan_active_after;
+                // 计划软闸门计数：协议进入置标记；非计划态的写类调用累计（含被拒的尝试，
+                // 反映模型意图），执行已取消的调用不再追加
+                if call.name == EnterPlan::NAME {
+                    plan_entered = true;
+                } else if !aborted {
+                    let risk = if call.name == "shell_exec" {
+                        let command = call.args.get("command").and_then(Value::as_str).unwrap_or_default();
+                        craft_policy::PolicyRisk::parse(craft_policy::command::classify_command(command).0.as_str())
+                            .unwrap_or(craft_policy::PolicyRisk::R2)
+                    } else {
+                        self.deps.registry.spec_for(&call.name).map(|s| s.risk).unwrap_or(craft_policy::PolicyRisk::R2)
+                    };
+                    if risk.level() >= craft_policy::PolicyRisk::R2.level() {
+                        plan_write_calls += 1;
+                    }
+                }
                 if aborted {
                     self.canceled(thread_id, run_id, started_at);
                     return false;

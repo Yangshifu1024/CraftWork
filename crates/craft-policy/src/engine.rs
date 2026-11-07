@@ -43,6 +43,17 @@ impl PolicyRisk {
             _ => None,
         }
     }
+
+    /// 数值等级（R0=0 … R4=4），供数值阈值比较（如计划软闸门的写类调用计数）。
+    pub fn level(self) -> u8 {
+        match self {
+            PolicyRisk::R0 => 0,
+            PolicyRisk::R1 => 1,
+            PolicyRisk::R2 => 2,
+            PolicyRisk::R3 => 3,
+            PolicyRisk::R4 => 4,
+        }
+    }
 }
 
 /// 审批档位：graded 分级（默认）/ free 自由。
@@ -205,5 +216,17 @@ mod tests {
         assert_eq!(parse_level("其他"), Level::Graded);
         assert!(is_workspace_trusted("trusted"));
         assert!(!is_workspace_trusted("restricted"));
+    }
+
+    #[test]
+    fn risk_level_maps_r0_to_r4() {
+        // 数值等级供阈值比较（如计划软闸门按 R2+ 计数写类调用）
+        assert_eq!(PolicyRisk::R0.level(), 0);
+        assert_eq!(PolicyRisk::R1.level(), 1);
+        assert_eq!(PolicyRisk::R2.level(), 2);
+        assert_eq!(PolicyRisk::R3.level(), 3);
+        assert_eq!(PolicyRisk::R4.level(), 4);
+        assert!(PolicyRisk::R2.level() >= PolicyRisk::R2.level());
+        assert!(PolicyRisk::R1.level() < PolicyRisk::R2.level());
     }
 }
