@@ -439,7 +439,8 @@ function MessageRow({
  *  流式期间正文起点锚定第一个非空 text part：正文与其后的过程行、追加正文段按序平铺，
  *  几何只增不减；run 结束按最后一个非空 text 重算切段——这次重组与折叠收起同帧完成，
  *  是一次显式形态转换而非逐帧搬家（行为约定见 docs/conversation-flow/spec.md）。
- *  等待中的审批卡常驻渲染在折叠区之外；流式中的已决定审批卡也留在常驻位原位降级。 */
+ *  等待中的审批卡常驻渲染在折叠区之外（run 推进的关键路径）；已决定卡立即回归时序位置，
+ *  run 结束后随切段归档折叠区。 */
 function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunning: boolean }): React.JSX.Element {
   const threadId = useActiveThreadId();
   const parts = message.parts;
@@ -447,11 +448,9 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
 
   const isWaitingApproval = (p: PartSnapshot): boolean =>
     p.kind === "approval" && (p.payload as unknown as ApprovalPart).status === "waiting";
-  // 常驻折叠区之外的审批卡：waiting 卡任意时刻常驻（run 推进的关键路径，折叠进过程块
-  // 会让任务无声卡死）；流式中的已决定卡也留在常驻位——决定瞬间退回折叠区会造成高度回落，
-  // 原位降级展示，run 结束随切段回归折叠区归档。
-  const isPinnedApproval = (p: PartSnapshot): boolean =>
-    isWaitingApproval(p) || (isStreaming && p.kind === "approval");
+  // 常驻折叠区之外的审批卡：只有 waiting 卡（run 推进的关键路径，折叠进过程块会让
+  // 任务无声卡死）。已决定卡立即回归时序位置——流式中折叠区默认展开，卡片归位到其
+  // 工具调用附近仍可见；钉到 run 结束会让计划审批后的长实施阶段（数分钟）始终垫底。
   const isNonEmptyText = (p: PartSnapshot): boolean =>
     p.kind === "text" && String(p.payload["text"] ?? "").length > 0;
 
@@ -471,15 +470,15 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
     }
   }
   // 折叠区：正文之前的全部行（含中间解说正文——它们是过程的一部分）
-  const historyParts = parts.slice(0, finalIdx < 0 ? parts.length : finalIdx).filter((p) => !isPinnedApproval(p));
+  const historyParts = parts.slice(0, finalIdx < 0 ? parts.length : finalIdx).filter((p) => !isWaitingApproval(p));
   const finalText = finalIdx >= 0 ? parts[finalIdx]! : null;
   // 尾段：正文之后的过程行 / 流式中的追加正文段（按序平铺，见 JSX 内分支）
-  const tailParts = (finalIdx >= 0 ? parts.slice(finalIdx + 1) : []).filter((p) => !isPinnedApproval(p));
+  const tailParts = (finalIdx >= 0 ? parts.slice(finalIdx + 1) : []).filter((p) => !isWaitingApproval(p));
   // 流式中的思考段（消息流式中最后一个 reasoning part）：折叠行显示「思考中 + 最新一行摘要」
   const streamingReasoningId = isStreaming
     ? ([...parts].reverse().find((p) => p.kind === "reasoning")?.id ?? "")
     : "";
-  const openApprovals = parts.filter(isPinnedApproval);
+  const openApprovals = parts.filter(isWaitingApproval);
 
   return (
     <div className="flex w-full flex-col gap-2">
