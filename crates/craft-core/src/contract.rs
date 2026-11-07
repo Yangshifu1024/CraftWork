@@ -29,6 +29,9 @@ pub mod event_type {
     pub const NOTICE: &str = "notice";
     pub const CONTEXT_COMPRESSED: &str = "context.compressed";
     pub const ERROR: &str = "error";
+    /// 错误已解决：新 run 开始时对上一轮失败（error/interrupted）回填，落库供快照
+    /// 摘除旧错误部件（重启/切会话不再还原错误卡片），广播供前端实时摘卡片。
+    pub const ERROR_RESOLVED: &str = "error.resolved";
     pub const THREAD_UPDATED: &str = "thread.updated";
     pub const USAGE_UPDATED: &str = "usage.updated";
     pub const SETTINGS_UPDATED: &str = "settings.updated";

@@ -8,7 +8,7 @@ use craft_store::db::{Db, StoreError, SCHEMA_VERSION};
 use craft_store::events::{append_event, latest_context_summary, plan_mode_for_trigger, record_event, snapshot, EventRecord};
 use craft_store::plans::{create_plan, latest_plan};
 use craft_store::records::{add_audit, add_usage, get_setting, list_audit, set_setting};
-use craft_store::runs::{create_approval, create_run, finish_run, get_approval, resolve_approval};
+use craft_store::runs::{create_approval, create_run, finish_run, get_approval, last_run_status, resolve_approval};
 use craft_store::view::to_thread_view;
 use craft_store::threads::{
     auto_title_thread, create_thread, delete_thread, get_thread, list_threads, rename_thread, search_threads, set_thread_worktree,
@@ -404,6 +404,144 @@ fn startup_finalization_marks_stale_runs_interrupted_and_writes_error_event() {
     assert_eq!(interrupted.status, "incomplete");
     let error_part = interrupted.parts.iter().find(|p| p.kind == "error").unwrap();
     assert_eq!(error_part.payload["retryable"], serde_json::json!(true));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 错误终态回执：快照重放摘除回执时刻之前的 error 部件——重试后重启/切会话，
+/// 快照不再还原旧错误卡片。
+#[test]
+fn error_resolved_event_removes_prior_error_parts_in_snapshot() {
+    let (dir, db) = tmp_db("errres1");
+    create_thread(&db.lock_conn(), thread("th_err1")).unwrap();
+    let run = create_run(&db.lock_conn(), "th_err1", "gpt-x", None).unwrap();
+    let events = [
+        EventRecord {
+            thread_id: "th_err1".into(),
+            message_id: run.message_id.clone(),
+            run_id: Some(run.id.clone()),
+            kind: "error".into(),
+            payload: serde_json::json!({ "partId": "p_old", "code": "interrupted", "message": "中断", "retryable": true }),
+        },
+        EventRecord {
+            thread_id: "th_err1".into(),
+            message_id: run.message_id.clone(),
+            run_id: None,
+            kind: "error_resolved".into(),
+            payload: serde_json::json!({}),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_err1", 0, 0).unwrap();
+    assert!(snap.messages.iter().all(|m| m.parts.iter().all(|p| p.kind != "error")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回执之后新失败写入的错误部件保留：只摘回执之前的旧错误，不误伤新错误。
+#[test]
+fn error_resolved_keeps_later_error_parts() {
+    let (dir, db) = tmp_db("errres2");
+    create_thread(&db.lock_conn(), thread("th_err2")).unwrap();
+    let events = [
+        EventRecord {
+            thread_id: "th_err2".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "error".into(),
+            payload: serde_json::json!({ "partId": "p_old", "code": "timeout", "message": "旧错误", "retryable": true }),
+        },
+        EventRecord {
+            thread_id: "th_err2".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "error_resolved".into(),
+            payload: serde_json::json!({}),
+        },
+        EventRecord {
+            thread_id: "th_err2".into(),
+            message_id: "m_2".into(),
+            run_id: None,
+            kind: "error".into(),
+            payload: serde_json::json!({ "partId": "p_new", "code": "auth", "message": "新错误", "retryable": false }),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_err2", 0, 0).unwrap();
+    let errors: Vec<_> = snap
+        .messages
+        .iter()
+        .flat_map(|m| m.parts.iter().filter(|p| p.kind == "error"))
+        .collect();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].payload["partId"], serde_json::json!("p_new"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 最后一个 run 状态查询：按插入序取最新一条，无 run 返回 None——新 run 启动时
+/// 判断是否回填「错误已解决」的依据。
+#[test]
+fn last_run_status_takes_latest_run_per_thread() {
+    let (dir, db) = tmp_db("lastrun");
+    create_thread(&db.lock_conn(), thread("th_lr")).unwrap();
+    assert_eq!(last_run_status(&db.lock_conn(), "th_lr").unwrap(), None);
+    let run1 = create_run(&db.lock_conn(), "th_lr", "gpt-x", None).unwrap();
+    finish_run(&db.lock_conn(), &run1.id, "done", "", "").unwrap();
+    let run2 = create_run(&db.lock_conn(), "th_lr", "gpt-x", None).unwrap();
+    finish_run(&db.lock_conn(), &run2.id, "error", "timeout", "超时").unwrap();
+    assert_eq!(last_run_status(&db.lock_conn(), "th_lr").unwrap().as_deref(), Some("error"));
+    // 会话隔离：别的会话无 run
+    create_thread(&db.lock_conn(), thread("th_lr2")).unwrap();
+    assert_eq!(last_run_status(&db.lock_conn(), "th_lr2").unwrap(), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 摘除发生在重放循环结束后：循环内的 approval_resolved 回填按部件下标定位时
+/// error 部件尚未删除，同消息审批回填不受摘除影响。
+#[test]
+fn error_resolved_leaves_approval_backfill_intact() {    let (dir, db) = tmp_db("errres3");
+    create_thread(&db.lock_conn(), thread("th_err3")).unwrap();
+    // 同一消息：error 在前、approval 在后（下标依赖 error 部件存在时的定位）
+    let events = [
+        EventRecord {
+            thread_id: "th_err3".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "error".into(),
+            payload: serde_json::json!({ "partId": "p_err", "code": "timeout", "message": "x", "retryable": true }),
+        },
+        EventRecord {
+            thread_id: "th_err3".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "approval".into(),
+            payload: serde_json::json!({ "partId": "p_ap", "approvalId": "ap_1", "toolCallId": "c1", "tool": "fs_write", "risk": "R1", "title": "t", "target": "", "detail": "", "facts": [], "args": {}, "allowPermanent": false, "status": "waiting" }),
+        },
+        EventRecord {
+            thread_id: "th_err3".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "error_resolved".into(),
+            payload: serde_json::json!({}),
+        },
+        EventRecord {
+            thread_id: "th_err3".into(),
+            message_id: "m_1".into(),
+            run_id: None,
+            kind: "approval_resolved".into(),
+            payload: serde_json::json!({ "partId": "p_ap", "approvalId": "ap_1", "status": "approved", "decision": "allow", "scope": "session" }),
+        },
+    ];
+    for rec in &events {
+        record_event(&db, rec).unwrap();
+    }
+    let snap = snapshot(&db.lock_conn(), "th_err3", 0, 0).unwrap();
+    let msg = snap.messages.iter().find(|m| m.id == "m_1").unwrap();
+    assert!(msg.parts.iter().all(|p| p.kind != "error"), "错误部件应被摘除");
+    let ap = msg.parts.iter().find(|p| p.kind == "approval").expect("审批部件应保留");
+    assert_eq!(ap.payload["status"], serde_json::json!("approved"), "回填应命中审批部件");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

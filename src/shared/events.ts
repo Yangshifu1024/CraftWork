@@ -24,6 +24,8 @@ export const EventType = {
   Notice: "notice",
   ContextCompressed: "context.compressed",
   Error: "error",
+  /** 错误已解决：新 run 开始时对上一轮失败（error/interrupted）回填，前端摘除旧错误卡片。 */
+  ErrorResolved: "error.resolved",
   ThreadUpdated: "thread.updated",
   UsageUpdated: "usage.updated",
   SettingsUpdated: "settings.updated",
@@ -174,6 +176,11 @@ export interface ErrorPart {
   retryable: boolean;
 }
 
+/** 错误已解决事件载荷：messageId 为触发解决的新 run 占位消息（Recorder 自动注入）。 */
+export interface ErrorResolvedData {
+  messageId: string;
+}
+
 export interface ThreadUpdatedData {
   threadId: string;
   mode?: string;
@@ -242,6 +249,7 @@ export type EventKind =
   | "run_finished"
   | "context_summary"
   | "approval_resolved"
+  | "error_resolved"
   | "context_compressed"
   | "steer_delivered";
 

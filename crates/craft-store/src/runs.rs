@@ -89,6 +89,21 @@ pub fn finish_run(conn: &Connection, id: &str, status: &str, code: &str, message
     Ok(())
 }
 
+/// 该会话最后一个 run 的状态（无 run 返回 None）。新 run 启动时据此判断上一轮
+/// 是否以失败收尾（error/interrupted → 消息流挂着未解决的错误卡片，需回填 error_resolved）。
+/// runs 表无单调序号列，rowid 即插入顺序，比毫秒时间戳更能区分同毫秒创建的 run。
+pub fn last_run_status(conn: &Connection, thread_id: &str) -> StoreResult<Option<String>> {
+    let mut stmt = conn
+        .prepare("SELECT status FROM runs WHERE thread_id = ?1 ORDER BY rowid DESC LIMIT 1")
+        .map_err(other_err)?;
+    let mut rows = stmt.query([thread_id]).map_err(other_err)?;
+    rows.next()
+        .map_err(other_err)?
+        .map(|row| row.get::<_, String>(0))
+        .transpose()
+        .map_err(other_err)
+}
+
 /// 启动收尾时待取消的挂起审批（partId 供快照回填定位卡片）。
 struct StaleApproval {
     id: String,

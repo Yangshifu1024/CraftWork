@@ -685,6 +685,15 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       setChat(set, threadId, { ...chat, messages });
       break;
     }
+    case "error.resolved": {
+      // 新一轮运行开始即覆盖上一轮失败：摘除全部错误卡片。快照重建（重启/切会话）
+      // 由 error_resolved 事件做同样的摘除，两侧保持一致。
+      const messages = chat.messages.map((m) =>
+        m.parts.some((p) => p.kind === "error") ? { ...m, parts: m.parts.filter((p) => p.kind !== "error") } : m,
+      );
+      setChat(set, threadId, { ...chat, messages });
+      break;
+    }
     case "notice":
     case "context.compressed": {
       const partId = String(data["partId"] ?? event.seq);

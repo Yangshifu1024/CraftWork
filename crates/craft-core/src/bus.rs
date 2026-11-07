@@ -182,6 +182,10 @@ pub fn part_event(kind: &str) -> Option<&'static str> {
         "steer_delivered" => Some(crate::contract::event_type::STEER_DELIVERED),
         "todo" => Some(crate::contract::event_type::TODO_UPDATED),
         "error" => Some(crate::contract::event_type::ERROR),
+        // 错误终态回执：落库（快照重建摘除旧错误部件）+ 广播（前端实时摘错误卡片）。
+        // 新 run 开始时对上一轮 error/interrupted 回填——错误描述的是上次运行的结果，
+        // 会话继续前进即被覆盖，不回填会让旧错误卡片在重启/切会话后由快照再次带出。
+        "error_resolved" => Some(crate::contract::event_type::ERROR_RESOLVED),
         "notice" => Some(crate::contract::event_type::NOTICE),
         _ => None,
     }

@@ -20,7 +20,7 @@ use craft_store::db::Db;
 use craft_store::events::EventRecord;
 use craft_store::recorder::Recorder;
 use craft_store::records::{add_audit, add_usage, get_setting};
-use craft_store::runs::{create_run, finish_run};
+use craft_store::runs::{create_run, finish_run, last_run_status};
 use craft_store::threads::{add_thread_tokens, get_thread};
 use craft_store::usage_stats;
 use craft_store::workspaces::get_workspace;
@@ -259,8 +259,23 @@ impl Runner {
     /// 消息定序用）；无对应新消息的调用（如 regenerate 重跑上一轮）传 None。
     pub fn run(self: &Arc<Self>, thread_id: &str, trigger_seq: Option<i64>) -> Result<String, String> {
         let thread = get_thread(&self.deps.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
+        // 上一轮是否以失败收尾（error/interrupted → 消息流挂着未解决的错误卡片）。
+        // 查询须在 create_run 之前，否则「最后一个 run」是刚插入的 running；
+        // 锁分语句取（lock_conn 不可重入，同表达式嵌套两次取锁会死锁）。
+        let last_status = last_run_status(&self.deps.db.lock_conn(), thread_id).map_err(|e| e.to_string())?;
         let run = create_run(&self.deps.db.lock_conn(), thread_id, &thread.model_id, trigger_seq)
             .map_err(|e| e.to_string())?;
+        // 会话继续前进即覆盖上一轮失败：回填「错误已解决」，前端实时摘错误卡片、
+        // 快照重建（重启/切会话）不再还原。落库失败只降级为卡片暂留，不阻断启动。
+        if should_resolve_pending_error(last_status.as_deref()) {
+            let _ = self.deps.records.append(&EventRecord {
+                thread_id: thread_id.to_string(),
+                run_id: Some(run.id.clone()),
+                message_id: run.message_id.clone(),
+                kind: "error_resolved".into(),
+                payload: serde_json::json!({}),
+            });
+        }
         let _ = self.deps.records.set_thread_status(thread_id, Some(&run.id), "running");
         // 新消息接管：取消旧运行
         if let Some(old) = self.cancels.lock().unwrap().get(thread_id) {
@@ -1846,6 +1861,13 @@ fn done_via_name(via: &DoneVia) -> &'static str {
     }
 }
 
+/// 新 run 启动时是否回填「错误已解决」：上一 run 以失败收尾（error=运行期失败、
+/// interrupted=应用退出遗留）即消息流挂着未解决的错误卡片，会话继续前进即被覆盖。
+/// done/canceled/running 及无历史 run（None）都不回填——canceled 不写错误部件。
+fn should_resolve_pending_error(last_status: Option<&str>) -> bool {
+    matches!(last_status, Some("error") | Some("interrupted"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1921,5 +1943,17 @@ mod tests {
         info.cost = None;
         let usage = Usage::empty();
         assert_eq!(estimate_cost_micros(&usage, &info, "openai"), 0);
+    }
+
+    #[test]
+    fn pending_error_resolved_only_for_failed_or_interrupted_last_run() {
+        // 失败收尾（运行期 error / 退出遗留 interrupted）→ 回填
+        assert!(should_resolve_pending_error(Some("error")));
+        assert!(should_resolve_pending_error(Some("interrupted")));
+        // 正常完成、取消、在途、无历史 run → 不回填（canceled 收尾不写错误部件）
+        assert!(!should_resolve_pending_error(Some("done")));
+        assert!(!should_resolve_pending_error(Some("canceled")));
+        assert!(!should_resolve_pending_error(Some("running")));
+        assert!(!should_resolve_pending_error(None));
     }
 }

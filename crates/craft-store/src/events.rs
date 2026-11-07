@@ -268,6 +268,9 @@ pub fn rebuild_snapshot(inputs: SnapshotInputs, limit: usize, before_seq: i64) -
     let mut messages: std::collections::HashMap<String, MessageSnapshot> = std::collections::HashMap::new();
     // (partId, message_id, 部件下标) 定位 approval 部件（approval_resolved 事件跨消息回填）
     let mut approval_part_pos: Vec<(String, String, usize)> = Vec::new();
+    // error_resolved 回执的 seq（事件按 seq 升序遍历，重复赋值即取最后一个）：
+    // 循环后统一摘除该时刻之前落库的 error 部件，快照不再还原旧错误卡片。
+    let mut error_resolved_seq: Option<i64> = None;
 
     fn ensure_message<'m>(
         order: &mut Vec<String>,
@@ -319,6 +322,13 @@ pub fn rebuild_snapshot(inputs: SnapshotInputs, limit: usize, before_seq: i64) -
                 part.payload["scope"] =
                     Value::String(payload.get("scope").and_then(Value::as_str).unwrap_or_default().into());
             }
+            continue;
+        }
+
+        if ev.kind == "error_resolved" {
+            // 错误终态回执：不产生部件，只记录 seq——循环后统一摘除该时刻之前的
+            // error 部件（seq 单调保证不影响之后新写入的错误）。
+            error_resolved_seq = Some(ev.seq);
             continue;
         }
 
@@ -408,6 +418,15 @@ pub fn rebuild_snapshot(inputs: SnapshotInputs, limit: usize, before_seq: i64) -
                 let idx = msg.parts.len() - 1;
                 approval_part_pos.push((part_id, ev.message_id.clone(), idx));
             }
+        }
+    }
+
+    // 错误终态回执落点：摘除回执时刻之前的 error 部件（快照不再还原旧错误卡片）。
+    // 摘除必须在重放循环结束后统一进行：循环内的 approval_resolved 回填按部件
+    // 下标定位，此时 error 部件尚未删除，不会漂移。
+    if let Some(resolved_seq) = error_resolved_seq {
+        for msg in messages.values_mut() {
+            msg.parts.retain(|p| !(p.kind == "error" && p.seq < resolved_seq));
         }
     }
 
