@@ -187,6 +187,8 @@ export interface CraftworkApi {
   // ---------- Skills（技能，决策 D11） ----------
   /** 扫描技能（用户级 + 指定工作区级；workspaceId 缺省只扫用户级），含禁用与诊断标记 */
   skillsList(workspaceId?: string): Promise<SkillView[]>;
+  /** 管理页全量扫描：用户级 + 全部工作区级，每条带 workspaceId / workspaceName 归属 */
+  skillsListAll(): Promise<SkillView[]>;
   /** 启停单个技能（按 SKILL.md 绝对路径），返回刷新后的技能列表 */
   skillsSetEnabled(path: string, enabled: boolean, workspaceId?: string): Promise<SkillView[]>;
   /** 删除技能目录（仅允许技能根内的技能目录），返回刷新后的技能列表 */

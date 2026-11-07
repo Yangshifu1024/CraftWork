@@ -1154,44 +1154,52 @@ function ModelRow({
   );
 }
 
-/** Skills 管理（决策 D11）：用户级 + 工作区级技能的浏览 / 启停 / 查看 / 删除与总开关。
+/** Skills 管理（决策 D11）：用户级 + 全部工作区级技能的浏览 / 启停 / 查看 / 删除与总开关。
  *  技能目录布局与调用语义见 docs/skills/spec.md。 */
 function SkillsSection(): React.JSX.Element {
   const settings = useApp((s) => s.settings);
   const save = useApp((s) => s.saveSettings);
-  const skills = useApp((s) => s.skills);
-  const refreshSkills = useApp((s) => s.refreshSkills);
+  const manageSkills = useApp((s) => s.manageSkills);
+  const refreshManageSkills = useApp((s) => s.refreshManageSkills);
   const workspaces = useApp((s) => s.workspaces);
   const pushToast = useToastsPush();
-  // 管理视角的工作区（扫工作区级技能）；空串 = 只扫用户级
-  const [wsId, setWsId] = useState("");
   const [preview, setPreview] = useState<{ name: string; content: string } | null>(null);
 
   useEffect(() => {
-    void refreshSkills(wsId);
-    // 切换工作区或打开分区时重扫（磁盘即事实源，无缓存失效问题）
+    // 打开分区时重扫全量（磁盘即事实源，无缓存失效问题）
+    void refreshManageSkills();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId]);
+  }, []);
 
-  const activeWorkspace = workspaces.find((w) => w.id === wsId);
-  const userSkills = skills.filter((s) => s.scope === "user");
-  const wsSkills = skills.filter((s) => s.scope === "workspace");
+  // 分组：用户级在前，其后按工作区首次出现顺序（后端按最近打开时间下发）
+  const userSkills = manageSkills.filter((s) => !s.workspaceId);
+  const wsGroups: Array<{ id: string; name: string; skills: SkillView[] }> = [];
+  for (const skill of manageSkills) {
+    if (!skill.workspaceId) continue;
+    let group = wsGroups.find((g) => g.id === skill.workspaceId);
+    if (!group) {
+      group = { id: skill.workspaceId, name: skill.workspaceName ?? "", skills: [] };
+      wsGroups.push(group);
+    }
+    group.skills.push(skill);
+  }
 
-  const toggleEnabled = (path: string, enabled: boolean): void => {
+  const toggleEnabled = (skill: SkillView, enabled: boolean): void => {
     void api
-      .skillsSetEnabled(path, enabled, wsId)
-      .then((next) => {
-        useApp.setState({ skills: next });
+      .skillsSetEnabled(skill.path, enabled, skill.workspaceId ?? "")
+      // 写操作返回的是「用户级 + 该工作区级」的局部列表，不能直接覆盖全量视图：重扫全量
+      .then(() => refreshManageSkills())
+      .then(() => {
         pushToast("ok", enabled ? "技能已启用" : "技能已禁用", enabled ? "下一个 run 起对 Agent 生效" : "下一个 run 起不再加载");
       })
       .catch((err) => pushToast("danger", "技能启停失败", cleanErrorMessage(String(err))));
   };
 
-  const removeSkill = (path: string): void => {
+  const removeSkill = (skill: SkillView): void => {
     void api
-      .skillsRemove(path, wsId)
-      .then((next) => {
-        useApp.setState({ skills: next });
+      .skillsRemove(skill.path, skill.workspaceId ?? "")
+      .then(() => refreshManageSkills())
+      .then(() => {
         pushToast("ok", "技能已删除");
       })
       .catch((err) => pushToast("danger", "技能删除失败", cleanErrorMessage(String(err))));
@@ -1199,7 +1207,7 @@ function SkillsSection(): React.JSX.Element {
 
   const openPreview = (skill: SkillView): void => {
     void api
-      .skillsRead(skill.path, wsId)
+      .skillsRead(skill.path, skill.workspaceId ?? "")
       .then((res) => setPreview({ name: skill.name, content: res.content }))
       .catch((err) => pushToast("danger", "技能正文读取失败", cleanErrorMessage(String(err))));
   };
@@ -1213,20 +1221,8 @@ function SkillsSection(): React.JSX.Element {
       <Row title="启用技能" desc="关闭后 Agent 不加载任何技能，斜杠调用也不可用">
         <Switch checked={settings.skillsEnabled} onChange={(v) => void save({ skillsEnabled: v })} />
       </Row>
-      {workspaces.length > 0 && (
-        <Row title="查看工作区" desc="切换后同时扫描该工作区下的 .craftwork/skills 与 .agents/skills">
-          <select value={wsId} onChange={(e) => setWsId(e.target.value)} className="h-8 max-w-56 rounded-lg border border-border bg-input px-2 text-ui-sm">
-            <option value="">（仅用户级）</option>
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-      )}
 
-      {skills.length === 0 ? (
+      {manageSkills.length === 0 ? (
         <div className="flex flex-col gap-2 rounded-xl bg-surface px-4 py-3 text-ui-sm text-foreground-subtle">
           <p>还没有技能。在技能目录下按「一个目录一个技能」放置 SKILL.md 即可：</p>
           <pre className="overflow-x-auto rounded-lg border border-border/60 bg-background px-3 py-2 text-ui-xs leading-5 text-foreground-subtle">{`~/.craftwork/skills/demo/SKILL.md        （用户级，跨会话可用）
@@ -1245,16 +1241,20 @@ description: 一句话说明这个技能做什么、何时使用
       ) : (
         <>
           <SkillGroup label="用户级" hint="所有会话可用（数据目录与 ~/.agents）" skills={userSkills} onToggle={toggleEnabled} onRemove={removeSkill} onPreview={openPreview} />
-          {wsId !== "" && (
-            <SkillGroup
-              label={activeWorkspace ? `工作区 · ${activeWorkspace.name}` : "工作区"}
-              hint={activeWorkspace?.trust === "restricted" ? "受限工作区：Agent 提示词不自动注入，仅显式调用可用" : "随仓库分发给所有协作者"}
-              skills={wsSkills}
-              onToggle={toggleEnabled}
-              onRemove={removeSkill}
-              onPreview={openPreview}
-            />
-          )}
+          {wsGroups.map((group) => {
+            const trust = workspaces.find((w) => w.id === group.id)?.trust;
+            return (
+              <SkillGroup
+                key={group.id}
+                label={`工作区 · ${group.name}`}
+                hint={trust === "restricted" ? "受限工作区：Agent 提示词不自动注入，仅显式调用可用" : "随仓库分发给所有协作者"}
+                skills={group.skills}
+                onToggle={toggleEnabled}
+                onRemove={removeSkill}
+                onPreview={openPreview}
+              />
+            );
+          })}
         </>
       )}
 
@@ -1291,8 +1291,8 @@ function SkillGroup({
   label: string;
   hint: string;
   skills: SkillView[];
-  onToggle(path: string, enabled: boolean): void;
-  onRemove(path: string): void;
+  onToggle(skill: SkillView, enabled: boolean): void;
+  onRemove(skill: SkillView): void;
   onPreview(skill: SkillView): void;
 }): React.JSX.Element {
   if (skills.length === 0) return <></>;
@@ -1332,7 +1332,7 @@ function SkillGroup({
             >
               <Eye className="size-4" />
             </button>
-            <Popconfirm message={`删除技能「${skill.name}」？将同时删除其目录内全部文件，不可恢复。`} onConfirm={() => onRemove(skill.path)}>
+            <Popconfirm message={`删除技能「${skill.name}」？将同时删除其目录内全部文件，不可恢复。`} onConfirm={() => onRemove(skill)}>
               <button
                 type="button"
                 title="删除技能"
@@ -1341,7 +1341,7 @@ function SkillGroup({
                 <Trash2 className="size-4" />
               </button>
             </Popconfirm>
-            <Switch checked={skill.enabled} onChange={(v) => onToggle(skill.path, v)} />
+            <Switch checked={skill.enabled} onChange={(v) => onToggle(skill, v)} />
           </div>
         </div>
       ))}

@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use craft_store::db::{Db, StoreError, SCHEMA_VERSION};
 use craft_store::events::{append_event, latest_context_summary, plan_mode_for_trigger, record_event, snapshot, EventRecord};
 use craft_store::plans::{create_plan, latest_plan};
-use craft_store::records::{add_audit, get_setting, list_audit, set_setting};
+use craft_store::records::{add_audit, add_usage, get_setting, list_audit, set_setting};
 use craft_store::runs::{create_approval, create_run, finish_run, get_approval, resolve_approval};
+use craft_store::view::to_thread_view;
 use craft_store::threads::{
     auto_title_thread, create_thread, delete_thread, get_thread, list_threads, rename_thread, search_threads, set_thread_worktree,
     NewThread,
@@ -847,5 +848,117 @@ fn snapshot_preserves_skill_invoke_and_strips_unknown_fields() {
     assert_eq!(part.payload["skillInvoke"]["name"], "demo");
     assert_eq!(part.payload["text"], "/demo 帮我做 X");
     assert!(part.payload.get("unknownExtra").is_none(), "白名单外字段不透传");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---------- 用量口径（V13）：view 投影与速率/占用回放 ----------
+
+fn usage_row(
+    thread_id: &str,
+    prompt_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    duration_ms: i64,
+    gen_window_ms: i64,
+) -> craft_store::records::UsageRecord<'_> {
+    craft_store::records::UsageRecord {
+        thread_id: Some(thread_id),
+        model_id: "p/m",
+        input_tokens,
+        output_tokens,
+        cache_tokens: 0,
+        reasoning_tokens: 0,
+        cost_micros: 0,
+        duration_ms,
+        prompt_tokens,
+        ttft_ms: 1200,
+        gen_window_ms,
+    }
+}
+
+#[test]
+fn thread_view_context_prefers_normalized_prompt_and_windowed_speed() {
+    let (dir, db) = tmp_db("usageview");
+    create_thread(&db.lock_conn(), thread("th_usage_norm")).unwrap();
+    // Anthropic 归一化：prompt 11500（= input 100 + 缓存写 10 + 缓存读 5 的语义总量）+ 输出 200
+    add_usage(
+        &db.lock_conn(),
+        usage_row("th_usage_norm", 11_500, 100, 200, 5000, 3800),
+    )
+    .unwrap();
+    let view = {
+        let row = get_thread(&db.lock_conn(), "th_usage_norm").unwrap();
+        to_thread_view(&db.lock_conn(), &row).unwrap()
+    };
+    // 占用 = prompt + output（含缓存），不再是 input + output（缓存命中时严重低计的旧口径）
+    assert_eq!(view.context_tokens, 11_700);
+    // 速率按落库的生成窗口回放：200 tok / 3.8s
+    assert!((view.context_speed - 200.0 / 3.8).abs() < 1e-9);
+    assert_eq!(view.context_ttft_ms, 1200);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn thread_view_legacy_usage_row_falls_back_to_old_formulas() {
+    let (dir, db) = tmp_db("usagelegacy");
+    create_thread(&db.lock_conn(), thread("th_usage_old")).unwrap();
+    // 旧行：prompt_tokens=0（未填充）、gen_window_ms=0（回退全程 duration）
+    add_usage(&db.lock_conn(), usage_row("th_usage_old", 0, 300, 100, 4000, 0)).unwrap();
+    let view = {
+        let row = get_thread(&db.lock_conn(), "th_usage_old").unwrap();
+        to_thread_view(&db.lock_conn(), &row).unwrap()
+    };
+    assert_eq!(view.context_tokens, 400);
+    assert!((view.context_speed - 100.0 / 4.0).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn thread_view_unrated_window_reports_zero_speed() {
+    let (dir, db) = tmp_db("usagerated");
+    create_thread(&db.lock_conn(), thread("th_usage_unrated")).unwrap();
+    // 取消/失败轮：gen_window_ms = GEN_WINDOW_UNRATED，速率记 0（前端显示「—」，绝不当作真实 0 tok/s）
+    add_usage(
+        &db.lock_conn(),
+        usage_row("th_usage_unrated", 500, 500, 100, 999, craft_store::usage_stats::GEN_WINDOW_UNRATED),
+    )
+    .unwrap();
+    let view = {
+        let row = get_thread(&db.lock_conn(), "th_usage_unrated").unwrap();
+        to_thread_view(&db.lock_conn(), &row).unwrap()
+    };
+    assert_eq!(view.context_speed, 0.0);
+    // 占用照常透出（input/缓存真实发生）
+    assert_eq!(view.context_tokens, 600);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn snapshot_two_phase_split_matches_one_shot() {
+    let (dir, db) = tmp_db("snap2phase");
+    create_thread(&db.lock_conn(), thread("th_snap2")).unwrap();
+    record_event(&db, &user_message("th_snap2", "m1", "第一条")).unwrap();
+    record_event(
+        &db,
+        &EventRecord {
+            thread_id: "th_snap2".into(),
+            message_id: "m2".into(),
+            run_id: None,
+            kind: "text".into(),
+            payload: serde_json::json!({ "partId": "p1", "text": "回复" }),
+        },
+    )
+    .unwrap();
+    // 兼容入口（锁内一次完成）与两段式（锁内拉取 + 锁外重建）结果逐字段一致
+    let one_shot = snapshot(&db.lock_conn(), "th_snap2", 0, 0).unwrap();
+    let inputs = craft_store::events::snapshot_inputs(&db.lock_conn(), "th_snap2").unwrap();
+    let two_phase = craft_store::events::rebuild_snapshot(inputs, 0, 0);
+    assert_eq!(one_shot.thread.id, two_phase.thread.id);
+    assert_eq!(one_shot.messages.len(), two_phase.messages.len());
+    assert_eq!(one_shot.last_seq, two_phase.last_seq);
+    for (a, b) in one_shot.messages.iter().zip(two_phase.messages.iter()) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.parts.len(), b.parts.len());
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -435,9 +435,13 @@ pub fn thread_clear_temp(state: &AppState, mode: &str) -> SvcResult {
 
 /// 会话快照：读事件按 message_id 归组重建消息流（时间线装载的唯一入口）。
 /// limit=0 不限条数；before_seq>0 只保留 seq 小于游标的事件（向上翻页）。
+/// 两段式：锁内只拉原始行，JSON 解析与消息归组在锁外——切长会话不阻塞其他会话的写路径。
 pub fn thread_snapshot(state: &AppState, id: &str, limit: i64, before_seq: i64) -> SvcResult {
-    let snap = craft_store::events::snapshot(&state.db.lock_conn(), id, limit.max(0) as usize, before_seq)
-        .map_err(|e| e.to_string())?;
+    let inputs = {
+        let conn = state.db.lock_conn();
+        craft_store::events::snapshot_inputs(&conn, id).map_err(|e| e.to_string())?
+    };
+    let snap = craft_store::events::rebuild_snapshot(inputs, limit.max(0) as usize, before_seq);
     serde_json::to_value(snap).map_err(|e| e.to_string())
 }
 
@@ -1836,6 +1840,38 @@ pub fn skills_list(state: &AppState, workspace_id: &str) -> SvcResult {
     let roots = craft_tools::skills::skill_roots(&state.data_dir, &workspace, false);
     let metas = craft_tools::skills::discover_skills(&roots, &disabled);
     serde_json::to_value(&metas).map_err(|e| e.to_string())
+}
+
+/// 管理页全量扫描：用户级 + 全部工作区级，每条附带归属（workspaceId / workspaceName）。
+/// 用户级条目两字段为空串。不做受限过滤（与 [`skills_list`] 同一视角约定）：
+/// 受限工作区的技能在管理页可见，Agent 自动加载仍由 run 注入侧过滤。
+pub fn skills_list_all(state: &AppState) -> SvcResult {
+    let (_enabled, disabled) = craft_tools::skills::load_skills_config(&state.db);
+    let list = workspaces::list_workspaces(&state.db.lock_conn()).map_err(|e| e.to_string())?;
+    let scopes: Vec<(String, String, String)> = list
+        .iter()
+        .map(|w| {
+            let main = w.folders.first().map(|f| f.path.clone()).unwrap_or_else(|| w.workspace.path.clone());
+            (w.workspace.id.clone(), w.workspace.name.clone(), main)
+        })
+        .collect();
+    let pairs: Vec<(String, String)> = scopes.iter().map(|(id, _, main)| (id.clone(), main.clone())).collect();
+    let found = craft_tools::skills::discover_all_scopes(&state.data_dir, &pairs, &disabled);
+    let name_of = |id: &str| -> String {
+        scopes.iter().find(|(wid, _, _)| wid == id).map(|(_, n, _)| n.clone()).unwrap_or_default()
+    };
+    let views: Vec<Value> = found
+        .into_iter()
+        .map(|(workspace_id, meta)| {
+            let mut value = serde_json::to_value(&meta).map_err(|e| e.to_string())?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("workspaceId".into(), json!(workspace_id));
+                obj.insert("workspaceName".into(), json!(name_of(&workspace_id)));
+            }
+            Ok(value)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(json!(views))
 }
 
 /// 启停单个技能：enabled=true 从禁用列表移除，false 加入；返回刷新后的列表。

@@ -66,7 +66,9 @@ function normalizeProvider(id, provider) {
     models.push({
       id: modelId,
       name: m.name ?? modelId,
-      contextK: Math.round((m.limit?.context ?? 0) / 1000) || 32,
+      // 窗口缺失保留 0：前端按「窗口未知」显示（不渲染百分比），后端跳过压缩；
+      // 不再静默兜底 32K（错误分母会把占用百分比放大几十倍）
+      contextK: Math.round((m.limit?.context ?? 0) / 1000),
       maxTokens: m.limit?.output ?? 0,
       caps: {
         stream: true,

@@ -380,6 +380,52 @@ fn workspace_add_rejects_builtin_conversation_directory() {
 }
 
 #[test]
+fn skills_list_all_reports_workspace_owner() {
+    let (dir, state) = test_state("skills-list-all");
+    // 用户级技能：<数据目录>/skills/demo/SKILL.md
+    let user_dir = dir.path().join("skills").join("demo");
+    std::fs::create_dir_all(&user_dir).unwrap();
+    std::fs::write(
+        user_dir.join("SKILL.md"),
+        "---\nname: user-demo\ndescription: 用户级技能\n---\n正文\n",
+    )
+    .unwrap();
+
+    // 项目工作区：<工作区>/.craftwork/skills/proj-demo/SKILL.md
+    let ws_root = dir.path().join("proj");
+    let proj_dir = ws_root.join(".craftwork").join("skills").join("proj-demo");
+    std::fs::create_dir_all(&proj_dir).unwrap();
+    std::fs::write(
+        proj_dir.join("SKILL.md"),
+        "---\nname: proj-demo\ndescription: 工作区级技能\n---\n正文\n",
+    )
+    .unwrap();
+    let ws_path = ws_root.to_string_lossy().to_string();
+    let created = services::workspace_add_project(&state, "演示项目", json!([ws_path]).as_array().unwrap(), "trusted").unwrap();
+    let ws_id = created["id"].as_str().unwrap().to_string();
+
+    let views = services::skills_list_all(&state).unwrap();
+    let views = views.as_array().unwrap();
+    let find = |name: &str| views.iter().find(|v| v["name"] == name).unwrap_or_else(|| panic!("缺少技能 {name}"));
+
+    let user = find("user-demo");
+    assert_eq!(user["workspaceId"], "", "用户级技能无归属工作区");
+    assert_eq!(user["workspaceName"], "");
+    assert_eq!(user["scope"], "user");
+
+    let proj = find("proj-demo");
+    assert_eq!(proj["workspaceId"], ws_id.as_str(), "工作区级技能带归属 id");
+    assert_eq!(proj["workspaceName"], "演示项目");
+    assert_eq!(proj["scope"], "workspace");
+
+    // 管理操作沿用条目自带的归属 id 即可通过根校验（启停往返）
+    let proj_path = proj["path"].as_str().unwrap().to_string();
+    let next = services::skills_set_enabled(&state, &proj_path, false, &ws_id).unwrap();
+    let disabled = next.as_array().unwrap().iter().find(|v| v["path"] == proj_path.as_str()).unwrap();
+    assert_eq!(disabled["enabled"], false);
+}
+
+#[test]
 fn settings_save_level_takes_effect_without_restart() {
     let (_dir, state) = test_state("level-hot");
     // migration-parity 票 04：引擎只在启动时按设置初始化，保存后必须同步热切换

@@ -189,6 +189,10 @@ impl AnthropicClient {
 struct AnthropicStreamState {
     usage: Usage,
     usage_seen: bool,
+    /// 缓存写 / 读分量的内部记账：usage.cache_tokens 是合并值，message_delta
+    /// 可能只带其中一个字段（非 0 覆盖），重算合并值需要两个分量都在手。
+    cache_write: i64,
+    cache_read: i64,
     tool_calls: ToolCallBuilder,
     /// index → 已见 content_block_start 的 tool_use（参数稍后增量给出）
     pending: std::collections::HashMap<i64, (String, String)>,
@@ -203,11 +207,31 @@ impl AnthropicStreamState {
         Self {
             usage: Usage::empty(),
             usage_seen: false,
+            cache_write: 0,
+            cache_read: 0,
             tool_calls: ToolCallBuilder::default(),
             pending: std::collections::HashMap::new(),
             stop_reason: None,
             seen_stop: false,
         }
+    }
+
+    /// 按 Anthropic 语义重算归一化用量：input 不含缓存，完整提示词 = input + 缓存写 + 缓存读。
+    fn recompute_usage(&mut self) {
+        self.usage.cache_tokens = self.cache_write + self.cache_read;
+        self.usage.cache_write_tokens = self.cache_write;
+        self.usage.prompt_tokens = self.usage.input_tokens + self.cache_write + self.cache_read;
+    }
+
+    /// 从 usage 对象合并缓存字段（0 / 缺失不覆盖已知值），随后重算归一化口径。
+    fn merge_cache_fields(&mut self, u: &Value) {
+        if let Some(write) = u.get("cache_creation_input_tokens").and_then(Value::as_i64).filter(|v| *v != 0) {
+            self.cache_write = write;
+        }
+        if let Some(read) = u.get("cache_read_input_tokens").and_then(Value::as_i64).filter(|v| *v != 0) {
+            self.cache_read = read;
+        }
+        self.recompute_usage();
     }
 
     /// 解码一个事件：Some(Ok(Some(chunk))) 产出片段；Some(Ok(None)) 无产出；Some(Err) 流内错误；None 非法忽略。
@@ -224,12 +248,14 @@ impl AnthropicStreamState {
                 Some(Err(stream_error(provider, message, kind)))
             }
             "message_start" => {
-                if let Some(u) = event.pointer("/message/usage") {
+                // is_object 防御：部分网关发 "usage": null（pointer 命中 Null 却无字段）
+                if let Some(u) = event.pointer("/message/usage").filter(|u| u.is_object()) {
                     self.usage_seen = true;
                     self.usage.input_tokens = u.get("input_tokens").and_then(Value::as_i64).unwrap_or(0);
-                    self.usage.cache_tokens = u.get("cache_creation_input_tokens").and_then(Value::as_i64).unwrap_or(0)
-                        + u.get("cache_read_input_tokens").and_then(Value::as_i64).unwrap_or(0);
-                    self.usage.cache_write_tokens = u.get("cache_creation_input_tokens").and_then(Value::as_i64).unwrap_or(0);
+                    self.merge_cache_fields(u);
+                    // 提前产出部分用量（input/缓存已确定、output 为 0）：取消/流错误路径据此部分记账，
+                    // 正常路径由 message_delta / 收尾 chunk 覆盖为全量
+                    return Some(Ok(Some(Chunk { usage: Some(self.usage.clone()), ..Default::default() })));
                 }
                 Some(Ok(None))
             }
@@ -297,7 +323,7 @@ impl AnthropicStreamState {
                 {
                     self.stop_reason = Some(reason.to_string());
                 }
-                if let Some(u) = event.get("usage") {
+                if let Some(u) = event.get("usage").filter(|u| u.is_object()) {
                     self.usage_seen = true;
                     if let Some(output) = u.get("output_tokens").and_then(Value::as_i64) {
                         self.usage.output_tokens = output;
@@ -306,6 +332,8 @@ impl AnthropicStreamState {
                     if let Some(input) = u.get("input_tokens").and_then(Value::as_i64).filter(|v| *v != 0) {
                         self.usage.input_tokens = input;
                     }
+                    // 部分网关把缓存字段并入 message_delta（非 0 才合并，防 0 值覆盖已知值）
+                    self.merge_cache_fields(u);
                 }
                 Some(Ok(None))
             }
@@ -421,11 +449,14 @@ impl Client for AnthropicClient {
                 }
             }
 
-            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记（携带结束元数据）
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时不产出：全 0 值会污染「最新一行用量」，
+            // 调用方按「网关未给用量」处理）→ done 标记（携带结束元数据）
             for call in state.tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }
-            yield Ok(Chunk { usage: Some(if state.usage_seen { state.usage } else { Usage::empty() }), ..Default::default() });
+            if state.usage_seen {
+                yield Ok(Chunk { usage: Some(state.usage), ..Default::default() });
+            }
             yield Ok(Chunk {
                 done: true,
                 end: Some(make_stream_end(
@@ -598,6 +629,8 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(state.usage.output_tokens, 42);
+        // message_delta 通常只带 output_tokens：prompt_tokens 保持 message_start 的归一化值（100+10+5）
+        assert_eq!(state.usage.prompt_tokens, 115);
         // stop_reason 原样带出（max_tokens 即输出上限截断的标志）
         assert_eq!(state.stop_reason.as_deref(), Some("max_tokens"));
         assert!(!state.seen_stop);
@@ -609,5 +642,61 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].id, "t1");
         assert_eq!(calls[0].args, serde_json::json!({"a": 1}));
+    }
+
+    #[test]
+    fn message_start_emits_partial_usage_chunk() {
+        let mut state = AnthropicStreamState::new();
+        let chunk = state
+            .decode(
+                "p",
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_creation_input_tokens":10,"cache_read_input_tokens":5}}}"#,
+            )
+            .unwrap()
+            .unwrap()
+            .expect("message_start 应产出部分用量 chunk");
+        let usage = chunk.usage.expect("部分用量 chunk 应携带 usage");
+        assert_eq!((usage.input_tokens, usage.output_tokens), (100, 0));
+        // 归一化口径：input 不含缓存，完整提示词 = input + 缓存写 + 缓存读
+        assert_eq!(usage.prompt_tokens, 115);
+        assert_eq!((usage.cache_tokens, usage.cache_write_tokens), (15, 10));
+    }
+
+    #[test]
+    fn message_delta_cache_fields_merged() {
+        // 部分网关把缓存字段并入 message_delta：非 0 合并、归一化口径重算
+        let mut state = AnthropicStreamState::new();
+        state
+            .decode("p", r#"{"type":"message_start","message":{"usage":{"input_tokens":50}}}"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.usage.prompt_tokens, 50);
+        state
+            .decode(
+                "p",
+                r#"{"type":"message_delta","delta":{},"usage":{"output_tokens":20,"cache_creation_input_tokens":8,"cache_read_input_tokens":4}}"#,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!((state.usage.cache_tokens, state.usage.cache_write_tokens), (12, 8));
+        assert_eq!(state.usage.prompt_tokens, 62);
+        // 0 值不覆盖已知缓存分量
+        state
+            .decode("p", r#"{"type":"message_delta","delta":{},"usage":{"cache_read_input_tokens":0}}"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!((state.usage.cache_tokens, state.usage.prompt_tokens), (12, 62));
+    }
+
+    #[test]
+    fn usage_null_payload_not_marked_seen() {
+        let mut state = AnthropicStreamState::new();
+        // 部分网关发 "usage": null：不得置 usage_seen（否则收尾产出全 0 用量行）
+        state
+            .decode("p", r#"{"type":"message_start","message":{"usage":null}}"#)
+            .unwrap()
+            .unwrap();
+        assert!(!state.usage_seen);
+        assert_eq!(state.usage.prompt_tokens, 0);
     }
 }

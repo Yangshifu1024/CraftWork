@@ -81,8 +81,11 @@ when_to_use: 可选：更具体的适用时机说明
 
 ## 7. 管理页（设置 → Skills）
 
-- 总开关 Row；工作区选择（扫该工作区级技能，缺省仅用户级）。
-- 分组列表（用户级 / 工作区级），每条：名称、来源徽标（craftwork / agents）、描述、路径、诊断红字、启停 Switch、查看正文（Dialog 预览，剥 frontmatter 与变量替换后文本）、删除（Popconfirm 确认）。
+- 总开关 Row；下方直接分组列出技能：用户级一组，其后每个有技能的工作区各一组（标题「工作区 · 名称」，按最近打开时间排序）。**没有工作区选择器**——全量一次展示，不需要先选扫描范围。
+- 分组列表（用户级 / 各工作区级），每条：名称、来源徽标（craftwork / agents）、描述、路径、诊断红字、启停 Switch、查看正文（Dialog 预览，剥 frontmatter 与变量替换后文本）、删除（Popconfirm 确认）。空分组不渲染。
+- 归属由后端随条目下发（`workspaceId` / `workspaceName`，用户级为空串）：启停 / 删除 / 读取直接把条目自带的归属传回服务端，服务端仍按「realpath 落在该归属的技能根内」校验。
+- 管理清单与会话补全清单是**两个独立状态**（`manageSkills` / `skills`）：管理页写自己的槽，不覆盖 composer 的斜杠候选。
+- 同名判定分层：用户级先占名，各工作区各自判定——**不同工作区的同名技能互不冲突**（各自会话上下文分别生效），与用户级同名的仍标「同名」诊断。
 - 空状态给出目录布局与 SKILL.md 最小示例（不做创建脚手架，留桩）。
 - 管理视角可见全部（含受限工作区的工作区级技能，附「仅显式调用可用」提示）；运行视角（清单注入）受限过滤——两个视角的差异是有意的。
 
@@ -97,11 +100,11 @@ when_to_use: 可选：更具体的适用时机说明
 
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
-| 工具 | `crates/craft-tools/src/skills.rs` | 扫描 / frontmatter / 清单渲染 / `SkillInvoke` 工具 / 斜杠解析与引导 prompt / 禁用存取 |
+| 工具 | `crates/craft-tools/src/skills.rs` | 扫描 / frontmatter / 清单渲染 / `SkillInvoke` 工具 / 斜杠解析与引导 prompt / 禁用存取 / 管理视角全量扫描（`discover_all_scopes`） |
 | 契约 | `crates/craft-core/src/contract.rs` | `Settings.skillsEnabled` |
 | Agent | `crates/craft-agent/src/{runner,prompt,history}.rs` | 每 run 扫描、dynamic 块注入、行为契约条款、历史改写 |
-| 服务 | `src-tauri/src/{services,lib}.rs` | skillsList / skillsSetEnabled / skillsRemove / skillsRead、chat_send / chat_steer 斜杠检测、dispatch |
-| 共享 | `src/shared/{types,channels,events}.ts` | SkillView、四个通道、UserMessageData.skillInvoke |
+| 服务 | `src-tauri/src/{services,lib}.rs` | skillsList / skillsListAll / skillsSetEnabled / skillsRemove / skillsRead、chat_send / chat_steer 斜杠检测、dispatch |
+| 共享 | `src/shared/{types,channels,events}.ts` | SkillView（含 workspaceId / workspaceName 归属）、五个通道、UserMessageData.skillInvoke |
 | 界面 | `src/renderer/src/overlays/settings.tsx`、`components/conversation.tsx`、`overlays/palette.tsx`、`store/app.ts` | SkillsSection、补全面板与胶囊、消息流美化、palette 入口、skills 状态 |
 
 ## 10. 已知限制与留桩

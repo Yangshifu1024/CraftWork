@@ -251,7 +251,16 @@ pub fn discover_skills(roots: &[SkillRoot], disabled: &[String]) -> Vec<SkillMet
 
     // 同名冲突：只有有效技能占用名字；被占用者标注诊断（保持发现顺序，管理页可见）
     let mut taken: Vec<String> = Vec::new();
-    for meta in &mut metas {
+    apply_name_conflicts(&mut metas, &mut taken);
+    metas
+}
+
+/// 同名冲突判定：只有有效技能（error 为空）占用名字，撞名者标注诊断并保持发现顺序。
+///
+/// `taken` 允许带入已占用的名字：管理视角按工作区分别扫描时，用户级先占名，
+/// 每个工作区用自己的 `taken` 副本继续判定——不同工作区之间不互相冲突。
+pub fn apply_name_conflicts(metas: &mut [SkillMeta], taken: &mut Vec<String>) {
+    for meta in metas.iter_mut() {
         if meta.error.is_empty() {
             if taken.contains(&meta.name) {
                 meta.error = format!("与技能「{}」同名，本技能不生效", meta.name);
@@ -260,7 +269,45 @@ pub fn discover_skills(roots: &[SkillRoot], disabled: &[String]) -> Vec<SkillMet
             }
         }
     }
-    metas
+}
+
+/// 管理视角的全量扫描：用户级扫一次 + 每个工作区只扫其工作区级两根。
+///
+/// 返回 `(workspaceId, meta)`，用户级条目的 workspaceId 为空串。同名判定分两层：
+/// 用户级先占名（跨会话可用者优先），各工作区各自用自己的已占名副本继续判定——
+/// 不同工作区的同名技能互不冲突（它们在各自的会话上下文里分别生效）。
+pub fn discover_all_scopes(data_dir: &str, workspaces: &[(String, String)], disabled: &[String]) -> Vec<(String, SkillMeta)> {
+    discover_all_scopes_in(&home_dir(), data_dir, workspaces, disabled)
+}
+
+/// [`discover_all_scopes`] 的 home 注入版本（测试隔离真实 `~/.agents/skills`）。
+pub fn discover_all_scopes_in(
+    home: &std::path::Path,
+    data_dir: &str,
+    workspaces: &[(String, String)],
+    disabled: &[String],
+) -> Vec<(String, SkillMeta)> {
+    let mut out: Vec<(String, SkillMeta)> = Vec::new();
+    let user_roots: Vec<SkillRoot> = skill_roots_in(home, data_dir, "", false);
+    let mut user_metas = discover_skills(&user_roots, disabled);
+    let mut taken: Vec<String> = Vec::new();
+    apply_name_conflicts(&mut user_metas, &mut taken);
+    out.extend(user_metas.into_iter().map(|m| (String::new(), m)));
+
+    for (workspace_id, main_dir) in workspaces {
+        let ws_roots: Vec<SkillRoot> = skill_roots_in(home, data_dir, main_dir, false)
+            .into_iter()
+            .filter(|r| r.scope == SkillScope::Workspace)
+            .collect();
+        if ws_roots.is_empty() {
+            continue;
+        }
+        let mut ws_metas = discover_skills(&ws_roots, disabled);
+        let mut ws_taken = taken.clone();
+        apply_name_conflicts(&mut ws_metas, &mut ws_taken);
+        out.extend(ws_metas.into_iter().map(|m| (workspace_id.clone(), m)));
+    }
+    out
 }
 
 type PathRef = std::path::PathBuf;
@@ -679,6 +726,64 @@ mod tests {
         assert!(demo[0].error.is_empty());
         assert!(demo[1].error.contains("同名"));
         assert!(all.iter().any(|s| s.name == "other" && s.error.is_empty()));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 管理视角：两个工作区各有同名技能时互不冲突；用户级同名者优先占名。
+    #[test]
+    fn discover_all_scopes_groups_by_workspace_without_cross_conflict() {
+        let tmp = std::env::temp_dir().join(format!("cw-skills-all-scopes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let data_dir = tmp.join("data");
+        let home = tmp.join("home");
+        let ws_a = tmp.join("ws-a");
+        let ws_b = tmp.join("ws-b");
+        make_skill(&data_dir.join("skills"), "shared", Some("name: shared\ndescription: 用户级"), "x");
+        make_skill(&ws_a.join(".craftwork").join("skills"), "demo", Some("name: demo\ndescription: A 的"), "x");
+        make_skill(&ws_b.join(".craftwork").join("skills"), "demo", Some("name: demo\ndescription: B 的"), "x");
+
+        let workspaces = vec![
+            ("ws-a".to_string(), ws_a.to_string_lossy().to_string()),
+            ("ws-b".to_string(), ws_b.to_string_lossy().to_string()),
+        ];
+        let all = discover_all_scopes_in(&home, &data_dir.to_string_lossy(), &workspaces, &[]);
+
+        let user: Vec<_> = all.iter().filter(|(id, _)| id.is_empty()).collect();
+        assert_eq!(user.len(), 1);
+        assert_eq!(user[0].1.name, "shared");
+        assert_eq!(user[0].1.scope, SkillScope::User);
+
+        let demo: Vec<_> = all.iter().filter(|(_, s)| s.name == "demo").collect();
+        assert_eq!(demo.len(), 2, "两个工作区的同名技能都应出现");
+        assert!(demo.iter().all(|(_, s)| s.error.is_empty()), "不同工作区之间不判同名冲突");
+        assert_eq!(demo[0].0, "ws-a");
+        assert_eq!(demo[1].0, "ws-b");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 用户级技能先占名：只有与该用户级技能同名的工作区级条目被标冲突。
+    #[test]
+    fn discover_all_scopes_marks_user_conflict_only_in_colliding_workspace() {
+        let tmp = std::env::temp_dir().join(format!("cw-skills-scope-conflict-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let data_dir = tmp.join("data");
+        let home = tmp.join("home");
+        let ws_a = tmp.join("ws-a");
+        let ws_b = tmp.join("ws-b");
+        make_skill(&data_dir.join("skills"), "clash", Some("name: clash\ndescription: 用户级"), "x");
+        make_skill(&ws_a.join(".craftwork").join("skills"), "clash", Some("name: clash\ndescription: A 的"), "x");
+        make_skill(&ws_b.join(".craftwork").join("skills"), "only-b", Some("name: only-b\ndescription: B 的"), "x");
+
+        let workspaces = vec![
+            ("ws-a".to_string(), ws_a.to_string_lossy().to_string()),
+            ("ws-b".to_string(), ws_b.to_string_lossy().to_string()),
+        ];
+        let all = discover_all_scopes_in(&home, &data_dir.to_string_lossy(), &workspaces, &[]);
+
+        let a_clash = all.iter().find(|(id, s)| id == "ws-a" && s.name == "clash").expect("A 的 clash");
+        assert!(a_clash.1.error.contains("同名"), "与用户级同名的工作区级技能标冲突");
+        let b_only = all.iter().find(|(id, s)| id == "ws-b" && s.name == "only-b").expect("B 的 only-b");
+        assert!(b_only.1.error.is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

@@ -307,11 +307,14 @@ impl Client for OpenAICompatClient {
                 }
             }
 
-            // 收尾：残余工具调用 → 用量（未见 usage 事件时给空值）→ done 标记（携带结束元数据）
+            // 收尾：残余工具调用 → 用量（未见 usage 事件时不产出：全 0 值会污染「最新一行用量」，
+            // 调用方按「网关未给用量」处理）→ done 标记（携带结束元数据）
             for call in tool_calls.flush() {
                 yield Ok(Chunk { tool_call: Some(call), ..Default::default() });
             }
-            yield Ok(Chunk { usage: Some(if usage_seen { usage } else { Usage::empty() }), ..Default::default() });
+            if usage_seen {
+                yield Ok(Chunk { usage: Some(usage), ..Default::default() });
+            }
             yield Ok(Chunk {
                 done: true,
                 end: Some(make_stream_end(finish_reason, seen_done_line, std::mem::take(&mut reader.stats), tail.as_str().to_string())),
@@ -398,15 +401,21 @@ fn decode_openai_event(
             }
         }
     }
-    if let Some(event_usage) = event.get("usage") {
+    // is_object 防御：部分网关在普通 chunk 里发 "usage": null，命中后字段全被清零
+    if let Some(event_usage) = event.get("usage").filter(|u| u.is_object()) {
         *usage_seen = true;
         usage.input_tokens = event_usage.get("prompt_tokens").and_then(Value::as_i64).unwrap_or(0);
+        // OpenAI 系 prompt_tokens 已含缓存命中部分，即完整提示词（归一化口径与 input 相同）
+        usage.prompt_tokens = usage.input_tokens;
         usage.output_tokens = event_usage.get("completion_tokens").and_then(Value::as_i64).unwrap_or(0);
-        usage.cache_tokens = event_usage
+        // DeepSeek 风格 prompt_cache_hit_tokens 与 OpenAI cached_tokens 语义相同，取较大值兜底
+        let cached = event_usage
             .get("prompt_tokens_details")
             .and_then(|d| d.get("cached_tokens"))
             .and_then(Value::as_i64)
             .unwrap_or(0);
+        let deepseek_hit = event_usage.get("prompt_cache_hit_tokens").and_then(Value::as_i64).unwrap_or(0);
+        usage.cache_tokens = cached.max(deepseek_hit);
         usage.reasoning_tokens = event_usage
             .get("completion_tokens_details")
             .and_then(|d| d.get("reasoning_tokens"))
@@ -546,6 +555,49 @@ mod tests {
         assert!(chunk.is_none());
         assert!(usage_seen);
         assert_eq!((usage.input_tokens, usage.output_tokens, usage.cache_tokens), (10, 5, 3));
+        // OpenAI 系归一化口径与 input 相同（prompt_tokens 已含缓存命中）
+        assert_eq!(usage.prompt_tokens, 10);
+    }
+
+    #[test]
+    fn usage_null_payload_not_marked_seen() {
+        // 部分网关在普通 chunk 里发 "usage": null：不得置 usage_seen（否则收尾产出全 0 用量行）
+        let mut usage = Usage::empty();
+        let mut usage_seen = false;
+        let chunk = decode_openai_event(
+            "p",
+            r#"{"choices":[{"delta":{}}],"usage":null}"#,
+            &mut usage,
+            &mut usage_seen,
+            &mut ToolCallBuilder::default(),
+            &mut false,
+            &mut None,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(chunk.is_none());
+        assert!(!usage_seen);
+        assert_eq!(usage.prompt_tokens, 0);
+    }
+
+    #[test]
+    fn deepseek_cache_hit_tokens_recognized() {
+        // DeepSeek 风格 prompt_cache_hit_tokens 与 OpenAI cached_tokens 语义相同，取较大值
+        let mut usage = Usage::empty();
+        let mut usage_seen = false;
+        decode_openai_event(
+            "p",
+            r#"{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":8,"prompt_cache_hit_tokens":64}}"#,
+            &mut usage,
+            &mut usage_seen,
+            &mut ToolCallBuilder::default(),
+            &mut false,
+            &mut None,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(usage_seen);
+        assert_eq!((usage.input_tokens, usage.cache_tokens, usage.prompt_tokens), (100, 64, 100));
     }
 
     #[test]

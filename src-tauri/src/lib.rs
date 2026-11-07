@@ -427,6 +427,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "mcpConnect" => mcp_connect(state, &a.str_at(0)),
         "mcpDisconnect" => mcp_disconnect(state, &a.str_at(0)),
         "skillsList" => skills_list(state, &a.str_at(0)),
+        "skillsListAll" => skills_list_all(state),
         "skillsSetEnabled" => skills_set_enabled(state, &a.str_at(0), a.bool_at(1), &a.str_at(2)),
         "skillsRemove" => skills_remove(state, &a.str_at(0), &a.str_at(1)),
         "skillsRead" => skills_read(state, &a.str_at(0), &a.str_at(1)),

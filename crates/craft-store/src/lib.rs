@@ -10,6 +10,7 @@ pub mod recorder;
 pub mod records;
 pub mod runs;
 pub mod threads;
+pub mod usage_stats;
 pub mod view;
 pub mod workspaces;
 

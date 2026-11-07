@@ -203,6 +203,7 @@ Tauri 与工具链：
 - 同一模型 ID 可以出现在多个提供商下，解析与选择必须使用 `provider/model` 引用；只有兼容旧数据时才用原始 ID 回退。
 - `assets/catalog/catalog.json.gz` 是生成物，不要手改；更新目录用 `node scripts/modelsync.mjs`。
 - 交互式终端已移除（D1）：不要重新引入 PTY/xterm 相关代码；Agent 的命令执行走 `shell_exec` 工具。
+- `db.lock_conn()` 是非重入互斥锁：**同一表达式内嵌套两次取锁必死锁**（如 `f(&db.lock_conn(), g(&db.lock_conn(), x))`——第一个守卫存活到整个表达式结束，第二个永远等不到，实测挂死测试进程）。多步取锁拆成多条语句，锁作用域用块收窄；测试里曾因此挂起 15 分钟。
 
 ## 8. 验证清单
 

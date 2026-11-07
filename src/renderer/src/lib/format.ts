@@ -19,6 +19,13 @@ export function formatSpeed(value: number): string {
   return Math.max(0.1, value).toFixed(1);
 }
 
+/** 时长展示（毫秒）：<60s 保留一位小数秒（首 token 延迟等），更长按分钟；无记录返回「—」。 */
+export function formatDurationMs(ms: number): string {
+  if (!ms || ms <= 0) return "—";
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60_000).toFixed(1)}min`;
+}
+
 /**
  * 去除首尾空行（`whitespace-pre-wrap` 原样渲染的场景用）。
  *

@@ -22,6 +22,7 @@ use craft_store::recorder::Recorder;
 use craft_store::records::{add_audit, add_usage, get_setting};
 use craft_store::runs::{create_run, finish_run};
 use craft_store::threads::{add_thread_tokens, get_thread};
+use craft_store::usage_stats;
 use craft_store::workspaces::get_workspace;
 use craft_tools::registry::{Registry, ToolResult};
 use craft_tools::todo::normalize_items;
@@ -100,6 +101,23 @@ pub struct RunnerDeps {
 struct Session {
     client: Box<dyn Client>,
     info: craft_model::types::ModelInfo,
+}
+
+/// 一次模型请求的用量上报（record_usage 的入参包：口径输入集中一份，避免参数列失控）。
+struct UsageReport<'a> {
+    usage: &'a Usage,
+    /// 请求全程时长（发起调用 → 收流结束）
+    duration_ms: i64,
+    /// 首 token 延迟（发起调用 → 首个内容片段）；0 = 未产出内容
+    ttft_ms: i64,
+    /// 本轮输出字符数（正文 + 思考），前端实时速率自校准用
+    output_chars: usize,
+    /// 思考是否流式可见（流里出现过思考片段）：隐藏思考特判的输入
+    reasoning_streamed: bool,
+    /// 自动命名等辅助调用：不带上下文水位字段，避免小请求覆盖「当前上下文占用」
+    sidecar: bool,
+    /// 取消/失败轮：正常落库与累计，但速率 unrated（duration 不完整）
+    partial: bool,
 }
 
 /// 费用估算（微美元）：token × 美元/百万 token；Anthropic 的输入计数不含缓存 token。
@@ -638,7 +656,6 @@ impl Runner {
             .as_ref()
             .map(|f| f())
             .unwrap_or(DEFAULT_MAX_ITERATIONS);
-        let mut compression_checked = false;
 
         // 观测：run 起始（自描述起点：版本 / 模型 / 模式 / 历史规模）
         self.deps.log.write_thread(
@@ -719,12 +736,11 @@ impl Runner {
                 }
             }
 
-            // 建立模型会话（含失败转移）；压缩只在首轮做一次
+            // 建立模型会话（含失败转移）；压缩每轮检查（实测水位优先，长任务中后段也能触发）
             let Some(session) = self.open_session_with_failover(model_id, thread_id, run_id, &message_id) else {
                 return false; // 已写过结束事件
             };
-            if !compression_checked {
-                compression_checked = true;
+            {
                 let db = Arc::clone(&self.deps.db);
                 let snap_ref = snap.clone();
                 let history_in = history.clone();
@@ -738,6 +754,10 @@ impl Runner {
                 let compressed = tokio::task::spawn_blocking(move || {
                     // 已批准计划的全文：有则读盘（压缩后拼保留窗头部，ZCode plan-file continuity）
                     let approved_plan = Self::read_approved_plan_text(&db, thread_id_owned.as_str());
+                    // 最近一次实测的完整提示词（含缓存）：当前上下文的真值，压缩判断优先用它
+                    let measured_prompt_tokens = craft_store::view::latest_usage_by_thread(&db.lock_conn(), thread_id_owned.as_str())
+                        .map(|u| u.prompt_tokens)
+                        .unwrap_or(0);
                     run_compression_with(
                         crate::context::CompressionArgs {
                             db: &db,
@@ -749,6 +769,7 @@ impl Runner {
                             model_id: &model_id_owned,
                             context_k,
                             approved_plan,
+                            measured_prompt_tokens,
                         },
                         history_in,
                     )
@@ -760,7 +781,7 @@ impl Runner {
                             thread_id,
                             LEVEL_INFO,
                             "compaction",
-                            json!({ "runId": run_id, "beforeMessages": before_messages, "afterMessages": after.len() }),
+                            json!({ "runId": run_id, "iter": iteration, "beforeMessages": before_messages, "afterMessages": after.len() }),
                         );
                         history = after;
                     }
@@ -827,6 +848,9 @@ impl Runner {
             let mut reasoning_part_id: Option<String> = None;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut usage: Option<Usage> = None;
+            // 首 token 延迟（发起调用 → 首个内容片段；usage chunk 不算内容）。
+            // 0 = 本轮未产出内容（速率 unrated 的输入之一）
+            let mut first_token_ms: i64 = 0;
             let mut stream_error: Option<ModelError> = None;
             let mut stream_end_info: Option<StreamEnd> = None;
             // debug 级聚合统计（每 2s 一行；计数增量为 O(delta)，不做全量重扫）
@@ -859,6 +883,10 @@ impl Runner {
                     }
                     match next {
                         Some(Ok(chunk)) => {
+                            // 首 token：首个产出内容（文本/思考/工具调用参数）的到达时刻
+                            if first_token_ms == 0 && (chunk.text.is_some() || chunk.reasoning.is_some() || chunk.tool_call.is_some()) {
+                                first_token_ms = now_millis() - call_start;
+                            }
                             if let Some(r) = &chunk.reasoning {
                                 let part_id = reasoning_part_id.get_or_insert_with(|| new_id(id_prefix::PART));
                                 self.deps.records.emit(
@@ -968,6 +996,26 @@ impl Runner {
                 );
             }
 
+            // 取消/失败轮的部分用量记账：Anthropic 在 message_start 即已知 input/缓存
+            //（usage 变量已持有部分值），不记账会整轮丢失；OpenAI 收尾才给 usage，
+            // 取消时 usage 为 None 自然跳过。部分轮速率 unrated（duration 不完整），
+            // 但 input/缓存照常落库与累计（真实发生的计费量）。
+            if let Some(u) = &usage {
+                self.record_usage(
+                    thread_id,
+                    run_id,
+                    &session.info,
+                    &UsageReport {
+                        usage: u,
+                        duration_ms: now_millis() - call_start,
+                        ttft_ms: first_token_ms,
+                        output_chars: text_chars + reasoning_chars,
+                        reasoning_streamed: reasoning_chars > 0,
+                        sidecar: false,
+                        partial: true,
+                    },
+                );
+            }
             if token.is_cancelled() {
                 self.canceled(thread_id, run_id, started_at);
                 return false;
@@ -1026,8 +1074,28 @@ impl Runner {
                 }),
             );
 
-            if let Some(u) = usage {
-                self.record_usage(thread_id, run_id, &session.info, &u, now_millis() - call_start, false);
+            match usage {
+                Some(u) => self.record_usage(
+                    thread_id,
+                    run_id,
+                    &session.info,
+                    &UsageReport {
+                        usage: &u,
+                        duration_ms: now_millis() - call_start,
+                        ttft_ms: first_token_ms,
+                        output_chars: text_chars + reasoning_chars,
+                        reasoning_streamed: reasoning_chars > 0,
+                        sidecar: false,
+                        partial: false,
+                    },
+                ),
+                // 网关未给用量：不落库（全 0 行会污染「最新一行用量」推导的水位/速度），留日志可查
+                None => self.deps.log.write_thread(
+                    thread_id,
+                    LEVEL_INFO,
+                    "usage_missing",
+                    json!({ "runId": run_id, "iter": iteration }),
+                ),
             }
 
             // 没有工具调用 = 最终回答
@@ -1691,11 +1759,20 @@ impl Runner {
 
     // ---------- 用量 ----------
 
-    /// 用量落库（usage 表 + 会话 token 累计）并广播 usage.updated。
-    /// `sidecar=true` 表示自动命名等辅助调用：不带上下文水位字段，避免小请求覆盖「当前上下文占用」。
-    fn record_usage(&self, thread_id: &str, run_id: &str, info: &craft_model::types::ModelInfo, usage: &Usage, duration_ms: i64, sidecar: bool) {
+    /// 用量落库（usage 表 + 会话 token 累计）并广播 usage.updated。口径统一走
+    /// craft_store::usage_stats：上下文占用 = 归一化完整提示词（含缓存）+ 输出；
+    /// 速率分母 = 生成窗口（剔除首包等待），隐藏思考与无效窗口按 unrated 处理。
+    fn record_usage(&self, thread_id: &str, run_id: &str, info: &craft_model::types::ModelInfo, report: &UsageReport<'_>) {
+        let UsageReport { usage, duration_ms, ttft_ms, output_chars, reasoning_streamed, sidecar, partial } = report;
         let kind = self.deps.models.provider_kind(&info.provider);
         let cost_micros = estimate_cost_micros(usage, info, &kind);
+        // 生成窗口：取消/失败轮（duration 不完整）直接 unrated；正常轮由 usage_stats 判定
+        let gen_window_ms = if *partial {
+            usage_stats::GEN_WINDOW_UNRATED
+        } else {
+            usage_stats::generation_window_ms(*duration_ms, *ttft_ms, usage.reasoning_tokens, *reasoning_streamed)
+                .unwrap_or(usage_stats::GEN_WINDOW_UNRATED)
+        };
         let _ = add_usage(
             &self.deps.db.lock_conn(),
             craft_store::records::UsageRecord {
@@ -1706,7 +1783,10 @@ impl Runner {
                 cache_tokens: usage.cache_tokens,
                 reasoning_tokens: usage.reasoning_tokens,
                 cost_micros,
-                duration_ms,
+                duration_ms: *duration_ms,
+                prompt_tokens: usage.prompt_tokens,
+                ttft_ms: *ttft_ms,
+                gen_window_ms,
             },
         );
         let _ = add_thread_tokens(&self.deps.db.lock_conn(), thread_id, usage.input_tokens + usage.output_tokens);
@@ -1714,13 +1794,21 @@ impl Runner {
             "inputTokens": usage.input_tokens,
             "outputTokens": usage.output_tokens,
             "costMicros": cost_micros,
+            "promptTokens": usage.prompt_tokens,
+            "outputChars": output_chars,
         });
-        // sidecar 调用（自动命名）不携带上下文水位字段，避免小请求覆盖「当前上下文占用」
+        // sidecar 调用（自动命名）不携带上下文水位字段，避免小请求覆盖「当前上下文占用」；
+        // 取消/失败轮带水位（input/缓存真实发生）但不带速率（duration 不完整，unrated）
         if !sidecar {
-            payload["contextTokens"] = json!(usage.input_tokens + usage.output_tokens);
+            payload["contextTokens"] = json!(usage_stats::context_tokens(usage.prompt_tokens, usage.input_tokens, usage.output_tokens));
             payload["cacheTokens"] = json!(usage.cache_tokens);
             payload["durationMs"] = json!(duration_ms);
-            payload["tokensPerSecond"] = json!(if duration_ms > 0 { usage.output_tokens as f64 / (duration_ms as f64 / 1000.0) } else { 0.0 });
+            payload["ttftMs"] = json!(ttft_ms);
+            if !partial
+                && let Some(tps) = usage_stats::tokens_per_second(usage.output_tokens, gen_window_ms)
+            {
+                payload["tokensPerSecond"] = json!(tps);
+            }
         }
         self.deps.records.emit(event_type::USAGE_UPDATED, Some(thread_id), Some(run_id), payload);
     }
@@ -1787,5 +1875,51 @@ mod tests {
     fn tail_snapshot_limits_logged_message_length() {
         let long = "x".repeat(500);
         assert_eq!(tail_snapshot(&long, 200).chars().count(), 200);
+    }
+
+    fn cost_model(cost: craft_model::types::Cost) -> craft_model::types::ModelInfo {
+        serde_json::from_value(json!({
+            "id": "m", "name": "m", "provider": "p", "contextK": 128, "maxTokens": 8192,
+            "caps": { "stream": true, "tools": true, "vision": false, "reasoning": false, "structured": false },
+            "cost": cost, "status": "stable", "canonicalId": "m", "releaseDate": "",
+            "source": "catalog", "envVars": [], "keyRequired": false
+        }))
+        .expect("测试模型元数据反序列化失败")
+    }
+
+    #[test]
+    fn estimate_cost_micros_openai_deducts_cached_from_input() {
+        // OpenAI：input 已含缓存命中 → 非缓存输入 = input - cache
+        let info = cost_model(craft_model::types::Cost { input_per_m_tok: 1.0, output_per_m_tok: 2.0, cache_read_per_m_tok: 0.5, cache_write_per_m_tok: 1.25 });
+        let usage = Usage { input_tokens: 1000, output_tokens: 500, cache_tokens: 800, cache_write_tokens: 0, reasoning_tokens: 0, prompt_tokens: 1000 };
+        // 非缓存 200×1.0 + 缓存读 800×0.5 + 输出 500×2.0 = 200 + 400 + 1000 = 1600 微美元
+        assert_eq!(estimate_cost_micros(&usage, &info, "openai"), 1600);
+    }
+
+    #[test]
+    fn estimate_cost_micros_anthropic_treats_input_as_uncached() {
+        // Anthropic：input 不含缓存 → 非缓存输入 = input 全额；缓存读/写分档计价
+        let info = cost_model(craft_model::types::Cost { input_per_m_tok: 1.0, output_per_m_tok: 2.0, cache_read_per_m_tok: 0.5, cache_write_per_m_tok: 1.25 });
+        let usage = Usage { input_tokens: 200, output_tokens: 100, cache_tokens: 15, cache_write_tokens: 10, reasoning_tokens: 0, prompt_tokens: 215 };
+        // 非缓存 200×1.0 + 读 5×0.5 + 写 10×1.25 + 输出 100×2.0 = 200 + 2.5 + 12.5 + 200 = 415
+        assert_eq!(estimate_cost_micros(&usage, &info, "anthropic"), 415);
+    }
+
+    #[test]
+    fn estimate_cost_micros_zero_cache_prices_fall_back_to_input_price() {
+        // 目录未给缓存价（0.0）时按普通输入价计，不出 0 账
+        let info = cost_model(craft_model::types::Cost { input_per_m_tok: 1.0, output_per_m_tok: 2.0, cache_read_per_m_tok: 0.0, cache_write_per_m_tok: 0.0 });
+        let usage = Usage { input_tokens: 1000, output_tokens: 0, cache_tokens: 800, cache_write_tokens: 0, reasoning_tokens: 0, prompt_tokens: 1000 };
+        // 非缓存 200×1.0 + 读 800×1.0（回退）= 1000
+        assert_eq!(estimate_cost_micros(&usage, &info, "openai"), 1000);
+    }
+
+    #[test]
+    fn estimate_cost_micros_without_price_is_zero() {
+        let info = cost_model(craft_model::types::Cost { input_per_m_tok: 0.0, output_per_m_tok: 0.0, cache_read_per_m_tok: 0.0, cache_write_per_m_tok: 0.0 });
+        let mut info = info;
+        info.cost = None;
+        let usage = Usage::empty();
+        assert_eq!(estimate_cost_micros(&usage, &info, "openai"), 0);
     }
 }

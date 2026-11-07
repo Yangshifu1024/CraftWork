@@ -10,7 +10,7 @@ pub use craft_core::bus::now_millis;
 
 /// 当前 schema 版本。历史版本与已移除的 Electron 版（Node）双向兼容——老库原位可读；
 /// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// 存储层错误：NotFound 承载业务「不存在」（渲染层按静默/提示处理），Other 为可读中文错误串。
 #[derive(Debug)]
@@ -68,6 +68,9 @@ impl Db {
         let conn = Connection::open(path).map_err(|e| StoreError::Other(format!("打开数据库失败：{e}")))?;
         let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
         conn.pragma_update(None, "journal_mode", "WAL").map_err(|e| StoreError::Other(e.to_string()))?;
+        // WAL 官方推荐搭配：提交只写操作系统页缓存、系统择机落盘，不再逐事务强制 fsync
+        //（桌面断电最多丢最近几个已提交事务，库文件本身不会损坏）；多会话并行写入不再逐个等盘。
+        conn.pragma_update(None, "synchronous", "NORMAL").map_err(|e| StoreError::Other(e.to_string()))?;
         conn.pragma_update(None, "foreign_keys", "1").map_err(|e| StoreError::Other(e.to_string()))?;
         migrate(&conn)?;
         Ok(Db {
@@ -268,8 +271,19 @@ pub const SCHEMA_V12: &str = r#"
 ALTER TABLE plans ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// V13：用量行新增速率/占用口径列——
+/// - prompt_tokens：本次请求完整提示词 token（含缓存读+写，按提供商归一化）；0 = 旧行，读取时回退 input+output；
+/// - ttft_ms：首 token 延迟（发起调用 → 首个内容片段）；
+/// - gen_window_ms：生成窗口（收流结束 − 首 token），速率分母的事实源；
+///   -1 = 无效（取消/窗口过短，unrated 不参与速度统计），0 = 旧行回退全程 duration。
+pub const SCHEMA_V13: &str = r#"
+ALTER TABLE usage ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage ADD COLUMN ttft_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usage ADD COLUMN gen_window_ms INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// 迁移链：下标即目标版本号，[0] 为占位空串（使 MIGRATIONS[v] 对应版本 v）。
-const MIGRATIONS: [&str; 13] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12];
+const MIGRATIONS: [&str; 14] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, SCHEMA_V13];
 
 /// 逐版本应用迁移：每个版本在独立事务内执行 SQL 并推进 user_version（原子生效或回滚）。
 /// 已是最新版本时为 no-op；注意 user_version 大于 SCHEMA_VERSION 的库（更新版本产物）会静默放行。

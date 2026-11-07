@@ -186,9 +186,16 @@ export interface UsageUpdatedData {
   inputTokens: number;
   outputTokens: number;
   costMicros: number;
+  /** 归一化完整提示词（含缓存读+写）；旧网关/旧行缺失时为 0 */
+  promptTokens?: number;
+  /** 本轮输出字符数（正文+思考），实时速率自校准 charsPerToken 用 */
+  outputChars?: number;
   contextTokens?: number;
   cacheTokens?: number;
   durationMs?: number;
+  /** 首 token 延迟（毫秒）；0 = 未产出内容 */
+  ttftMs?: number;
+  /** 网关不给 usage / 取消轮等无效窗口时不携带（unrated，前端显示「—」而非 0） */
   tokensPerSecond?: number;
 }
 

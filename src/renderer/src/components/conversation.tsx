@@ -14,7 +14,7 @@ import { isImageName, pastedFileName, readFileAsBase64, selectPastedFiles } from
 import { APPROVAL_LEVELS, APPROVAL_LEVEL_NAMES, APPROVAL_LEVEL_ICONS, useApprovalLevelAction } from "../lib/approval";
 import { reasoningLabel } from "../lib/reasoning";
 import { selectableModels } from "../lib/provider-list";
-import { formatSpeed, formatTokens, trimBlankLines } from "../lib/format";
+import { formatDurationMs, formatSpeed, formatTokens, trimBlankLines } from "../lib/format";
 import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
 import type { MessageSnapshot, PartSnapshot, PlanInfo, SkillView } from "../../../shared/types";
@@ -1257,10 +1257,14 @@ function ContextRow({ label, value, muted }: { label: string; value: string; mut
 }
 
 /** 上下文占用 chip：圆环 + 百分比 + 输出速度，点击弹出详情浮层（口径沿袭历史版 contextHint：
- *  占用实测优先（thread.contextTokens = 最近一轮输入+输出，覆盖语义），没有调用记录时按
- *  「会话累计 token + 全部正文 UTF-16 长度 ÷ 4」估算兜底；窗口取模型目录 contextK，缺省 32k；
- *  速度运行中按当前输出段实时估算（段内字符/4 ÷ 段起秒数，迭代边界重置），空闲显示最近一轮后端实测值，从未产生则不渲染。
- *  空态收口：未选择模型时整块不渲染。正文长度用 UTF-16 length 近似码点数（中文等价，emoji 有微差，仅用于提示）。 */
+ *  占用只认实测（thread.contextTokens = 最近一轮归一化提示词+输出，覆盖语义）；
+ *  没有调用记录（新会话/网关不给 usage）显示「—」空环，不做字符估算兜底——
+ *  会话累计 tokens 是计费口径（每轮输入重复累计），当占用展示会严重虚高。
+ *  窗口取模型目录 contextK；目录缺失（0）不渲染百分比，只显示实测 token 数。
+ *  速度运行中按当前输出段实时估算（段内字符 ÷ charsPerToken ÷ 段起秒数，迭代边界重置；
+ *  charsPerToken 由最近一轮 outputChars/outputTokens 自校准，修正 chars/4 对中文的低估），
+ *  空闲显示最近一轮后端实测值，无实测显示「—」。
+ *  空态收口：未选择模型时整块不渲染。 */
 function ContextChip(): React.JSX.Element | null {
   const mode = useApp((s) => s.mode);
   const activeId = useApp((s) => s.activeThreadId[mode]);
@@ -1268,10 +1272,12 @@ function ContextChip(): React.JSX.Element | null {
   const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
   const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
   const running = useApp((s) => s.chats[activeId]?.running ?? false);
+  const charsPerToken = useApp((s) => s.charsPerToken[activeId] ?? 2);
   const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
 
-  // 当前模型上下文窗口（千 token）：目录查不到（手动模型无目录信息）缺省 32k，保证界面仍有合理分母
-  const [contextK, setContextK] = useState(32);
+  // 当前模型上下文窗口（千 token）：目录缺失（手动模型 / 目录无 limit.context）为 0，
+  // 按「窗口未知」处理（不渲染百分比），不做 32k 静默兜底——错误分母会把占比放大几十倍
+  const [contextK, setContextK] = useState(0);
   useEffect(() => {
     if (!modelId) return;
     let alive = true;
@@ -1279,8 +1285,8 @@ function ContextChip(): React.JSX.Element | null {
       .providerList()
       .then((providers) => {
         const found = selectableModels(providers).flatMap((g) => g.models).find((m) => m.ref === modelId);
-        // 查不到（手动模型无目录信息）回落缺省 32k，不保留上一个模型的窗口值
-        if (alive) setContextK(found && found.contextK > 0 ? found.contextK : 32);
+        // 查不到（手动模型无目录信息）回落 0（窗口未知），不保留上一个模型的窗口值
+        if (alive) setContextK(found?.contextK ?? 0);
       })
       .catch(() => {});
     return () => {
@@ -1288,16 +1294,6 @@ function ContextChip(): React.JSX.Element | null {
     };
   }, [modelId]);
 
-  // 字符数派生（selector 返回数字：流式 delta 高频时仅在数值变化时触发重渲染）
-  const textChars = useApp((s) => {
-    let chars = 0;
-    for (const m of s.chats[activeId]?.messages ?? []) {
-      for (const p of m.parts) {
-        if (p.kind === "text") chars += String(p.payload["text"] ?? "").length;
-      }
-    }
-    return chars;
-  });
   // 当前流式输出段：最后一条 streaming 消息里最后一个 text part（后端每轮迭代重置
   // part id，即一段新输出）。编码为 "partId|chars" 字符串保持 selector 值稳定：
   // null = 无流式消息（空闲/工具执行中）；"id|0" = 思考中（尚无正文）。
@@ -1334,15 +1330,22 @@ function ContextChip(): React.JSX.Element | null {
 
   if (!modelId) return null;
 
+  // 占用只认实测：无实测（0）显示「—」空环。会话累计 tokens 是计费口径
+  //（每轮输入随历史增长重复累计），拿来当占用会平方级虚高、ring 钳死 100%。
   const reported = thread?.contextTokens ?? 0;
-  const used = reported > 0 ? reported : Math.round((thread?.tokens ?? 0) + textChars / 4);
+  const hasMeasured = reported > 0;
+  const used = reported;
   const maxTokens = contextK * 1000;
-  const percent = maxTokens > 0 ? Math.min(100, Math.round((used / maxTokens) * 100)) : 0;
+  const percent = hasMeasured && maxTokens > 0 ? Math.min(100, Math.round((used / maxTokens) * 100)) : 0;
   const elapsed = streamStartRef.current > 0 ? (Date.now() - streamStartRef.current) / 1000 : 0;
   // 段起始 1 秒内样本太少（速度虚高跳动），不启用实时估算，回落实测速度
-  const liveSpeed = streamChars > 0 && elapsed >= 1 ? streamChars / 4 / elapsed : 0;
+  const liveSpeed = streamChars > 0 && elapsed >= 1 ? streamChars / charsPerToken / elapsed : 0;
   const shownSpeed = running && liveSpeed > 0 ? liveSpeed : (thread?.contextSpeed ?? 0);
   const tone = percent >= 80 ? "text-destructive" : percent >= 50 ? "text-warning" : "text-foreground-subtle";
+  // 按钮主数字：有窗口 → 百分比；无窗口有实测 → 实测 token 数；无实测 → 「—」
+  const mainLabel = !hasMeasured ? "—" : maxTokens > 0 ? `${percent}%` : formatTokens(used);
+  const ringPercent = maxTokens > 0 ? percent / 100 : 0;
+  const liveEstimating = running && liveSpeed > 0;
 
   return (
     <Popover.Root>
@@ -1350,11 +1353,16 @@ function ContextChip(): React.JSX.Element | null {
         <button
           type="button"
           className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-xs transition-colors hover:bg-surface-hover ${tone}`}
-          title={`上下文占用 ${percent}%`}
+          title={hasMeasured && maxTokens > 0 ? `上下文占用 ${percent}%` : "上下文"}
         >
-          <ContextRing percent={percent / 100} />
-          <span className="tabular-nums">{percent}%</span>
-          {shownSpeed > 0 && <span className="tabular-nums text-foreground-subtlest">{formatSpeed(shownSpeed)} tok/s</span>}
+          <ContextRing percent={ringPercent} />
+          <span className="tabular-nums">{mainLabel}</span>
+          {shownSpeed > 0 && (
+            <span className="tabular-nums text-foreground-subtlest">
+              {liveEstimating ? "≈" : ""}
+              {formatSpeed(shownSpeed)} tok/s
+            </span>
+          )}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -1372,8 +1380,18 @@ function ContextChip(): React.JSX.Element | null {
         >
           <p className="pb-2 text-ui-sm font-medium text-foreground">上下文</p>
           <dl className="flex flex-col gap-1.5 text-ui-xs">
-            <ContextRow label="当前上下文" value={`${formatTokens(used)} / ${contextK}k（${percent}%）`} />
-            <ContextRow label="本会话累计" value={formatTokens(thread?.tokens ?? 0)} />
+            <ContextRow
+              label="当前上下文"
+              value={
+                !hasMeasured
+                  ? "—"
+                  : maxTokens > 0
+                    ? `${formatTokens(used)} / ${contextK}k（${percent}%）`
+                    : `${formatTokens(used)}（窗口未知）`
+              }
+              muted={!hasMeasured}
+            />
+            <ContextRow label="累计 tokens（计费口径）" value={formatTokens(thread?.tokens ?? 0)} />
             <ContextRow
               label="最近一轮缓存命中"
               value={(thread?.contextCacheTokens ?? 0) > 0 ? formatTokens(thread!.contextCacheTokens) : "—"}
@@ -1381,11 +1399,18 @@ function ContextChip(): React.JSX.Element | null {
             />
             <ContextRow
               label="最近一轮速度"
-              value={shownSpeed > 0 ? `${formatSpeed(shownSpeed)} tok/s` : "—"}
+              value={shownSpeed > 0 ? `${liveEstimating ? "≈" : ""}${formatSpeed(shownSpeed)} tok/s` : "—"}
               muted={shownSpeed <= 0}
             />
+            <ContextRow
+              label="最近一轮首 token 延迟"
+              value={formatDurationMs(thread?.contextTtftMs ?? 0)}
+              muted={(thread?.contextTtftMs ?? 0) <= 0}
+            />
           </dl>
-          <p className="pt-2 text-ui-xs text-foreground-subtlest">占用为最近一轮模型请求的实测值；没有调用记录时按消息内容估算。</p>
+          <p className="pt-2 text-ui-xs text-foreground-subtlest">
+            占用为最近一轮模型请求的实测值（含缓存 token）；发送第一条消息后显示。
+          </p>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

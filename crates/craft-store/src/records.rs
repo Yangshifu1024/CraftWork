@@ -68,6 +68,10 @@ pub fn list_audit(conn: &Connection, limit: i64) -> StoreResult<Vec<AuditEntry>>
 // ---------- 用量 ----------
 
 /// 待写入的一条用量行（ts 取当前时间；thread_id 空串存 NULL）。
+///
+/// prompt_tokens / ttft_ms / gen_window_ms 是速率与占用口径列（V13）：
+/// - prompt_tokens：完整提示词（含缓存读+写，归一化）；0 = 未填充（旧行回退 input+output）；
+/// - gen_window_ms：生成窗口；无效（取消/过短）写 `GEN_WINDOW_UNRATED`（-1），0 = 旧行。
 pub struct UsageRecord<'a> {
     pub thread_id: Option<&'a str>,
     pub model_id: &'a str,
@@ -77,11 +81,14 @@ pub struct UsageRecord<'a> {
     pub reasoning_tokens: i64,
     pub cost_micros: i64,
     pub duration_ms: i64,
+    pub prompt_tokens: i64,
+    pub ttft_ms: i64,
+    pub gen_window_ms: i64,
 }
 
 pub fn add_usage(conn: &Connection, rec: UsageRecord<'_>) -> StoreResult<()> {
     conn.execute(
-        "INSERT INTO usage (ts, thread_id, model_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens, cost_micros, duration_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO usage (ts, thread_id, model_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens, cost_micros, duration_ms, prompt_tokens, ttft_ms, gen_window_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         rusqlite::params![
             now_millis(),
             rec.thread_id.filter(|s| !s.is_empty()),
@@ -92,6 +99,9 @@ pub fn add_usage(conn: &Connection, rec: UsageRecord<'_>) -> StoreResult<()> {
             rec.reasoning_tokens,
             rec.cost_micros,
             rec.duration_ms,
+            rec.prompt_tokens,
+            rec.ttft_ms,
+            rec.gen_window_ms,
         ],
     )
     .map_err(other_err)?;

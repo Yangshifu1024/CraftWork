@@ -35,18 +35,41 @@ fn summary_system_prompt() -> &'static str {
     })
 }
 
-/// 估算消息 token：故意偏高（字符数/2 + 4），让压缩更早触发。
+/// CJK 字符判定：CJK 统一表意文字（含扩展 A / 兼容区）、CJK 标点与全角形式。
+/// 这类字符在分词器里约 1 字 ≈ 1 token；拉丁等文本约 3~4 字符 ≈ 1 token。
+fn is_cjk_char(ch: char) -> bool {
+    matches!(ch as u32, 0x4E00..=0x9FFF | 0x3400..=0x4DBF | 0xF900..=0xFAFF | 0x3000..=0x303F | 0xFF00..=0xFFEF)
+}
+
+/// 估算一段文本的 token 数：CJK 字符计 1 token/字、其余约 3 字符/token
+///（仍略高于真实密度，保持「故意偏高、让压缩更早触发」的设计倾向；
+/// 旧公式 chars/2 对中文低估约一半——1 字 1 token 被算成 0.5——压缩触发过晚）。
+pub fn estimate_text_tokens(text: &str) -> usize {
+    let mut cjk = 0usize;
+    let mut other = 0usize;
+    for ch in text.chars() {
+        if is_cjk_char(ch) {
+            cjk += 1;
+        } else {
+            other += 1;
+        }
+    }
+    cjk + other / 3
+}
+
+/// 估算消息 token（正文 + 工具调用名与参数 + 每条固定开销）。
 pub fn estimate_message_tokens(msg: &Message) -> usize {
-    let mut tokens = msg.content.chars().count() as f64 / 2.0 + 4.0;
+    let mut tokens = estimate_text_tokens(&msg.content) + 4;
     for call in &msg.tool_calls {
-        tokens += call.name.chars().count() as f64 / 2.0 + 8.0;
+        tokens += estimate_text_tokens(&call.name) + 8;
         if let Some(args) = call.args.as_object() {
             for (key, value) in args {
-                tokens += (key.chars().count() + serde_json::to_string(value).unwrap_or_default().chars().count()) as f64 / 2.0 + 2.0;
+                tokens
+                    += estimate_text_tokens(&format!("{key}{}", serde_json::to_string(value).unwrap_or_default())) + 2;
             }
         }
     }
-    tokens.ceil() as usize
+    tokens
 }
 
 /// 整段历史的 token 估算求和。
@@ -66,6 +89,20 @@ pub fn plan_compression(messages: &[Message], window_tokens: usize) -> Option<us
     if (estimate as f64) < window_tokens as f64 * COMPRESSION_THRESHOLD {
         return None;
     }
+    compression_cut(messages, window_tokens)
+}
+
+/// 实测水位已达阈值时的强制切分：跳过估算阈值判断（估算密度失真时可能误判「未超」），
+/// 仅保留窗口未知（0）与「无法安全切分」两个否决条件。
+pub fn plan_compression_forced(messages: &[Message], window_tokens: usize) -> Option<usize> {
+    if window_tokens == 0 {
+        return None;
+    }
+    compression_cut(messages, window_tokens)
+}
+
+/// 切分主体：从最新往前累加到保留预算为止，不拆散工具调用链。
+fn compression_cut(messages: &[Message], window_tokens: usize) -> Option<usize> {
     let keep_budget = (window_tokens as f64 * KEEP_WINDOW_RATIO) as usize;
     let mut kept = 0usize;
     let mut cut = messages.len();
@@ -162,9 +199,13 @@ pub struct CompressionArgs<'a> {
     /// 模型上下文窗口（K tokens）；0 表示窗口未知，跳过压缩
     pub context_k: i64,
     /// 已批准计划的全文（有值时压缩后作为不可压缩 reminder 拼在保留窗头部，
-    /// 对应 ZCode 的 plan_file_reference——计划批准后很快触发 compact，摘要可能
+    /// 对应 ZCode 的 plan-file continuity——计划批准后很快触发 compact，摘要可能
     /// 丢掉计划细节，执行阶段必须能拿回已批准的计划）
     pub approved_plan: Option<String>,
+    /// 最近一次实测的完整提示词 token（含缓存读+写，usage.prompt_tokens）。
+    /// 实测水位是当前上下文的真值：低于阈值直接跳过（免全量字符估算），
+    /// 达到阈值强制压缩（估算可能因密度差异失真）；0 = 无实测（回退字符估算）。
+    pub measured_prompt_tokens: i64,
 }
 
 /// 已批准计划注入保留窗的正文上限（字符）：超长计划截断保头部，防止 reminder 本身撑爆上下文。
@@ -184,8 +225,19 @@ pub fn plan_reminder_text(plan: &str) -> String {
 /// 任何失败返回原历史。同步执行（调用方放阻塞线程）；流消费内部起当前线程运行时。
 #[allow(clippy::too_many_arguments)]
 pub fn run_compression_with(args: CompressionArgs<'_>, messages: Vec<Message>) -> Vec<Message> {
-    let CompressionArgs { db, recorder, snap, thread_id, run_id, client, model_id, context_k, approved_plan } = args;
-    let Some(cut_index) = plan_compression(&messages, (context_k * 1000) as usize) else {
+    let CompressionArgs { db, recorder, snap, thread_id, run_id, client, model_id, context_k, approved_plan, measured_prompt_tokens } = args;
+    let window_tokens = (context_k * 1000) as usize;
+    // 实测水位优先：真值低于阈值直接跳过；真值达到阈值强制走切分（估算密度失真时
+    // 可能误判「未超」，长中文会话下压缩会被一直拖延）
+    let cut_index = if measured_prompt_tokens > 0 {
+        if (measured_prompt_tokens as f64) < window_tokens as f64 * COMPRESSION_THRESHOLD {
+            return messages;
+        }
+        plan_compression_forced(&messages, window_tokens)
+    } else {
+        plan_compression(&messages, window_tokens)
+    };
+    let Some(cut_index) = cut_index else {
         return messages;
     };
 
@@ -344,5 +396,31 @@ mod tests {
         let messages = vec![Message::new("user", "x".repeat(30000))];
         let transcript = transcript_of(&messages);
         assert!(transcript.contains("省略") || transcript.chars().count() < 30000);
+    }
+
+    #[test]
+    fn text_token_estimate_is_cjk_aware() {
+        // 中文 1 字 ≈ 1 token（旧公式 chars/2 低估一半）
+        assert_eq!(estimate_text_tokens("汉字汉"), 3);
+        // 拉丁约 3 字符/token（仍高于真实 ~4，保持偏高的保守倾向）
+        assert_eq!(estimate_text_tokens("abcdef"), 2);
+        // 混合文本：CJK 计 1、其余 3 字符计 1（3 CJK + 3 拉丁 → 3 + 1）
+        assert_eq!(estimate_text_tokens("汉a字b字c"), 4);
+        // 空串为 0
+        assert_eq!(estimate_text_tokens(""), 0);
+    }
+
+    #[test]
+    fn forced_compression_skips_estimate_threshold() {
+        // 估算密度失真场景：实测水位已达阈值（measured 触发的强制路径），估算可能仍判「未超」——
+        // plan_compression_forced 只看「能否安全切分」，不做估算阈值判断。
+        // 构造：15 条 × 100 token（96 CJK + 固定开销）= 1500，总量 > 保留预算（900）可切分，
+        // 且估算 1500 < 阈值（3000×0.7=2100）→ 普通路径不压缩、强制路径给出切分点。
+        let messages: Vec<Message> = (0..15).map(|_| Message::new("user", "汉".repeat(96))).collect();
+        assert!(plan_compression(&messages, 3000).is_none());
+        let cut = plan_compression_forced(&messages, 3000).expect("实测超阈值时应强制切分");
+        assert!(cut > 0 && cut < messages.len());
+        // 窗口未知仍否决
+        assert!(plan_compression_forced(&messages, 0).is_none());
     }
 }

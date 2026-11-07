@@ -37,6 +37,8 @@ export interface ThreadView {
   contextTokens: number;
   contextCacheTokens: number;
   contextSpeed: number;
+  /** 最近一轮首 token 延迟（毫秒）；0 = 无记录 */
+  contextTtftMs: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -417,6 +419,10 @@ export interface SkillView {
   enabled: boolean;
   /** 诊断信息；非空表示不可加载（缺 frontmatter 字段、超长、同名冲突等） */
   error?: string;
+  /** 所属工作区 id；用户级技能为空串（仅 skillsListAll 下发） */
+  workspaceId?: string;
+  /** 所属工作区名称（管理页分组标题用）；用户级技能为空串（仅 skillsListAll 下发） */
+  workspaceName?: string;
 }
 
 // ---------- 差异 ----------

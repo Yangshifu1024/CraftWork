@@ -54,6 +54,10 @@ interface AppState {
   drafts: Record<Mode, Record<string, DraftState>>;
   /** 各模式当前草稿槽归属（空串 = 临时槽）；活动会话非空时不起作用。 */
   draftWsId: Record<Mode, string>;
+  /** 每会话的「字符 → token」换算率（outputChars / outputTokens，最近一轮实测自校准）：
+   *  流式期间实时速率 = 字符数 / 换算率 / 秒，修正 chars/4 对中文的低估。内存值，
+   *  无实测的会话缺省 2（中文≈1 字/token、英文≈4 字符/token 的折中）。 */
+  charsPerToken: Record<string, number>;
   workspaces: WorkspaceView[];
   settings: Settings;
   /** 已装载会话的运行时消息流（按需装载，不常驻全部历史）。 */
@@ -66,8 +70,10 @@ interface AppState {
   /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
    *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
   plans: Record<string, PlanInfo | undefined>;
-  /** 技能清单（决策 D11）：设置页管理与 composer 斜杠补全共用；打开时按需刷新，不常驻轮询。 */
+  /** 技能清单（决策 D11）：composer 斜杠补全专用（用户级 + 当前会话所属工作区）；打开时按需刷新，不常驻轮询。 */
   skills: SkillView[];
+  /** 管理视角技能清单（设置页专用）：全量、带工作区归属；与 composer 的 skills 分槽，互不覆盖。 */
+  manageSkills: SkillView[];
   sidebarVisible: boolean;
   /** 已解析主题类（system 偏好下随系统亮暗变化更新）。 */
   themeResolved: "theme-craft-light" | "theme-craft-dark";
@@ -95,6 +101,8 @@ interface AppState {
   approvePlan(threadId: string): Promise<void>;
   /** 刷新技能清单：传工作区 id 时同时扫该工作区级技能，缺省只扫用户级。 */
   refreshSkills(workspaceId?: string): Promise<void>;
+  /** 刷新管理视角全量技能清单（用户级 + 全部工作区级，带归属）。 */
+  refreshManageSkills(): Promise<void>;
   ignorePlan(threadId: string): Promise<void>;
   toggleSidebar(): void;
 }
@@ -163,6 +171,7 @@ export const useApp = create<AppState>((set, get) => ({
   drafts: emptyDraftTable(),
   draftWsId: { code: "", work: "" },
   threadComposer: loadThreadComposer(),
+  charsPerToken: {},
   workspaces: [],
   settings: {
     theme: "system",
@@ -189,6 +198,7 @@ export const useApp = create<AppState>((set, get) => ({
   chats: {},
   plans: {},
   skills: [],
+  manageSkills: [],
   sidebarVisible: true,
   themeResolved: "theme-craft-dark",
 
@@ -321,6 +331,12 @@ export const useApp = create<AppState>((set, get) => ({
       saveThreadComposer(composer);
       set({ threadComposer: composer });
     }
+    // 清理字符→token 换算率（会话已删，校准值无意义）
+    if (get().charsPerToken[id] !== undefined) {
+      const rates = { ...get().charsPerToken };
+      delete rates[id];
+      set({ charsPerToken: rates });
+    }
     const mode = get().mode;
     await get().refreshThreads(mode);
     if (get().activeThreadId[mode] === id) {
@@ -379,11 +395,20 @@ export const useApp = create<AppState>((set, get) => ({
       plans: { ...state.plans, [threadId]: { ...plan, ignored: true } },
     }));
   },
-  /** 刷新技能清单（决策 D11）：管理页与斜杠补全共用；失败静默保持旧列表（toast 由调用方负责）。 */
+  /** 刷新技能清单（决策 D11）：composer 斜杠补全用；失败静默保持旧列表（toast 由调用方负责）。 */
   async refreshSkills(workspaceId?: string): Promise<void> {
     try {
       const skills = await api.skillsList(workspaceId ?? "");
       set({ skills });
+    } catch {
+      // 扫描失败不阻塞界面：保留旧清单
+    }
+  },
+  /** 刷新管理视角清单（设置页用）：全量扫描，写入独立状态槽 manageSkills。 */
+  async refreshManageSkills(): Promise<void> {
+    try {
+      const list = await api.skillsListAll();
+      set({ manageSkills: list });
     } catch {
       // 扫描失败不阻塞界面：保留旧清单
     }
@@ -707,6 +732,9 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
       const contextTokens = Number(data["contextTokens"] ?? 0);
       const cacheTokens = Number(data["cacheTokens"] ?? 0);
       const speed = Number(data["tokensPerSecond"] ?? 0);
+      // 字符 → token 换算率自校准：最近一轮实测（输出字符数 / 输出 token 数），
+      // 流式实时速率用它折算，修正 chars/4 对中文的低估（无效值保持原换算率）
+      const outputChars = Number(data["outputChars"] ?? 0);
       const patchThreads = (list: ThreadView[]): ThreadView[] =>
         list.map((t) => {
           if (t.id !== threadId) return t;
@@ -715,10 +743,17 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
             next.contextTokens = contextTokens;
             next.contextCacheTokens = cacheTokens;
             next.contextSpeed = speed;
+            next.contextTtftMs = Number(data["ttftMs"] ?? 0);
           }
           return next;
         });
-      set((state) => ({ threads: { code: patchThreads(state.threads.code), work: patchThreads(state.threads.work) } }));
+      set((state) => ({
+        threads: { code: patchThreads(state.threads.code), work: patchThreads(state.threads.work) },
+        charsPerToken:
+          outputChars > 0 && output > 0
+            ? { ...state.charsPerToken, [threadId]: Math.max(outputChars / output, 0.1) }
+            : state.charsPerToken,
+      }));
       break;
     }
     case "thread.updated": {

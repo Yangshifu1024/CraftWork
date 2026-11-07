@@ -321,6 +321,13 @@ pub const SESSION_ID_PLACEHOLDER: &str = "{sessionId}";
 // ---------- 流 ----------
 
 /// 一次请求的 token 用量（缓存读 / 写与推理分列，供用量统计与费用估算）。
+///
+/// 两个计数字段的语义因提供商而异，`prompt_tokens` 是归一化后的统一口径：
+/// - OpenAI 系：`input_tokens`（prompt_tokens）**已含**缓存命中部分；
+/// - Anthropic：`input_tokens` **不含**缓存（cache_read / cache_write 单列）。
+///
+/// `prompt_tokens` 统一表示「本次请求完整提示词 token（含缓存读 + 写）」，
+/// 是上下文占用显示的唯一可信分母；各适配器负责归一化填充。
 #[derive(Debug, Clone, Default)]
 pub struct Usage {
     pub input_tokens: i64,
@@ -328,6 +335,8 @@ pub struct Usage {
     pub cache_tokens: i64,
     pub cache_write_tokens: i64,
     pub reasoning_tokens: i64,
+    /// 完整提示词 token（含缓存读 + 写）。0 表示适配器未填充（旧数据回退 input+output）。
+    pub prompt_tokens: i64,
 }
 
 impl Usage {

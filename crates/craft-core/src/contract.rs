@@ -91,6 +91,8 @@ pub struct ThreadView {
     pub context_tokens: i64,
     pub context_cache_tokens: i64,
     pub context_speed: f64,
+    /// 最近一轮首 token 延迟（毫秒）；0 = 无记录（旧行/未产生用量）。
+    pub context_ttft_ms: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -459,6 +461,7 @@ mod tests {
             context_tokens: 0,
             context_cache_tokens: 0,
             context_speed: 0.0,
+            context_ttft_ms: 0,
             created_at: 0,
             updated_at: 0,
         }

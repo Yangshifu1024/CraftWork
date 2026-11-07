@@ -165,13 +165,13 @@ fn snapshot_part_kind(kind: &str) -> Option<&'static str> {
     }
 }
 
-struct RunInfo {
-    id: String,
-    message_id: String,
-    status: String,
-    started_at: i64,
-    finished_at: Option<i64>,
-    trigger_seq: Option<i64>,
+pub struct RunInfo {
+    pub id: String,
+    pub message_id: String,
+    pub status: String,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub trigger_seq: Option<i64>,
 }
 
 fn list_runs(conn: &Connection, thread_id: &str) -> StoreResult<Vec<RunInfo>> {
@@ -238,13 +238,30 @@ fn pending_approvals(conn: &Connection, thread_id: &str) -> StoreResult<Vec<Appr
     Ok(rows)
 }
 
-/// 快照重建：从事件行还原消息列表。
-/// before_seq > 0 时只保留「最后部件 seq < before_seq」的消息（向前翻页）。
-pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i64) -> StoreResult<Snapshot> {
+/// 快照装载的阶段一数据：SQL 读取全部收在这里（阶段一持 DB 锁调用），
+/// JSON 解析与消息归组等重计算在 rebuild_snapshot 锁外进行——多会话并行时，
+/// 切换长会话不再长时间占住全局写锁、阻塞其他在途会话的写路径。
+pub struct SnapshotInputs {
+    pub thread: ThreadView,
+    pub events: Vec<EventRow>,
+    pub runs: Vec<RunInfo>,
+    pub pending_approvals: Vec<ApprovalCard>,
+}
+
+/// 阶段一：锁内拉取原始行（会话投影 / 全量事件 / runs / 待审批）。
+pub fn snapshot_inputs(conn: &Connection, thread_id: &str) -> StoreResult<SnapshotInputs> {
     let thread_row = get_thread(conn, thread_id)?;
     let thread: ThreadView = to_thread_view(conn, &thread_row)?;
     let events = list_events(conn, thread_id)?;
     let runs = list_runs(conn, thread_id)?;
+    let pending_approvals = pending_approvals(conn, thread_id)?;
+    Ok(SnapshotInputs { thread, events, runs, pending_approvals })
+}
+
+/// 阶段二：纯计算重建（不触库，锁外调用）。
+/// before_seq > 0 时只保留「最后部件 seq < before_seq」的消息（向前翻页）。
+pub fn rebuild_snapshot(inputs: SnapshotInputs, limit: usize, before_seq: i64) -> Snapshot {
+    let SnapshotInputs { thread, events, runs, pending_approvals } = inputs;
 
     // 按 messageId 归组
     let mut order: Vec<String> = Vec::new();
@@ -486,12 +503,19 @@ pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i6
         .map(|p| p.seq)
         .unwrap_or(0);
 
-    Ok(Snapshot {
+    Snapshot {
         thread,
         messages: list,
-        pending_approvals: pending_approvals(conn, thread_id)?,
+        pending_approvals,
         last_seq,
         oldest_seq,
         has_more,
-    })
+    }
+}
+
+/// 快照重建兼容入口：锁内拉取 + 锁外重建一次完成（测试与非关键路径使用；
+/// 壳层多会话场景请用 snapshot_inputs + rebuild_snapshot 两段式，缩小持锁范围）。
+pub fn snapshot(conn: &Connection, thread_id: &str, limit: usize, before_seq: i64) -> StoreResult<Snapshot> {
+    let inputs = snapshot_inputs(conn, thread_id)?;
+    Ok(rebuild_snapshot(inputs, limit, before_seq))
 }
