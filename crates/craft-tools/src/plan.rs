@@ -1,7 +1,7 @@
 //! 计划模式协议工具：enter_plan / exit_plan。
 //!
 //! 对齐 ZCode 的 EnterPlanMode / ExitPlanMode 设计：把「进入计划态」「提交计划等待
-//! 审批」从纯提示词约束升级为显式协议——模型完成只读调研后必须调用 exit_plan，把
+//! 审批」从纯提示词约束升级为显式协议——模型完成调研后必须调用 exit_plan，把
 //! 完整计划正文作为结构化入参（plan 字段）提交，而不是只写在回复文本里。
 //!
 //! 职责边界（重要）：
@@ -24,7 +24,7 @@ use crate::registry::{Tool, ToolCtx, ToolResult, ToolSpec};
 /// 计划正文长度上限（字符数，按 Unicode 标量计，与 ZCode 的 20000 字符对齐）。
 pub const PLAN_MAX_CHARS: usize = 20_000;
 
-/// 进入计划模式：模型对复杂任务主动进入只读调研态（R0，免审批；对齐 ZCode
+/// 进入计划模式：模型对复杂任务主动进入计划态（R0，免审批；对齐 ZCode
 /// EnterPlanMode 无需确认的语义）。Work 模式不提供（计划态只对 Code 有意义）。
 pub struct EnterPlan;
 
@@ -54,7 +54,7 @@ impl Tool for EnterPlan {
         // 广播 plan.entered、注入计划态提示词）。重复调用幂等（已在计划态时
         // Runner 原样返回确认文本，不重复广播）。
         ToolResult::ok(
-            "已进入计划模式。请只做只读调研（读文件、搜索、查看 Git 状态），完成调研后调用 exit_plan 提交完整计划。",
+            "已进入计划模式。请以调研与分析为主出一份完整计划，完成调研后调用 exit_plan 提交。",
         )
     }
 }
@@ -91,7 +91,7 @@ impl EnterPlan {
     pub fn spec() -> ToolSpec {
         ToolSpec {
             name: Self::NAME.into(),
-            description: "对非平凡的实现任务，先进入计划模式：只做只读调研并设计实施方案，经用户批准后再动手。新功能、多种可行方案、影响既有行为、架构取舍、多文件改动、需求不清时优先使用；单行修复、需求明确的简单改动、纯调研任务不要使用。".into(),
+            description: "对非平凡的实现任务，先进入计划模式：调研并设计实施方案，经用户批准后再动手。新功能、多种可行方案、影响既有行为、架构取舍、多文件改动、需求不清时优先使用；单行修复、需求明确的简单改动、纯调研任务不要使用。".into(),
             schema: json!({
                 "type": "object",
                 "properties": {},
@@ -111,7 +111,7 @@ impl ExitPlan {
     pub fn spec() -> ToolSpec {
         ToolSpec {
             name: Self::NAME.into(),
-            description: "处于计划模式且完成调研后，用本工具提交完整计划等待用户审批：计划全文放在 plan 参数中（用户会在审批卡里审阅该内容），不要只写在回复里。尚未明确的需求先向用户提问，不要用本工具试探；纯调研任务（只是理解代码、查资料）不要使用。计划被拒绝时按用户反馈修订后重新提交。".into(),
+            description: "处于计划模式且完成调研后，用本工具提交完整计划等待用户审批：计划全文放在 plan 参数中（用户会在审批卡里审阅该内容），不要只写在回复里。尚未明确的需求先向用户提问，不要用本工具试探。计划被拒绝时按用户反馈修订后重新提交；获批后退出计划模式直接开始实施。".into(),
             schema: json!({
                 "type": "object",
                 "properties": {

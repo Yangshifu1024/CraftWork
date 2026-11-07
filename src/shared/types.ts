@@ -127,18 +127,6 @@ export interface Snapshot {
   hasMore: boolean;
 }
 
-/** 计划数据（计划模式产物）：file_path 非空且未批准时前端显示「批准并执行」提示条。 */
-export interface PlanInfo {
-  id: string;
-  threadId: string;
-  runId?: string;
-  filePath: string;
-  approved: boolean;
-  /** 用户点过「忽略」：提示条不再出现 */
-  ignored: boolean;
-  updatedAt: number;
-}
-
 /** 待审批卡片（快照恢复用，载荷与事件中的审批部件一致）。 */
 export interface ApprovalCard {
   partId: string;

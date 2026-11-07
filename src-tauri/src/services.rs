@@ -181,22 +181,6 @@ pub fn default_settings() -> Settings {
 
 // ---------- 计划 ----------
 
-/// 会话的最新计划（无则返回 null）。前端据此决定「批准并执行」提示条：
-/// file_path 非空且未批准才显示（中断/失败的计划无文件，不出现）。
-pub fn plan_get(state: &AppState, thread_id: &str) -> SvcResult {
-    let plan = state.db.with(|conn| craft_store::plans::latest_plan(conn, thread_id)).map_err(|e| e.to_string())?;
-    Ok(match plan {
-        Some(p) => serde_json::to_value(p).map_err(|e| e.to_string())?,
-        None => json!(null),
-    })
-}
-
-/// 忽略计划：ignored 置 1（提示条不再出现，等待用户直接输入继续）。
-pub fn plan_ignore(state: &AppState, plan_id: &str) -> SvcResult {
-    state.db.with(|conn| craft_store::plans::ignore_plan(conn, plan_id)).map_err(|e| e.to_string())?;
-    Ok(json!(null))
-}
-
 /// 输入预测缓存读取（docs/input-prediction/spec.md）：run 完成后端侧预计算的
 /// 下一句建议，瞬态内存值（不入库），无则 null。
 pub fn input_prediction_get(state: &AppState, thread_id: &str) -> SvcResult {
@@ -204,18 +188,6 @@ pub fn input_prediction_get(state: &AppState, thread_id: &str) -> SvcResult {
         Some(text) => json!(text),
         None => json!(null),
     })
-}
-
-/// 批准计划：approved 置 1（提示条随之消失），确认消息由前端继续发送。
-pub fn plan_approve(state: &AppState, plan_id: &str) -> SvcResult {
-    state.db.with(|conn| craft_store::plans::approve_plan(conn, plan_id)).map_err(|e| e.to_string())?;
-    Ok(json!(null))
-}
-
-/// 读取计划文件正文（渲染层「计划」面板内嵌展示用）；路径白名单校验在 system::read_plan_file。
-pub fn plan_read(state: &AppState, path: &str) -> SvcResult {
-    let db_dir = Path::new(&state.data_dir);
-    crate::system::read_plan_file(db_dir, path)
 }
 
 pub fn settings_get(state: &AppState) -> SvcResult {

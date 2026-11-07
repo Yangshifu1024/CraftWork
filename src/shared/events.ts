@@ -15,7 +15,6 @@ export const EventType = {
   ToolCompleted: "tool.completed",
   ApprovalRequested: "approval.requested",
   ApprovalResolved: "approval.resolved",
-  PlanCreated: "plan.created",
   /** 计划态切换（纯广播不入库）：enter_plan 工具执行时发出，前端同步 composer 勾选态。 */
   PlanEntered: "plan.entered",
   TodoUpdated: "todo.updated",
@@ -106,13 +105,6 @@ export interface ApprovalPart {
   status: "waiting" | "approved" | "denied" | "canceled";
   decision?: string;
   scope?: string;
-}
-
-/** 计划已生成：计划正文落盘到 plans 目录并回填路径（仅计划 run 正常完成时发出）。 */
-export interface PlanCreatedData {
-  planId: string;
-  threadId: string;
-  filePath: string;
 }
 
 export interface ApprovalResolvedData {

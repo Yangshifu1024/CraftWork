@@ -353,10 +353,8 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         ),
         "chatSteer" => chat_steer(state, &a.str_at(0), &a.str_at(1), a.value_at(2).as_array().map(Vec::as_slice).unwrap_or(&[]), a.bool_at(3)),
         "chatRegenerate" => chat_regenerate(state, &a.str_at(0)),
-        "planGet" => plan_get(state, &a.str_at(0)),
-        "planApprove" => plan_approve(state, &a.str_at(0)),
-        "planIgnore" => plan_ignore(state, &a.str_at(0)),
-        "planRead" => plan_read(state, &a.str_at(0)),
+        // ---------- 计划 ----------
+        // 计划审阅走审批卡（approval.* 分支），无独立计划通道
         // ---------- 输入预测 ----------
         "inputPredictionGet" => input_prediction_get(state, &a.str_at(0)),
         "chatCancel" => chat_cancel(state, &a.str_at(0)),

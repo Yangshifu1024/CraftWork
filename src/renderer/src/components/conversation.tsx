@@ -17,7 +17,7 @@ import { selectableModels } from "../lib/provider-list";
 import { formatDurationMs, formatSpeed, formatTokens, trimBlankLines } from "../lib/format";
 import { isImeComposing } from "../lib/ime";
 import type { ApprovalPart, ToolCallPart } from "../../../shared/events";
-import type { MessageSnapshot, PartSnapshot, PlanInfo, SkillView } from "../../../shared/types";
+import type { MessageSnapshot, PartSnapshot, SkillView } from "../../../shared/types";
 import { Markdown } from "./markdown";
 import { TodoCard } from "./cards";
 
@@ -29,7 +29,7 @@ const CONTENT_WIDTH_CLASS =
   "max-w-full transition-[max-width] duration-150 ease-out @min-[864px]/conversation:max-w-4xl @min-[1280px]/conversation:max-w-6xl";
 const DRAFT_WIDTH_CLASS = "max-w-2xl transition-[max-width] duration-150 ease-out";
 
-/** 批准计划后由前端发送的固定确认消息（approvePlan）：非用户真实输入，历史翻阅时排除。 */
+/** 批准计划的固定确认消息（后端在历史里排除）：历史翻阅时排除，避免回填假输入。 */
 const PLAN_CONFIRM_TEXT = "计划已确认，请按计划执行。";
 
 /** 空 messages 占位：selector 稳定引用，避免未装载会话时 useMemo 因新数组字面量反复重算。 */
@@ -46,10 +46,6 @@ export function Conversation(): React.JSX.Element {
   // 草稿态（活动会话为空）标题显示槽归属：项目槽显示该工作区名（查不到回落「新对话」），临时槽显示「新对话」。
   const draftWs = activeId === "" && draftWsId ? workspaces.find((w) => w.id === draftWsId) : undefined;
   const title = activeId === "" ? (draftWs?.name ?? "新对话") : (thread?.title ?? "新对话");
-  // 计划待批准：以计划数据为准（计划 run 正常完成后落盘回填 file_path，批准状态由数据管理）——
-  // 中断/失败的计划没有文件，提示条不出现（不再用「最后消息带 planMode 标记」的启发式）。
-  const plan = useApp((s) => s.plans[activeId]);
-  const planAwaiting = !!plan && !plan.approved && !plan.ignored && plan.filePath !== "" && !(chat?.running ?? false);
   // 草稿档：会话尚无消息（草稿槽或新建会话）时内容列收窄聚焦，发出首条消息后放宽到会话档。
   const draftLayout = !chat || chat.messages.length === 0;
 
@@ -69,8 +65,6 @@ export function Conversation(): React.JSX.Element {
               activeId={activeId}
               draftLayout={draftLayout}
               chat={chat ? { running: chat.running } : { running: false }}
-              planAwaiting={planAwaiting}
-              plan={plan}
             />
           }
         />
@@ -153,6 +147,31 @@ function Timeline({
     prevUserCount.current = count;
   }, [messages, scrollToBottom, stopScroll]);
 
+  // 计划反馈消息归并（via=plan_feedback）：修改意见本是计划审阅卡的一部分（用户在卡上
+  // 决定「提出修改」产生的），单独渲染会在时间线末尾挂一个右下角气泡，与卡片脱节。
+  // 渲染时抽掉这些消息，反馈文本塞进其后第一个含计划审阅卡的助手消息里展示
+  // （注入位置：消息尾部，卡片在 openApprovals / 折叠区渲染之后紧接着呈现）。
+  // 注意只影响渲染：消息数据本身不动（历史翻页、复制等仍按完整消息流工作）。
+  const isPlanFeedback = (m: MessageSnapshot): boolean =>
+    m.role === "user" && m.parts.some((p) => p.payload["via"] === "plan_feedback");
+  const feedbackTextOf = (m: MessageSnapshot): string =>
+    m.parts
+      .filter((p) => p.kind === "text")
+      .map((p) => String(p.payload["text"] ?? ""))
+      .join("\n")
+      .trim();
+  const planFeedbackByAssistantId = new Map<string, string>();
+  let lastExitPlanAssistantId = "";
+  for (const m of messages) {
+    if (isPlanFeedback(m)) {
+      if (lastExitPlanAssistantId) planFeedbackByAssistantId.set(lastExitPlanAssistantId, feedbackTextOf(m));
+    } else if (m.role === "assistant" && m.parts.some((p) => p.kind === "approval" && (p.payload as unknown as ApprovalPart).tool === "exit_plan")) {
+      lastExitPlanAssistantId = m.id;
+    }
+  }
+  const hasPlanFeedback = planFeedbackByAssistantId.size > 0;
+  const renderMessages = hasPlanFeedback ? messages.filter((m) => !isPlanFeedback(m)) : messages;
+
   return (
     <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
       {/* min-h-full：消息少时也占满滚动视口，footer 始终沉底；footer 参与内容流，
@@ -168,9 +187,19 @@ function Timeline({
               开始你的第一条消息
             </div>
           )}
-          {messages.map((message) => (
-            <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} workspaceId={workspaceId} />
-          ))}
+          {renderMessages.map((message) =>
+            hasPlanFeedback && planFeedbackByAssistantId.has(message.id) ? (
+              <MessageRow
+                key={message.id}
+                message={message}
+                chatRunning={chat?.running ?? false}
+                workspaceId={workspaceId}
+                planFeedback={planFeedbackByAssistantId.get(message.id)}
+              />
+            ) : (
+              <MessageRow key={message.id} message={message} chatRunning={chat?.running ?? false} workspaceId={workspaceId} />
+            ),
+          )}
         </div>
         {footer && (
           // 外壳 pointer-events-none：全宽 sticky 层不挡消息（滚入输入区背后的消息仍可点选），
@@ -295,10 +324,13 @@ function MessageRow({
   message,
   chatRunning,
   workspaceId,
+  planFeedback,
 }: {
   message: MessageSnapshot;
   chatRunning: boolean;
   workspaceId: string;
+  /** 归并进本条消息展示的计划反馈文本（via=plan_feedback 的用户消息，渲染层抽走原消息后传入）。 */
+  planFeedback?: string;
 }): React.JSX.Element {
   // 技能清单（决策 D11）：斜杠技能 chip 点击弹描述时查询；打开浮层时按需刷新
   const skills = useApp((s) => s.skills);
@@ -407,7 +439,7 @@ function MessageRow({
   // 助手消息：按「过程分组」切段渲染（工具/推理/审批收进折叠，最终正文在外）
   return (
     <div className="group/msg flex w-full flex-col gap-2">
-      <TurnBody message={message} chatRunning={chatRunning} />
+      <TurnBody message={message} chatRunning={chatRunning} planFeedback={planFeedback} />
       {/* 操作条常驻占位：只切换透明度，避免 hover 时布局跳动。
           复制按钮与时间戳只在回复结束后出现（流式中占位为空，hover 也不显示任何内容）；
           时间戳取结束时刻（finishedAt）而非开始时刻 */}
@@ -441,7 +473,7 @@ function MessageRow({
  *  是一次显式形态转换而非逐帧搬家（行为约定见 docs/conversation-flow/spec.md）。
  *  等待中的审批卡常驻渲染在折叠区之外（run 推进的关键路径）；已决定卡立即回归时序位置，
  *  run 结束后随切段归档折叠区。 */
-function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunning: boolean }): React.JSX.Element {
+function TurnBody({ message, chatRunning, planFeedback }: { message: MessageSnapshot; chatRunning: boolean; planFeedback?: string }): React.JSX.Element {
   const threadId = useActiveThreadId();
   const parts = message.parts;
   const isStreaming = message.status === "streaming";
@@ -509,7 +541,12 @@ function TurnBody({ message, chatRunning }: { message: MessageSnapshot; chatRunn
         ),
       )}
       {openApprovals.map((part) => (
-        <ApprovalCard key={part.id} part={part.payload as unknown as ApprovalPart} threadId={threadId} />
+        <ApprovalCard
+          key={part.id}
+          part={part.payload as unknown as ApprovalPart}
+          threadId={threadId}
+          planFeedback={planFeedback}
+        />
       ))}
       {parts.map((part) => {
         if (part.kind === "error") {
@@ -899,7 +936,7 @@ const RISK_LABELS: Record<string, string> = {
 };
 
 /** 审批卡片：风险徽章 + 目标 + 事实 + 决定按钮组（拒绝 / 允许一次 / 本会话 / 本工作区，永久授权按 allowPermanent 与风险等级显隐）。 */
-export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId: string }): React.JSX.Element {
+export function ApprovalCard({ part, threadId, planFeedback }: { part: ApprovalPart; threadId: string; planFeedback?: string }): React.JSX.Element {
   const waiting = part.status === "waiting";
   const [busy, setBusy] = useState(false);
   const pushToast = useToasts((s) => s.push);
@@ -961,9 +998,18 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
           </div>
         )}
         {isPlanReview && typeof part.args.plan === "string" && (
-          <pre className="select-text max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface px-3 py-2 font-mono text-ui-sm text-foreground-subtle">
-            {part.args.plan}
-          </pre>
+          // 滚动容器 overscroll-contain：鼠标在计划内容区滚动只滚内部，到边界不 chaining 到外部消息流
+          <div className="max-h-60 select-text overflow-y-auto overscroll-contain rounded-lg bg-surface px-3 py-2">
+            <Markdown text={part.args.plan} />
+          </div>
+        )}
+        {/* 计划修改意见（via=plan_feedback 用户消息归并渲染）：嵌在卡片内，与「提出修改」动作同位；
+            已决定卡也保留——历史里它是「这份计划被要求过怎么改」的完整记录 */}
+        {isPlanReview && planFeedback && (
+          <div className="rounded-lg border border-border bg-input px-3 py-2">
+            <div className="pb-1 text-ui-xs font-medium text-foreground-subtle">你的修改意见</div>
+            <div className="select-text whitespace-pre-wrap break-words text-ui-sm text-foreground">{planFeedback}</div>
+          </div>
         )}
         {waiting && isPlanReview && (
           <div className="flex flex-col gap-2 pt-1">
@@ -1008,6 +1054,16 @@ export function ApprovalCard({ part, threadId }: { part: ApprovalPart; threadId:
                   忽略
                 </button>
                 <div className="flex-1" />
+                {isPlanReview && typeof part.args.plan === "string" && (
+                  <button
+                    disabled={busy}
+                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
+                    onClick={() => useApp.getState().openPlanPanel({ text: part.args.plan as string })}
+                    title="在右侧面板的计划视图中查看计划全文"
+                  >
+                    查看计划
+                  </button>
+                )}
                 <button
                   disabled={busy}
                   className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover disabled:opacity-50"
@@ -1427,14 +1483,10 @@ function Composer({
   activeId,
   draftLayout,
   chat,
-  planAwaiting,
-  plan,
 }: {
   activeId: string;
   draftLayout: boolean;
   chat: { running: boolean };
-  planAwaiting: boolean;
-  plan?: PlanInfo;
 }): React.JSX.Element {
   // 输入态分流：草稿态（活动会话为空）读写当前草稿槽（按模式 × 工作区归属分槽，draftWsId 指向当前槽，
   // 内容随槽保留互不覆盖）；会话态读写会话级 composer 桶 threadComposer（文本/附件/发送选项随会话
@@ -1679,19 +1731,6 @@ function Composer({
     }
   }, [text]);
 
-  /** 计划确认执行：后端置批准状态（提示条消失）→ 退出计划模式（桶复位勾选）→ 发送固定确认消息
-   *  （消息带 planMode=false，执行轮次遵循用户所选审批档位）。 */
-  const approvePlan = (): void => {
-    if (!isDraft) setThreadComposer(activeId, { planMode: false });
-    void useApp
-      .getState()
-      .approvePlan(activeId)
-      .then(() => {
-        return api.chatSend(activeId, PLAN_CONFIRM_TEXT, [], false, false);
-      })
-      .catch((err: unknown) => pushToast("danger", "发送失败", cleanErrorMessage(err)));
-  };
-
   const submit = (): void => {
     historyRef.current = { index: -1, stash: "" }; // 发送即退出翻阅态（失败还原走程序化回填，不影响游标）
     touchedRef.current = true; // 发送后不再展示旧建议
@@ -1846,60 +1885,6 @@ function Composer({
     <div className="shrink-0 px-4 pb-4">
       {/* 宽度档位与消息列共用常量（docs/conversation-width/spec.md），草稿档收窄聚焦。 */}
       <div className={`mx-auto flex w-full flex-col gap-2 ${draftLayout ? DRAFT_WIDTH_CLASS : CONTENT_WIDTH_CLASS}`}>
-          {/* 计划待批准卡：计划 run 已结束且尚未确认；以卡片呈现各项操作（与审批卡同风格），
-              「查看计划」在右侧栏「计划」视图内嵌打开（不再经系统外部应用）。 */}
-          {planAwaiting && !running && (
-            <div className="w-full overflow-hidden rounded-2xl border border-brand/40 bg-popover shadow-xs" data-plan-approval>
-              <div className="flex flex-col gap-3 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-ui-base font-medium text-foreground-subtle">计划已生成</span>
-                  <span className="rounded-md bg-brand/10 px-1.5 py-0.5 font-mono text-ui-xs text-brand">plan</span>
-                  <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">直接输入可继续调整</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => useApp.getState().openPlanPanel(plan!.filePath)}
-                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-                    title="在右侧面板的计划视图中查看计划全文"
-                  >
-                    查看计划
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // 提出修改：置计划态勾选并聚焦输入框——用户输入会作为计划模式消息发送，
-                      // 模型在计划态下修订并重新提交（与审批卡内「提出修改」同构，这里是 run 已结束的兜底入口）
-                      if (!isDraft) setThreadComposer(activeId, { planMode: true });
-                      else setDraft(mode, { planMode: true });
-                      requestAnimationFrame(() => taRef.current?.focus());
-                    }}
-                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
-                    title="勾选计划模式并聚焦输入框：输入的修改意见会让模型修订计划后重新提交"
-                  >
-                    提出修改
-                  </button>
-                  <div className="flex-1" />
-                  <button
-                    type="button"
-                    onClick={() => void useApp.getState().ignorePlan(activeId)}
-                    className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
-                    title="暂不处理：卡片消失，之后可直接输入继续"
-                  >
-                    忽略
-                  </button>
-                  <button
-                    type="button"
-                    onClick={approvePlan}
-                    className="flex h-8 items-center gap-1 rounded-lg border border-brand/50 bg-brand/10 px-3 text-ui-sm font-medium text-brand hover:bg-brand/20"
-                    title="取消计划模式勾选，并让 Agent 按计划开始执行"
-                  >
-                    <Check className="size-3.5" /> 批准并执行
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         <div
           // 不加 overflow-hidden：斜杠补全面板从 textarea 区向上浮出（bottom-full），
           // 裁剪会切掉面板上半截；卡片内子元素全部在 p-3 内边距内，无贴边裁剪需求
@@ -1917,7 +1902,7 @@ function Composer({
                 type="button"
                 aria-pressed={planOn}
                 onClick={togglePlan}
-                title="计划模式：本轮只做只读调研并输出计划，写类操作将被强制逐次审批，确认后再执行"
+                title="计划模式：本轮先调研出实施计划，经你在审阅卡中批准后再开始实施；执行操作遵循当前审批档位"
                 className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition-colors ${
                   planOn ? "border-brand/50 bg-brand/10 text-brand" : "border-border text-foreground-subtle hover:bg-surface-hover"
                 }`}

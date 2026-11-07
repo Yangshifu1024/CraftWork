@@ -506,9 +506,8 @@ impl Runner {
         // 计划模式标记随触发消息落库，此处按 trigger 还原（regenerate 跟随上一轮、steer 接力取首条引导）
         let plan_mode =
             craft_store::events::plan_mode_for_trigger(&self.deps.db.lock_conn(), thread_id, trigger_seq).unwrap_or(false);
-        // 计划数据：计划 run 启动即建行（未批准、无文件）；完成时 finalize_plan 落盘回填。
-        // 中断/失败保持无文件——前端「批准并执行」提示条不出现。
-        // plan_id 精确持有本次 run 的计划行（exit_plan 批准/拒绝时精确回填，不再 latest 猜测）
+        // 计划数据：计划 run 启动即建行（未批准、无文件）；exit_plan 决定时 persist_plan_text 落盘回填。
+        // plan_id 精确持有本次 run 的计划行（compact 续读与审计档案用，不驱动前端 UI）
         let mut plan_id: Option<String> = None;
         if plan_mode
             && let Ok(plan) = craft_store::plans::create_plan(&self.deps.db.lock_conn(), thread_id, run_id)
@@ -615,16 +614,6 @@ impl Runner {
                 return false;
             }
         };
-        // 跨 run 注入（提示条兜底路径）：用户在计划 run 结束后点「批准并执行」发起的新 run，
-        // 历史里只有固定确认消息——把已批准计划全文作为 reminder 拼在历史头部，
-        // 执行 run 的模型才能拿到计划（压缩保护与 compact 注入共用一份 reminder 格式）。
-        // 计划模式主路径（批准同 run 继续）不经过这里——计划已在上下文里，无需重复注入。
-        if !plan_mode
-            && let Some(plan_text) = Self::read_approved_plan_text(&self.deps.db, thread_id)
-        {
-            history.insert(0, Message::new("user", crate::context::plan_reminder_text(&plan_text)));
-        }
-
         // 环境上下文 + 技能清单 + 提示词（阻塞段）
         let data_dir = self.deps.data_dir.clone();
         let workspace_for_env = env.workspace_path.clone();
@@ -1134,9 +1123,6 @@ impl Runner {
             if tool_calls.is_empty() {
                 self.complete(thread_id, run_id, started_at);
                 self.spawn_input_prediction(thread_id, &session, &history, &text);
-                if plan_mode {
-                    self.finalize_plan(thread_id, run_id, plan_id.as_deref());
-                }
                 return true;
             }
 
@@ -1464,20 +1450,10 @@ impl Runner {
                 denied = err;
             } else if !self.deps.registry.allows(mode, &call.name) {
                 denied = "当前模式不支持该工具".into();
-            } else if plan_active
-                && matches!(
-                    assessment.risk,
-                    craft_policy::PolicyRisk::R2 | craft_policy::PolicyRisk::R3 | craft_policy::PolicyRisk::R4
-                )
-            {
-                // 计划态只读闸门（D8 修订，对应 ZCode mode.plan.nonReadOnly）：
-                // R2+（执行/网络/破坏性）直接拒绝，不进档位判定——自由档也不例外，
-                // 只拦不放（放行只能来自下方原档位判定）。协议工具在上方分支处理。
-                denied = "计划模式下只允许只读调研；该操作需要先提交计划并获用户批准（exit_plan）".into();
             } else {
                 let action = self.deps.engine.lock().unwrap().action(env.restricted, assessment.risk);
-                // 写操作按用户所选审批档位判定（计划态的 R2+ 拦截在上方协议分支与闸门处理，
-                // 这里保持档位原语义：自由档静默放行、分级档按风险弹卡）
+                // 写操作按用户所选审批档位判定（计划态不再有额外只读拦截：
+                // 分级档按风险弹卡、自由档静默放行，与普通轮次完全一致）
                 match action {
                 craft_policy::Action::Deny => denied = "当前审批档位拒绝该操作".into(),
                 craft_policy::Action::Allow => {}
@@ -1645,7 +1621,7 @@ impl Runner {
 
     // ---------- 结束路径 ----------
 
-    /// 已批准计划的全文（compact 注入与跨 run 注入共用）：取会话最新计划行，
+    /// 已批准计划的全文（compact 注入用）：取会话最新计划行，
     /// 已批准且有文件时读盘返回；任何一步不满足返回 None（无计划/未批准/文件丢失都不注入）。
     fn read_approved_plan_text(db: &Arc<Db>, thread_id: &str) -> Option<String> {
         let (file_path, approved) = {
@@ -1659,80 +1635,27 @@ impl Runner {
         std::fs::read_to_string(&file_path).ok().filter(|t| !t.trim().is_empty())
     }
 
-    /// 计划正文落盘 + 回填 + 广播 plan.created（exit_plan 的批准/拒绝路径调用）。
-    /// approved 表示用户是否已批准（批准=true 置 approved=1，拒绝/反馈=false 仅落盘供提示条展示）。
-    /// 任一步失败只降级为「无文件」（提示条不出现），不中断工具结果处理。
-    /// plan_id 为 None（历史数据或无计划行）时跳过落库回填，只返回落盘路径。
-    fn persist_plan_text(&self, thread_id: &str, run_id: &str, plan_id: Option<&str>, text: &str, approved: bool) {
+    /// 计划正文落盘 + 回填（exit_plan 的批准/拒绝路径调用）：批准时置 approved=1。
+    /// 文件是 compact 续读的数据源（计划原文按模型入参原样保存）；不再广播 plan.created、
+    /// 不再驱动前端任何 UI（审批卡状态由 approval.resolved 驱动）。
+    /// plan_id 为 None（历史数据或无计划行）时跳过落库回填。
+    fn persist_plan_text(&self, _thread_id: &str, _run_id: &str, plan_id: Option<&str>, text: &str, approved: bool) {
         let dir = match craft_store::plans::plans_dir(&self.deps.db) {
             Ok(dir) => dir,
             Err(_) => return,
         };
-        // 文件名与 finalize_plan 兜底路径一致：plan_<剥前缀 id>.md；无 id 用 run_id 剥前缀兜底
-        let stem = plan_id
-            .map(|id| id.trim_start_matches(id_prefix::PLAN).to_string())
-            .unwrap_or_else(|| run_id.trim_start_matches(id_prefix::RUN).to_string());
+        // 文件名：plan_<剥前缀 plan_id>.md；无 plan_id（历史数据）无法回填，跳过落盘
+        let Some(plan_id) = plan_id else { return };
+        let stem = plan_id.trim_start_matches(id_prefix::PLAN);
         let file = dir.join(format!("plan_{stem}.md"));
         if craft_core::platform::write_file_atomic_str(&file, text, 0o600).is_err() {
             return;
         }
-        if let Some(plan_id) = plan_id {
-            let conn = self.deps.db.lock_conn();
-            let _ = craft_store::plans::set_plan_file(&conn, plan_id, file.to_string_lossy().as_ref());
-            if approved {
-                let _ = craft_store::plans::approve_plan(&conn, plan_id);
-            }
-        }
-        self.deps.records.emit(
-            event_type::PLAN_CREATED,
-            Some(thread_id),
-            Some(run_id),
-            json!({ "planId": plan_id.unwrap_or_default(), "threadId": thread_id, "filePath": file.to_string_lossy(), "updatedAt": now_millis() }),
-        );
-    }
-
-    /// 计划收尾（仅计划模式 run 正常完成后调用）：把该 run 的最终正文写入
-    /// ~/.craftwork/plans/plan_<id>.md，回填计划记录并广播 plan.created。
-    /// 中断/失败不走到这里——计划保持无文件，前端提示条不出现。
-    /// exit_plan 提交过计划的 run 不走这里（正文已按原文落盘），保留启发式兜底：
-    /// 模型没调 exit_plan、只把计划写在回复里时，仍按「最后一段非空 text」落盘。
-    fn finalize_plan(&self, thread_id: &str, run_id: &str, plan_id: Option<&str>) {
         let conn = self.deps.db.lock_conn();
-        // 该 run 名下的计划行（run 启动时创建；找不到说明历史数据，静默跳过）
-        let plan = {
-            let found = match plan_id {
-                Some(id) => craft_store::plans::get_plan(&conn, id).ok().flatten(),
-                None => craft_store::plans::latest_plan(&conn, thread_id).ok().flatten(),
-            };
-            match found {
-                Some(p) if p.run_id.as_deref() == Some(run_id) => p,
-                _ => return,
-            }
-        };
-        // 最终正文 = 该 run 最后一段非空 text（就是用户在聊天里看到的那份计划）
-        let Ok(Some(text)) = craft_store::plans::last_text_of_run(&conn, run_id) else {
-            return;
-        };
-        drop(conn);
-        // 落盘 + 回填 + 广播；任一步失败只降级为「无文件」（提示条不出现），不打断收尾
-        let dir = match craft_store::plans::plans_dir(&self.deps.db) {
-            Ok(dir) => dir,
-            Err(_) => return,
-        };
-        let file = dir.join(format!("plan_{}.md", plan.id.trim_start_matches(id_prefix::PLAN)));
-        if craft_core::platform::write_file_atomic_str(&file, &text, 0o600).is_err() {
-            return;
+        let _ = craft_store::plans::set_plan_file(&conn, plan_id, file.to_string_lossy().as_ref());
+        if approved {
+            let _ = craft_store::plans::approve_plan(&conn, plan_id);
         }
-        let _ = self
-            .deps
-            .db
-            .with(|conn| craft_store::plans::set_plan_file(conn, &plan.id, file.to_string_lossy().as_ref()));
-        self.deps.records.emit(
-            event_type::PLAN_CREATED,
-            Some(thread_id),
-            Some(run_id),
-            json!({ "planId": plan.id, "threadId": thread_id, "filePath": file.to_string_lossy(), "updatedAt": now_millis() }),
-        );
     }
 
     /// 正常收尾：run 置 done、会话切 idle、广播 run.completed、发桌面通知。

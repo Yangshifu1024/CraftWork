@@ -1,6 +1,6 @@
 // 右侧面板：文件树 / 文档预览 / 计划 三个视图（radix Tabs，非活动视图卸载）。
 // 收起时退化为窄图标列，点击图标展开对应视图；文件树按工作区浏览，文件点击做文本级预览；
-// 计划视图按路径读取计划正文（planRead）内嵌渲染，不再经系统外部应用打开。
+// 计划视图展示审批卡「查看计划」传入的计划正文（text 直显，内嵌 Markdown 渲染）。
 import { useEffect, useState } from "react";
 import { Tabs } from "radix-ui";
 import { FolderOpen, FileText, ListChecks } from "lucide-react";
@@ -221,40 +221,25 @@ function DocView(): React.JSX.Element {
 
 // ---------- 计划 ----------
 
-/** 计划视图：按路径读取计划正文（planRead，白名单校验在后端）并内嵌 Markdown 渲染。
- *  路径来源为计划卡「查看计划」的意图请求：挂载后按请求路径加载，加载完清空意图
- *  （重复点击同一路径时 token 自增，effect 依赖请求对象整体，仍会重跑再取一次）。
+/** 计划视图：展示计划正文（来源为审批卡「查看计划」的意图请求，args.plan 文本直显）。
+ *  消费后清空意图（重复点击同一计划时 token 自增，effect 依赖请求对象整体，仍会重跑）。
  *  无请求时给出引导文案。 */
 function PlanView(): React.JSX.Element {
   const planRequest = useApp((s) => s.planPanelRequest);
   const clearPlanPanelRequest = useApp((s) => s.clearPlanPanelRequest);
-  const pushToast = useToasts((s) => s.push);
   const [text, setText] = useState("");
 
   useEffect(() => {
     if (!planRequest) return;
-    let cancelled = false;
-    void api
-      .planRead(planRequest.path)
-      .then((content) => {
-        if (!cancelled) setText(content);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setText("");
-          pushToast("danger", "读取计划失败", String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) clearPlanPanelRequest();
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [planRequest, clearPlanPanelRequest, pushToast]);
+    if (typeof planRequest.text === "string") {
+      setText(planRequest.text);
+      clearPlanPanelRequest();
+    }
+  }, [planRequest, clearPlanPanelRequest]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+    // overscroll-contain：滚到内容边界不再 chaining 到外部（窗口/消息流）
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
       {text ? (
         <Markdown text={text} />
       ) : (

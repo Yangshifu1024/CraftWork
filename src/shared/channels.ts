@@ -2,7 +2,7 @@
 // 渲染层系统操作唯一出口：经 tauri-bridge 暴露的 window.craftwork 调用；src-tauri 的
 // craftwork_invoke 按方法名一一分发（三处同步接线：本文件签名 / tauri-bridge / src-tauri/src/lib.rs
 // dispatch；接线完整性由 src-tauri/tests/dispatch_test.rs 对拍保证）。
-import type { PlanInfo,
+import type {
   AppInfo,
   ApprovalScope,
   AttachmentContent,
@@ -99,14 +99,8 @@ export interface CraftworkApi {
   chatDecideApproval(approvalId: string, allow: boolean, scope: ApprovalScope, feedback?: string): Promise<void>;
 
   // ---------- 计划 ----------
-  /** 会话的最新计划（无则 null）。file_path 非空且未批准才显示「批准并执行」提示条 */
-  planGet(threadId: string): Promise<PlanInfo | null>;
-  /** 批准计划：approved 置 1（提示条消失），随后前端发送确认消息开始执行 */
-  planApprove(planId: string): Promise<void>;
-  /** 忽略计划：提示条不再出现，等待用户直接输入继续 */
-  planIgnore(planId: string): Promise<void>;
-  /** 读取计划 md 文件正文（渲染层「计划」面板内嵌展示；仅允许 plans 目录内） */
-  planRead(path: string): Promise<string>;
+  // 计划审阅走审批卡（approval.* 通道），无独立计划通道：plans 行是后端档案（compact 续读用），
+  // 审批卡「查看计划」直接把卡片持有的正文交给右侧栏计划视图展示。
 
   // ---------- 输入预测 ----------
   /** 一轮任务正常结束后预计算的下一句建议提示词（docs/input-prediction/spec.md；瞬态内存缓存，无则 null） */

@@ -5,7 +5,6 @@ import { create } from "zustand";
 import type { Batch, Envelope } from "../../../shared/events";
 import type {
   MessageSnapshot,
-  PlanInfo,
   PartSnapshot,
   Settings,
   SkillView,
@@ -67,14 +66,11 @@ interface AppState {
   /** 写会话级 composer 桶（合并 patch + 持久化）；仅会话态使用，草稿态走 setDraft。 */
   setThreadComposer(id: string, patch: Partial<ThreadComposer>): void;
   chats: Record<string, ChatState>;
-  /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
-   *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
-  plans: Record<string, PlanInfo | undefined>;
-  /** 右侧栏「计划」视图的打开请求（一次性意图）：计划卡「查看计划」触发，
-   *  SidePane 读到即展开面板、切到计划视图并加载正文；消费后由 SidePane 清空。 */
-  planPanelRequest: { path: string; token: number } | null;
-  /** 请求右侧栏打开计划视图（带自增 token，重复点击同一路径也能再次触发）。 */
-  openPlanPanel(path: string): void;
+  /** 右侧栏「计划」视图的打开请求（一次性意图）：计划审阅卡「查看计划」触发，
+   *  SidePane 读到即展开面板、切到计划视图；正文由 PlanView 消费（text 直显）并清空意图。 */
+  planPanelRequest: { text: string; token: number } | null;
+  /** 请求右侧栏打开计划视图（带自增 token，重复点击同一计划也能再次触发）。 */
+  openPlanPanel(target: { text: string }): void;
   /** 清空计划视图打开请求（SidePane 消费后调用）。 */
   clearPlanPanelRequest(): void;
   /** 技能清单（决策 D11）：composer 斜杠补全专用（用户级 + 当前会话所属工作区）；打开时按需刷新，不常驻轮询。 */
@@ -104,13 +100,10 @@ interface AppState {
   applyBatch(batch: Batch): void;
   /** 合并保存设置：以服务端返回的完整值为准覆盖本地。 */
   saveSettings(next: Partial<Settings>): Promise<void>;
-  /** 批准计划（approved 置 1，提示条消失）；确认消息由调用方随后发送。 */
-  approvePlan(threadId: string): Promise<void>;
   /** 刷新技能清单：传工作区 id 时同时扫该工作区级技能，缺省只扫用户级。 */
   refreshSkills(workspaceId?: string): Promise<void>;
   /** 刷新管理视角全量技能清单（用户级 + 全部工作区级，带归属）。 */
   refreshManageSkills(): Promise<void>;
-  ignorePlan(threadId: string): Promise<void>;
   toggleSidebar(): void;
 }
 
@@ -203,7 +196,6 @@ export const useApp = create<AppState>((set, get) => ({
     skillsEnabled: true,
   },
   chats: {},
-  plans: {},
   planPanelRequest: null,
   skills: [],
   manageSkills: [],
@@ -295,11 +287,6 @@ export const useApp = create<AppState>((set, get) => ({
         },
       }));
     }
-    // 会话的最新计划（批准并执行提示条的数据源）；失败降级为无计划
-    await api
-      .planGet(id)
-      .then((plan) => set((state) => ({ plans: { ...state.plans, [id]: plan ?? undefined } })))
-      .catch(() => {});
   },
 
   newDraft(workspaceId = "") {
@@ -385,28 +372,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ settings: saved });
   },
 
-  /** 批准计划：后端置 approved，本地同步（提示条消失），随后调用方发送确认消息。 */
-  async approvePlan(threadId: string): Promise<void> {
-    const plan = get().plans[threadId];
-    if (!plan) return;
-    await api.planApprove(plan.id);
-    set((state) => ({
-      plans: { ...state.plans, [threadId]: { ...plan, approved: true } },
-    }));
-  },
-  /** 忽略计划：ignored 置 1（提示条消失），不做任何后续动作。 */
-  async ignorePlan(threadId: string): Promise<void> {
-    const plan = get().plans[threadId];
-    if (!plan) return;
-    await api.planIgnore(plan.id);
-    set((state) => ({
-      plans: { ...state.plans, [threadId]: { ...plan, ignored: true } },
-    }));
-  },
-  /** 请求右侧栏打开计划视图：只登记意图（路径 + 自增 token），展开与加载由 SidePane 消费。 */
-  openPlanPanel(path: string): void {
+  /** 请求右侧栏打开计划视图：只登记意图（text 直显 + 自增 token），展开与消费由 SidePane 与 PlanView 完成。 */
+  openPlanPanel(target: { text: string }): void {
     const token = (get().planPanelRequest?.token ?? 0) + 1;
-    set({ planPanelRequest: { path, token } });
+    set({ planPanelRequest: { ...target, token } });
   },
   clearPlanPanelRequest(): void {
     set({ planPanelRequest: null });
@@ -655,23 +624,6 @@ function applyEvent(set: SetFn, get: GetFn, event: Envelope): void {
           },
         }));
       }
-      break;
-    }
-    case "plan.created": {
-      const planThreadId = event.threadId ?? threadId;
-      set((state) => ({
-        plans: {
-          ...state.plans,
-          [planThreadId]: {
-            id: String(data["planId"] ?? ""),
-            threadId: planThreadId,
-            filePath: String(data["filePath"] ?? ""),
-            approved: false,
-            ignored: false,
-            updatedAt: typeof data["updatedAt"] === "number" ? data["updatedAt"] : 0,
-          },
-        },
-      }));
       break;
     }
     case "plan.entered": {
