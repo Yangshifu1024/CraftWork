@@ -70,6 +70,13 @@ interface AppState {
   /** 各会话的最新计划（计划模式产物；无计划/未装载为 undefined）。
    *  「批准并执行」提示条依据：filePath 非空且未批准——中断/失败的计划无文件不出现。 */
   plans: Record<string, PlanInfo | undefined>;
+  /** 右侧栏「计划」视图的打开请求（一次性意图）：计划卡「查看计划」触发，
+   *  SidePane 读到即展开面板、切到计划视图并加载正文；消费后由 SidePane 清空。 */
+  planPanelRequest: { path: string; token: number } | null;
+  /** 请求右侧栏打开计划视图（带自增 token，重复点击同一路径也能再次触发）。 */
+  openPlanPanel(path: string): void;
+  /** 清空计划视图打开请求（SidePane 消费后调用）。 */
+  clearPlanPanelRequest(): void;
   /** 技能清单（决策 D11）：composer 斜杠补全专用（用户级 + 当前会话所属工作区）；打开时按需刷新，不常驻轮询。 */
   skills: SkillView[];
   /** 管理视角技能清单（设置页专用）：全量、带工作区归属；与 composer 的 skills 分槽，互不覆盖。 */
@@ -197,6 +204,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   chats: {},
   plans: {},
+  planPanelRequest: null,
   skills: [],
   manageSkills: [],
   sidebarVisible: true,
@@ -394,6 +402,14 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => ({
       plans: { ...state.plans, [threadId]: { ...plan, ignored: true } },
     }));
+  },
+  /** 请求右侧栏打开计划视图：只登记意图（路径 + 自增 token），展开与加载由 SidePane 消费。 */
+  openPlanPanel(path: string): void {
+    const token = (get().planPanelRequest?.token ?? 0) + 1;
+    set({ planPanelRequest: { path, token } });
+  },
+  clearPlanPanelRequest(): void {
+    set({ planPanelRequest: null });
   },
   /** 刷新技能清单（决策 D11）：composer 斜杠补全用；失败静默保持旧列表（toast 由调用方负责）。 */
   async refreshSkills(workspaceId?: string): Promise<void> {

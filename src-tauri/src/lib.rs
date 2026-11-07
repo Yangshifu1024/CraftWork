@@ -356,7 +356,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "planGet" => plan_get(state, &a.str_at(0)),
         "planApprove" => plan_approve(state, &a.str_at(0)),
         "planIgnore" => plan_ignore(state, &a.str_at(0)),
-        "planOpen" => plan_open(state, &a.str_at(0)),
+        "planRead" => plan_read(state, &a.str_at(0)),
         // ---------- 输入预测 ----------
         "inputPredictionGet" => input_prediction_get(state, &a.str_at(0)),
         "chatCancel" => chat_cancel(state, &a.str_at(0)),

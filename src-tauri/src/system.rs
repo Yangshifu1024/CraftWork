@@ -67,9 +67,10 @@ pub fn show_in_folder(path: &str) -> SvcResult {
     }
 }
 
-/// 用系统默认应用打开计划文件。唯一出口：只允许打开数据目录 plans/ 下的 .md 文件，
-/// 其余路径一律拒绝（与 open_external 的白名单思路一致，防止渲染层传入任意路径）。
-pub fn open_plan_file(db_dir: &std::path::Path, path: &str) -> SvcResult {
+/// 读取计划文件正文（渲染层「计划」面板内嵌展示用）。唯一出口：只允许读数据目录 plans/
+/// 下的 .md 文件，其余路径一律拒绝（与 open_external 的白名单思路一致，防止渲染层传入任意路径）。
+/// 计划文件为应用自产（计划 run 收尾原子写入），直接读为 UTF-8 文本返回。
+pub fn read_plan_file(db_dir: &std::path::Path, path: &str) -> SvcResult {
     let plans_dir = db_dir.join("plans");
     let target = std::path::Path::new(path);
     let allowed = target
@@ -77,15 +78,14 @@ pub fn open_plan_file(db_dir: &std::path::Path, path: &str) -> SvcResult {
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
         && target.parent().is_some_and(|p| p == plans_dir);
     if !allowed {
-        return err("仅允许打开计划目录下的 markdown 文件");
+        return err("仅允许读取计划目录下的 markdown 文件");
     }
     if !target.exists() {
         return err("计划文件不存在");
     }
-    let result = std::process::Command::new("open").arg(target).spawn();
-    match result {
-        Ok(_) => Ok(json!(null)),
-        Err(e) => err(format!("打开计划失败：{e}")),
+    match std::fs::read_to_string(target) {
+        Ok(text) => Ok(json!(text)),
+        Err(e) => err(format!("读取计划失败：{e}")),
     }
 }
 

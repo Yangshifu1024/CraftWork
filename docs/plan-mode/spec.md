@@ -18,7 +18,7 @@
 | 计划态只读闸门（R2+ 拒绝） | mode.plan.nonReadOnly 拒绝 | 一致：只拦不放，放行只来自原模式 |
 | exit_plan 无条件审批 | ExitPlanMode 始终需确认 | 一致：自由档也弹卡 |
 | 审批三路径 | 批准继续 / 反馈升级用户消息 / 无反馈终止 turn | turn≈本仓库 run 迭代 |
-| 计划文件 `~/.craftwork/plans/` | `${workspaceRoot}/.zcode/plans/` | 本仓库放数据目录（planOpen 白名单校验），不放工作区 |
+| 计划文件 `~/.craftwork/plans/` | `${workspaceRoot}/.zcode/plans/` | 本仓库放数据目录（planRead 白名单校验后读回界面内嵌展示），不放工作区 |
 | compact 后计划 reminder | plan_file_reference model-only reminder | 一致：排摘要之前 |
 | 跨 run 注入（提示条兜底路径） | —（ZCode 无此路径） | 本仓库保留的兜底 |
 
@@ -91,7 +91,7 @@
 - 勾选态：会话级（threadComposer 分桶）；plan.entered 定向开启，exit_plan 批准结果定向关闭，拒绝/反馈不动；重启不回放（plan.entered 不入库）。
 - 计划审阅卡：以 `tool === "exit_plan"` 识别；三动作见上。
 - plan_feedback 用户消息渲染为普通用户气泡（无「待送达」标记——via 只匹配 "steer"）。
-- 提示条（兜底）：「计划已生成」条件不变（file_path 非空、未批准、未忽略、run 不在跑）；按钮为查看计划 / 提出修改（置勾选 + 聚焦输入框）/ 忽略 / 批准并执行（发 planMode=false 固定确认消息，走跨 run 注入路径）。
+- 计划待批准卡（兜底）：「计划已生成」条件不变（file_path 非空、未批准、未忽略、run 不在跑）；卡片形式（与审批卡同风格），按钮为查看计划（右侧栏「计划」视图内嵌展示，planRead 读正文）/ 提出修改（置勾选 + 聚焦输入框）/ 忽略 / 批准并执行（发 planMode=false 固定确认消息，走跨 run 注入路径）。
 
 ## 测试要点与现状
 

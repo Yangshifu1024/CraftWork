@@ -105,8 +105,8 @@ export interface CraftworkApi {
   planApprove(planId: string): Promise<void>;
   /** 忽略计划：提示条不再出现，等待用户直接输入继续 */
   planIgnore(planId: string): Promise<void>;
-  /** 用系统默认应用打开计划 md 文件（仅允许 plans 目录内） */
-  planOpen(path: string): Promise<void>;
+  /** 读取计划 md 文件正文（渲染层「计划」面板内嵌展示；仅允许 plans 目录内） */
+  planRead(path: string): Promise<string>;
 
   // ---------- 输入预测 ----------
   /** 一轮任务正常结束后预计算的下一句建议提示词（docs/input-prediction/spec.md；瞬态内存缓存，无则 null） */

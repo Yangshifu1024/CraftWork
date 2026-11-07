@@ -1,14 +1,16 @@
-// 右侧面板：文件树 / 文档预览 两个视图（radix Tabs，非活动视图卸载）。
-// 收起时退化为窄图标列，点击图标展开对应视图；文件树按工作区浏览，文件点击做文本级预览。
+// 右侧面板：文件树 / 文档预览 / 计划 三个视图（radix Tabs，非活动视图卸载）。
+// 收起时退化为窄图标列，点击图标展开对应视图；文件树按工作区浏览，文件点击做文本级预览；
+// 计划视图按路径读取计划正文（planRead）内嵌渲染，不再经系统外部应用打开。
 import { useEffect, useState } from "react";
 import { Tabs } from "radix-ui";
-import { FolderOpen, FileText } from "lucide-react";
+import { FolderOpen, FileText, ListChecks } from "lucide-react";
 import { api } from "../lib/api";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
+import { Markdown } from "./markdown";
 import type { FileNode, ThreadView, WorkspaceView } from "../../../shared/types";
 
-export type PanelTab = "files" | "doc";
+export type PanelTab = "files" | "doc" | "plan";
 
 /** 当前面板生效的工作区 id：活动会话的工作区 → 草稿态取草稿槽归属（draftWsId 非空时，发送前即可浏览项目）
  *  → 回落内置临时目录（conversation 工作区）。归属查不到（如项目已删）同样回落。 */
@@ -20,10 +22,20 @@ function effectiveWorkspaceId(activeThreadId: string, draftWsId: string, threads
   return (found ?? workspaces.find((w) => w.purpose === "conversation"))?.id ?? "";
 }
 
-/** 右侧面板：收起时是窄图标列，展开后按 Tabs 切换文件树 / 文档预览视图。 */
+/** 右侧面板：收起时是窄图标列，展开后按 Tabs 切换文件树 / 文档预览 / 计划视图。 */
 export function SidePane(): React.JSX.Element {
   const [tab, setTab] = useState<PanelTab>("files");
   const [open, setOpen] = useState(false);
+
+  // 计划视图打开意图（计划卡「查看计划」触发）：展开面板并切到计划视图。
+  // 意图不清空在这里做——PlanView 此时还未挂载（radix Tabs 非活动视图卸载），
+  // 由 PlanView 挂载后按路径加载正文，再调用 clearPlanPanelRequest 消费掉。
+  const planRequest = useApp((s) => s.planPanelRequest);
+  useEffect(() => {
+    if (!planRequest) return;
+    setOpen(true);
+    setTab("plan");
+  }, [planRequest]);
 
   if (!open) {
     return (
@@ -33,6 +45,9 @@ export function SidePane(): React.JSX.Element {
         </PaneButton>
         <PaneButton label="文档" active={false} onClick={() => { setOpen(true); setTab("doc"); }}>
           <FileText className="size-4" />
+        </PaneButton>
+        <PaneButton label="计划" active={false} onClick={() => { setOpen(true); setTab("plan"); }}>
+          <ListChecks className="size-4" />
         </PaneButton>
       </div>
     );
@@ -49,6 +64,7 @@ export function SidePane(): React.JSX.Element {
           [
             ["files", "文件"],
             ["doc", "文档"],
+            ["plan", "计划"],
           ] as const
         ).map(([id, label]) => (
           <Tabs.Trigger
@@ -70,6 +86,9 @@ export function SidePane(): React.JSX.Element {
       </Tabs.Content>
       <Tabs.Content value="doc" className="flex min-h-0 flex-1 flex-col outline-none">
         <DocView />
+      </Tabs.Content>
+      <Tabs.Content value="plan" className="flex min-h-0 flex-1 flex-col outline-none">
+        <PlanView />
       </Tabs.Content>
     </Tabs.Root>
   );
@@ -196,6 +215,53 @@ function DocView(): React.JSX.Element {
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       <pre className="whitespace-pre-wrap break-words font-mono text-ui-xs text-foreground-subtle">{text}</pre>
       <span className="hidden">{setText.name}</span>
+    </div>
+  );
+}
+
+// ---------- 计划 ----------
+
+/** 计划视图：按路径读取计划正文（planRead，白名单校验在后端）并内嵌 Markdown 渲染。
+ *  路径来源为计划卡「查看计划」的意图请求：挂载后按请求路径加载，加载完清空意图
+ *  （重复点击同一路径时 token 自增，effect 依赖请求对象整体，仍会重跑再取一次）。
+ *  无请求时给出引导文案。 */
+function PlanView(): React.JSX.Element {
+  const planRequest = useApp((s) => s.planPanelRequest);
+  const clearPlanPanelRequest = useApp((s) => s.clearPlanPanelRequest);
+  const pushToast = useToasts((s) => s.push);
+  const [text, setText] = useState("");
+
+  useEffect(() => {
+    if (!planRequest) return;
+    let cancelled = false;
+    void api
+      .planRead(planRequest.path)
+      .then((content) => {
+        if (!cancelled) setText(content);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setText("");
+          pushToast("danger", "读取计划失败", String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) clearPlanPanelRequest();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [planRequest, clearPlanPanelRequest, pushToast]);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      {text ? (
+        <Markdown text={text} />
+      ) : (
+        <div className="flex h-full items-center justify-center px-6 text-center text-ui-sm text-foreground-subtlest">
+          暂无计划：计划模式生成的计划会在这里展示
+        </div>
+      )}
     </div>
   );
 }

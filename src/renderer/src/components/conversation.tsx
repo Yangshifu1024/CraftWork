@@ -1846,52 +1846,60 @@ function Composer({
     <div className="shrink-0 px-4 pb-4">
       {/* 宽度档位与消息列共用常量（docs/conversation-width/spec.md），草稿档收窄聚焦。 */}
       <div className={`mx-auto flex w-full flex-col gap-2 ${draftLayout ? DRAFT_WIDTH_CLASS : CONTENT_WIDTH_CLASS}`}>
-          {/* 计划待批准条：计划 run 已结束且尚未确认；直接输入即继续调整，点按钮则确认执行。
-              必须实底（bg-input，与输入卡同源）：本条浮在 sticky 渐变层的透明区上，bg-surface
-              是半透明层次色（3%/5%），消息文字会穿透显示（docs/conversation-width/spec.md 第 8 条）。 */}
+          {/* 计划待批准卡：计划 run 已结束且尚未确认；以卡片呈现各项操作（与审批卡同风格），
+              「查看计划」在右侧栏「计划」视图内嵌打开（不再经系统外部应用）。 */}
           {planAwaiting && !running && (
-            <div className="flex items-center justify-end gap-3 rounded-xl border border-border bg-input px-3 py-2 shadow-xs" data-plan-approval>
-            <button
-              type="button"
-              onClick={() => void api.planOpen(plan!.filePath).catch((err: unknown) => pushToast("danger", "打开计划失败", cleanErrorMessage(err)))}
-              className="text-ui-xs text-foreground-subtle underline-offset-2 hover:underline"
-              title="用系统默认应用打开计划文件"
-            >
-              查看计划
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                // 提出修改：置计划态勾选并聚焦输入框——用户输入会作为计划模式消息发送，
-                // 模型在计划态下修订并重新提交（与审批卡内「提出修改」同构，这里是 run 已结束的兜底入口）
-                if (!isDraft) setThreadComposer(activeId, { planMode: true });
-                else setDraft(mode, { planMode: true });
-                requestAnimationFrame(() => taRef.current?.focus());
-              }}
-              className="text-ui-xs text-foreground-subtle underline-offset-2 hover:underline"
-              title="勾选计划模式并聚焦输入框：输入的修改意见会让模型修订计划后重新提交"
-            >
-              提出修改
-            </button>
-            <button
-              type="button"
-              onClick={() => void useApp.getState().ignorePlan(activeId)}
-              className="text-ui-xs text-foreground-subtlest underline-offset-2 hover:underline"
-              title="暂不处理：提示条消失，之后可直接输入继续"
-            >
-              忽略
-            </button>
-            <span className="text-ui-xs text-foreground-subtle">计划已生成：直接输入可继续调整，或</span>
-            <button
-              type="button"
-              onClick={approvePlan}
-              className="flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-ui-xs font-medium text-foreground-inverse transition-opacity hover:opacity-90"
-              title="取消计划模式勾选，并让 Agent 按计划开始执行"
-            >
-              <Check className="size-3.5" /> 批准并执行
-            </button>
-          </div>
-        )}
+            <div className="w-full overflow-hidden rounded-2xl border border-brand/40 bg-popover shadow-xs" data-plan-approval>
+              <div className="flex flex-col gap-3 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-ui-base font-medium text-foreground-subtle">计划已生成</span>
+                  <span className="rounded-md bg-brand/10 px-1.5 py-0.5 font-mono text-ui-xs text-brand">plan</span>
+                  <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">直接输入可继续调整</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => useApp.getState().openPlanPanel(plan!.filePath)}
+                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
+                    title="在右侧面板的计划视图中查看计划全文"
+                  >
+                    查看计划
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 提出修改：置计划态勾选并聚焦输入框——用户输入会作为计划模式消息发送，
+                      // 模型在计划态下修订并重新提交（与审批卡内「提出修改」同构，这里是 run 已结束的兜底入口）
+                      if (!isDraft) setThreadComposer(activeId, { planMode: true });
+                      else setDraft(mode, { planMode: true });
+                      requestAnimationFrame(() => taRef.current?.focus());
+                    }}
+                    className="h-8 rounded-lg border border-border px-3 text-ui-sm hover:bg-surface-hover"
+                    title="勾选计划模式并聚焦输入框：输入的修改意见会让模型修订计划后重新提交"
+                  >
+                    提出修改
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => void useApp.getState().ignorePlan(activeId)}
+                    className="h-8 rounded-lg border border-border px-3 text-ui-sm text-foreground-subtle hover:bg-surface-hover"
+                    title="暂不处理：卡片消失，之后可直接输入继续"
+                  >
+                    忽略
+                  </button>
+                  <button
+                    type="button"
+                    onClick={approvePlan}
+                    className="flex h-8 items-center gap-1 rounded-lg border border-brand/50 bg-brand/10 px-3 text-ui-sm font-medium text-brand hover:bg-brand/20"
+                    title="取消计划模式勾选，并让 Agent 按计划开始执行"
+                  >
+                    <Check className="size-3.5" /> 批准并执行
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         <div
           // 不加 overflow-hidden：斜杠补全面板从 textarea 区向上浮出（bottom-full），
           // 裁剪会切掉面板上半截；卡片内子元素全部在 p-3 内边距内，无贴边裁剪需求

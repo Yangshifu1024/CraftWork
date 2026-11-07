@@ -212,10 +212,10 @@ pub fn plan_approve(state: &AppState, plan_id: &str) -> SvcResult {
     Ok(json!(null))
 }
 
-/// 打开计划文件（系统默认 markdown 应用）；路径白名单校验在 system::open_plan_file。
-pub fn plan_open(state: &AppState, path: &str) -> SvcResult {
+/// 读取计划文件正文（渲染层「计划」面板内嵌展示用）；路径白名单校验在 system::read_plan_file。
+pub fn plan_read(state: &AppState, path: &str) -> SvcResult {
     let db_dir = Path::new(&state.data_dir);
-    crate::system::open_plan_file(db_dir, path)
+    crate::system::read_plan_file(db_dir, path)
 }
 
 pub fn settings_get(state: &AppState) -> SvcResult {
