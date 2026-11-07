@@ -924,7 +924,7 @@ pub fn chat_create_and_start(
     } else {
         workspace_id
     };
-    let title = craft_agent::title::derive_title(text, &[]);
+    let title = craft_agent::title::derive_title(text);
     let id = craft_core::ids::new_id(craft_core::ids::id_prefix::THREAD);
     threads::create_thread(
         &state.db.lock_conn(),
@@ -1413,13 +1413,15 @@ pub fn audit_backups(state: &AppState, limit: i64) -> SvcResult {
 }
 
 /// 粘贴附件落盘：文件名只保留字母数字与 .-_（剥离路径分隔符等危险字符），再加 att_ ID
-/// 前缀保证唯一；返回服务端文件名，后续经 readAttachment 取回。
+/// 前缀保证唯一；清洗后无可读部分时回落默认名 pasted（避免落盘出纯 att_<hex> 裸 ID，
+/// 附件名会被消息气泡与标题等界面直接展示）。返回服务端文件名，后续经 readAttachment 取回。
 pub fn save_pasted_attachment(state: &AppState, name: &str, base64_data: &str) -> SvcResult {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_data)
         .map_err(|e| format!("附件解码失败：{e}"))?;
     let safe_name: String = name.chars().filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_').collect();
+    let safe_name = if safe_name.is_empty() { "pasted".to_string() } else { safe_name };
     let file_name = format!("{}_{}", craft_core::ids::new_id(craft_core::ids::id_prefix::ATTACHMENT), safe_name);
     let path = Path::new(&state.attachment_dir).join(&file_name);
     std::fs::create_dir_all(&state.attachment_dir).map_err(|e| e.to_string())?;

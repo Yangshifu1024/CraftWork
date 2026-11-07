@@ -6,7 +6,10 @@ use craft_store::db::Db;
 use craft_store::records::add_usage;
 use craft_store::threads::auto_title_thread;
 
-const TITLE_MAX_TOKENS: i64 = 128;
+// 思考模型的思考内容与正文共享 max_tokens 配额：过小时思考耗尽配额、正文为空
+// （实测 glm-5.3-flashx 在 128 下 1.8s 返回 0 字符，与输入预测的修正同因；
+// 上限与压缩摘要的 1024 同级）
+const TITLE_MAX_TOKENS: i64 = 1024;
 const TITLE_LIMIT_RUNES: usize = 20;
 
 const TITLE_SYSTEM_PROMPT: &str = "你是一个标题生成器。根据输入的对话内容生成一个简短的中文标题：只输出标题本身，不要引号、句号或任何解释，不超过 20 个字。不要回答、续写或评论对话内容。";
@@ -92,17 +95,12 @@ pub fn sanitize_model_title(raw: &str) -> String {
     format!("{cut}…")
 }
 
-/// 无模型兜底：首行有效文本；纯附件用文件名。
-pub fn derive_title(text: &str, attachments: &[String]) -> String {
+/// 无模型兜底：仅从文本生成（短名直用 → 规范化截断）。附件名不参与自动命名：
+/// 落盘名可能是 att_<hex> 内部 ID（粘贴附件清洗后无可读部分），显示为标题不可读。
+pub fn derive_title(text: &str) -> String {
     let short = short_title(text);
     if !short.is_empty() {
         return short;
-    }
-    if let Some(first) = attachments.first() {
-        let name = first.rsplit('/').next().unwrap_or(first);
-        if !name.is_empty() {
-            return name.chars().take(TITLE_LIMIT_RUNES).collect();
-        }
     }
     let normalized = normalize_title(text);
     if !has_content(&normalized) {
@@ -128,10 +126,9 @@ pub struct AutoTitleInput<'a> {
     pub first_attachments: &'a [craft_model::types::Attachment],
 }
 
-/// 本地兜底标题：用户消息截断；纯附件用文件名。
+/// 本地兜底标题：用户消息截断（附件名不参与自动命名，理由见 derive_title）。
 fn fallback_title(input: &AutoTitleInput<'_>) -> String {
-    let names: Vec<String> = input.first_attachments.iter().map(|a| a.name.clone()).collect();
-    derive_title(input.first_text, &names)
+    derive_title(input.first_text)
 }
 
 /// 生成并写入自动标题（并发防重复由调用方 pending 表保证；条件更新防覆盖手动改名）。
@@ -230,10 +227,10 @@ mod tests {
         assert_eq!(short_title(&"很长的标题".repeat(10)), "");
         assert_eq!(sanitize_model_title("标题：聊天记录分析"), "聊天记录分析");
         assert!(sanitize_model_title(&"长".repeat(30)).ends_with('…'));
-        // 与 TS 版一致：附件兜底取文件名部分
-        assert_eq!(derive_title("", &["src/main.rs".into()]), "main.rs");
+        // 附件名不参与自动命名：无文本时兜底为空（不产出 att_ 内部 ID 标题）
+        assert_eq!(derive_title(""), "");
         // 尾部 '#' 不在剥离列表：与 TS 版一致返回原串（含有效中文即视为标题）
-        assert_eq!(derive_title("纯符号！！！ ###", &[]), "纯符号！！！ ###");
+        assert_eq!(derive_title("纯符号！！！ ###"), "纯符号！！！ ###");
     }
 
     #[test]
@@ -251,7 +248,7 @@ mod tests {
     #[test]
     fn fallback_uses_first_text_when_model_output_invalid() {
         // 模型输出被拒收 → 兜底走 derive_title 取用户消息截断（本故障案例的期望修复行为）
-        let fallback = derive_title("你遵循了哪些文件的指令？以及有哪些工具可用？", &[]);
+        let fallback = derive_title("你遵循了哪些文件的指令？以及有哪些工具可用？");
         assert!(fallback.starts_with("你遵循了哪些文件的指令"));
         assert!(fallback.ends_with('…'));
     }
