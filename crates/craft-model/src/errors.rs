@@ -176,18 +176,52 @@ pub fn stream_error(provider: &str, message: &str, kind: &str) -> ModelError {
     )
 }
 
+/// 沿 `source()` 逐层拼接错误源链：reqwest 顶层文案不含真实原因——
+/// 「error decoding response body」的根因（连接重置、帧不完整、解压失败等）
+/// 藏在 hyper 源错误里，不拼出来就无法排查（实测 2026-11-12 zhipu 网关两连发）。
+/// 同文案层去重；防异常环最多取 8 层。
+fn error_source_chain(err: &dyn std::error::Error) -> String {
+    let mut chain = String::new();
+    let mut source = err.source();
+    let mut depth = 0;
+    while let Some(e) = source {
+        depth += 1;
+        if depth > 8 {
+            break;
+        }
+        let text = e.to_string();
+        if !chain.contains(&text) {
+            if !chain.is_empty() {
+                chain.push_str(" <- ");
+            }
+            chain.push_str(&text);
+        }
+        source = e.source();
+    }
+    chain
+}
+
 /// 传输错误：reqwest 错误分类——超时 → timeout；连接类 → provider_unavailable；请求构建 → invalid_request。
+/// 消息统一附带错误源链（error_source_chain：顶层文案不露根因）。
 pub fn transport_error(provider: &str, err: &reqwest::Error) -> ModelError {
+    let chain = error_source_chain(err);
+    let with_cause = |prefix: &str| -> String {
+        if chain.is_empty() {
+            format!("{prefix}{err}")
+        } else {
+            format!("{prefix}{err}（原因：{chain}）")
+        }
+    };
     if err.is_timeout() {
-        return ModelError::new(code::TIMEOUT, provider, format!("连接模型服务超时：{err}"), 0);
+        return ModelError::new(code::TIMEOUT, provider, with_cause("连接模型服务超时："), 0);
     }
     if err.is_connect() {
-        return ModelError::new(code::PROVIDER_UNAVAILABLE, provider, format!("无法连接模型服务：{err}"), 0);
+        return ModelError::new(code::PROVIDER_UNAVAILABLE, provider, with_cause("无法连接模型服务："), 0);
     }
     if err.is_builder() {
-        return ModelError::new(code::INVALID_REQUEST, provider, format!("请求构建失败：{err}"), 0);
+        return ModelError::new(code::INVALID_REQUEST, provider, with_cause("请求构建失败："), 0);
     }
-    ModelError::new(code::PROVIDER_UNAVAILABLE, provider, format!("无法连接模型服务：{err}"), 0)
+    ModelError::new(code::PROVIDER_UNAVAILABLE, provider, with_cause("无法连接模型服务："), 0)
 }
 
 /// 取消错误（壳层中断流）。
@@ -296,5 +330,59 @@ mod tests {
         assert!(ModelError::new(code::PROVIDER_UNAVAILABLE, "p", "m", 0).retryable());
         assert!(!ModelError::new(code::AUTH, "p", "m", 0).retryable());
         assert!(!ModelError::new(code::CONTEXT_OVERFLOW, "p", "m", 0).retryable());
+    }
+
+    /// 自定义错误链：测 error_source_chain 的拼接、去重与层数上限
+    /// （reqwest::Error 无公开构造器，传输路径用 builder 集成测试覆盖）。
+    #[derive(Debug)]
+    struct Chained {
+        text: String,
+        source: Option<Box<dyn std::error::Error>>,
+    }
+    impl std::fmt::Display for Chained {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.text)
+        }
+    }
+    impl std::error::Error for Chained {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.source.as_deref()
+        }
+    }
+
+    #[test]
+    fn source_chain_joins_causes_and_dedups_repeated_text() {
+        let inner = Chained { text: "连接被重置".into(), source: None };
+        let outer = Chained { text: "error decoding response body".into(), source: Some(Box::new(inner)) };
+        let chain = error_source_chain(&outer);
+        assert_eq!(chain, "连接被重置");
+        // 顶层文案本身不进链（只拼 source）
+        assert!(!chain.contains("error decoding"));
+
+        let dup = Chained {
+            text: "同一句".into(),
+            source: Some(Box::new(Chained { text: "同一句".into(), source: None })),
+        };
+        assert_eq!(error_source_chain(&dup), "同一句", "重复文案应去重");
+    }
+
+    #[test]
+    fn source_chain_without_cause_is_empty() {
+        let bare = Chained { text: "无源错误".into(), source: None };
+        assert_eq!(error_source_chain(&bare), "");
+    }
+
+    /// 传输路径集成：reqwest builder 错误走 invalid_request 且文案带前缀
+    /// （经公开 API 构造：非法请求头名在 build() 时报 builder 错误）。
+    #[test]
+    fn transport_error_builder_maps_to_invalid_request() {
+        let err = reqwest::Client::new()
+            .get("http://example.com")
+            .header("\nbad", "v")
+            .build()
+            .expect_err("非法请求头名应构建失败");
+        let mapped = transport_error("p", &err);
+        assert_eq!(mapped.code, code::INVALID_REQUEST);
+        assert!(mapped.message.starts_with("请求构建失败："), "{}", mapped.message);
     }
 }
