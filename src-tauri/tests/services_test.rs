@@ -563,6 +563,40 @@ fn provider_custom_headers_save_validate_and_partial_update_preservation() {
     assert!(imported_entry["headers"].as_array().unwrap().is_empty());
 }
 
+/// 目录溯源字段（source/catalogId/envVars）不属于 providerSave 输入契约：
+/// 更新既有提供商（端点/请求头保存路径）时从现值回填，保存连接信息不把目录导入
+/// 的提供商降级为手动来源；新建提供商按手动来源落默认值。
+#[test]
+fn provider_save_preserves_catalog_provenance() {
+    let (_dir, state) = test_state("provider-provenance");
+    // 从内置目录导入 openai 提供商（source=catalog，catalogId/envVars 随导入写入）
+    let imported = services::catalog_import(&state, "openai", false, &["gpt-4o".into()]).unwrap();
+    let entry = imported.as_array().unwrap().iter().find(|p| p["id"] == json!("openai")).unwrap();
+    assert_eq!(entry["source"], "catalog", "导入后来源应为 catalog");
+    assert_eq!(entry["catalogId"], "openai");
+    // envVars 不在 ProviderView 契约里，直接查持久化形状
+    let before = state.catalog.find_provider("openai").expect("导入的提供商应已持久化");
+    assert!(!before.env_vars.is_empty(), "导入应携带目录 env 密钥变量名");
+
+    // 修改端点（设置页保存连接信息的路径）：溯源字段必须原样保留
+    let saved = services::provider_save(&state, &json!({
+        "id": "openai", "name": "OpenAI", "kind": "openai-compatible",
+        "endpoint": "https://my-gateway.invalid/v1", "keyRequired": true, "models": [],
+    })).unwrap();
+    assert_eq!(saved["source"], "catalog", "保存连接信息不得改变来源");
+    assert_eq!(saved["catalogId"], "openai", "保存连接信息不得抹掉目录归属");
+    let after = state.catalog.find_provider("openai").expect("保存后提供商应仍存在");
+    assert_eq!(after.env_vars, before.env_vars, "保存连接信息不得抹掉 env 密钥变量名");
+
+    // 新建（无既有 id）走手动来源缺省
+    let created = services::provider_save(&state, &json!({
+        "id": "custom-gw", "name": "本地网关", "kind": "openai-compatible",
+        "endpoint": "https://gw.invalid/v1", "keyRequired": true, "models": [],
+    })).unwrap();
+    assert_eq!(created["source"], "manual");
+    assert_eq!(created["catalogId"], "");
+}
+
 #[test]
 fn workspace_add_empty_name_derivation_dedup_ordinal_and_single_object() {
     let (dir, state) = test_state("ws-add-project");

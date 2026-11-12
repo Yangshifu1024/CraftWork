@@ -1,5 +1,5 @@
-// 提供商列表纯逻辑：状态点三色判定、左栏按来源分组、模型选择器过滤。
-// 无 React / DOM 依赖，供设置页左栏与模型选择器消费并由 vitest 直测（tests/provider-list.test.ts）。
+// 提供商列表纯逻辑：状态点三色判定、模型选择器过滤。
+// 无 React / DOM 依赖，供设置页左栏与模型选择器消费。
 import type { ModelView, ProviderView } from "../../../shared/types";
 
 export type ProviderStatusTone = "ok" | "warn" | "off";
@@ -31,32 +31,10 @@ export function providerStatus(p: ProviderStatusInput): ProviderStatus {
   return { tone: "ok", label: "可用" };
 }
 
-/** 左栏分组（spec §5）：目录导入在前、手动添加在后；组标题常显、空组隐藏。 */
-export interface ProviderGroup<T> {
-  source: "catalog" | "manual";
-  label: string;
-  providers: T[];
-}
-
 /**
- * 按来源分组：仅 source === "catalog" 进目录导入组，
- * 其余（manual / 缺失 / 未知）归手动添加，与服务端缺省（manual）一致。
+ * 提供商来源（source）仅作数据溯源，不驱动 UI 分组：左栏平铺展示全部提供商。
+ * 选择器分组：提供商与其可选模型（过滤后非空才有分组）。
  */
-export function groupProviders<T extends { source?: string }>(providers: T[]): Array<ProviderGroup<T>> {
-  const catalog: T[] = [];
-  const manual: T[] = [];
-  for (const p of providers) {
-    if (p.source === "catalog") catalog.push(p);
-    else manual.push(p);
-  }
-  const groups: Array<ProviderGroup<T>> = [
-    { source: "catalog", label: "目录导入", providers: catalog },
-    { source: "manual", label: "手动添加", providers: manual },
-  ];
-  return groups.filter((g) => g.providers.length > 0);
-}
-
-/** 选择器分组：提供商与其可选模型（过滤后非空才有分组）。 */
 export interface SelectableModelGroup {
   provider: ProviderView;
   models: ModelView[];

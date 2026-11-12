@@ -9,7 +9,7 @@ import { useToasts } from "../store/toast";
 import { useOverlays } from "../store/overlays";
 import { api } from "../lib/api";
 import { applyTheme, saveThemePref } from "../lib/theme";
-import { groupProviders, providerStatus, selectableModels, type ProviderStatusTone } from "../lib/provider-list";
+import { providerStatus, selectableModels, type ProviderStatusTone } from "../lib/provider-list";
 import { formatContextK, formatContextTitle } from "../lib/format-context";
 import { cleanErrorMessage } from "../lib/errors";
 import { isImeComposing } from "../lib/ime";
@@ -932,7 +932,7 @@ function ProvidersSection(): React.JSX.Element {
     });
   }, [refreshKey]);
 
-  const groups = groupProviders(providers);
+  // 左栏平铺展示全部提供商：来源（source）仅作数据溯源，不再按「目录导入 / 手动添加」分组
   const selected = providers.find((p) => p.id === selectedId) ?? null;
 
   return (
@@ -956,22 +956,17 @@ function ProvidersSection(): React.JSX.Element {
       {/* 主从两栏（spec §4）：左列表 224px、右详情自适应，各自独立滚动 */}
       <div className="grid min-h-[32rem] max-h-[calc(100vh-14rem)] grid-cols-[224px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-clip rounded-xl border border-border/50 bg-panel">
         <aside className="min-h-0 overflow-y-auto border-r border-border/40 p-2">
-          <div role="listbox" aria-label="供应商列表" className="flex flex-col gap-3">
-            {groups.map((group) => (
-              <div key={group.source} role="group" aria-label={group.label} className="flex flex-col gap-0.5">
-                <div className="px-2 pb-1 text-ui-xs text-foreground-subtlest">{group.label}</div>
-                {group.providers.map((p) => (
-                  <ProviderListItem
-                    key={p.id}
-                    provider={p}
-                    selected={p.id === selectedId && view === "detail"}
-                    onSelect={() => {
-                      setSelectedId(p.id);
-                      setView("detail");
-                    }}
-                  />
-                ))}
-              </div>
+          <div role="listbox" aria-label="供应商列表" className="flex flex-col gap-0.5">
+            {providers.map((p) => (
+              <ProviderListItem
+                key={p.id}
+                provider={p}
+                selected={p.id === selectedId && view === "detail"}
+                onSelect={() => {
+                  setSelectedId(p.id);
+                  setView("detail");
+                }}
+              />
             ))}
           </div>
         </aside>
@@ -1701,7 +1696,7 @@ function ProviderDetail({ provider, onChanged }: { provider: ProviderView; onCha
       {/* 模型列表区（票 4 / spec §6）：标题 + [拉取模型][添加模型] + 行管理（徽章 / 启停 / 编辑 / 删除）/ 空态引导 */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-ui-sm font-medium text-foreground">模型列表</span>
+          <span className="text-ui-base font-medium text-foreground">模型列表</span>
           <div className="flex items-center gap-1.5">
             <button
               className="flex h-7 items-center gap-1 rounded-lg border border-border px-2.5 text-ui-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -1789,7 +1784,7 @@ function ModelRow({
     >
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-ui-sm text-foreground">{model.name}</span>
+          <span className="truncate text-ui-base text-foreground">{model.name}</span>
           {model.id !== model.name && (
             <span className="truncate font-mono text-ui-xs text-foreground-subtlest">{model.id}</span>
           )}

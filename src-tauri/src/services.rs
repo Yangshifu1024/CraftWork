@@ -2041,13 +2041,22 @@ pub fn provider_save(state: &AppState, input: &Value) -> SvcResult {
             .map(|p| p.headers.clone())
             .unwrap_or_default(),
     };
+    // 来源溯源字段（source/catalogId/catalogVersion/envVars）不属于输入契约：
+    // 更新既有提供商时从现值回填（同 headers 的「未携带保留现值」先例）——
+    // 保存连接信息不改变来源，也不丢 env 密钥回退与 logo 归属；
+    // 新建（无既有 id）时按手动创建落默认值。
+    let existing = providers.iter().find(|p| p.id == id);
     let entry = json!({
         "id": id,
         "name": input.get("name").and_then(Value::as_str).unwrap_or(&id),
         "kind": input.get("kind").and_then(Value::as_str).unwrap_or("openai"),
         "endpoint": input.get("endpoint").and_then(Value::as_str).unwrap_or(""),
         "keyRequired": input.get("keyRequired").and_then(Value::as_bool).unwrap_or(false),
-        "note": "", "source": "manual", "catalogId": "", "catalogVersion": "", "envVars": [],
+        "note": "",
+        "source": existing.map(|p| p.source.as_str()).unwrap_or("manual"),
+        "catalogId": existing.map(|p| p.catalog_id.as_str()).unwrap_or(""),
+        "catalogVersion": existing.map(|p| p.catalog_version.as_str()).unwrap_or(""),
+        "envVars": existing.map(|p| serde_json::to_value(&p.env_vars).unwrap_or(json!([]))).unwrap_or(json!([])),
         "enabled": true,
         "headers": headers,
         "models": input.get("models").cloned().unwrap_or(json!([])),
