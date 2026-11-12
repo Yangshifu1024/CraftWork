@@ -3,8 +3,10 @@
 //! 各服务函数由 lib.rs 的 dispatch 按方法名接线（签名对应 channels.ts 声明）；
 //! Err 为可读中文字符串，经 invoke 拒绝直达渲染层 toast。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -2758,6 +2760,119 @@ fn provider_models_json(state: &AppState, provider_id: &str) -> Result<Value, St
         }
     }
     Ok(json!([]))
+}
+
+// ---------- 套餐额度查询（决策 D34，crates/craft-model/src/quota.rs 模块头为协议口径） ----------
+//
+// 行为契约：
+// - 识别：provider endpoint 主机白名单（智谱 bigmodel.cn / z.ai；OpenCode Go 须含 /go 段），
+//   白名单外（第三方中转）一律不查——额度请求发往固定官方 URL，key 只发给 key 所属服务；
+// - 密钥：state.secrets.get_for（配置 key 优先，env 变量回落）；无 key 返回 null 不发请求；
+// - 缓存：进程内 30s TTL（QUOTA_CACHE_TTL），多窗口挂载 + 60s 轮询不放大上游请求量；
+//   仅缓存 Ok 结果，错误（含 null 语义的「无套餐」）不缓存，下轮轮询自然重试；
+// - null = 白名单外 / 无密钥 / 无套餐（OpenCode Go 403 与智谱「CodingPlan 不存在」信封
+//   都归入此类），渲染层据此隐藏 chip；其余失败抛可读中文错误（瞬时网络问题）。
+
+/// 单家额度结果缓存 TTL。
+const QUOTA_CACHE_TTL: Duration = Duration::from_secs(30);
+
+/// 进程内额度缓存：providerId → (取数时间, Ok 结果)。模块级而非 AppState 字段：
+/// 纯展示缓存，重启即失效，不值得动装配代码；不变量由「只在持锁时读写」保证。
+static QUOTA_CACHE: OnceLock<Mutex<HashMap<String, (Instant, Value)>>> = OnceLock::new();
+
+fn quota_cache() -> &'static Mutex<HashMap<String, (Instant, Value)>> {
+    QUOTA_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 缓存读：命中且未过期时返回 Some；过期条目顺手清掉。
+fn quota_cache_get(provider_id: &str) -> Option<Value> {
+    let mut cache = quota_cache().lock().ok()?;
+    if let Some((at, value)) = cache.get(provider_id) {
+        if at.elapsed() < QUOTA_CACHE_TTL {
+            return Some(value.clone());
+        }
+        cache.remove(provider_id);
+    }
+    None
+}
+
+/// 缓存写（仅 Ok 结果）。
+fn quota_cache_put(provider_id: &str, value: &Value) {
+    if let Ok(mut cache) = quota_cache().lock() {
+        cache.insert(provider_id.to_string(), (Instant::now(), value.clone()));
+    }
+}
+
+pub fn provider_quota(state: &AppState, provider_id: &str) -> SvcResult {
+    if let Some(hit) = quota_cache_get(provider_id) {
+        return Ok(hit);
+    }
+    let providers = load_providers(state);
+    let Some(provider) = providers.iter().find(|p| p.id == provider_id) else {
+        return Ok(json!(null));
+    };
+    let Some(flavor) = craft_model::quota::detect_flavor(&provider.endpoint) else {
+        return Ok(json!(null));
+    };
+    let env_refs: Vec<&str> = provider.env_vars.iter().map(String::as_str).collect();
+    let key = state.secrets.get_for(&provider.id, &env_refs);
+    if key.is_empty() {
+        return Ok(json!(null));
+    }
+    let windows = fetch_quota_windows(state, flavor, &key)?;
+    let view = json!({
+        "providerId": provider.id,
+        "providerName": provider.name,
+        "windows": windows,
+        "balanceText": Value::Null,
+        "fetchedAt": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    });
+    quota_cache_put(provider_id, &view);
+    Ok(view)
+}
+
+/// 按提供商族发 GET 并解析窗口：错误分类见 provider_quota 头注释（403/无套餐信封
+/// 归 null；解析失败与业务错误归可读 Err）。
+fn fetch_quota_windows(
+    state: &AppState,
+    flavor: craft_model::quota::Flavor,
+    key: &str,
+) -> Result<Vec<craft_model::quota::QuotaWindow>, String> {
+    let client = proxy_config(state)
+        .apply_reqwest_blocking(
+            reqwest::blocking::Client::builder().timeout(Duration::from_secs(10)),
+        )
+        .build()
+        .map_err(|e| format!("网络客户端初始化失败：{e}"))?;
+    let resp = client
+        .get(flavor.usage_url())
+        .header("Authorization", flavor.auth_header(key))
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|e| format!("额度查询失败：{}", network_error_text(&e)))?;
+    let status = resp.status();
+    let body = resp.text().map_err(|e| format!("额度查询失败：{e}"))?;
+    // 无套餐类：OpenCode Go 403 = key 有效（Zen/Go 共用 workspace key）但无 Go 订阅；
+    // 智谱无套餐以 success=false 信封表达，交给解析层识别。
+    if flavor == craft_model::quota::Flavor::OpenCodeGo && status.as_u16() == 403 {
+        return Ok(Vec::new());
+    }
+    if !status.is_success() {
+        return Err(format!("额度查询失败：HTTP {}", status.as_u16()));
+    }
+    let parsed: Value =
+        serde_json::from_str(&body).map_err(|_| "额度响应不是合法 JSON".to_string())?;
+    let windows = match flavor {
+        craft_model::quota::Flavor::OpenCodeGo => craft_model::quota::parse_opencode_go(&parsed)?,
+        craft_model::quota::Flavor::Zhipu | craft_model::quota::Flavor::Zai => {
+            // Ok(None) = 无套餐信封：与白名单外/无密钥同语义（null → chip 隐藏）
+            match craft_model::quota::parse_zhipu_limits(&parsed)? {
+                Some(windows) => windows,
+                None => return Ok(Vec::new()),
+            }
+        }
+    };
+    Ok(windows)
 }
 
 /// 密钥提示：密钥来源为环境变量的提供商（环境缺失后不可用的提醒）。

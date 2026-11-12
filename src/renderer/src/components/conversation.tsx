@@ -4,8 +4,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { ArrowUp, Check, ChevronDown, ChevronRight, Brain, AlertCircle, Copy, RefreshCw, Square, Plus, Paperclip, X, Folder, ListChecks, GitBranch, WandSparkles, Puzzle, PanelRight, PanelRightClose, Loader } from "lucide-react";
-import { Popover } from "radix-ui";
+import { Popover, HoverCard } from "radix-ui";
 import { ModelPicker } from "./model-picker";
+import { QuotaChip } from "./quota-chip";
 import { TurnNavigator } from "./turn-navigator";
 import { buildTurnNavItems, PLAN_CONFIRM_TEXT as NAV_PLAN_CONFIRM_TEXT, TURN_NAV_MIN_WIDTH_PX, type TurnNavItem } from "../lib/turn-nav";
 import { useApp, draftSlot, effectiveModelRef, effectiveReasoningLevel, EMPTY_DRAFT, EMPTY_THREAD_COMPOSER } from "../store/app";
@@ -1742,6 +1743,38 @@ function ErrorCard({ part, threadId }: { part: PartSnapshot; threadId: string })
 
 
 
+/** 套餐额度 chip 挂载点：从生效模型 ref（会话 → 草稿槽 → 全局默认）解析提供商并传给
+ *  QuotaChip；ref 形如 `providerId/modelId`，无 ref 时不出 chip。提供商显示名经
+ *  providerList 解析（与 ContextChip 的目录查询同构），查不到时兜底 ID 本身。 */
+function QuotaChipSlot(): React.JSX.Element | null {
+  const mode = useApp((s) => s.mode);
+  const activeId = useApp((s) => s.activeThreadId[mode]);
+  const settings = useApp((s) => s.settings);
+  const draftModel = useApp((s) => effectiveModelRef(s, s.mode));
+  const thread = useApp((s) => s.threads[mode].find((t) => t.id === activeId));
+  const modelId = activeId === "" ? draftModel : (thread?.modelId || settings.defaultModel);
+  const providerId = modelId.includes("/") ? modelId.slice(0, modelId.indexOf("/")) : "";
+  const [providerName, setProviderName] = useState("");
+  useEffect(() => {
+    if (!providerId) return;
+    let alive = true;
+    void api
+      .providerList()
+      .then((providers) => {
+        const name = providers.find((p) => p.id === providerId)?.name;
+        if (alive) setProviderName(name ?? providerId);
+      })
+      .catch(() => {
+        if (alive) setProviderName(providerId);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [providerId]);
+  if (!providerId) return null;
+  return <QuotaChip providerId={providerId} providerName={providerName || providerId} />;
+}
+
 /** 模型 chip：显示会话模型（草稿态显示当前草稿槽的模型引用，缺省回落全局默认），点击在按钮上方弹出选择浮层。
  *  模型名 + ChevronDown，未选时占位文案。
  *  作为 Popover.Trigger asChild 的 child，必须铺开透传 props（含 ref），否则 radix 的点击绑定落不到 DOM。 */
@@ -2006,8 +2039,8 @@ function ContextChip(): React.JSX.Element | null {
   const liveEstimating = running && liveSpeed > 0;
 
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
+    <HoverCard.Root openDelay={120} closeDelay={80}>
+      <HoverCard.Trigger asChild>
         <button
           type="button"
           className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-xs transition-colors hover:bg-surface-hover ${tone}`}
@@ -2022,18 +2055,13 @@ function ContextChip(): React.JSX.Element | null {
             </span>
           )}
         </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
+      </HoverCard.Trigger>
+      <HoverCard.Portal>
+        <HoverCard.Content
           side="top"
           align="start"
           sideOffset={8}
           aria-label="上下文详情"
-          onCloseAutoFocus={(e) => {
-            // 关闭后焦点回 composer 输入框（与模型 / 档位浮层同约定）。
-            e.preventDefault();
-            document.querySelector<HTMLTextAreaElement>("[data-composer-input]")?.focus();
-          }}
           className="z-50 w-80 rounded-xl border border-popover-border bg-popover p-3 shadow-md"
         >
           <p className="pb-2 text-ui-sm font-medium text-foreground">上下文</p>
@@ -2069,9 +2097,9 @@ function ContextChip(): React.JSX.Element | null {
           <p className="pt-2 text-ui-xs text-foreground-subtlest">
             占用为最近一轮模型请求的实测值（含缓存 token）；发送第一条消息后显示。
           </p>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        </HoverCard.Content>
+      </HoverCard.Portal>
+    </HoverCard.Root>
   );
 }
 
@@ -2629,6 +2657,9 @@ function Composer({
               <ContextChip />
             </div>
             <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5" data-composer-trailing-actions>
+              {/* 套餐额度 chip（D34）：模型选择器左侧，显示当前生效模型的提供商套餐余量；
+                  白名单外提供商（含全部常规网关）不渲染，chip 缺席即「该提供商无额度查询」 */}
+              <QuotaChipSlot />
               {/* 模型选择器贴发送簇左侧（模型/思考簇紧挨停止/发送） */}
               <ModelPicker
                 open={picker === "model"}

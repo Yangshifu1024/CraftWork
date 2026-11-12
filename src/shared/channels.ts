@@ -28,6 +28,7 @@ import type {
   PersonalizationInfo,
   ProviderInput,
   ProviderView,
+  ProviderQuotaView,
   Settings,
   ShellEnvStatus,
   ShellOption,
@@ -199,6 +200,10 @@ chatCancelWait(threadId: string): Promise<{ canceled: boolean }>;
   providerSetKey(providerId: string, key: string): Promise<void>;
   providerClearKey(providerId: string): Promise<void>;
   providerTest(providerId: string): Promise<ConnectionResult>;
+  /** 提供商套餐额度查询（决策 D34）：按 endpoint 主机白名单识别提供商族（智谱 bigmodel.cn /
+   *  z.ai、OpenCode Go），用已配置密钥查官方用量端点；服务端 30s TTL 缓存。返回 null =
+   *  白名单外 / 无密钥 / 无套餐（渲染层隐藏 chip，不视为错误）。 */
+  providerQuota(providerId: string): Promise<ProviderQuotaView | null>;
   providerWarnings(): Promise<string[]>;
   /** 网络页公开端点探测（决策 D14 第 6 节修订，与鉴权级 providerTest 语义不同）：
    *  并发 GET 常用提供商端点根路径（不带密钥），任意 HTTP 状态码都算连通。

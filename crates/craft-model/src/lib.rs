@@ -14,6 +14,7 @@ pub mod imageinfo;
 pub mod integrity;
 pub mod net;
 pub mod openai;
+pub mod quota;
 pub mod retry;
 pub mod sse;
 pub mod types;

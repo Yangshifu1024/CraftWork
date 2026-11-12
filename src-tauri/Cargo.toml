@@ -25,6 +25,8 @@ tauri-plugin-clipboard-manager = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# 仅 provider_quota 的 fetchedAt 时间戳（0.4 已在 workspace 依赖图中，复用既有锁版本）
+chrono = { workspace = true, features = ["clock"] }
 base64 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "rustls", "json", "socks"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }

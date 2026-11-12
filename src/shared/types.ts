@@ -304,6 +304,27 @@ export interface HeaderPair {
   value: string;
 }
 
+/** 单个套餐额度窗口（D34）：key ∈ five_hour | weekly | monthly，used_percent 为已用百分比。 */
+export interface QuotaWindow {
+  key: "five_hour" | "weekly" | "monthly";
+  usedPercent: number;
+  /** 重置时间（RFC3339 / ISO）；上游未给时为空串 */
+  resetsAt: string;
+}
+
+/** 提供商套餐额度视图（D34，providerQuota 通道）：两家端点均未官方文档化，解析为
+ *  防御式——窗口缺失即不出现；null = 提供商不在额度查询白名单（第三方中转）或
+ *  无密钥/无套餐，渲染层据此隐藏 chip。余额（balanceText）为扩展位：OpenCode 的
+ *  Console 余额走登录态授权、智谱端点不回金额，两家当前均为 null。 */
+export interface ProviderQuotaView {
+  providerId: string;
+  providerName: string;
+  windows: QuotaWindow[];
+  balanceText: string | null;
+  /** 本次取数时间（RFC3339） */
+  fetchedAt: string;
+}
+
 export interface ModelInput {
   id: string;
   name: string;

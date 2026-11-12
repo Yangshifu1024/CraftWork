@@ -1935,3 +1935,55 @@ fn chat_cancel_wait_without_in_flight_is_rejected() {
     let err = services::chat_cancel_wait(&state, "th_no_wait_here").unwrap_err();
     assert!(err.contains("没有等待中的任务"), "应给出可读错误：{err}");
 }
+
+// ---------- 套餐额度查询（D34）纯路径：不发网络请求的分支 ----------
+// （取数与解析的正确性由 craft-model 的 quota 单测覆盖，这里只钉 null 语义。）
+
+/// 不存在的提供商：null（而非错误——chip 隐藏语义）。
+#[test]
+fn provider_quota_unknown_provider_returns_null() {
+    let (_dir, state) = test_state("quota-unknown");
+    let view = services::provider_quota(&state, "ghost-provider").unwrap();
+    assert!(view.is_null());
+}
+
+/// 白名单外 endpoint（第三方中转 / 本地网关）：null，绝不把 key 发往非官方域。
+#[test]
+fn provider_quota_relay_endpoint_returns_null() {
+    let (_dir, state) = test_state("quota-relay");
+    let provider = json!({
+        "id": "relay", "name": "中转站", "kind": "openai-compatible",
+        "endpoint": "https://my-relay.example.com/v1", "keyRequired": true,
+        "models": [],
+    });
+    services::provider_save(&state, &provider).unwrap();
+    state.secrets.set("relay", "sk-relay-key");
+    assert!(services::provider_quota(&state, "relay").unwrap().is_null());
+}
+
+/// 官方域但未配置密钥：null（不发请求）。
+#[test]
+fn provider_quota_official_host_without_key_returns_null() {
+    let (_dir, state) = test_state("quota-nokey");
+    let provider = json!({
+        "id": "zhipuai-coding-plan", "name": "Zhipu AI Coding Plan", "kind": "openai-compatible",
+        "endpoint": "https://open.bigmodel.cn/api/coding/paas/v4", "keyRequired": true,
+        "models": [],
+    });
+    services::provider_save(&state, &provider).unwrap();
+    assert!(services::provider_quota(&state, "zhipuai-coding-plan").unwrap().is_null());
+}
+
+/// OpenCode Go 的 /zen/v1 按量版不命中白名单（无用量 API），返回 null。
+#[test]
+fn provider_quota_opencode_zen_v1_payg_not_matched() {
+    let (_dir, state) = test_state("quota-zen-v1");
+    let provider = json!({
+        "id": "opencode-zen", "name": "OpenCode Zen", "kind": "openai-compatible",
+        "endpoint": "https://opencode.ai/zen/v1", "keyRequired": true,
+        "models": [],
+    });
+    services::provider_save(&state, &provider).unwrap();
+    state.secrets.set("opencode-zen", "sk-zen");
+    assert!(services::provider_quota(&state, "opencode-zen").unwrap().is_null());
+}

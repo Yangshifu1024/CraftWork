@@ -7,7 +7,8 @@ license.workspace = true
 [dependencies]
 craft-core = { workspace = true }
 craft-store = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+chrono = { workspace = true, features = ["clock"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream", "rustls", "gzip", "socks"] }
 tokio = { workspace = true, features = ["rt", "time"] }

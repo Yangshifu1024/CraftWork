@@ -571,6 +571,8 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "providerUpdateModel" => provider_update_model(state, &a.str_at(0), &a.str_at(1), &a.value_at(2)),
         "providerRemoveModel" => provider_remove_model(state, &a.str_at(0), &a.str_at(1)),
         "providerFetchModels" => provider_fetch_models(state, &a.str_at(0)),
+        // 套餐额度查询（决策 D34）：白名单提供商用已配置密钥查官方用量端点
+        "providerQuota" => provider_quota(state, &a.str_at(0)),
         "providerWarnings" => provider_warnings(state),
         "providerTest" => provider_test(state, &a.str_at(0)),
         // 网络页公开端点探测（决策 D14 第 6 节修订）：id 空串全测，非空单行重测；
