@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "craft-agent"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -818,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "craft-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "getrandom 0.4.3",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "craft-doc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "zip",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "craft-git"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "craft-core",
  "gix",
@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "craft-marketplace"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "craft-core",
  "craft-git",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "craft-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "craft-core",
  "process-wrap",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "craft-model"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "base64 0.23.1",
@@ -896,11 +896,11 @@ dependencies = [
 
 [[package]]
 name = "craft-policy"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "craft-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "craft-core",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "craft-tools"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "craft-core",
  "craft-doc",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "craftwork"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
