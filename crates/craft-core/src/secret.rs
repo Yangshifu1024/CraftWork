@@ -1,0 +1,264 @@
+//! 密钥存储：~/.craftwork/keys.json（0600）。
+//! 密钥只存在于主进程与该文件；损坏时降级启动（新空存储）并给出警告，由用户在设置页重填。
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::platform::write_file_atomic_str;
+
+/// keys.json 的磁盘形态：providers 以 providerID 为键（providerID/modelID 引用中的 provider 部分）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct KeysFile {
+    version: i32,
+    providers: HashMap<String, String>,
+}
+
+impl Default for KeysFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            providers: HashMap::new(),
+        }
+    }
+}
+
+/// 密钥存储句柄：内存态 + 每次变更全量落盘；读多写少，Mutex 足够。
+pub struct SecretStore {
+    file_path: PathBuf,
+    data: std::sync::Mutex<KeysFile>,
+    warnings: std::sync::Mutex<Vec<String>>,
+}
+
+impl SecretStore {
+    fn new(file_path: PathBuf) -> Self {
+        Self {
+            file_path,
+            data: std::sync::Mutex::new(KeysFile::default()),
+            warnings: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn ensure_dir(dir: &Path) {
+        let _ = fs::create_dir_all(dir);
+        set_dir_mode_0700(dir);
+    }
+
+    /// 打开（不存在则空库启动）：先收紧文件权限，再解析内容；
+    /// 读取或解析失败不阻断启动，降级为空库并记入 warnings（由壳层提示用户重填）。
+    pub fn open(dir: &Path) -> SecretStore {
+        let file_path = dir.join("keys.json");
+        let store = SecretStore::new(file_path.clone());
+        Self::ensure_dir(dir);
+        if !file_path.exists() {
+            return store;
+        }
+        // 权限过宽时自动收紧
+        if !tighten_mode(&file_path) {
+            store.warnings.lock().unwrap().push("keys.json 权限过宽，自动收紧 0600 失败。".into());
+        }
+        match fs::read_to_string(&file_path).map_err(|e| e.to_string()).and_then(|text| {
+            serde_json::from_str::<KeysFile>(&text).map_err(|e| e.to_string())
+        }) {
+            Ok(parsed) => *store.data.lock().unwrap() = parsed,
+            Err(_) => {
+                store
+                    .warnings
+                    .lock()
+                    .unwrap()
+                    .push("keys.json 读取失败（可能已损坏），已按空密钥库启动；请重新配置密钥。".into());
+            }
+        }
+        store
+    }
+
+    /// 损坏降级：空存储（之后 set 会覆盖原文件）。
+    pub fn new_empty(dir: &Path) -> SecretStore {
+        Self::ensure_dir(dir);
+        SecretStore::new(dir.join("keys.json"))
+    }
+
+    /// 打开期间的降级/权限告警（一次性取出给壳层展示）。
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().unwrap().clone()
+    }
+
+    /// 取文件中存储的密钥；未配置返回空串（不回退环境变量）。
+    pub fn get(&self, provider_id: &str) -> String {
+        self.data.lock().unwrap().providers.get(provider_id).cloned().unwrap_or_default()
+    }
+
+    /// 取密钥：文件值优先（空串视为未配置），再按 envNames 逐个回退环境变量。
+    pub fn get_for(&self, provider_id: &str, env_names: &[&str]) -> String {
+        let file = self.get(provider_id);
+        if !file.is_empty() {
+            return file;
+        }
+        for name in env_names {
+            let Ok(v) = std::env::var(name) else { continue };
+            if !v.is_empty() {
+                return v;
+            }
+        }
+        String::new()
+    }
+
+    /// 密钥来源（仅文件口径）："file" 或空串（未配置）。
+    pub fn source(&self, provider_id: &str) -> String {
+        if self.get(provider_id).is_empty() {
+            String::new()
+        } else {
+            "file".into()
+        }
+    }
+
+    /// 密钥来源："file" > "env" > 空串，与 get_for 的回退链一致。
+    pub fn source_for(&self, provider_id: &str, env_names: &[&str]) -> String {
+        if !self.get(provider_id).is_empty() {
+            return "file".into();
+        }
+        for name in env_names {
+            if std::env::var(name).is_ok_and(|v| !v.is_empty()) {
+                return "env".into();
+            }
+        }
+        String::new()
+    }
+
+    /// 遮罩展示：≤10 位全点；否则前 5 位…后 4 位。
+    pub fn masked_for(&self, provider_id: &str, env_names: &[&str]) -> String {
+        let key = self.get_for(provider_id, env_names);
+        if key.is_empty() {
+            return String::new();
+        }
+        let chars: Vec<char> = key.chars().collect();
+        if chars.len() <= 10 {
+            return "••••••".into();
+        }
+        format!("{}…{}", chars[..5].iter().collect::<String>(), &key[key.len() - 4..])
+    }
+
+    /// 写入密钥并落盘；value 为空串等价于删除该提供商的密钥。
+    pub fn set(&self, provider_id: &str, value: &str) {
+        let mut data = self.data.lock().unwrap();
+        if value.is_empty() {
+            data.providers.remove(provider_id);
+        } else {
+            data.providers.insert(provider_id.to_string(), value.to_string());
+        }
+        drop(data);
+        self.persist();
+    }
+
+    /// 删除密钥并落盘。
+    pub fn delete(&self, provider_id: &str) {
+        self.data.lock().unwrap().providers.remove(provider_id);
+        self.persist();
+    }
+
+    fn persist(&self) {
+        // 同目录临时文件 → 0600 → 原子替换
+        let text = serde_json::to_string_pretty(&*self.data.lock().unwrap()).unwrap_or_default();
+        if let Err(err) = write_file_atomic_str(&self.file_path, &format!("{text}\n"), 0o600) {
+            eprintln!("[craftwork] keys.json 写入失败：{err}");
+        }
+    }
+}
+
+#[cfg(unix)]
+fn current_mode(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).ok().map(|m| m.permissions().mode())
+}
+
+/// 权限过宽时收紧 0600；返回是否处于收紧状态（含已收紧成功）。
+#[cfg(unix)]
+fn tighten_mode(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match current_mode(path) {
+        Some(mode) if mode & 0o077 != 0 => {
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+            current_mode(path).is_some_and(|m| m & 0o077 == 0)
+        }
+        Some(_) => true,
+        None => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn tighten_mode(_path: &Path) -> bool {
+    true
+}
+
+#[cfg(unix)]
+fn set_dir_mode_0700(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+}
+
+#[cfg(not(unix))]
+fn set_dir_mode_0700(_dir: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        // 唯一目录：纳秒时间戳在 macOS 上会撞名（见 crate::testutil 注释）
+        let dir = crate::testutil::unique_temp_dir(&format!("secret-{tag}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_read_mode_tightened_masked() {
+        let dir = tmp_dir("basic");
+        {
+            let store = SecretStore::open(&dir);
+            store.set("p1", "sk-abcdefghijklmnop");
+            assert_eq!(store.get("p1"), "sk-abcdefghijklmnop");
+            assert_eq!(store.source("p1"), "file");
+            assert_eq!(store.masked_for("p1", &[]), "sk-ab…mnop");
+            assert_eq!(store.masked_for("p2", &[]), "");
+            assert_eq!(store.get_for("p2", &["CRAFTWORK_TEST_ENV_KEY"]), "");
+        }
+        // 重新打开：值持久化、权限 0600
+        let store = SecretStore::open(&dir);
+        assert_eq!(store.get("p1"), "sk-abcdefghijklmnop");
+        #[cfg(unix)]
+        {
+            let mode = current_mode(&dir.join("keys.json")).unwrap_or(0);
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_set_removes_env_fallback_chain() {
+        unsafe { std::env::set_var("CRAFTWORK_SECRET_TEST_KEY", "env-value") };
+        let dir = tmp_dir("env");
+        let store = SecretStore::open(&dir);
+        store.set("p1", "x");
+        store.set("p1", "");
+        assert_eq!(store.get("p1"), "");
+        assert_eq!(store.get_for("p1", &["CRAFTWORK_SECRET_TEST_KEY"]), "env-value");
+        assert_eq!(store.source_for("p1", &["CRAFTWORK_SECRET_TEST_KEY"]), "env");
+        unsafe { std::env::remove_var("CRAFTWORK_SECRET_TEST_KEY") };
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn corrupt_file_falls_back_with_warning() {
+        let dir = tmp_dir("corrupt");
+        fs::write(dir.join("keys.json"), "{not json").unwrap();
+        let store = SecretStore::open(&dir);
+        assert!(store.get("p1").is_empty());
+        assert!(store.warnings().iter().any(|w| w.contains("读取失败")));
+        // set 覆盖原文件恢复可用（set 接受 &self，无需重新绑定）
+        store.set("p1", "ok");
+        assert_eq!(SecretStore::open(&dir).get("p1"), "ok");
+        fs::remove_dir_all(&dir).ok();
+    }
+}

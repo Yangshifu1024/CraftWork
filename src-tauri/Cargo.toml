@@ -1,0 +1,41 @@
+# Tauri 应用壳：入口、窗口、托盘、IPC 接线、capabilities。唯一的 Tauri API 使用方；
+# 领域逻辑一律放在 crates/craft-* 中保持可独立测试（分层依据见 docs/arch.md）。
+[package]
+name = "craftwork"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "craftwork_lib"
+# 桌面三平台只需 rlib（main.rs 链接它）。staticlib 是 iOS、cdylib 是 Android
+# 的产物；本仓库不做移动端，去掉后 release 的 fat LTO 少做两遍整图链接，
+# 应用二进制本身不变。将来接移动端时再加回。
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+# 仅用于 build.rs 注入编译时间（0.4 已在 workspace 依赖图中，复用既有锁版本）
+chrono = { workspace = true, features = ["clock"] }
+
+[dependencies]
+tauri = { workspace = true, features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri-plugin-dialog = { workspace = true }
+tauri-plugin-clipboard-manager = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "rustls", "json", "socks"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time"] }
+craft-agent = { workspace = true }
+craft-core = { workspace = true }
+craft-doc = { workspace = true }
+craft-git = { workspace = true }
+craft-marketplace = { workspace = true }
+craft-mcp = { workspace = true }
+craft-model = { workspace = true }
+craft-policy = { workspace = true }
+craft-store = { workspace = true }
+craft-tools = { workspace = true }
+tauri-plugin-notification = { workspace = true }

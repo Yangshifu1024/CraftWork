@@ -1,0 +1,30 @@
+[package]
+name = "craft-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+# 出站代理解析（craft-core::network）只用 ClientBuilder / Proxy 类型操作，不构建请求：
+# 不启用 system-proxy feature（系统代理由本模块读 SCDynamicStore 后显式喂给两个出口，
+# 保证 reqwest 与 gix 语义统一，见 D14）；socks 供 Proxy::all
+# 解析 socks5/socks5h 地址；blocking 供壳层 blocking 场景的 apply_reqwest_blocking
+# （provider_test / 拉取模型列表，blocking builder 与 async builder 是两个类型）。
+reqwest = { workspace = true, features = ["socks", "blocking", "rustls"] }
+
+[dev-dependencies]
+# 集成测试要断言异步出口（apply_reqwest）的线上行为，需要一个 runtime 驱动 reqwest 请求；
+# features 只开 rt（current_thread + block_on 足够），不进发布产物。
+tokio = { workspace = true, features = ["rt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# macOS 系统代理读取（SCDynamicStore），仅 macOS target；Windows 随 D7 跨平台节奏补
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = { workspace = true }

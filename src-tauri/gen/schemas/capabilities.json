@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"主窗口基础权限：核心事件监听与窗口拖拽。按插件逐条最小授权扩充。","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging","core:window:allow-set-background-color","notification:default","core:window:allow-internal-toggle-maximize"]}}

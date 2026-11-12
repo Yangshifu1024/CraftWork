@@ -1,0 +1,22 @@
+# Dependabot 依赖更新（pnpm / Cargo / GitHub Actions 三生态，每周检查）。
+# npm 的 minor/patch 合并为单个 PR 降噪；major 与安全更新单独开 PR。
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  # Cargo 工作区：根 Cargo.toml 集中声明依赖版本（src-tauri 为成员，不单独配目录）
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

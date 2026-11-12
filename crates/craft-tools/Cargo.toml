@@ -1,0 +1,23 @@
+[package]
+name = "craft-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+craft-core = { workspace = true }
+craft-doc = { workspace = true }
+craft-git = { workspace = true }
+craft-mcp = { workspace = true }
+zip = { workspace = true, features = ["deflate"] }
+craft-policy = { workspace = true }
+craft-store = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+regex = { workspace = true }
+# ripgrep 官方库 crate：并行目录遍历（ignore）与流式逐行搜索（grep-*）
+ignore = { workspace = true }
+grep-regex = { workspace = true }
+grep-searcher = { workspace = true }
+# web_fetch 的出站 HTTP（D33）：blocking 供同步 execute 用；经 craft-core::network 统一代理与 UA
+reqwest = { workspace = true, features = ["blocking", "rustls"] }

@@ -1,0 +1,32 @@
+[
+  {
+    "repo": "obra/superpowers",
+    "form": "plugin",
+    "displayName": "Superpowers",
+    "description": "开发流程方法论技能集（单插件仓库：TDD、调试、系统化工程实践）"
+  },
+  {
+    "repo": "mattpocock/skills",
+    "form": "marketplace",
+    "displayName": "Matt Pocock Skills",
+    "description": "工程方法论与生产力技能（市场清单 + 插件自指：engineering / productivity）"
+  },
+  {
+    "repo": "DietrichGebert/ponytail",
+    "form": "marketplace",
+    "displayName": "Ponytail",
+    "description": "单 prompt 工作流（声明 hooks，自动激活不可用，技能按需或斜杠激活）"
+  },
+  {
+    "repo": "anthropics/skills",
+    "form": "marketplace",
+    "displayName": "Anthropic Skills",
+    "description": "Anthropic 官方技能市场（document-skills、example-skills 等，条目级 skills 数组）"
+  },
+  {
+    "repo": "rampstackco/claude-skills",
+    "form": "marketplace",
+    "displayName": "Rampstack Claude Skills",
+    "description": "百余个纯技能（品牌 / 设计 / 内容 / SEO / 产品 / 运维）"
+  }
+]

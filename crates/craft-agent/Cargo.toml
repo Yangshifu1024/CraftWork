@@ -1,0 +1,25 @@
+[package]
+name = "craft-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+craft-core = { workspace = true }
+craft-git = { workspace = true }
+craft-store = { workspace = true }
+craft-policy = { workspace = true }
+craft-model = { workspace = true }
+craft-tools = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+tokio-util = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+# 图片预缩（P1-2）：只解 png/jpeg/gif/webp，关掉其余解码器以压编译时间与体积
+image = { workspace = true, features = ["png", "jpeg", "gif", "webp"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

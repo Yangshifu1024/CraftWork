@@ -1,0 +1,22 @@
+.DS_Store
+.zcode
+
+# Node / 构建产物
+node_modules/
+dist/
+
+# scripts 只跟踪仓库脚本；临时脚本放这里自动忽略
+scripts/*
+!scripts/docscheck.mjs
+!scripts/modelsync.mjs
+*.log
+coverage/
+*.tsbuildinfo
+
+# Rust 构建产物
+target/
+
+# 本地环境
+.env
+.env.*
+tests/fixtures/craftwork-golden.db-*

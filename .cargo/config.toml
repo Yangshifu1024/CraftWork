@@ -1,0 +1,7 @@
+# 构建配置（只影响编译/链接耗时，不影响产物运行性能）。
+
+# Windows 用工具链自带的 rust-lld 替代 link.exe：大二进制的链接阶段明显更快。
+# rust-lld.exe 随 Rust 工具链分发（sysroot 的 lib/rustlib/<target>/bin），
+# 无需额外安装 LLVM，也不改变生成的机器码。
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

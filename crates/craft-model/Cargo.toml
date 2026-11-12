@@ -1,0 +1,23 @@
+[package]
+name = "craft-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+craft-core = { workspace = true }
+craft-store = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream", "rustls", "gzip", "socks"] }
+tokio = { workspace = true, features = ["rt", "time"] }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+async-stream = { workspace = true }
+flate2 = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+# #[tokio::test] 需要 macros 特性：workspace 构建靠其他 crate 的特性并集带过，
+# 单独构建本 crate（cargo test -p craft-model）必须自持
+tokio = { workspace = true, features = ["rt", "time", "macros"] }

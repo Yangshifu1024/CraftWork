@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CraftWork",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "visible": false,
+        "maximized": true,
+        "decorations": false,
+        "backgroundColor": "#f8f8f8"
+      }
+    ]
+  }
+}

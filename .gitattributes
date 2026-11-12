@@ -1,0 +1,59 @@
+# 行尾策略：仓库内一律存 LF，检出时由各平台自行决定。
+#
+# 为什么需要这个文件：仓库此前没有它，行尾行为完全取决于本机的 core.autocrlf。
+# 曾出现过两种实际事故，二者都靠本文件消除：
+#   1. Windows（autocrlf=true）下用脚本整体重写文件，索引被写入 CRLF，
+#      `git diff` 把一篇只改了一行的文档显示成全文重写，review 与 blame 全部失真；
+#   2. 同一份源码在 Windows 检出为 CRLF、在 macOS / CI 检出为 LF，
+#      跨平台的字节级断言与 golden 对比随之漂移。
+#
+# 口径：入库统一 LF（`text=auto` 让 git 在提交时把 CRLF 归一成 LF），检出时按各平台
+# 默认行尾还原——这正是 `text=auto` 在开启 autocrlf 的机器上的行为，也让未开启
+# autocrlf 的机器（CI / macOS）拿到与入库完全一致的 LF。二进制显式标 `binary`
+# （= `-text -diff`），不参与行尾转换、不生成无意义的文本 diff。
+
+# ---------- 默认：文本，自动识别 ----------
+* text=auto
+
+# ---------- 源码 / 文档 / 配置 ----------
+*.rs    text diff=rust
+*.toml  text diff=toml
+*.ts    text diff=typescript
+*.tsx   text diff=typescript
+*.js    text
+*.mjs   text
+*.css   text
+*.html  text
+*.json  text
+*.md    text diff=markdown
+*.yml   text
+*.yaml  text
+*.xml   text
+*.py    text
+*.sh    text
+*.ps1   text
+*.sql   text
+*.svg   text
+*.lock  text
+
+# 无扩展名的约定文件（git 对它们做自动识别同样有效，显式声明只为可读）
+.gitignore     text
+.gitattributes text
+.gitkeep       text
+
+# ---------- 二进制：不转换、不产文本 diff ----------
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.icns  binary
+*.gz    binary
+*.zip   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.db    binary

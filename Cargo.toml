@@ -1,0 +1,105 @@
+# CraftWork cargo workspace：src-tauri 为应用壳（唯一允许接触 Tauri API 的成员），
+# crates/craft-* 为领域 crate（与 Electron 主进程领域包一一对应，保持可独立测试）。
+# 分层依据见 docs/arch.md。
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/craft-core",
+    "crates/craft-store",
+    "crates/craft-policy",
+    "crates/craft-model",
+    "crates/craft-tools",
+    "crates/craft-agent",
+    "crates/craft-doc",
+    "crates/craft-git",
+    "crates/craft-marketplace",
+    "crates/craft-mcp",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0"
+
+# 依赖版本的唯一事实源：成员 crate 一律以 `dep = { workspace = true }` 引用，
+# 使用方特有的 features 留在成员（Cargo 在 workspace 构建时本就会做特性并集）。
+# 新增依赖先在这里声明版本，避免同一依赖在不同 crate 漂移出多个主版本。
+[workspace.dependencies]
+# 内部 crate（path 相对本文件）
+craft-agent = { path = "crates/craft-agent" }
+craft-core = { path = "crates/craft-core" }
+craft-doc = { path = "crates/craft-doc" }
+craft-git = { path = "crates/craft-git" }
+craft-marketplace = { path = "crates/craft-marketplace" }
+craft-mcp = { path = "crates/craft-mcp" }
+craft-model = { path = "crates/craft-model" }
+craft-policy = { path = "crates/craft-policy" }
+craft-store = { path = "crates/craft-store" }
+craft-tools = { path = "crates/craft-tools" }
+
+# 异步与并发
+tokio = "1"
+tokio-util = "0.7"
+futures-core = "0.3"
+futures-util = "0.3"
+async-stream = "0.3"
+process-wrap = "10"
+
+# 序列化与基础类型
+serde = "1"
+serde_json = "1"
+chrono = { version = "0.4", default-features = false }
+base64 = "0.23.1"
+sha2 = "0.11.1"
+getrandom = "0.4.3"
+regex = "1"
+
+# 网络（TLS 统一 rustls；default-features 由成员叠加）
+reqwest = { version = "0.13", default-features = false }
+
+# 存储（bundled：把 SQLite 源码编进产物，版本随 crate 走）
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+
+# 文件格式与图片
+zip = { version = "9.5.0", default-features = false }
+flate2 = "1.1.11"
+image = { version = "0.25", default-features = false }
+
+# Git（gix 0.x 有破坏性变更，精确锁死；D13）
+gix = { version = "=0.90.0", default-features = false }
+
+# MCP
+rmcp = { version = "3.9", default-features = false }
+
+# 搜索（ripgrep 库 crate）
+ignore = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+
+# 平台
+libc = "0.2"
+system-configuration = "0.8"
+
+# Tauri 应用壳
+tauri = "2"
+tauri-build = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+
+# 测试
+tempfile = "3"
+
+[profile.release]
+strip = true
+# 本地默认 thin LTO：最终链接并行，显著快于 fat。发布 CI 用
+# CARGO_PROFILE_RELEASE_LTO=fat 覆盖回 fat，正式产物优化方式不变。
+lto = "thin"
+codegen-units = 1
+
+# craftwork 包单独放开 codegen-units：中间 rlib（含嵌入的前端资源）并行 codegen，
+# 单次重建约 44s → 9s；最终 bin 的 LTO 步骤耗时不受影响。
+[profile.release.package.craftwork]
+codegen-units = 16

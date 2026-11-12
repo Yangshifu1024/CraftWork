@@ -1,0 +1,586 @@
+/* 主题系统：Tailwind v4 @theme + 浅/深两套语义变量（craft-light / craft-dark）。
+   变量名即组件层消费的类名来源（bg-background、text-foreground 等）。 */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* dark 变体绑定到主题类而非系统偏好：本项目主题由 html 上的 .theme-craft-light /
+   .theme-craft-dark 类驱动（可手动切换），Tailwind v4 默认的
+   @media (prefers-color-scheme: dark) 会在「系统浅色 + 应用深色」时给出浅色样式。
+   受影响的不只是 shiki 双主题 token（streamdown 用 dark:text-[var(--shiki-dark)] 表达），
+   任何 dark: 工具类都统一走这条规则。 */
+@custom-variant dark (&:where(.theme-craft-dark, .theme-craft-dark *));
+
+/* streamdown 组件输出的 Tailwind 类名在 node_modules 内，默认不在 v4 自动扫描范围；
+   不加 @source 时表格、代码块等渲染为裸 HTML（无边框与间距）。 */
+@source "../../../node_modules/streamdown/dist";
+
+@theme {
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "Noto Sans CJK SC", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+
+  --ui-font-size: 14px;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-settings-title: calc(var(--ui-font-size) + 10px);
+}
+
+/* 语义色 token：@theme inline 让工具类直接引用主题变量，深浅切换即时生效。 */
+@theme inline {
+  --color-background: var(--craft-background);
+  --color-background-win-alt: var(--craft-background-win-alt);
+  --color-sidebar: var(--craft-sidebar);
+  --color-panel: var(--craft-panel);
+  --color-header: var(--craft-header);
+  --color-surface: var(--craft-surface);
+  --color-surface-hover: var(--craft-surface-hover);
+  /* muted / muted-foreground：streamdown 输出的 bg-muted（行内代码底色）、
+     text-muted-foreground（代码块语言标签与行号）、border-muted-foreground/30 需要，
+     复用既有变量，不新增色值。 */
+  --color-muted: var(--craft-surface);
+  --color-muted-foreground: var(--craft-foreground-subtle);
+  --color-hover: var(--craft-hover);
+  --color-selected: var(--craft-selected);
+  --color-user-message-bubble: var(--craft-user-message-bubble);
+  --color-card: var(--craft-card);
+  --color-input: var(--craft-input);
+  --color-input-focused: var(--craft-input-focused);
+  --color-input-border: var(--craft-input-border);
+  --color-input-border-hover: var(--craft-input-border-hover);
+  --color-input-border-focused: var(--craft-input-border-focused);
+  --color-popover: var(--craft-popover);
+  --color-popover-header: var(--craft-popover-header);
+  --color-popover-border: var(--craft-popover-border);
+  --color-menu: var(--craft-menu);
+  --color-menu-hover: var(--craft-menu-hover);
+  --color-tab: var(--craft-tab);
+  --color-tab-active: var(--craft-tab-active);
+  --color-tag: var(--craft-tag);
+  --color-foreground: var(--craft-foreground);
+  --color-foreground-subtle: var(--craft-foreground-subtle);
+  --color-foreground-subtlest: var(--craft-foreground-subtlest);
+  --color-foreground-inverse: var(--craft-foreground-inverse);
+  --color-primary: var(--craft-primary);
+  --color-primary-foreground: var(--craft-primary-foreground);
+  --color-secondary: var(--craft-secondary);
+  --color-brand: var(--craft-brand);
+  --color-border: var(--craft-border);
+  --color-border-hover: var(--craft-border-hover);
+  --color-ring: var(--craft-ring);
+  --color-success: var(--craft-success);
+  --color-success-surface: var(--craft-success-surface);
+  --color-success-surface-foreground: var(--craft-success-surface-foreground);
+  --color-warning: var(--craft-warning);
+  --color-warning-surface: var(--craft-warning-surface);
+  --color-warning-surface-foreground: var(--craft-warning-surface-foreground);
+  --color-destructive: var(--craft-destructive);
+  --color-destructive-surface: var(--craft-destructive-surface);
+  --color-destructive-surface-foreground: var(--craft-destructive-surface-foreground);
+  --color-skill: var(--craft-skill);
+  --color-mode-code: var(--craft-mode-code);
+  --color-mode-code-foreground: var(--craft-mode-code-foreground);
+  --color-mode-code-soft: var(--craft-mode-code-soft);
+  --color-mode-code-soft-foreground: var(--craft-mode-code-soft-foreground);
+  --color-mode-work: var(--craft-mode-work);
+  --color-mode-work-foreground: var(--craft-mode-work-foreground);
+  --color-mode-work-soft: var(--craft-mode-work-soft);
+  --color-mode-work-soft-foreground: var(--craft-mode-work-soft-foreground);
+  --color-icon-blue: var(--craft-icon-blue);
+  --color-diff-added: var(--craft-diff-added);
+  --color-diff-removed: var(--craft-diff-removed);
+  --color-git-modified: var(--craft-git-modified);
+  --color-git-added: var(--craft-git-added);
+  --color-git-deleted: var(--craft-git-deleted);
+  --color-git-renamed: var(--craft-git-renamed);
+  --color-terminal-bg: var(--craft-terminal-bg);
+  --color-terminal-fg: var(--craft-terminal-fg);
+  --color-terminal-selection: var(--craft-terminal-selection);
+  --color-terminal-cursor: var(--craft-terminal-cursor);
+  --color-terminal-black: var(--craft-terminal-black);
+  --color-terminal-red: var(--craft-terminal-red);
+  --color-terminal-green: var(--craft-terminal-green);
+  --color-terminal-yellow: var(--craft-terminal-yellow);
+  --color-terminal-blue: var(--craft-terminal-blue);
+  --color-terminal-magenta: var(--craft-terminal-magenta);
+  --color-terminal-cyan: var(--craft-terminal-cyan);
+  --color-terminal-white: var(--craft-terminal-white);
+  --color-terminal-bright-black: var(--craft-terminal-bright-black);
+  --color-terminal-bright-red: var(--craft-terminal-bright-red);
+  --color-terminal-bright-green: var(--craft-terminal-bright-green);
+  --color-terminal-bright-yellow: var(--craft-terminal-bright-yellow);
+  --color-terminal-bright-blue: var(--craft-terminal-bright-blue);
+  --color-terminal-bright-magenta: var(--craft-terminal-bright-magenta);
+  --color-terminal-bright-cyan: var(--craft-terminal-bright-cyan);
+  --color-terminal-bright-white: var(--craft-terminal-bright-white);
+  --color-toast: var(--craft-toast);
+  --color-tooltip: var(--craft-tooltip);
+}
+
+
+/* ---------- 默认浅色（fallback） ---------- */
+:root {
+  --color-background: #f8f8f8;
+  --color-foreground: #262626;
+  --color-sidebar: #ececee;
+  --color-panel: #ffffff;
+  --color-header: #ffffff;
+  --color-card: #ffffff;
+  --color-input: #ffffff;
+  --color-popover: #ffffff;
+  --color-menu: #ffffff;
+  --color-primary: #171717;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e6e6e6;
+  --color-border: rgba(13, 13, 13, 0.1);
+  --color-ring: rgba(11, 127, 255, 0.5);
+}
+
+/* ---------- craft 浅色 ---------- */
+.theme-craft-light {
+  --craft-background: #f8f8f8;
+  --craft-background-win-alt: #ececee;
+  --craft-sidebar: #ececee;
+  --craft-panel: #ffffff;
+  --craft-header: #ffffff;
+  --craft-surface: rgba(13, 13, 13, 0.03);
+  --craft-surface-hover: rgba(13, 13, 13, 0.05);
+  --craft-hover: rgba(13, 13, 13, 0.05);
+  --craft-selected: rgba(13, 13, 13, 0.05);
+  --craft-user-message-bubble: rgba(13, 13, 13, 0.05);
+  --craft-card: #ffffff;
+  --craft-input: #ffffff;
+  --craft-input-focused: #ffffff;
+  --craft-input-border: rgba(13, 13, 13, 0.1);
+  --craft-input-border-hover: rgba(13, 13, 13, 0.15);
+  --craft-input-border-focused: rgba(13, 13, 13, 0.15);
+  --craft-popover: #ffffff;
+  --craft-popover-header: #ececee;
+  --craft-popover-border: rgba(13, 13, 13, 0.1);
+  --craft-menu: #ffffff;
+  --craft-menu-hover: #f0f0f0;
+  --craft-tab: #f0f0f0;
+  --craft-tab-active: #ffffff;
+  --craft-tag: #e6e6e6;
+
+  --craft-foreground: #262626;
+  --craft-foreground-subtle: rgba(13, 13, 13, 0.6);
+  --craft-foreground-subtlest: rgba(13, 13, 13, 0.4);
+  --craft-foreground-inverse: #ffffff;
+  --craft-primary: #000000;
+  --craft-primary-foreground: #ffffff;
+  --craft-secondary: #e6e6e6;
+  --craft-brand: #000000;
+
+  --craft-border: rgba(13, 13, 13, 0.1);
+  --craft-border-hover: rgba(13, 13, 13, 0.15);
+
+  --craft-success: #1e8a3e;
+  --craft-success-surface: #eaf7ee;
+  --craft-success-surface-foreground: #166b32;
+  --craft-warning: #e07b00;
+  --craft-warning-surface: rgba(224, 123, 0, 0.12);
+  --craft-warning-surface-foreground: #914e00;
+  --craft-destructive: #e03131;
+  --craft-destructive-surface: rgba(224, 49, 49, 0.1);
+  --craft-destructive-surface-foreground: #b42020;
+  /* 技能分类色（D11）：消息流 / composer 的斜杠技能 chip 文字与图标（紫色系身份色） */
+  --craft-skill: #7c3aed;
+
+  /* 模式主色：Code 蓝 / Work 亮黄（soft 为浅底，soft-foreground 为浅底上的文字） */
+  --craft-mode-code: #0066dd;
+  --craft-mode-code-foreground: #ffffff;
+  --craft-mode-code-soft: rgba(0, 102, 221, 0.1);
+  --craft-mode-code-soft-foreground: #0066dd;
+  --craft-mode-work: #f5c211;
+  --craft-mode-work-foreground: #1c1917;
+  --craft-mode-work-soft: rgba(245, 194, 17, 0.16);
+  --craft-mode-work-soft-foreground: #a16207;
+
+  --craft-icon-blue: #0066dd;
+
+  --craft-diff-added: #1e8a3e;
+  --craft-diff-removed: #e03131;
+  --craft-git-modified: #e07b00;
+  --craft-git-added: #1e8a3e;
+  --craft-git-deleted: #e03131;
+  --craft-git-renamed: #0b7fff;
+
+  --craft-terminal-bg: #ececee;
+  --craft-terminal-fg: #0d0d0d;
+  --craft-toast: #ffffff;
+  --craft-tooltip: #f0f0f0;
+
+  --shadow-composer-soft: 0 1px 3px rgb(0 0 0 / 4%), 0 6px 18px rgb(0 0 0 / 4%);
+}
+
+/* ---------- craft 深色（产品默认） ---------- */
+.theme-craft-dark {
+  --craft-background: #161616;
+  --craft-background-win-alt: #2b2b2b;
+  --craft-sidebar: #2b2b2b;
+  --craft-panel: #202020;
+  --craft-header: #202020;
+  --craft-surface: rgba(255, 255, 255, 0.05);
+  --craft-surface-hover: rgba(255, 255, 255, 0.1);
+  --craft-hover: rgba(255, 255, 255, 0.05);
+  --craft-selected: rgba(255, 255, 255, 0.1);
+  --craft-user-message-bubble: rgba(255, 255, 255, 0.08);
+  --craft-card: #2b2b2b;
+  --craft-input: #2b2b2b;
+  --craft-input-focused: #2b2b2b;
+  --craft-input-border: rgba(255, 255, 255, 0.1);
+  --craft-input-border-hover: rgba(255, 255, 255, 0.15);
+  --craft-input-border-focused: rgba(255, 255, 255, 0.15);
+  --craft-popover: #2b2b2b;
+  --craft-popover-header: #202020;
+  --craft-popover-border: rgba(255, 255, 255, 0.1);
+  --craft-menu: #2b2b2b;
+  --craft-menu-hover: #363636;
+  --craft-tab: #202020;
+  --craft-tab-active: #161616;
+  --craft-tag: #363636;
+
+  --craft-foreground: #d4d4d4;
+  --craft-foreground-subtle: rgba(255, 255, 255, 0.6);
+  --craft-foreground-subtlest: rgba(255, 255, 255, 0.3);
+  --craft-foreground-inverse: #000000;
+  --craft-primary: #ffffff;
+  --craft-primary-foreground: #000000;
+  --craft-secondary: #363636;
+  --craft-brand: #ffffff;
+
+  --craft-border: rgba(255, 255, 255, 0.1);
+  --craft-border-hover: rgba(255, 255, 255, 0.15);
+
+  --craft-success: #46bf72;
+  --craft-success-surface: rgba(70, 191, 114, 0.16);
+  --craft-success-surface-foreground: #87d9a4;
+  --craft-warning: #ff8a30;
+  --craft-warning-surface: rgba(255, 138, 48, 0.16);
+  --craft-warning-surface-foreground: #ffa159;
+  --craft-destructive: #ff5c5c;
+  --craft-destructive-surface: rgba(255, 92, 92, 0.16);
+  --craft-destructive-surface-foreground: #ff8585;
+  --craft-skill: #bda5e6;
+
+  /* 模式主色：Code 蓝 / Work 亮黄（暗主题延续「亮底深字」的单色反转结构） */
+  --craft-mode-code: #80beff;
+  --craft-mode-code-foreground: #0d0d0d;
+  --craft-mode-code-soft: rgba(128, 190, 255, 0.14);
+  --craft-mode-code-soft-foreground: #80beff;
+  --craft-mode-work: #ffd43b;
+  --craft-mode-work-foreground: #1c1917;
+  --craft-mode-work-soft: rgba(255, 212, 59, 0.15);
+  --craft-mode-work-soft-foreground: #ffd43b;
+
+  --craft-icon-blue: #80beff;
+
+  --craft-diff-added: #46bf72;
+  --craft-diff-removed: #ff5c5c;
+  --craft-git-modified: #ff8a30;
+  --craft-git-added: #46bf72;
+  --craft-git-deleted: #ff5c5c;
+  --craft-git-renamed: #4099ff;
+
+  --craft-terminal-bg: #2b2b2b;
+  --craft-terminal-fg: #f8f8f8;
+  --craft-toast: #2b2b2b;
+  --craft-tooltip: #2b2b2b;
+
+  --shadow-composer-soft: 0 0 #0000;
+}
+
+/* 终端 ANSI（两套） */
+.theme-craft-light {
+  --craft-terminal-black: #5c5c5c;
+  --craft-terminal-red: #e03131;
+  --craft-terminal-green: #1e8a3e;
+  --craft-terminal-yellow: #e07b00;
+  --craft-terminal-blue: #0b7fff;
+  --craft-terminal-magenta: #9e77ed;
+  --craft-terminal-cyan: #0aa7a7;
+  --craft-terminal-white: #adadad;
+  --craft-terminal-bright-black: #888888;
+  --craft-terminal-bright-red: #ff6666;
+  --craft-terminal-bright-green: #33c35b;
+  --craft-terminal-bright-yellow: #ff9946;
+  --craft-terminal-bright-blue: #0066dd;
+  --craft-terminal-bright-magenta: #b478f2;
+  --craft-terminal-bright-cyan: #0cc2c2;
+  --craft-terminal-bright-white: #0d0d0d;
+  --craft-terminal-selection: rgba(11, 127, 255, 0.22);
+  --craft-terminal-cursor: #0d0d0d;
+}
+.theme-craft-dark {
+  --craft-terminal-black: #363636;
+  --craft-terminal-red: #ff5c5c;
+  --craft-terminal-green: #46bf72;
+  --craft-terminal-yellow: #ff8a30;
+  --craft-terminal-blue: #4099ff;
+  --craft-terminal-magenta: #7b5ce5;
+  --craft-terminal-cyan: #42c8c8;
+  --craft-terminal-white: #adadad;
+  --craft-terminal-bright-black: #747474;
+  --craft-terminal-bright-red: #ff9999;
+  --craft-terminal-bright-green: #87d9a4;
+  --craft-terminal-bright-yellow: #ffb26b;
+  --craft-terminal-bright-blue: #80beff;
+  --craft-terminal-bright-magenta: #c2a2ff;
+  --craft-terminal-bright-cyan: #8ee5e5;
+  --craft-terminal-bright-white: #f8f8f8;
+  --craft-terminal-selection: rgba(64, 153, 255, 0.28);
+  --craft-terminal-cursor: #f8f8f8;
+}
+
+/* ---------- 侧栏宽度（会话内姿态，不持久化，见 D17 与决策 D17）----------
+   宽度由拖拽条在拖动期直接改写这两个变量，松手才提交 store。
+   注意：栏宽**只走变量这一条来源**（组件用 style.width 消费），不要再叠写死的 px 宽度类
+   或归零宽度类——那是同一 CSS 属性的两个来源，胜负由 Tailwind 输出顺序（按类名排序，
+   不是源码顺序）决定，最后只会落到「宽度没变、只剩透明」这种状态（历史 bug，
+   见 docs/agents/pitfalls.md「同属性工具类互相覆盖」）。 */
+:root {
+  --craft-sidebar-width: 264px;
+  --craft-pane-width: 380px;
+}
+
+/* 拖动期：全局列宽光标、禁止选中，并关掉宽度过渡（否则松手瞬间有橡皮筋拖尾、
+   对话区容器查询的宽度档位会一路闪跳）。data-resizing 由拖拽条挂到 html 上。 */
+html[data-resizing] {
+  cursor: ew-resize;
+}
+html[data-resizing] * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+html[data-resizing] [data-resize-smooth] {
+  transition: none !important;
+}
+html[data-resizing] .resize-handle-line {
+  opacity: 1;
+}
+
+/* ---------- 模式主色命名空间 ----------
+   html 上随模式挂 mode-code / mode-work class（lib/theme.ts 的 applyModeTheme），
+   覆写事实主色 brand 及其反色文字：所有 bg-brand / text-foreground-inverse 主按钮
+   （发送、保存、确认、开关选中态、选中描边）随 Code 蓝 / Work 黄整体切换。
+   组合选择器（双 class）优先级高于单 class 主题块，深浅 × 模式四组合各自取值。 */
+.theme-craft-light.mode-code {
+  --craft-brand: var(--craft-mode-code);
+  --craft-foreground-inverse: var(--craft-mode-code-foreground);
+}
+.theme-craft-light.mode-work {
+  --craft-brand: var(--craft-mode-work);
+  --craft-foreground-inverse: var(--craft-mode-work-foreground);
+}
+.theme-craft-dark.mode-code {
+  --craft-brand: var(--craft-mode-code);
+  --craft-foreground-inverse: var(--craft-mode-code-foreground);
+}
+.theme-craft-dark.mode-work {
+  --craft-brand: var(--craft-mode-work);
+  --craft-foreground-inverse: var(--craft-mode-work-foreground);
+}
+
+/* ---------- 全局基础 ---------- */
+@layer base {
+  * {
+    border-color: var(--craft-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-ui-base);
+    color: var(--craft-foreground);
+    background: var(--craft-background-win-alt);
+    -webkit-font-smoothing: antialiased;
+    /* 桌面应用惯例：UI 默认不可选，只有内容区（消息正文 / 代码输出）显式放开 */
+    user-select: none;
+  }
+
+  /* 内容可选择工具类：消息正文、代码输出、错误详情等可复制区域使用 */
+  .select-text {
+    user-select: text;
+  }
+  /* 焦点反馈交给组件内 ring/hover，不用浏览器默认轮廓 */
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* 全局滚动条：8px 透明轨道 + 圆角 thumb（2px 透明边制造视觉留白） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--craft-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  min-width: 32px;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: var(--craft-border);
+  background-clip: padding-box;
+}
+
+/* 提问导航轨道：只在轨道超出可用高度时才滚动，滚动条本身不该出现——
+   它是视觉配件而非可滚内容，露出 8px 滑轨会盖住消息列左缘。 */
+.turn-nav-rail {
+  scrollbar-width: none;
+}
+.turn-nav-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Markdown 正文（streamdown）----------
+   streamdown 输出 Tailwind 绝对字号（text-3xl/2xl/xl…），不随 --ui-font-size 缩放；
+   按元素映射到 UI 字号约束体系（正文基准 text-ui-base=14px 由组件容器给定，
+   表格与行内代码的 text-sm 数值恰为 14px，与基准一致无需处理）。 */
+.markdown-body h1 {
+  font-size: var(--text-ui-xl);
+  line-height: 1.4;
+}
+.markdown-body h2 {
+  font-size: var(--text-ui-lg);
+  line-height: 1.45;
+}
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: var(--text-ui-base);
+  line-height: 1.5;
+}
+
+/* 表格去卡片外框：wrapper 是 streamdown 自带的容器（边框/底色/内边距+工具按钮行，
+   按钮已由 controls 关闭），时间线内表格直接贴内容流，只保留 table 自身的行分隔。 */
+.markdown-body [data-streamdown="table-wrapper"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* 表格最小列宽：窄容器下浏览器会把列压到逐字竖断（CJK 一行一字），设最小列宽
+   让分配不过来时转为 wrapper 自带的 overflow-x-auto 横向滚动（内容列宽度档位见
+   `conversation.tsx` 的 CONTENT_WIDTH_CLASS 注释）。 */
+.markdown-body [data-streamdown="table-wrapper"] th,
+.markdown-body [data-streamdown="table-wrapper"] td {
+  min-width: 6em;
+}
+
+/* 代码块去卡片外框：外层是 streamdown 的卡片容器（边框/底色/内边距），内层 body 自带
+   边框构成代码块本体——双层框只保留内层；悬浮工具按钮浮于右上角不受影响。
+   content-visibility 必须关闭：streamdown 默认 auto + 200px 估算高度（滚动性能优化），
+   视口外的长代码块先按 200px 占位、临近时跳变为真实高度，贴底滚动时整段内容抖动；
+   关闭后代码块高度始终按真实内容展开（同 `conversation.tsx` 的 CONTENT_WIDTH_CLASS
+   注释「表格与代码块全展开」一条）。 */
+.markdown-body [data-streamdown="code-block"] {
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
+/* 代码块复制按钮：按钮容器是 code-block 的直接子级（header 的兄弟，absolute 定位），
+   默认 top-2 悬在 header 行内、底部压过 body 顶边框——对齐到 body 内右上悬浮。 */
+.markdown-body [data-streamdown="code-block"] > .pointer-events-none.absolute {
+  top: calc(2rem + 8px);
+  right: 8px;
+}
+
+/* 代码块底色归到语义 token：shiki 主题自带 --sdm-bg（github-light #fff / github-dark #24292e），
+   与应用主题脱节（浅色主题下是一块纯白、深色主题下是另一套深灰）。底色改用 --craft-surface，
+   内层 pre 的 shiki 背景置透明，只保留 token 前景色（--sdm-c / --shiki-dark）。
+   选择器特异性高于 streamdown 的 .bg-[var(--sdm-bg)] 与 dark:bg-[var(--shiki-dark-bg)]。 */
+.markdown-body [data-streamdown="code-block-body"] {
+  background-color: var(--craft-surface);
+  border-color: var(--craft-border);
+}
+.markdown-body [data-streamdown="code-block-body"] pre {
+  background-color: transparent;
+}
+
+/* 运行态扫光文字（统一语言：运行态默认用文字扫光，不旋转图标；
+   例外仅两处进度指示——侧栏会话状态槽与轮尾「工作中」的 lucide Loader，见 AGENTS 3.6） */
+@keyframes animated-gradient {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.animated-gradient-text {
+  background: linear-gradient(
+    90deg,
+    var(--craft-foreground-subtlest) 0%,
+    var(--craft-foreground) 40%,
+    var(--craft-foreground-subtlest) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: animated-gradient 4s linear infinite;
+}
+
+/* 一次性入场淡入：仅用于旁路静态内容（图片预览等）。
+   流式正文禁止使用——正文增长/切段重组会整段重播、长淡入让持续更新的正文始终半透明
+   （`conversation.tsx` 的「正文无流式动画」条），正文保持无动画。 */
+@keyframes stream-text-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.stream-fade-in {
+  animation: stream-text-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-gradient-text,
+  .stream-fade-in {
+    animation: none;
+  }
+}
+
+/* 侧栏长标题走马灯（配合 OverflowTitle 的右侧渐隐 mask）：单向左移，无缝循环 */
+@keyframes overflow-title-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--marquee-distance));
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .overflow-title-track.is-scrolling {
+    animation: overflow-title-marquee var(--marquee-duration) linear infinite;
+  }
+}

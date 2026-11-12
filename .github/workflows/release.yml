@@ -1,0 +1,127 @@
+name: Release
+
+# 仅 v* 标签推送触发发布（Tauri bundler 打包）；三平台打包全绿才创建草稿 release。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 三平台打包（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            paths: |
+              target/release/bundle/dmg/*.dmg
+              target/release/bundle/macos/*.app
+          - os: windows-latest
+            paths: |
+              target/release/bundle/nsis/*.exe
+              target/release/bundle/msi/*.msi
+          - os: ubuntu-latest
+            paths: |
+              target/release/bundle/appimage/*.AppImage
+              target/release/bundle/deb/*.deb
+              target/release/bundle/rpm/*.rpm
+              target/release/bundle/pacman/*.pkg.tar.zst
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装 Linux 系统依赖
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 打包
+        env:
+          # 本地默认 thin LTO（见根 Cargo.toml）；正式产物覆盖回 fat，性能不变。
+          CARGO_PROFILE_RELEASE_LTO: fat
+        run: pnpm dist
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.os }}
+          path: ${{ matrix.paths }}
+          retention-days: 3
+          if-no-files-found: warn
+
+  release:
+    name: 发布草稿 release
+    needs: build
+    if: ${{ !failure() && !cancelled() && contains(needs.build.result, 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      # 完整历史与全部标签：更新说明需要对比上一个 tag 到当前 tag 的提交
+      - name: 检出仓库
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 下载产物
+        uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          path: release
+
+      # 更新说明 = 上一个 tag 到当前 tag 的提交列表（不含合并提交），最新在上。
+      - name: 生成两个 tag 之间的更新说明
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          {
+            echo "## 更新内容"
+            echo ""
+            if [ -n "$PREV" ]; then
+              echo "范围：\`$PREV\` → \`$TAG\`"
+              echo ""
+              git log "$PREV..$TAG" --oneline --no-decorate --no-merges | sed 's/^/- /'
+            else
+              echo "首个版本 \`$TAG\`"
+              echo ""
+              git log "$TAG" --oneline --no-decorate --no-merges | sed 's/^/- /'
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
+      # 资源发布统一走 gh CLI（github.com），不走 api.github.com 的 REST 端点。
+      # 草稿 release：人工核对资源与说明后手动发布；重跑时同步刷新说明。
+      - name: 创建草稿 release 并上传资源
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --draft --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --draft --title "$TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" release/* --clobber

@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main, tauri-migration]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新提交会取消上一次未完成的检查，避免重复消耗运行时间。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 渲染层类型检查（领域内核由 rust job 覆盖）。
+  check:
+    name: 类型检查（web）
+    runs-on: macos-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      # pnpm 版本读 package.json 的 packageManager 字段。
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+  # Rust 侧（cargo workspace：src-tauri + crates/craft-*）。
+  # 三平台都必须全绿，run 才算通过（无占位放行）。
+  rust:
+    name: Rust 检查（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # 下限而非精确值：Windows 全量编译 + 测试约 6~9 分钟，留足余量；
+    # --no-fail-fast 遇到挂死用例（Windows 杀树失效会阻塞在 child.wait）时
+    # 不至于拖到默认 360 分钟，尽早失败并放出日志。
+    timeout-minutes: 30
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v7
+
+      # Linux 系统依赖（Tauri 需要 webkit2gtk）。这一步曾两次吃掉整个 job：
+      #   ① 2026-11-11 一轮：apt 卡住 25 分钟耗尽 30 分钟预算，job 被 cancelled，
+      #      后面的 check / test / clippy 一步都没跑（Linux 侧等于零验证，且失败形态
+      #      是「取消」而非「失败」，极易被误读成代码问题）；
+      #   ② 同一镜像（ubuntu-26.04 / release 20261101.186）的下一轮：`security.ubuntu.com`
+      #      DNS 解析失败 + 部分包 404，每个包各等 20 秒后整体 exit 100——而同镜像的
+      #      上一轮 30 秒就装完，说明是 runner 侧网络与镜像同步的瞬时故障，不是配置问题。
+      # 因此：给 apt 自己的重试与连接超时（卡死时快速失败而不是无限等），整步重试一次
+      # （瞬时 DNS / 404 换一次连接常能过去），并给整步单独限时——超时按步骤失败上报，
+      # 而不是拖垮 job 变成 cancelled。不要改成固定上游镜像：那会把可用的本地镜像绕开。
+      - name: 安装 Linux 系统依赖（Tauri Linux 侧需要 webkit2gtk）
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 15
+        run: |
+          for attempt in 1 2; do
+            if sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+              && sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+                libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf; then
+              exit 0
+            fi
+            echo "::warning::apt 第 $attempt 次失败（多为 runner 侧 DNS / 镜像同步瞬时故障），等待 10 秒后重试"
+            sleep 10
+          done
+          echo "::error::apt 连续两次失败：Linux 侧依赖未装成，后续 cargo check/test/clippy 未运行"
+          exit 1
+
+      # 与 rust-toolchain.toml 锁定版本一致，否则 clippy 组件装到别的工具链上
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+
+      # --all-targets：让测试目标（cfg(test)、tests/ 集成测试）一起参与编译检查。
+      # 缺少它时测试代码的编译错误只会在下一步 cargo test 才暴露，且要等全量编译完
+      # （历史上 craft-policy 的 windows 用例就因此把整包测试目标编译失败带到 test 阶段）。
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+
+      # --no-fail-fast：单个测试失败不中止其余测试，一次 run 看全所有失败，
+      # 避免「修一个、推一次、再冒下一个」的往返。
+      - name: cargo test
+        run: cargo test --workspace --no-fail-fast
+
+      # --all-targets：测试代码同样纳入 lint 门禁，防止今天清干净的告警明天又长回来。
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings

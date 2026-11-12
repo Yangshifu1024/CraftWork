@@ -1,0 +1,53 @@
+[package]
+name = "craft-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+craft-core = { workspace = true }
+# gix（gitoxide）只允许出现在本 crate（决策 D13）；0.x 存在破坏性变更，用 `=` 精确锁死版本，
+# 升级前人工评估 changelog。
+#
+# feature 选型（default-features = false，按里程碑裁剪）：
+# - `max-performance` = parallel + pack LRU 缓存（纯 Rust、无 C 工具链）；不开则 gix 多线程关闭、
+#   数据结构不再 Send/Sync，大仓库遍历会明显变慢。
+# - `basic` = blob-diff + revision + index（M3 log / M4 diff 的基础）。
+# - `extras` = status / dirwalk / excludes / attributes / worktree-mutation（M6 add/remove worktree、
+#   M2 clone 的 fetch_then_checkout）/ credentials（fetch 凭据）/ interrupt（should_interrupt 协作式取消）等。
+# - `comfort` = 进度单位人性化显示（worktree/checkout 等带进度参数的 API 需要）。
+# - `auto-chain-error` = gix 错误链扁平化，errors.rs 归一化时便于取根因文本。
+# - `sha1` = git 对象哈希算法。
+# - `blocking-http-transport-reqwest-rust-tls`（M2 transport 票补充）：阻塞 HTTP 传输 + reqwest
+#   后端 + rustls TLS（与 reqwest 出口一致，见 D13），隐含 `blocking-network-client`。
+#   git:// 协议与 file:// 本地传输不受影响；ssh 一期不做。
+#   **已知偏差**：rustls 的默认密码学后端 aws-lc-rs 带 C 构建组件（aws-lc-sys），
+#   所以 D13「零 C 依赖」在大包产物层面并不严格成立——工程意义是「不依赖系统 OpenSSL /
+#   不需要 libgit2 的 C 构建链」。另外 file:// 与本地路径 clone 仍由 gix 调起
+#   `git-upload-pack`，即该路径下系统 git 仍需存在。
+# 裁掉的项与本票结论：
+# - `encoding-*`（约 1.4MB 转码表，非 UTF-8 路径/提交信息解码）：暂裁；M3 status 遇到非 UTF-8
+#   文件名偏差再评估开启。
+# - curl 系传输（blocking-http-transport-curl*）：reqwest 后端已满足，避免双 HTTP 栈。
+gix = { workspace = true, features = [
+    "max-performance",
+    "comfort",
+    "basic",
+    "extras",
+    "auto-chain-error",
+    "sha1",
+    "blocking-http-transport-reqwest-rust-tls",
+] }
+# reqwest：仅用于经 gix reqwest 后端的 `configure_client` 回调装配代理 / 排除列表 /
+# 连接超时（gix 0.90 的 reqwest 后端尚未消费 `http::Options` 的 proxy / no_proxy /
+# connect_timeout 通用字段，见 transport.rs 模块注释「代理注入」）。版本与 gix-transport
+# 0.62 所用 reqwest 0.13 保持同一棵树；TLS 统一 rustls（决策 D13）。
+# 全 workspace 已统一到 reqwest 0.13（应用出口同样升级），依赖树中只剩一棵。
+reqwest = { workspace = true, features = [
+    "blocking",
+    "rustls",
+    "socks",
+] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
