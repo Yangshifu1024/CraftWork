@@ -55,6 +55,48 @@ pub(crate) fn is_conversational_output(s: &str) -> bool {
     SELF_INTRO_PHRASES.iter().any(|p| lower.contains(p))
 }
 
+/// 思考模型的开标签形态（网关把思考内容以内联标签混进正文时出现）。
+/// 互不为前缀（`<think>` 与 `<thinking>` 在 `>`/`i` 处分叉），匹配顺序无关紧要；
+/// 列表保持长标签在前仅是稳定的书写约定。
+const THINKING_OPEN_TAGS: [&str; 3] = ["<reasoning>", "<thinking>", "<think>"];
+
+/// ASCII 大小写不敏感的子串查找：标签均为 ASCII，逐字节比较即可，
+/// 避免 `to_lowercase()` 对个别 Unicode 字符改变字节长度的索引错位问题。
+fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
+    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
+    (0..=h.len() - n.len()).find(|&i| {
+        h[i..i + n.len()]
+            .iter()
+            .zip(n.iter())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
+    })
+}
+
+/// 剥离开头的连续思考块（`<think>…</think>` 等，大小写不敏感），返回剩余文本。
+/// 开标签未闭合视为整段输出都是思考内容，返回 None（调用方按「不可用作标题」处理）。
+/// 只剥开头：正文中途出现的同名标签不碰，避免误删恰好含此字样的正常标题。
+pub(crate) fn strip_leading_thinking_blocks(raw: &str) -> Option<String> {
+    let mut rest = raw;
+    loop {
+        let start = rest.trim_start();
+        let open = THINKING_OPEN_TAGS.iter().find(|tag| {
+            start.len() >= tag.len()
+                && start.as_bytes()[..tag.len()]
+                    .iter()
+                    .zip(tag.as_bytes())
+                    .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        });
+        let Some(open) = open else { break };
+        let close = format!("</{}", &open[1..]);
+        let pos = find_ignore_ascii_case(start, &close)?;
+        rest = &start[pos + close.len()..];
+    }
+    Some(rest.to_string())
+}
+
 /// 首条消息可直用作短标题时返回规范化结果（不超过 20 字且含有效字符）；否则返回空串。
 pub fn short_title(text: &str) -> String {
     let normalized = normalize_title(text);
@@ -68,10 +110,16 @@ pub fn short_title(text: &str) -> String {
     }
 }
 
-/// 模型标题清洗：剥「标题：/Title:」前缀；拒收对话式输出（自我介绍/回答）；
+/// 模型标题清洗：剥开头的思考块（`<think>…</think>` 等——sidecar 请求不带思考参数，
+/// 网关按模型默认开启思考且可能把思考内容以内联标签混进正文，实测 glm-5.3-flash
+/// 产出「<thinking>The user w…」落库成标题）；未闭合的思考块视为整段思考、拒收。
+/// 剥「标题：/Title:」前缀；拒收对话式输出（自我介绍/回答）；
 /// 须含字母或数字；超长截断加省略号。返回空串表示输出不可用作标题。
 pub fn sanitize_model_title(raw: &str) -> String {
-    let mut s = normalize_title(raw);
+    let Some(stripped) = strip_leading_thinking_blocks(raw) else {
+        return String::new();
+    };
+    let mut s = normalize_title(&stripped);
     for prefix in ["标题：", "标题:", "Title:", "title:", "Title：", "title："] {
         if let Some(stripped) = s.strip_prefix(prefix) {
             s = stripped.trim().to_string();
@@ -247,6 +295,33 @@ mod tests {
         assert_eq!(sanitize_model_title("标题：你好，我是AI助手"), "");
         // 正常标题不受影响
         assert_eq!(sanitize_model_title("指令文件与工具说明"), "指令文件与工具说明");
+    }
+
+    #[test]
+    fn strips_leading_thinking_block_and_keeps_real_title() {
+        // 闭合思考块剥掉后取正文标题；大小写不敏感
+        assert_eq!(sanitize_model_title("<think>让我想想</think>分析会话错误"), "分析会话错误");
+        assert_eq!(sanitize_model_title("<THINK>hmm</think>API 设计评审"), "API 设计评审");
+        assert_eq!(sanitize_model_title("<Thinking>…</THINKING>指令文件与工具说明"), "指令文件与工具说明");
+        // 连续多个思考块全部剥掉
+        assert_eq!(sanitize_model_title("<think>a</think><reasoning>b</reasoning>依赖注入讲解"), "依赖注入讲解");
+    }
+
+    #[test]
+    fn unclosed_thinking_block_rejected_entirely() {
+        // 实测故障样本：glm-5.3-flash 标题 sidecar 输出未闭合 <thinking> 块，
+        // 过去落库成标题「<thinking>The user w…」；现应拒收（auto_title 回退本地兜底）
+        assert_eq!(sanitize_model_title("<thinking>The user is reporting that session just had an error"), "");
+        assert_eq!(sanitize_model_title("<think>"), "");
+        assert_eq!(sanitize_model_title("<think>只有思考没有正文"), "");
+    }
+
+    #[test]
+    fn thinking_tag_mid_text_not_stripped() {
+        // 只剥开头的思考块：非思考标签与正文中途的同名标签不碰
+        // （21 字符超 20 字上限，按既有规则截断加省略号）
+        assert_eq!(sanitize_model_title("<task>plan</task>迁移步骤"), "<task>plan</task>迁移步…");
+        assert_eq!(sanitize_model_title("详解 think 标签"), "详解 think 标签");
     }
 
     #[test]
