@@ -29,7 +29,7 @@ export function ModeSwitch(): React.JSX.Element {
     >
       <RadixSelect.Trigger
         aria-label="切换工作模式"
-        className="group flex h-8 w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-surface px-2.5 text-ui-base outline-none transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand data-[state=open]:bg-surface-hover"
+        className="group flex h-8 w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-surface px-2.5 text-ui-xl outline-none transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand data-[state=open]:bg-surface-hover"
       >
         <span className="min-w-0 truncate">
           <span className="font-medium text-foreground-subtle">Craft</span>{" "}
@@ -53,7 +53,7 @@ export function ModeSwitch(): React.JSX.Element {
               <RadixSelect.Item
                 key={o.value}
                 value={o.value}
-                className="flex h-8 cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 text-ui-sm text-foreground outline-none data-[highlighted]:bg-surface-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                className="flex h-8 cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 text-ui-lg text-foreground outline-none data-[highlighted]:bg-surface-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
               >
                 <span className={`size-2 shrink-0 rounded-full ${o.dotCls}`} aria-hidden />
                 <RadixSelect.ItemText>
