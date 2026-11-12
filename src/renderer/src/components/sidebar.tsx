@@ -1,5 +1,5 @@
 // 会话侧栏：结构与视觉对齐参考侧栏的分层——
-// 顶部拖拽留白 → 模式切换（Code / Work 两段 pill）→ 导航按钮列（新建对话 / 数据 / 设置）→ 列表区（标题行 + 滚动体）→ 底部 footer。
+// 顶部拖拽留白 → 模式切换（Craft Code / Craft Work 下拉）→ 导航按钮列（新建对话 / 数据 / 设置）→ 列表区（标题行 + 滚动体）→ 底部 footer。
 // 任务行：16px 状态槽 + 标题 + 右侧相对时间；hover bg-surface-hover、激活 bg-selected。
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -390,7 +390,7 @@ export function Sidebar(): React.JSX.Element {
         <div className={`shrink-0 ${platform === "windows" ? "h-2" : "h-12"}`} data-tauri-drag-region />
         <div className="relative min-h-0 flex-1 overflow-clip">
           <div className="absolute inset-0 flex min-h-0 flex-col">
-            {/* 导航区：模式切换（Code 蓝 / Work 黄）在最顶部，其下为新建对话 */}
+            {/* 导航区：模式切换下拉（Craft Code / Craft Work，模式名按模式色着色）在最顶部，其下为新建对话 */}
             <div className="flex flex-col gap-3 px-2 py-3">
               <ModeSwitch />
               <div

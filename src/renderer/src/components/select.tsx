@@ -12,8 +12,8 @@
 import { Select as RadixSelect } from "radix-ui";
 import { Check, ChevronDown } from "lucide-react";
 
-/** 下拉面板层级：见文件头的层级纪律。 */
-const SELECT_CONTENT_Z = "z-[90]";
+/** 下拉面板层级：见文件头的层级纪律。导出供自组 Select 触发器的场景复用（如 mode-switch）。 */
+export const SELECT_CONTENT_Z = "z-[90]";
 
 export interface SelectOption {
   value: string;
