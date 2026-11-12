@@ -84,7 +84,7 @@ jobs:
 
       # 与 rust-toolchain.toml 锁定版本一致，否则 clippy 组件装到别的工具链上
       - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
 
