@@ -1295,7 +1295,13 @@ mod tests {
             assert!(out.status.success(), "git {args:?} 失败：{}", String::from_utf8_lossy(&out.stderr));
         };
         run(&["init"]);
-        run(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init", "--allow-empty"]);
+        // 身份必须写进**仓库级**配置，不能用 `git -c user.email=…`：`-c` 只作用于那一次
+        // 系统 git 调用，而被调用的 `GitCommit` 走 craft-git 的 `repo.identity()`，只读
+        // 仓库级 + 全局配置。CI runner 没有全局 git 身份（本地有），用 `-c` 时这个用例
+        // 只在本地通过、在 CI 三个平台全挂（IdentityMissing）。
+        run(&["config", "user.name", "craft-tools test"]);
+        run(&["config", "user.email", "test@craftwork.invalid"]);
+        run(&["commit", "-m", "init", "--allow-empty"]);
         std::fs::write(repo.join("a.txt"), "a\n").unwrap();
         std::fs::write(repo.join("b.txt"), "b\n").unwrap();
 
@@ -1322,7 +1328,7 @@ mod tests {
         // 无 paths：提交全部已跟踪改动。两个新文件先经一次 paths 提交进入跟踪状态，
         // 再各自改动——`-am` 语义不含未跟踪文件（与 git 一致）。
         run(&["add", "."]);
-        run(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "track"]);
+        run(&["commit", "-m", "track"]);
         std::fs::write(repo.join("a.txt"), "a2\n").unwrap();
         std::fs::write(repo.join("b.txt"), "b2\n").unwrap();
         ctx.args = json!({ "message": "rest" });

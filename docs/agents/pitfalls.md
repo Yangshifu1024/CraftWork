@@ -36,6 +36,12 @@ Each entry follows "symptom → cause → fix". These entries cannot be found by
 - **Cause**: reading the shared buffer right after `try_wait` returns races the stdout/stderr reader threads, which may not have been scheduled yet; dropping the `JoinHandle` directly does not wait for the pipes to drain.
 - **Fix**: after the subprocess exits, wait for the reader threads to drain the pipes (bounded 500ms in `wait_for_readers`, avoiding a hang when a grandchild holds the pipe) before reading the buffer; when adding a reader thread, register its completion flag too.
 
+### Git tests pass locally but fail on every CI platform
+
+- **Symptom**: `cargo test` is green on a developer machine, red on macos / ubuntu / windows runners alike; the failure is `提交失败: git 身份未配置` (`Error::IdentityMissing`) or an unexpected identity in a fixture commit.
+- **Cause**: fixtures often pass the identity as one-shot `git -c user.email=… -c user.name=… commit`. That flag only affects that one system-git invocation. Code under test does not shell out — `craft-git` reads the identity through `repo.identity()` (repository config, then global), and runners have **no global git identity** while developer machines usually do. Same trap for any test whose expectation depends on a global git setting (`init.defaultBranch`, `commit.gpgsign`, `core.autocrlf`).
+- **Fix**: write the identity into repository-level config right after `git init` (`git config user.name …` / `git config user.email …`), never rely on the runner's globals. When adding a git fixture, run it once with `HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=$HOME/.gitconfig GIT_CONFIG_SYSTEM=/dev/null` — an empty global config reproduces the runner environment and catches this locally.
+
 ### Crate naming
 
 - **Symptom**: `::core::` absolute paths fail and derive macros error along with them (E0432).
