@@ -30,6 +30,7 @@ import type {
   Settings,
   ShellEnvStatus,
   ShellOption,
+  ShellTaskView,
   SkillView,
   Snapshot,
   StoreMarketsResult,
@@ -156,6 +157,8 @@ export interface CraftworkApi {
 chatBashOutput(threadId: string, taskId: string, tailBytes?: number): Promise<{ output: string; state: string; exitCode: number | null; totalBytes: number }>;
 /** 终止后台命令任务（整组杀含子进程）；用户主动操作，记审计。 */
 chatKillShell(threadId: string, taskId: string): Promise<{ killed: boolean }>;
+/** 本会话仍在运行的后台任务清单（右栏「后台任务」tab 的数据源；只列 Running，跨会话查不到）。 */
+chatShellTasks(threadId: string): Promise<ShellTaskView[]>;
 /** 跳过在途的 wait 等待（D21）：run 继续推进，模型立即核实等待目的；用户主动操作，记审计。无在途等待时拒绝。 */
 chatCancelWait(threadId: string): Promise<{ canceled: boolean }>;
 

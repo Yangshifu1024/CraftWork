@@ -1,4 +1,4 @@
-// 右侧面板：固定视图（文件 / 子代理）+ 动态 tab（计划 / 子代理详情）——
+// 右侧面板：固定视图（文件 / 子代理 / 后台任务）+ 动态 tab（计划 / 子代理详情）——
 // 「固定视图 + 动态 tab」模型（D15 的面板补注）。tab 状态（展开/收起、
 // 动态 tab 列表、激活 tab）在全局 store：跨会话存活的硬要求（切会话不关闭动态 tab），
 // 重启随内存 store 清空（它们是界面态，事实源在事件表）。
@@ -16,7 +16,7 @@
 //   横向滚动 + 两侧渐隐；动态 tab 中键关闭、dnd-kit 拖拽排序（固定 tab 不参与排序）。
 // 文件树按工作区浏览，文件点击做文本级预览；子代理详情复用消息流的只读时间线（无输入框）。
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, FolderOpen, ListChecks, Maximize2, Minimize2 } from "lucide-react";
+import { Bot, FolderOpen, ListChecks, Maximize2, Minimize2, TerminalSquare } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -25,6 +25,8 @@ import { api } from "../lib/api";
 import { useApp } from "../store/app";
 import { useToasts } from "../store/toast";
 import { useRunningSubagentCount } from "../hooks/running-subagent-count";
+import { useShellTasks } from "../hooks/running-shell-task-count";
+import { formatDurationMs } from "../lib/format";
 import { Markdown } from "./markdown";
 import { ResizeHandle } from "./resize-handle";
 import { Select } from "./select";
@@ -34,7 +36,7 @@ import { PANE } from "../lib/resize";
 import { highlightLines, languageForPath, type HighlightToken } from "../lib/code-highlight";
 import { SUBAGENT_STATUS_LABEL } from "./cards";
 import { Timeline } from "./conversation";
-import type { FileNode, SubagentPart, ThreadView, WorkspaceView } from "../../../shared/types";
+import type { FileNode, ShellTaskView, SubagentPart, ThreadView, WorkspaceView } from "../../../shared/types";
 
 /** 面板展开态宽度：只由 --craft-pane-width 提供（拖拽条拖动期直接改写，见 D17）。
  *  这里不写死 px 宽度类：宽度若同时有类名与变量两个来源，状态分支切换时会互相覆盖。 */
@@ -64,6 +66,10 @@ export function SidePane(): React.JSX.Element | null {
   const setPaneWidth = useApp((s) => s.setPaneWidth);
   const platform = useApp((s) => s.platform);
   const runningCount = useRunningSubagentCount();
+  // 后台任务数据：面板打开即轮询（徽标的意义正是「不在这个 tab 时也知道有几个在跑」），
+  // 面板关闭立即停。数据在这里取一份，向下传给 tab 条徽标与 ShellTasksView——
+  // 两处共用同一份，避免各轮询一次导致徽标与列表短暂不一致。
+  const runningTasks = useShellTasks(open);
   // 自绘窗口控件仅 Windows 渲染（macOS 交通灯原生；Linux 不在本期范围，D7）
   const showWindowControls = platform === "windows";
   // 展开/收起动画的挂载状态机：open 翻 false 后节点继续挂载 220ms（宽度→0 + 淡出），
@@ -110,6 +116,7 @@ export function SidePane(): React.JSX.Element | null {
           paneTabs={paneTabs}
           activeTab={activeTab}
           runningCount={runningCount}
+          runningTaskCount={runningTasks.length}
           onActivate={setActivePaneTab}
           onClose={closeTab}
         />
@@ -132,6 +139,7 @@ export function SidePane(): React.JSX.Element | null {
           store——子代理详情的事件流继续更新 chats，切回即见最新。 */}
       {activeTab === "files" && <FilesView />}
       {activeTab === "agents" && <AgentsView />}
+      {activeTab === "tasks" && <ShellTasksView tasks={runningTasks} />}
       {paneTabs
         .filter((tab) => tab.id === activeTab)
         .map((tab) =>
@@ -201,10 +209,11 @@ export function SidePane(): React.JSX.Element | null {
 
 /** tab 条（caption 行主体）：固定 tab（文件/子代理，不参与排序）+ 动态 tab（dnd-kit 可拖拽
  *  排序、中键关闭）；弹性尺寸溢出时横向滚动，两侧渐隐提示还有更多。 */
-function TabStrip({ paneTabs, activeTab, runningCount, onActivate, onClose }: {
+function TabStrip({ paneTabs, activeTab, runningCount, runningTaskCount, onActivate, onClose }: {
   paneTabs: { id: string; kind: string; title?: string }[];
   activeTab: string;
   runningCount: number;
+  runningTaskCount: number;
   onActivate(id: string): void;
   onClose(id: string): void;
 }): React.JSX.Element {
@@ -258,6 +267,13 @@ function TabStrip({ paneTabs, activeTab, runningCount, onActivate, onClose }: {
             active={activeTab === "agents"}
             badge={runningCount}
             onClick={() => onActivate("agents")}
+          />
+          <PaneTabChip
+            icon={<TerminalSquare className="size-3.5" />}
+            label="后台任务"
+            active={activeTab === "tasks"}
+            badge={runningTaskCount}
+            onClick={() => onActivate("tasks")}
           />
           <SortableContext items={paneTabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
             {paneTabs.map((tab) => (
@@ -667,6 +683,127 @@ function AgentRow({ item, onOpen }: { item: SubagentPart; onOpen(): void }): Rea
       </div>
     </button>
   );
+}
+
+// ---------- 后台任务 ----------
+
+/** 后台任务固定视图：当前会话仍在运行的后台命令任务（`bash_*`）。
+ *
+ *  数据源是 `chatShellTasks` 轮询（`useShellTasks`），只列 Running——终态任务不保留展示
+ *  （`crates/craft-tools/src/shell_tasks.rs` 的模块头：已通知终态会被丢弃，列出来列表长度
+ *  会随通知投递抖动）。要回看已结束任务的输出走聊天里的 `bash_output` 工具卡。
+ *
+ *  两个操作与聊天工具卡同源：读取输出走 `chatBashOutput`（不经工具链、无审批），
+ *  终止走 `chatKillShell`（整组杀含子进程）。
+ *
+ *  **渲染约束（`docs/agents/pitfalls.md` 的 WebView2 油漆残影条目）**：轮询每 2s 换一个
+ *  新数组引用，但行的存在与否只由任务增删决定——行内只有一个 shimmer（任务 id），
+ *  状态与时长不参与整块重绘。不做「空态整块换成列表」之外的列表替换。 */
+function ShellTasksView({ tasks }: { tasks: ShellTaskView[] }): React.JSX.Element {
+  const toast = useToasts((s) => s.push);
+  const [viewing, setViewing] = useState<{ id: string; output: string } | null>(null);
+
+  const readOutput = async (taskId: string): Promise<void> => {
+    try {
+      const r = await api.chatBashOutput(activeThread(), taskId, 8192);
+      setViewing({ id: taskId, output: r.output || "（暂无输出）" });
+    } catch (e) {
+      toast("danger", "读取输出失败", String(e));
+    }
+  };
+
+  const kill = async (taskId: string): Promise<void> => {
+    try {
+      const r = await api.chatKillShell(activeThread(), taskId);
+      if (!r.killed) toast("info", "该任务已经结束");
+      // 不在这里手动移除行：下一次轮询（≤2s）自然消失，避免与后端事实两套口径
+    } catch (e) {
+      toast("danger", "终止失败", String(e));
+    }
+  };
+
+  if (tasks.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center text-ui-sm text-foreground-subtlest">
+        当前没有运行中的后台任务
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-1.5">
+      {tasks.map((task) => (
+        <div key={task.id} className="rounded-lg px-2 py-1.5 hover:bg-surface-hover">
+          <div className="flex items-center gap-2">
+            <TerminalSquare className="size-3.5 shrink-0 text-foreground-subtlest" />
+            {/* 每行只保留这一处 shimmer（§7.6：单卡至多一个 shimmer 元素），它表示「仍在跑」 */}
+            <span className="shrink-0 font-mono text-ui-sm animated-gradient-text">
+              {task.id}
+            </span>
+            {task.fromTimeout ? (
+              <span className="shrink-0 rounded-md bg-surface px-1.5 py-0.5 text-ui-xs text-foreground-subtle">
+                超时转后台
+              </span>
+            ) : null}
+            <span className="shrink-0 text-ui-xs text-foreground-subtlest">运行中</span>
+          </div>
+          <div className="mt-0.5 truncate font-mono text-ui-xs text-foreground-subtle" title={task.command}>
+            {task.command}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 text-ui-xs text-foreground-subtlest">
+            <span className="shrink-0 font-mono">pid {task.pid}</span>
+            <ShellTaskElapsed startedAt={task.startedAt} />
+            <span className="flex-1" />
+            <button
+              className="shrink-0 rounded px-1.5 py-0.5 hover:bg-surface text-foreground-subtle"
+              onClick={() => void readOutput(task.id)}
+            >
+              读取输出
+            </button>
+            <button
+              className="shrink-0 rounded px-1.5 py-0.5 hover:bg-surface text-destructive"
+              onClick={() => void kill(task.id)}
+            >
+              终止
+            </button>
+          </div>
+        </div>
+      ))}
+      {viewing ? (
+        <div className="mx-1 mt-1 rounded-lg border border-border/50 bg-surface p-2">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-ui-xs text-foreground-subtle">{viewing.id}</span>
+            <button
+              className="shrink-0 rounded px-1.5 py-0.5 text-ui-xs hover:bg-surface-hover text-foreground-subtle"
+              onClick={() => setViewing(null)}
+            >
+              关闭
+            </button>
+          </div>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-ui-xs text-foreground-subtle">{viewing.output}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 独立计时小组件（同 `RunLoadingTimer` 的范式）：interval 自刷内部 state，秒数推进只
+ *  重渲染计时本身，不牵动整行。轮询拿到的 `durationMs` 是快照，运行中会停在采样时刻，
+ *  故这里按 `startedAt` 实时算。 */
+function ShellTaskElapsed({ startedAt }: { startedAt: number }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span className="shrink-0 font-mono tabular-nums">已运行 {formatDurationMs(Math.max(0, now - startedAt))}</span>
+  );
+}
+
+/** 当前活动会话 id（后台任务通道都按会话校验，跨会话查不到）。 */
+function activeThread(): string {
+  const s = useApp.getState();
+  return s.activeThreadId[s.mode] ?? "";
 }
 
 /** 子代理详情 tab：只读的子会话时间线（无输入框——它不接受用户直接发言）。

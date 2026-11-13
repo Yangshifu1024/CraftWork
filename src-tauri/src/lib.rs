@@ -523,6 +523,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
         "chatCancel" => chat_cancel(state, &a.str_at(0)),
         "chatBashOutput" => chat_bash_output(state, &a.str_at(0), &a.str_at(1), a.i64_at(2)),
         "chatKillShell" => chat_kill_shell(state, &a.str_at(0), &a.str_at(1)),
+        "chatShellTasks" => chat_shell_tasks(state, &a.str_at(0)),
         "chatCancelWait" => chat_cancel_wait(state, &a.str_at(0)),
         "chatDecideApproval" => {
             // async 服务：在当前异步上下文内直接驱动

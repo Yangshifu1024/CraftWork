@@ -226,6 +226,52 @@ fn open_folder_rejects_missing_directory() {
 }
 
 #[test]
+fn chat_shell_tasks_lists_only_running_tasks_of_that_thread() {
+    // 右栏「后台任务」tab 的契约：只列本会话 Running，跨会话查不到（与 chatBashOutput /
+    // chatKillShell 同一防串号口径），已终态的任务不再出现（方案 A：结束即消失）。
+    let (_dir, state) = test_state("shell-tasks-list");
+    let mk = |id: &str, thread: &str, st: craft_tools::shell_tasks::TaskState| craft_tools::shell_tasks::ShellTask {
+        id: id.into(),
+        thread_id: thread.into(),
+        pid: 4321,
+        output_path: "/tmp/cw-test.log".into(),
+        command: format!("echo {id}"),
+        state: st,
+        exit_code: None,
+        started_at: if id == "bash_bbbb" { 2000 } else { 1000 },
+        finished_at: 0,
+        from_timeout: false,
+        notified: false,
+    };
+    state.shell_tasks.register(mk("bash_aaaa", "th_1", craft_tools::shell_tasks::TaskState::Running));
+    state.shell_tasks.register(mk("bash_bbbb", "th_1", craft_tools::shell_tasks::TaskState::Running));
+    // 同一会话里已结束的任务不该出现
+    state.shell_tasks.register(mk("bash_cccc", "th_1", craft_tools::shell_tasks::TaskState::Completed));
+    // 别的会话的运行中任务不该串号过来
+    state.shell_tasks.register(mk("bash_dddd", "th_2", craft_tools::shell_tasks::TaskState::Running));
+
+    let list = services::chat_shell_tasks(&state, "th_1").unwrap();
+    let ids: Vec<&str> = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["id"].as_str().unwrap())
+        .collect();
+    // 按 started_at 升序（列表稳定，不随 HashMap 迭代顺序抖动）
+    assert_eq!(ids, vec!["bash_aaaa", "bash_bbbb"]);
+    assert_eq!(list[0]["state"].as_str(), Some("running"));
+    assert!(list[0]["exitCode"].is_null(), "运行中的退出码应为 null");
+
+    // 别的会话看不到这些任务
+    let other = services::chat_shell_tasks(&state, "th_2").unwrap();
+    assert_eq!(other.as_array().unwrap().len(), 1);
+    assert_eq!(other[0]["id"].as_str(), Some("bash_dddd"));
+
+    // 不存在的会话：空数组而不是报错（界面空态走这一条）
+    assert!(services::chat_shell_tasks(&state, "th_none").unwrap().as_array().unwrap().is_empty());
+}
+
+#[test]
 fn get_info_reports_build_metadata() {
     let (_dir, state) = test_state("info");
     let info = services::get_info(&state).unwrap();

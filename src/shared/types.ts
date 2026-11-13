@@ -227,6 +227,28 @@ export interface ShellEnvStatus {
   error: string | null;
 }
 
+/** 右栏「后台任务」tab 的行数据：本会话仍在运行的后台命令任务（`shell_exec` 的
+ *  `run_in_background` 与「前台超时转后台」两条来源）。只含 Running——终态任务不保留
+ *  展示（`crates/craft-tools/src/shell_tasks.rs` 的模块头与 `chat_shell_tasks`）。
+ *
+ *  `state` 仍保留完整四态：后端按 `TaskState::as_str` 原样回传，收紧成字面量 `"running"`
+ *  会让「后端换了过滤条件」这类漂移在类型层被静默掩盖。 */
+export interface ShellTaskView {
+  /** `bash_<16hex>`；读取输出 / 终止都按它与会话一同引用 */
+  id: string;
+  /** 一行命令摘要（展示时由界面截断，不在这里裁） */
+  command: string;
+  state: "running" | "completed" | "killed" | "failed";
+  /** 退出码；运行中与 Killed / 启动失败为 null */
+  exitCode: number | null;
+  /** 进程组组长 pid（终止时整组回收） */
+  pid: number;
+  /** 启动时刻（毫秒时间戳）；运行时长由界面按它实时计算（轮询快照的时长会停在采样点） */
+  startedAt: number;
+  /** 是否由「前台超时转后台」产生（文案要说明来源） */
+  fromTimeout: boolean;
+}
+
 /** 个性化全局指令（<数据目录>/AGENTS.md）：加载时机与注入规则见 craft-agent::envcontext。 */
 export interface PersonalizationInfo {
   /** 文件是否存在（首次使用前为 false，展示空编辑器） */

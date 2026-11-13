@@ -1418,6 +1418,37 @@ pub fn chat_bash_output(state: &AppState, thread_id: &str, task_id: &str, tail_b
     }))
 }
 
+/// 本会话仍在运行的后台命令任务（右栏「后台任务」tab 的唯一数据源）。
+///
+/// 只列 `Running`：已终态的任务不保留展示（`ShellTasks::prune_finished` 会丢弃已通知
+/// 终态记录，这里若把它们列出来，列表长度会因为「通知是否已投递」而抖动）。要回看
+/// 已结束任务的输出走聊天里的 `bash_output` 工具卡，或按 task_id 调 `chatBashOutput`。
+///
+/// 按会话取（`running_of`），跨会话查不到——与 `chatBashOutput` / `chatKillShell` 同一
+/// 防串号口径。纯读，不产生工具调用事件、审批或审计。
+pub fn chat_shell_tasks(state: &AppState, thread_id: &str) -> SvcResult {
+    let mut tasks = state.shell_tasks.running_of(thread_id);
+    // 按启动时刻排序：列表稳定，徽标计数与行顺序不随 HashMap 迭代顺序抖动
+    tasks.sort_by_key(|t| t.started_at);
+    let views: Vec<serde_json::Value> = tasks
+        .iter()
+        .map(|task| {
+            json!({
+                "id": task.id,
+                "command": task.command,
+                "state": task.state.as_str(),
+                // Killed / 启动失败时为 null，前端按「未取到退出码」展示
+                "exitCode": task.exit_code,
+                "pid": task.pid,
+                "startedAt": task.started_at,
+                // 前台超时转后台：文案需要说明来源
+                "fromTimeout": task.from_timeout,
+            })
+        })
+        .collect();
+    Ok(json!(views))
+}
+
 /// 用户主动终止后台命令任务（整组杀）。与 `kill_shell` 工具不同：这是用户直接操作，
 /// 不经审批，但要落审计（AGENTS 6.2 的口径：用户决定与执行都要可追溯）。
 pub fn chat_kill_shell(state: &AppState, thread_id: &str, task_id: &str) -> SvcResult {
