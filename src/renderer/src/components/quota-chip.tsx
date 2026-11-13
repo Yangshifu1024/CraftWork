@@ -74,7 +74,7 @@ export function QuotaChip({ providerId, providerName }: { providerId: string; pr
   // 明细行：每窗口一行（标签 / 已用 / 剩余 / 重置时间），muted 语义与 ContextRow 一致
   const fmtTime = (iso: string): string => {
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString([], {dateStyle: 'long', timeStyle:'short'});
   };
 
   return (
@@ -85,7 +85,7 @@ export function QuotaChip({ providerId, providerName }: { providerId: string; pr
           onClick={refresh}
           aria-label={`${providerName} 套餐额度`}
           data-quota-chip
-          className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-xs hover:bg-surface-hover"
+          className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-ui-xs hover:bg-surface-hover"
         >
           {quota.windows.map((w) => {
             const remaining = Math.round((100 - w.usedPercent) * 10) / 10;
@@ -113,13 +113,13 @@ export function QuotaChip({ providerId, providerName }: { providerId: string; pr
               const remaining = Math.round((100 - w.usedPercent) * 10) / 10;
               const label = WINDOW_LABELS.find(([k]) => k === w.key)?.[1] ?? w.key;
               return (
-                <div key={w.key} className="flex items-baseline justify-between gap-3">
+                <div key={w.key} className="flex items-baseline justify-between gap-4">
                   <dt className="shrink-0 text-foreground-subtle">{label}</dt>
-                  <dd className="text-right tabular-nums">
-                    已用 {w.usedPercent}% / 剩余{" "}
+                  <dd className="tabular-nums">
+                    剩余{" "}
                     <span className={remainingTone(remaining)}>{remaining}%</span>
                     {w.resetsAt && (
-                      <span className="text-foreground-subtlest">，{fmtTime(w.resetsAt)} 重置</span>
+                      <span className="text-foreground-subtlest">({fmtTime(w.resetsAt)})</span>
                     )}
                   </dd>
                 </div>
@@ -127,7 +127,7 @@ export function QuotaChip({ providerId, providerName }: { providerId: string; pr
             })}
           </dl>
           <p className="pt-2 text-ui-xs text-foreground-subtlest">
-            取数于 {fmtTime(quota.fetchedAt)}；点击 chip 手动刷新，自动每 60s 轮询。
+            {fmtTime(quota.fetchedAt)}；点击 chip 手动刷新。
           </p>
         </HoverCard.Content>
       </HoverCard.Portal>

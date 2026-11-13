@@ -147,13 +147,13 @@ impl Engine {
     }
 
     /// 处置规则（见 AGENTS.md 审批表，判定顺序不可调换）：
-    /// 1. free 全放行（安全兜底退化为审计 + 写前备份）
+    /// 1. free 全放行（不弹审批卡、无写前备份——用户显式接受「放行一切」，事后无应用内回退）
     /// 2. 受限工作区 R3 直接拒绝（先于档位判定，对分级档生效）
     /// 3. graded：R0 放行、R4 拒绝、其余逐次询问；永久授权见 [`Engine::allows_permanent`]
     pub fn action(&self, restricted: bool, risk: PolicyRisk) -> Action {
         let level = self.level;
         if level == Level::Free {
-            return Action::Allow; // 用户显式风险确认，策略层放行，安全靠审计+备份兜底
+            return Action::Allow; // 用户显式风险确认，策略层放行；审计与写前备份已随 SCHEMA_V18 移除，无兜底
         }
         if restricted && risk == PolicyRisk::R3 {
             return Action::Deny; // 受限工作区默认断网

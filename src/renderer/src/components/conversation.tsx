@@ -1806,7 +1806,7 @@ function ModelChip({ className, disabled, ...props }: React.ComponentProps<"butt
       type="button"
       disabled={disabled}
       {...props}
-      className={`flex h-7 shrink-0 items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover disabled:hover:bg-transparent disabled:cursor-default disabled:opacity-50 ${
+      className={`flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg pr-1 pl-2 text-ui-sm hover:bg-surface-hover disabled:cursor-default disabled:hover:bg-transparent disabled:opacity-50 ${
         modelId ? "text-foreground" : "text-foreground-subtle hover:text-foreground-subtle"
       } ${className ?? ""}`}
       title={modelId || "先在设置中添加提供商并选择模型"}
@@ -1837,7 +1837,7 @@ function LevelChip(): React.JSX.Element {
       <Popover.Trigger asChild>
         <button
           type="button"
-          className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-ui-sm hover:bg-surface-hover ${
+          className={`flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-ui-sm hover:bg-surface-hover ${
             warning ? "text-warning hover:text-warning" : "text-foreground-subtle"
           }`}
           title={`审批档位：${current}`}
@@ -2043,7 +2043,7 @@ function ContextChip(): React.JSX.Element | null {
       <HoverCard.Trigger asChild>
         <button
           type="button"
-          className={`flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-xs transition-colors hover:bg-surface-hover ${tone}`}
+          className={`flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-ui-xs transition-colors hover:bg-surface-hover ${tone}`}
           title={hasMeasured && maxTokens > 0 ? `上下文占用 ${percent}%` : "上下文"}
         >
           <ContextRing percent={ringPercent} />
@@ -2531,7 +2531,7 @@ function Composer({
                 aria-pressed={planOn}
                 onClick={togglePlan}
                 title="计划模式：本轮先调研出实施计划，经你在审阅卡中批准后再开始实施；执行操作遵循当前审批档位"
-                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition-colors ${
+                className={`flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition-colors ${
                   planOn ? "border-brand/50 bg-brand/10 text-brand" : "border-border text-foreground-subtle hover:bg-surface-hover"
                 }`}
               >
@@ -2547,7 +2547,7 @@ function Composer({
                     ? `已绑定独立工作树（不可解绑，删除会话时清理）：${boundWorktree}`
                     : "worktree：发送后创建独立 git 工作树并绑定本会话，任务改动与主目录隔离"
                 }
-                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition-colors ${
+                className={`flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-ui-xs transition-colors ${
                   worktreeOn ? "border-brand/50 bg-brand/10 text-brand" : "border-border text-foreground-subtle hover:bg-surface-hover"
                 } disabled:cursor-not-allowed disabled:opacity-60`}
               >

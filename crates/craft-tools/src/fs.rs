@@ -955,6 +955,11 @@ pub struct PatchHunk {
 
 /// 解析统一 diff 文本为补丁块序列；忽略 @@ 之前的文件头，并校验每块的
 /// 旧/新内容行数与 @@ 声明一致（不符即整体报错，不做部分应用）。
+///
+/// 块头必须是完整的 `@@ -旧起点,旧行数 +新起点,新行数 @@`（行数为 1 时可省略 `,1`）。
+/// 以 `@@` 开头却不合本格式的行就地报错，而不是静默跳过——放过它会让后续内容行
+/// 全部被当作「@@ 之前的文件头」丢掉，最终只报一句「没有可应用的内容块」，模型
+/// 无从知道是块头写错了（实测：某会话连续 4 次因此失败，随后转向 shell 脚本改文件）。
 pub fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
     let normalized = patch.replace("\r\n", "\n");
     let mut lines: Vec<&str> = normalized.split('\n').collect();
@@ -965,7 +970,8 @@ pub fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
     let mut current: Option<PatchHunk> = None;
     let header_re = regex::Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap();
 
-    for line in lines {
+    for (idx, line) in lines.iter().enumerate() {
+        let line = *line;
         if let Some(caps) = header_re.captures(line) {
             if let Some(hunk) = current.take() {
                 hunks.push(hunk);
@@ -978,6 +984,15 @@ pub fn parse_patch(patch: &str) -> Result<Vec<PatchHunk>, String> {
                 lines: Vec::new(),
             });
             continue;
+        }
+        // 以 @@ 开头却不匹配上面正则 = 块头不合规（典型是裸 `@@`）。必须就地报错：
+        // 放过它会让后续内容行全部被当作「@@ 之前的文件头」丢掉，模型只会收到
+        // 「没有可应用的内容块」，无从定位是块头格式问题。
+        if line.starts_with("@@") {
+            return Err(format!(
+                "第 {} 行的补丁块头不合规；块头需写成 @@ -旧起点,旧行数 +新起点,新行数 @@（例：@@ -12,3 +12,4 @@）；请修正补丁后重试，不要改用 Python/shell 脚本整体重写文件",
+                idx + 1
+            ));
         }
         let Some(hunk) = current.as_mut() else { continue }; // @@ 之前的内容忽略
         if line.starts_with('\\') {
@@ -1071,7 +1086,7 @@ impl Tool for ApplyPatch {
             Err(err) => return err_result(err),
         };
         if hunks.is_empty() {
-            return err_result("补丁中没有可应用的内容块");
+            return err_result("补丁中没有可应用的内容块；块头需写成 @@ -旧起点,旧行数 +新起点,新行数 @@（例：@@ -12,3 +12,4 @@）；请修正补丁后重试，不要改用 Python/shell 脚本整体重写文件");
         }
 
         // 选择要应用的块（从 1 起）；未指定 hunks 时应用全部
@@ -1148,7 +1163,7 @@ impl ApplyPatch {
     pub fn spec() -> ToolSpec {
         ToolSpec {
         name: "apply_patch".into(),
-        description: "对已存在的文件应用统一 diff（unified diff）补丁；支持 dry_run 预演与按块（hunks，从 1 起）选择性应用。".into(),
+        description: "对已存在的文件应用统一 diff（unified diff）补丁；支持 dry_run 预演与按块（hunks，从 1 起）选择性应用。块头必须写成 @@ -旧起点,旧行数 +新起点,新行数 @@（例：@@ -12,3 +12,4 @@），裸 @@ 不被接受。".into(),
         schema: json!({
             "type": "object",
             "properties": {
@@ -1400,6 +1415,32 @@ mod tests {
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].lines.len(), 3);
         assert!(parse_patch("@@ -1,3 +1,2 @@\n-a\n+b").is_err(), "行数不符必须报错");
+    }
+
+    /// 裸 `@@`（无行号范围）必须报出块头格式指引，而不是落到「没有可应用的内容块」。
+    /// 回归自实测：模型连续 4 次写成裸 `@@`，只收到空块错误，无从纠正，最终转向 shell 脚本。
+    #[test]
+    fn parse_patch_bare_hunk_header_reports_format_hint() {
+        let err = parse_patch("@@\n-old\n+new\n").unwrap_err();
+        assert!(err.contains("块头不合规"), "got: {err}");
+        assert!(err.contains("@@ -旧起点,旧行数 +新起点,新行数 @@"), "缺少格式指引: {err}");
+        assert!(err.contains("第 1 行"), "缺少行号定位: {err}");
+        assert!(!err.contains("没有可应用的内容块"), "不应退化为空块错误: {err}");
+        // 护栏必须与另两条失败分支一致
+        assert!(err.contains("不要改用 Python/shell 脚本整体重写文件"), "缺少 D10 拦截语: {err}");
+    }
+
+    /// 空块分支（补丁完全没有 @@ 时）同样要带格式指引与 D10 拦截语。
+    #[test]
+    fn apply_patch_empty_hunks_error_carries_script_rewrite_guardrail() {
+        let (root, db_dir, ctx) = write_setup("empty-hunks", Some("one\ntwo\n"), json!({ "patch": "no hunks here\n" }));
+        let result = ApplyPatch.execute(&ctx);
+        assert!(result.is_error, "应失败: {}", result.output);
+        assert!(result.output.contains("没有可应用的内容块"), "got: {}", result.output);
+        assert!(result.output.contains("@@ -旧起点,旧行数 +新起点,新行数 @@"), "缺少格式指引: {}", result.output);
+        assert!(result.output.contains("不要改用 Python/shell 脚本整体重写文件"), "缺少 D10 拦截语: {}", result.output);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&db_dir);
     }
 
     #[test]

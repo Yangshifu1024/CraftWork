@@ -10,7 +10,7 @@ import type { PolicyLevel } from "../../../shared/types";
 /** 审批档位清单（设置页与 composer 档位浮层共用）：id 与 PolicyLevel 对齐。 */
 export const APPROVAL_LEVELS = [
   { id: "graded", name: "分级", desc: "只读自动放行；写入与执行每次询问；可本会话/本工作区授权" },
-  { id: "free", name: "自由", desc: "放行一切操作（含破坏性，计划模式也不例外），安全靠审计与备份兜底" },
+  { id: "free", name: "自由", desc: "放行一切操作（含破坏性，计划模式也不例外）；不弹审批卡、无写前备份，误改无法回退" },
 ] as const;
 
 /** 档位 ID → 显示名（chip 等窄场景用）。 */
