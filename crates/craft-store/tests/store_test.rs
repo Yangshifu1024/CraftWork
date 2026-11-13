@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use craft_store::db::{Db, StoreError, SCHEMA_VERSION};
 use craft_store::events::{append_event, latest_context_summary, plan_mode_for_trigger, record_event, snapshot, EventRecord};
 use craft_store::plans::{create_plan, latest_plan};
-use craft_store::records::{self, add_audit, add_usage, get_setting, list_audit, set_setting, usage_summary};
+use craft_store::records::{self, add_usage, get_setting, set_setting, usage_summary};
 use craft_store::runs::{
     create_approval, create_run, finish_run, get_approval, last_run_status, pending_approval_threads, resolve_approval,
 };
@@ -659,44 +659,6 @@ fn settings_upsert_and_read() {
     assert_eq!(get_setting(&db.lock_conn(), "app").unwrap().unwrap()["theme"], "dark");
     set_setting(&db.lock_conn(), "app", &serde_json::json!({ "theme": "light" })).unwrap();
     assert_eq!(get_setting(&db.lock_conn(), "app").unwrap().unwrap()["theme"], "light");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn audit_append_and_descending_list() {
-    let (dir, db) = tmp_db("audit");
-    add_audit(
-        &db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "fs_write",
-            risk: "R1",
-            decision: "allow",
-            scope: Some("user"),
-            detail: Some("a.txt"),
-        },
-    )
-    .unwrap();
-    add_audit(
-        &db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: Some(craft_store::db::now_millis() + 5),
-            thread_id: None,
-            run_id: None,
-            tool: "shell_exec",
-            risk: "R2",
-            decision: "deny",
-            scope: None,
-            detail: None,
-        },
-    )
-    .unwrap();
-    let list = list_audit(&db.lock_conn(), 10).unwrap();
-    assert_eq!(list.len(), 2);
-    // 最新在前
-    assert_eq!(list[0].tool, "shell_exec");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -32,7 +32,7 @@ node scripts/modelsync.mjs
 node scripts/modelsync.mjs --check   # check-only against upstream
 ```
 
-The default data directory is `~/.craftwork` (database, keys, backups, attachments, and the built-in scratch session directory); `CRAFTWORK_HOME` isolates it entirely. Tests and smoke runs must use an isolated directory. Multiple instances have no mutual exclusion — clean up leftover processes before testing.
+The default data directory is `~/.craftwork` (database, keys, attachments, and the built-in scratch session directory); `CRAFTWORK_HOME` isolates it entirely. Tests and smoke runs must use an isolated directory. Multiple instances have no mutual exclusion — clean up leftover processes before testing.
 
 ## Pre-Commit Checks
 
@@ -73,7 +73,7 @@ The complete constraints live in [AGENTS.md](AGENTS.md) §7 (Domain Conventions)
 - **Layering**: domain crates (`craft-core`, `craft-store`, `craft-policy`, `craft-agent`, `craft-model`, `craft-tools`, `craft-doc`, `craft-git`, `craft-marketplace`, `craft-mcp`) stay plain Rust modules without Tauri (so `cargo test` works standalone); `src-tauri/src/services.rs` only does argument validation, orchestration, and error translation. Only `src-tauri` may touch Tauri APIs.
 - **Events**: event writes and broadcasts go through `craft-store`'s `recorder::Recorder` (`seq` allocation and insert in one transaction); the renderer state shell only does "apply events + dispatch actions", and `applyBatch` is the single event entry.
 - **Channels**: every renderer system operation goes through `window.craftwork` (the central channel table); a new capability is wired in three places in sync — `src/shared/channels.ts` (signatures), `src/renderer/src/lib/tauri-bridge.ts` (invoke implementation), and `src-tauri/src/lib.rs` (dispatch branch) — and the renderer never uses Node APIs.
-- **Approvals**: approvals are decided explicitly by the user; no silent-allow path on the backend. Both approval decisions and tool executions write to the audit log.
+- **Approvals**: approvals are decided explicitly by the user; no silent-allow path on the backend.
 - **Security**: path validation (lexical + symlink real-path), command grading, key reads, and the external-link allow-list all happen in the Rust kernel; never trust paths or commands from the renderer. Keys live only in the Rust process and `~/.craftwork/keys.json` (0600).
 - **Data**: SQLite is the source of truth; table changes add a new migration version and never modify existing ones; back up before file writes; rusqlite uses bundled static compilation.
 - **UI**: visual values use only the semantic color tokens in `styles.css` (both light and dark themes together), no hard-coded colors; animations respect `prefers-reduced-motion`; icons use lucide-react; lists render with stable `key`s.

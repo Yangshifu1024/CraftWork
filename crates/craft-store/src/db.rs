@@ -10,7 +10,7 @@ pub use craft_core::bus::now_millis;
 
 /// 当前 schema 版本。历史版本与已移除的 Electron 版（Node）双向兼容——老库原位可读；
 /// Node 版删除后由本侧单独演进，新增迁移只做加列/加表等向后兼容变更。
-pub const SCHEMA_VERSION: i64 = 17;
+pub const SCHEMA_VERSION: i64 = 18;
 
 /// 存储层错误：NotFound 承载业务「不存在」（渲染层按静默/提示处理），Other 为可读中文错误串。
 #[derive(Debug)]
@@ -362,8 +362,20 @@ ALTER TABLE threads ADD COLUMN last_done_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE threads ADD COLUMN last_read_at INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// V18：移除审计与写前备份——两张表连同历史记录一并丢弃（不可逆的有意变更）。
+///
+/// V1 的建表语句原样保留（已发布迁移不可改）：新库先照 V1 建表、再由本版本删除，
+/// 与老库升级走同一条链，落地结果一致。
+///
+/// 为什么是 DROP 而不是「保留表、停止写入」：留一张只增不删且无任何入口的死表，
+/// 磁盘只涨不落，下一次看到它的人还得重新判断它是否还有用。
+pub const SCHEMA_V18: &str = r#"
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS backups;
+"#;
+
 /// 迁移链：下标即目标版本号，[0] 为占位空串（使 MIGRATIONS[v] 对应版本 v）。
-const MIGRATIONS: [&str; 18] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, SCHEMA_V13, SCHEMA_V14, SCHEMA_V15, SCHEMA_V16, SCHEMA_V17];
+const MIGRATIONS: [&str; 19] = ["", SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, SCHEMA_V13, SCHEMA_V14, SCHEMA_V15, SCHEMA_V16, SCHEMA_V17, SCHEMA_V18];
 
 /// 逐版本应用迁移：每个版本在独立事务内执行 SQL 并推进 user_version（原子生效或回滚）。
 /// 已是最新版本时为 no-op；注意 user_version 大于 SCHEMA_VERSION 的库（更新版本产物）会静默放行。
@@ -438,7 +450,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         // 关键表存在
-        for table in ["threads", "workspaces", "workspace_folders", "events", "runs", "approvals", "audit_log", "usage", "settings", "backups"] {
+        for table in ["threads", "workspaces", "workspace_folders", "events", "runs", "approvals", "usage", "settings"] {
             let count: i64 = db
                 .with(|conn| {
                     Ok(conn
@@ -447,6 +459,17 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(count, 1, "表 {table} 应存在");
+        }
+        // V18 之后审计与备份表不存在（迁移链末端删表，新库同样走到这里）
+        for table in ["audit_log", "backups"] {
+            let count: i64 = db
+                .with(|conn| {
+                    Ok(conn
+                        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", [table], |row| row.get(0))
+                        .unwrap_or(0))
+                })
+                .unwrap();
+            assert_eq!(count, 0, "表 {table} 应已被 V18 删除");
         }
         drop(db);
         std::fs::remove_dir_all(&dir).ok();

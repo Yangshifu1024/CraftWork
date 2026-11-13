@@ -68,13 +68,7 @@ struct CategoryDef {
     rel_path: &'static str,
 }
 
-const CATEGORIES: [CategoryDef; 8] = [
-    CategoryDef {
-        kind: "backups",
-        label: "写前备份",
-        description: "改文件、改文档前保存的原件；清空不影响现有文件，但已无法从备份恢复",
-        rel_path: "backups",
-    },
+const CATEGORIES: [CategoryDef; 7] = [
     CategoryDef {
         kind: "logs",
         label: "会话日志",
@@ -129,7 +123,6 @@ const OTHER_KIND: &str = "other";
 /// 显示不出来。因此它可清理，但必须走二次确认对话框。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupKind {
-    BackupsAll,
     LogsOrphans,
     LogsAll,
     ShellTasksOrphans,
@@ -144,7 +137,6 @@ impl CleanupKind {
     /// 从通道参数解析；未知值返回 None（服务层报可读错误，不静默当成功）。
     pub fn parse(raw: &str) -> Option<Self> {
         Some(match raw {
-            "backupsAll" => Self::BackupsAll,
             "logsOrphans" => Self::LogsOrphans,
             "logsAll" => Self::LogsAll,
             "shellTasksOrphans" => Self::ShellTasksOrphans,
@@ -159,7 +151,6 @@ impl CleanupKind {
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::BackupsAll => "backupsAll",
             Self::LogsOrphans => "logsOrphans",
             Self::LogsAll => "logsAll",
             Self::ShellTasksOrphans => "shellTasksOrphans",
@@ -171,10 +162,9 @@ impl CleanupKind {
         }
     }
 
-    /// 审计与文案用的中文名。
+    /// 文案用的中文名。
     pub fn label(self) -> &'static str {
         match self {
-            Self::BackupsAll => "清空写前备份",
             Self::LogsOrphans => "清理孤儿会话日志",
             Self::LogsAll => "清空会话日志",
             Self::ShellTasksOrphans => "清理孤儿后台输出",
@@ -413,12 +403,6 @@ fn cleanups_for(kind: &str) -> Vec<StorageCleanupAction> {
         confirm: confirm.to_string(),
     };
     match kind {
-        "backups" => vec![action(
-            "backupsAll",
-            "全部清理",
-            true,
-            "将删除全部写前备份。已有文件不受影响，但删除后无法再从备份恢复任何被改过的文件。",
-        )],
         "logs" => vec![
             action("logsOrphans", "清理孤儿", false, "将删除所属会话已不存在的日志文件。"),
             action(
@@ -626,17 +610,6 @@ pub fn cleanup(
             result.removed_items = 1;
             return Ok(result);
         }
-        CleanupKind::BackupsAll => {
-            for (name, size, _) in list_files(&data.join("backups")) {
-                let path = data.join("backups").join(&name);
-                if remove_path(&path) {
-                    result.freed_bytes += size;
-                    result.removed_items += 1;
-                } else {
-                    result.failures.push(format!("无法删除备份 {name}"));
-                }
-            }
-        }
         CleanupKind::LogsOrphans | CleanupKind::LogsAll => {
             let keep = if kind == CleanupKind::LogsOrphans {
                 Some(thread_ids(db)?)
@@ -787,20 +760,6 @@ pub fn remove_thread_files(data_dir: &str, thread_id: &str, plan_paths: &[String
         }
     }
     failures
-}
-
-/// 把清理结果写成一行审计 `detail`（服务层落库用）。
-pub fn audit_detail(result: &StorageCleanupResult) -> String {
-    let label = CleanupKind::parse(&result.kind).map(|k| k.label()).unwrap_or("存储清理");
-    let failures = if result.failures.is_empty() {
-        String::new()
-    } else {
-        format!(" · {} 项失败", result.failures.len())
-    };
-    format!(
-        "{label}：释放 {} 字节 / 删除 {} 项 / 跳过 {} 项{}",
-        result.freed_bytes, result.removed_items, result.skipped_items, failures
-    )
 }
 
 /// 序列化辅助：契约结构自身可序列化，这里只用于类型收敛（服务层统一转 Value）。
@@ -1012,19 +971,15 @@ mod tests {
     }
 
     #[test]
-    fn backups_and_attachments_clear_whole_directory() {
+    fn attachments_clear_whole_directory() {
         let dir = temp_dir("flat");
         let db = test_db(&dir);
-        for sub in ["backups", "attachments"] {
-            std::fs::create_dir_all(dir.join(sub)).unwrap();
-            std::fs::write(dir.join(sub).join("a.bin"), b"123").unwrap();
-            std::fs::write(dir.join(sub).join("b.bin"), b"45").unwrap();
-        }
-        let backups = cleanup(&db, &dir.to_string_lossy(), CleanupKind::BackupsAll, &[], 0).unwrap();
-        assert_eq!(backups.removed_items, 2);
-        assert_eq!(backups.freed_bytes, 5);
+        std::fs::create_dir_all(dir.join("attachments")).unwrap();
+        std::fs::write(dir.join("attachments").join("a.bin"), b"123").unwrap();
+        std::fs::write(dir.join("attachments").join("b.bin"), b"45").unwrap();
         let attachments = cleanup(&db, &dir.to_string_lossy(), CleanupKind::AttachmentsAll, &[], 0).unwrap();
         assert_eq!(attachments.removed_items, 2);
+        assert_eq!(attachments.freed_bytes, 5);
         drop(db);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1062,7 +1017,6 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, vec![b'x'; bytes]).unwrap();
         };
-        write("backups/a.bak", 100);
         write("logs/th_a.log", 20);
         write("attachments/img.png", 30);
         write("shell-tasks/th_a/out.log", 40);
@@ -1089,7 +1043,6 @@ mod tests {
         );
         // 分类各自准确
         let get = |kind: &str| view.categories.iter().find(|c| c.kind == kind).unwrap().bytes;
-        assert_eq!(get("backups"), 100);
         assert_eq!(get("logs"), 20);
         assert_eq!(get("attachments"), 30);
         assert_eq!(get("shellTasks"), 40);
@@ -1107,12 +1060,12 @@ mod tests {
     fn cleanup_reduces_reported_usage() {
         let dir = temp_dir("reduces");
         let db = test_db(&dir);
-        std::fs::create_dir_all(dir.join("backups")).unwrap();
-        std::fs::write(dir.join("backups/big.bin"), vec![b'x'; 1000]).unwrap();
+        std::fs::create_dir_all(dir.join("attachments")).unwrap();
+        std::fs::write(dir.join("attachments/big.bin"), vec![b'x'; 1000]).unwrap();
         let before = overview(&db, &dir.to_string_lossy(), &[], 0).unwrap().files_total_bytes;
         assert!(before >= 1000);
 
-        cleanup(&db, &dir.to_string_lossy(), CleanupKind::BackupsAll, &[], 0).unwrap();
+        cleanup(&db, &dir.to_string_lossy(), CleanupKind::AttachmentsAll, &[], 0).unwrap();
         let after = overview(&db, &dir.to_string_lossy(), &[], 0).unwrap().files_total_bytes;
         assert!(after < before, "清理后报告体积必须下降：{before} → {after}");
         assert_eq!(before - after, 1000, "下降量应等于被删的字节数");

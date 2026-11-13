@@ -1,69 +1,9 @@
-//! 审计 / 用量 / 设置 / 备份 表读写。
+//! 用量 / 设置 表读写。
 
 use rusqlite::Connection;
 
-use crate::db::{now_millis, other_err, StoreError, StoreResult};
-use craft_core::contract::{AuditEntry, Backup, TokenTotals, UsageByAgentType, UsageByDay, UsageByModel, UsageSummary};
-use craft_core::ids::{id_prefix, new_id};
-
-// ---------- 审计 ----------
-
-/// 待写入的一条审计记录；ts 为 None 时取当前时间，空串可选项统一存 NULL。
-pub struct AuditRecord<'a> {
-    pub ts: Option<i64>,
-    pub thread_id: Option<&'a str>,
-    pub run_id: Option<&'a str>,
-    pub tool: &'a str,
-    pub risk: &'a str,
-    pub decision: &'a str,
-    pub scope: Option<&'a str>,
-    pub detail: Option<&'a str>,
-}
-
-/// 写入审计（审批决定与工具执行都必须落审计，见 AGENTS.md 审批约束）。
-pub fn add_audit(conn: &Connection, rec: AuditRecord<'_>) -> StoreResult<()> {
-    conn.execute(
-        "INSERT INTO audit_log (ts, thread_id, run_id, tool, risk, decision, scope, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![
-            rec.ts.unwrap_or_else(now_millis),
-            rec.thread_id.filter(|s| !s.is_empty()),
-            rec.run_id.filter(|s| !s.is_empty()),
-            rec.tool,
-            rec.risk,
-            rec.decision,
-            rec.scope.filter(|s| !s.is_empty()),
-            rec.detail.filter(|s| !s.is_empty()),
-        ],
-    )
-    .map_err(other_err)?;
-    Ok(())
-}
-
-/// 最近审计列表（ts DESC）；limit 非法（<=0）或超上限（>500）时回落默认 200。
-pub fn list_audit(conn: &Connection, limit: i64) -> StoreResult<Vec<AuditEntry>> {
-    let n = if limit <= 0 || limit > 500 { 200 } else { limit };
-    let mut stmt = conn
-        .prepare("SELECT * FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?1")
-        .map_err(other_err)?;
-    let rows = stmt
-        .query_map([n], |row| {
-            Ok(AuditEntry {
-                id: row.get("id")?,
-                ts: row.get("ts")?,
-                thread_id: row.get::<_, Option<String>>("thread_id")?.unwrap_or_default(),
-                run_id: row.get::<_, Option<String>>("run_id")?.unwrap_or_default(),
-                tool: row.get("tool")?,
-                risk: row.get("risk")?,
-                decision: row.get("decision")?,
-                scope: row.get::<_, Option<String>>("scope")?.unwrap_or_default(),
-                detail: row.get::<_, Option<String>>("detail")?.unwrap_or_default(),
-            })
-        })
-        .map_err(other_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(other_err)?;
-    Ok(rows)
-}
+use crate::db::{now_millis, other_err, StoreResult};
+use craft_core::contract::{TokenTotals, UsageByAgentType, UsageByDay, UsageByModel, UsageSummary};
 
 // ---------- 用量 ----------
 
@@ -237,57 +177,4 @@ pub fn set_setting(conn: &Connection, key: &str, value: &serde_json::Value) -> S
 pub fn delete_setting(conn: &Connection, key: &str) -> StoreResult<()> {
     conn.execute("DELETE FROM settings WHERE key = ?1", [key]).map_err(other_err)?;
     Ok(())
-}
-
-// ---------- 备份 ----------
-
-/// 待登记的一次写前备份（hash 为原文件 SHA-256；备份文件本体由调用方落盘）。
-pub struct BackupRecord<'a> {
-    pub path: &'a str,
-    pub backup_path: &'a str,
-    pub hash: &'a str,
-    pub size: i64,
-}
-
-pub fn add_backup(conn: &Connection, rec: BackupRecord<'_>) -> StoreResult<String> {
-    let id = new_id(id_prefix::BACKUP);
-    conn.execute(
-        "INSERT INTO backups (id, path, backup_path, hash, size, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![id, rec.path, rec.backup_path, rec.hash, rec.size, now_millis()],
-    )
-    .map_err(other_err)?;
-    Ok(id)
-}
-
-pub fn get_backup(conn: &Connection, id: &str) -> StoreResult<Backup> {
-    conn.query_row("SELECT * FROM backups WHERE id = ?1", [id], to_backup)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StoreError::NotFound("备份不存在".into()),
-            other => other_err(other),
-        })
-}
-
-fn to_backup(row: &rusqlite::Row<'_>) -> rusqlite::Result<Backup> {
-    Ok(Backup {
-        id: row.get("id")?,
-        path: row.get("path")?,
-        backup_path: row.get("backup_path")?,
-        hash: row.get("hash")?,
-        size: row.get("size")?,
-        created_at: row.get("created_at")?,
-    })
-}
-
-/// 最近备份列表（created_at DESC）；limit 非法（<=0）或超上限（>200）时回落默认 50。
-pub fn list_backups(conn: &Connection, limit: i64) -> StoreResult<Vec<Backup>> {
-    let n = if limit <= 0 || limit > 200 { 50 } else { limit };
-    let mut stmt = conn
-        .prepare("SELECT * FROM backups ORDER BY created_at DESC LIMIT ?1")
-        .map_err(other_err)?;
-    let rows = stmt
-        .query_map([n], to_backup)
-        .map_err(other_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(other_err)?;
-    Ok(rows)
 }

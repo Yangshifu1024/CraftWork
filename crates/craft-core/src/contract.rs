@@ -440,22 +440,7 @@ fn default_subagent_concurrency() -> i64 {
     4
 }
 
-// ---------- 审计 / 用量 / 备份 ----------
-
-/// audit_log 一行：一次审批决定或工具执行的审计记录。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuditEntry {
-    pub id: i64,
-    pub ts: i64,
-    pub thread_id: String,
-    pub run_id: String,
-    pub tool: String,
-    pub risk: String,
-    pub decision: String,
-    pub scope: String,
-    pub detail: String,
-}
+// ---------- 用量 ----------
 
 /// 一段时间窗的 token 与费用合计（cost_micros 为微元，避免浮点累加误差）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -508,23 +493,11 @@ pub struct UsageSummary {
     pub by_agent_type: Vec<UsageByAgentType>,
 }
 
-/// backups 一行：一次写前备份的登记（hash 为原文件 SHA-256，外部修改检测用）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Backup {
-    pub id: String,
-    pub path: String,
-    pub backup_path: String,
-    pub hash: String,
-    pub size: i64,
-    pub created_at: i64,
-}
-
 // ---------- 存储占用（设置 → 数据与统计 → 存储，决策 D27） ----------
 //
 // 口径分两半，界面上不合并成单数：
 // - **数据库内**：SQLite 里的东西（含索引页），删了不释放文件除非 VACUUM；
-// - **数据目录文件**：库之外的文件（备份、附件、日志、后台输出、工作树、计划）。
+// - **数据目录文件**：库之外的文件（附件、日志、后台输出、工作树、计划）。
 // 「各会话占用」只是**归属估算**：events.payload 字节 + 按会话 id 命名的文件体积，
 // 不含索引页与行头开销，故不称「独占字节」。
 
@@ -532,7 +505,7 @@ pub struct Backup {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageCategoryView {
-    /// 稳定标识（清理通道按它派发）：attachments / backups / logs / shellTasks /
+    /// 稳定标识（清理通道按它派发）：attachments / logs / shellTasks /
     /// worktrees / plans / skillsMarketplace / workspaceDefault / other
     pub kind: String,
     /// 界面展示名（「附件」「写前备份」…）
@@ -552,7 +525,7 @@ pub struct StorageCategoryView {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageCleanupAction {
-    /// 动作 id：backupsAll / logsOrphans / logsAll / shellTasksOrphans /
+    /// 动作 id：logsOrphans / logsAll / shellTasksOrphans /
     /// shellTasksAll / attachmentsAll / worktreesOrphans / plansOrphans
     pub kind: String,
     /// 按钮文案（「清理孤儿」「全部清理」…）
@@ -874,17 +847,6 @@ mod tests {
             subagents_enabled: true,
             subagent_max_concurrent: 4,
         };
-        let audit = AuditEntry {
-            id: 0,
-            ts: 0,
-            thread_id: String::new(),
-            run_id: String::new(),
-            tool: "t".into(),
-            risk: "R0".into(),
-            decision: "auto".into(),
-            scope: String::new(),
-            detail: String::new(),
-        };
         let totals = TokenTotals { input_tokens: 0, output_tokens: 0, cost_micros: 0 };
         let usage = UsageSummary {
             today: totals.clone(),
@@ -893,14 +855,6 @@ mod tests {
             by_model: vec![UsageByModel { model_id: "m".into(), input_tokens: 0, output_tokens: 0, cost_micros: 0 }],
             by_day: vec![UsageByDay { day: "d".into(), input_tokens: 0, output_tokens: 0, cost_micros: 0 }],
             by_agent_type: vec![UsageByAgentType { agent_type: "main".into(), input_tokens: 0, output_tokens: 0, cost_micros: 0 }],
-        };
-        let backup = Backup {
-            id: "b".into(),
-            path: "/p".into(),
-            backup_path: "/b".into(),
-            hash: "h".into(),
-            size: 0,
-            created_at: 0,
         };
         let line = DiffLine { kind: "ctx".into(), old: 0, r#new: 0, text: "t".into() };
         let diff = DiffResult { additions: 0, deletions: 0, hunks: vec![DiffHunk { header: "h".into(), lines: vec![line] }], truncated: false };
@@ -973,9 +927,7 @@ mod tests {
             ("WorkspaceView", serde_json::to_value(workspace).unwrap()),
             ("Snapshot", serde_json::to_value(snapshot).unwrap()),
             ("Settings", serde_json::to_value(settings).unwrap()),
-            ("AuditEntry", serde_json::to_value(audit).unwrap()),
             ("UsageSummary", serde_json::to_value(usage).unwrap()),
-            ("Backup", serde_json::to_value(backup).unwrap()),
             ("DiffResult", serde_json::to_value(diff).unwrap()),
             ("AppInfo", serde_json::to_value(info).unwrap()),
             ("StorageOverview", serde_json::to_value(storage_overview_view).unwrap()),

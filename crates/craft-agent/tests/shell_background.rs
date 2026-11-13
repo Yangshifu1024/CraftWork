@@ -145,7 +145,7 @@ fn harness(tag: &str, rounds: Vec<Round>) -> Harness {
     // 关键：Registry 与 Runner 共用同一份后台任务注册表，否则工具写入的任务
     // Runner 永远看不到，也就没有完成通知（这正是生产装配必须走 new_with_shell_tasks 的原因）。
     let shell_tasks = Arc::new(ShellTasks::new());
-    let registry = Arc::new(Registry::new_with_shell_tasks("", &data_dir, Arc::clone(&db), Arc::clone(&shell_tasks)));
+    let registry = Arc::new(Registry::new_with_shell_tasks(&data_dir, Arc::clone(&db), Arc::clone(&shell_tasks)));
     registry.register(Box::new(craft_tools::shell::ShellExec));
     registry.register(Box::new(craft_tools::shell::BashOutput));
     registry.register(Box::new(craft_tools::shell::KillShell));

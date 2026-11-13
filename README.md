@@ -6,7 +6,7 @@
 
 CraftWork is a desktop agent. It reads files, edits code, runs commands, and inspects diffs in your workspace, and can also read documents, organize meeting notes, and draft emails.
 
-Writing files, running commands, and modifying documents all go through approval first, leaving audit records and backups.
+Writing files, running commands, and modifying documents all go through approval first.
 
 ## Core Features
 
@@ -27,7 +27,7 @@ Writing files, running commands, and modifying documents all go through approval
 ### Work mode
 
 - Text-level read and edit for Word / Excel, text extraction for PDF; scanned files report that OCR is unsupported.
-- Documents go through approval and backup before writing; editing Word text or Excel cells preserves the original structure.
+- Documents go through approval before writing; editing Word text or Excel cells preserves the original structure.
 
 ### Skills
 
@@ -57,7 +57,7 @@ Writing files, running commands, and modifying documents all go through approval
 
 | Risk | Meaning | Default policy |
 | --- | --- | --- |
-| R0 | Read-only | Auto-allowed, audited |
+| R0 | Read-only | Auto-allowed |
 | R1 | Workspace write | Asks every time; grantable for the session / workspace |
 | R2 | Execute | Asks every time |
 | R3 | Network or out-of-bounds | Asks every time, no permanent grants |
@@ -68,11 +68,10 @@ Writing files, running commands, and modifying documents all go through approval
 - System notifications: approval pending, completion, and failure remind you while the window is unfocused (disable in settings).
 - Restricted workspaces reject network access outright and offer no permanent grants of any kind.
 - Files are backed up automatically before writing, restorable from the data panel.
-- Approval decisions, tool calls, and file writes all land in the local audit log.
 
 ### Data and privacy
 
-- SQLite (WAL, rusqlite bundled static build) stores sessions, events, approvals, audit, usage, and settings; the events table increments a per-session `seq` monotonically and is the single source of truth for messages and parts.
+- SQLite (WAL, rusqlite bundled static build) stores sessions, events, approvals, usage, and settings; the events table increments a per-session `seq` monotonically and is the single source of truth for messages and parts.
 - Keys live in `~/.craftwork/keys.json` (0600) and only inside the main process.
 - The UI runs in the system WebView with CSP and the capabilities allow-list kept on; no remote pages are loaded; external links must be http/https and open in the system browser.
 - Tool subprocesses run in a sanitized environment (secret-like variables stripped by blacklist), in their own process group, with process-tree kill on timeout and output truncation.

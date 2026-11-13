@@ -23,7 +23,7 @@ use craft_policy::engine::Engine;
 use craft_policy::resolve::resolve_existing;
 use craft_store::db::Db;
 use craft_store::recorder::Recorder;
-use craft_store::records::{add_audit, get_setting, list_audit, list_backups, set_setting, usage_summary};
+use craft_store::records::{get_setting, set_setting, usage_summary};
 use craft_store::threads;
 use craft_store::workspaces;
 use craft_tools::registry::Registry;
@@ -62,7 +62,6 @@ pub struct AppState {
     pub recorder: Recorder,
     pub data_dir: String,
     pub attachment_dir: String,
-    pub backup_dir: String,
     /// 运行日志等级缓存（设置保存侧更新，会话日志写入侧只读；与 Runner 的 SessionLog 共享）
     pub log_level: Arc<std::sync::atomic::AtomicU8>,
     /// 共享会话日志：Runner / Bus / 托盘状态线程写同一份 app.log（托盘失败与状态查询失败
@@ -643,19 +642,6 @@ pub fn thread_clear_temp(state: &AppState, mode: &str) -> SvcResult {
             removed += 1;
         }
     }
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "thread",
-            risk: "R0",
-            decision: "deleted",
-            scope: None,
-            detail: Some(&format!("清理临时会话：删除 {removed} 个，跳过 {skipped} 个运行中")),
-        },
-    );
     Ok(json!({ "removed": removed, "skipped": skipped }))
 }
 
@@ -1054,8 +1040,6 @@ pub fn workspace_write_file(state: &AppState, workspace_id: &str, folder_id: &st
         if !expected_hash.is_empty() && current_hash != expected_hash {
             return err("文件已被外部修改，请先重新读取再保存");
         }
-        let env = craft_tools::ToolEnv { backup_dir: state.backup_dir.clone(), data_dir: state.data_dir.clone(), db: Arc::clone(&state.db), shell_tasks: Arc::clone(&state.shell_tasks), proxy_config: craft_tools::registry::db_proxy_config(&state.db) };
-        env.backup(&resolved.abs, &existing)?;
     }
     if let Some(parent) = Path::new(&resolved.abs).parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;
@@ -1185,19 +1169,6 @@ pub fn ensure_thread_worktree(state: &AppState, thread_id: &str) -> Result<(Stri
     // 同分支已在其他工作树检出 / bare / unborn HEAD 由 craft-git 拒绝并给可读错误
     craft_git::worktree::add_worktree(&repo, &path, &branch).map_err(|e| e.to_string())?;
     threads::set_thread_worktree(&state.db.lock_conn(), thread_id, &path_str, &branch).map_err(|e| e.to_string())?;
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: Some(thread_id),
-            run_id: None,
-            tool: "worktree",
-            risk: "R0",
-            decision: "allowed",
-            scope: None,
-            detail: Some(&format!("创建 git 工作树：{path_str}（分支 {branch}）")),
-        },
-    );
     Ok((path_str, branch))
 }
 
@@ -1212,8 +1183,6 @@ fn cleanup_thread_worktree(state: &AppState, thread: &threads::ThreadRow) {
     let repo = state.db.with(|conn| {
         Ok(workspaces::get_workspace(conn, &thread.workspace_id)?.workspace.path)
     });
-    // 删除前检测未提交改动（best-effort，检测失败不影响删除），结果进审计供排查
-    let dirty = craft_git::worktree::has_uncommitted_changes(&thread.worktree_path).ok();
     let mut removed = false;
     if let Ok(repo) = &repo {
         // 强制移除（等价迁移前 `worktree remove --force`，丢弃未提交改动）
@@ -1224,27 +1193,6 @@ fn cleanup_thread_worktree(state: &AppState, thread: &threads::ThreadRow) {
     if !removed {
         let _ = std::fs::remove_dir_all(&thread.worktree_path);
     }
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: Some(&thread.id),
-            run_id: None,
-            tool: "worktree",
-            risk: "R0",
-            decision: "allowed",
-            scope: None,
-            detail: Some(&format!(
-                "删除会话，清理 git 工作树：{}{}",
-                thread.worktree_path,
-                match dirty {
-                    Some(true) => "（含未提交改动，已丢弃）",
-                    Some(false) => "",
-                    None => "",
-                }
-            )),
-        },
-    );
 }
 
 
@@ -1285,53 +1233,13 @@ pub fn storage_cleanup(state: &AppState, kind: &str) -> SvcResult {
     let result = match crate::storage::cleanup(&state.db, &state.data_dir, kind, &running, background) {
         Ok(result) => result,
         Err(crate::storage::StorageError::Busy(reason)) => {
-            let _ = add_audit(
-                &state.db.lock_conn(),
-                craft_store::records::AuditRecord {
-                    ts: None,
-                    thread_id: None,
-                    run_id: None,
-                    tool: "storage",
-                    risk: "R1",
-                    decision: "denied",
-                    scope: None,
-                    detail: Some(&format!("{}：被运行门禁拒绝（{reason}）", kind.label())),
-                },
-            );
             return err(&reason);
         }
         Err(e) => {
             let message = e.to_string();
-            let _ = add_audit(
-                &state.db.lock_conn(),
-                craft_store::records::AuditRecord {
-                    ts: None,
-                    thread_id: None,
-                    run_id: None,
-                    tool: "storage",
-                    risk: "R1",
-                    decision: "failed",
-                    scope: None,
-                    detail: Some(&format!("{}：{message}", kind.label())),
-                },
-            );
             return err(&message);
         }
     };
-    let detail = crate::storage::audit_detail(&result);
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "storage",
-            risk: "R1",
-            decision: "deleted",
-            scope: None,
-            detail: Some(&detail),
-        },
-    );
     serde_json::to_value(result).map_err(|e| e.to_string())
 }
 
@@ -1521,19 +1429,6 @@ pub fn chat_kill_shell(state: &AppState, thread_id: &str, task_id: &str) -> SvcR
     }
     craft_core::platform::kill_process_group(task.pid);
     state.shell_tasks.settle(&task.id, craft_tools::shell_tasks::TaskState::Killed, None);
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: Some(thread_id),
-            run_id: None,
-            tool: "kill_shell",
-            risk: "R2",
-            decision: "allow",
-            scope: Some("user"),
-            detail: Some(&format!("用户终止后台命令：{}（任务 {}）", task.command, task.id)),
-        },
-    );
     Ok(json!({ "killed": true }))
 }
 
@@ -1544,19 +1439,6 @@ pub fn chat_cancel_wait(state: &AppState, thread_id: &str) -> SvcResult {
     if !state.runner.cancel_wait(thread_id) {
         return err("当前没有等待中的任务");
     }
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: Some(thread_id),
-            run_id: None,
-            tool: "wait",
-            risk: "R0",
-            decision: "allow",
-            scope: Some("user"),
-            detail: Some("用户跳过等待（wait）"),
-        },
-    );
     Ok(json!({ "canceled": true }))
 }
 
@@ -1931,19 +1813,6 @@ pub fn subagent_profile_set_enabled(state: &AppState, id: &str, enabled: bool) -
 pub fn cancel_all_runs(state: &AppState) {
     for thread_id in state.runner.running_threads() {
         if state.runner.cancel(&thread_id) {
-            let _ = add_audit(
-                &state.db.lock_conn(),
-                craft_store::records::AuditRecord {
-                    ts: None,
-                    thread_id: Some(&thread_id),
-                    run_id: None,
-                    tool: "run",
-                    risk: "R0",
-                    decision: "canceled",
-                    scope: None,
-                    detail: Some("窗口关闭/应用退出，运行已取消"),
-                },
-            );
         }
     }
 }
@@ -2475,21 +2344,11 @@ pub fn catalog_import(state: &AppState, provider_id: &str, all: bool, model_ids:
     provider_list(state)
 }
 
-// ---------- 审计 / 用量 / 备份 / 附件 ----------
+// ---------- 用量 / 附件 ----------
 
-pub fn audit_list(state: &AppState, limit: i64) -> SvcResult {
-    let entries = list_audit(&state.db.lock_conn(), limit).map_err(|e| e.to_string())?;
-    serde_json::to_value(entries).map_err(|e| e.to_string())
-}
-
-pub fn audit_usage(state: &AppState) -> SvcResult {
+pub fn usage_summary_view(state: &AppState) -> SvcResult {
     let summary = usage_summary(&state.db.lock_conn()).map_err(|e| e.to_string())?;
     serde_json::to_value(summary).map_err(|e| e.to_string())
-}
-
-pub fn audit_backups(state: &AppState, limit: i64) -> SvcResult {
-    let backups = list_backups(&state.db.lock_conn(), limit).map_err(|e| e.to_string())?;
-    serde_json::to_value(backups).map_err(|e| e.to_string())
 }
 
 /// 粘贴附件落盘：文件名只保留字母数字与 .-_（剥离路径分隔符等危险字符），再加 att_ ID
@@ -2894,30 +2753,6 @@ pub fn provider_warnings(state: &AppState) -> SvcResult {
     Ok(json!(warnings))
 }
 
-// ---------- 审计恢复 ----------
-
-/// 从备份恢复文件：恢复前先把当前内容再备份一次（可回退），随后原子写回原路径。
-pub fn audit_restore(state: &AppState, backup_id: &str) -> SvcResult {
-    let backup = craft_store::records::get_backup(&state.db.lock_conn(), backup_id).map_err(|e| e.to_string())?;
-    let current = std::fs::read(&backup.path);
-    if let Ok(existing) = current {
-        // 恢复前把当前内容也做一次备份（可再恢复回来）
-        state
-            .registry_backup_env()
-            .backup(&backup.path, &existing)?;
-    }
-    let data = std::fs::read(&backup.backup_path).map_err(|e| format!("备份读取失败：{e}"))?;
-    write_file_atomic(Path::new(&backup.path), &data, 0o644).map_err(|e| format!("恢复失败：{e}"))?;
-    Ok(json!(null))
-}
-
-impl AppState {
-    /// 构造写前备份用的 ToolEnv（备份目录 + DB），审计恢复与工具执行共用同一备份链路。
-    pub fn registry_backup_env(&self) -> craft_tools::ToolEnv {
-        craft_tools::ToolEnv { backup_dir: self.backup_dir.clone(), data_dir: self.data_dir.clone(), db: Arc::clone(&self.db), shell_tasks: Arc::clone(&self.shell_tasks), proxy_config: craft_tools::registry::db_proxy_config(&self.db) }
-    }
-}
-
 // ---------- MCP（rmcp 客户端接线，D16） ----------
 
 /// MCP 配置的持久化键（settings 表）。值为 `Vec<ServerConfig>` 的 JSON。
@@ -3054,24 +2889,6 @@ pub fn mcp_upsert(state: &AppState, server: &Value) -> SvcResult {
     mcp_store_configs(state, &configs)?;
 
     // 立即应用：启用则连接并注册工具，停用则断开
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "mcp_upsert",
-            risk: "R1",
-            decision: "allow",
-            scope: None,
-            detail: Some(&format!(
-                "{} MCP 服务器「{}」（{}）",
-                if is_new { "新增" } else { "编辑" },
-                config.name,
-                config.transport.as_str()
-            )),
-        },
-    );
     mcp_apply(state, &config);
     mcp_list(state)
 }
@@ -3079,27 +2896,13 @@ pub fn mcp_upsert(state: &AppState, server: &Value) -> SvcResult {
 /// 启用/停用一个服务器（开关切换即连接/断开，工具随之注册/注销）。
 pub fn mcp_set_enabled(state: &AppState, server_id: &str, enabled: bool) -> SvcResult {
     let mut configs = mcp_configs(state);
-    let name = {
+    {
         let Some(config) = configs.iter_mut().find(|c| c.id == server_id) else {
             return err("服务器不存在或已删除");
         };
         config.enabled = enabled;
-        config.name.clone()
-    };
+    }
     mcp_store_configs(state, &configs)?;
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "mcp_set_enabled",
-            risk: "R1",
-            decision: "allow",
-            scope: None,
-            detail: Some(&format!("{} MCP 服务器「{name}」", if enabled { "启用" } else { "停用" })),
-        },
-    );
     if enabled {
         if let Some(config) = configs.into_iter().find(|c| c.id == server_id) {
             mcp_apply(state, &config);
@@ -3115,27 +2918,13 @@ pub fn mcp_set_enabled(state: &AppState, server_id: &str, enabled: bool) -> SvcR
 /// 删除一个服务器（先断开再删配置）。
 pub fn mcp_remove(state: &AppState, server_id: &str) -> SvcResult {
     let mut configs = mcp_configs(state);
-    let Some(removed) = configs.iter().find(|c| c.id == server_id) else {
+    if !configs.iter().any(|c| c.id == server_id) {
         return err("服务器不存在或已删除");
-    };
-    let name = removed.name.clone();
+    }
     configs.retain(|c| c.id != server_id);
     mcp_store_configs(state, &configs)?;
     state.mcp_pool.disconnect(server_id);
     sync_mcp_tools(state);
-    let _ = add_audit(
-        &state.db.lock_conn(),
-        craft_store::records::AuditRecord {
-            ts: None,
-            thread_id: None,
-            run_id: None,
-            tool: "mcp_remove",
-            risk: "R1",
-            decision: "allow",
-            scope: None,
-            detail: Some(&format!("删除 MCP 服务器「{name}」")),
-        },
-    );
     mcp_list(state)
 }
 

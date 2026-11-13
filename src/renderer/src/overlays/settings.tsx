@@ -1,7 +1,7 @@
 // 设置中心：左侧导航 + 右侧内容（通用/外观/模型/网络/个性化/技能/子代理/用量/审计/备份/关于）。
 // 所有改动立即保存生效。
 import { useEffect, useRef, useState } from "react";
-import { Palette, Puzzle, UserRound, Bot, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, Globe, ChartColumn, ScrollText, DatabaseBackup, HardDrive, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, Download, Undo2, ChevronRight, ChevronDown, Info, FolderOpen, Cable, type LucideIcon } from "lucide-react";
+import { Palette, Puzzle, UserRound, Bot, Plus, Trash2, ArrowLeft, SlidersHorizontal, Package, Globe, ChartColumn, HardDrive, Eye, EyeOff, MoreHorizontal, Pencil, PlugZap, RefreshCw, X, Download, Undo2, ChevronRight, ChevronDown, Info, FolderOpen, Cable, type LucideIcon } from "lucide-react";
 import { Dialog, DropdownMenu, Popover, Switch as RadixSwitch } from "radix-ui";
 import { useApp } from "../store/app";
 import { WindowControls } from "../components/window-controls";
@@ -23,9 +23,9 @@ import { ProviderAddPage, type AddEntry } from "./provider-add";
 import { ProviderModelDialog } from "./provider-model-dialog";
 import { SubagentProfileDialog } from "./subagent-profile-dialog";
 import { McpSection } from "./mcp-section";
-import type { AppInfo, AuditEntry, Backup, BuiltinAgentProfile, ConnectionResult, CustomAgentProfile, HeaderPair, MarketView, ModelView, NetworkProbeTargetView, PersonalizationInfo, ProviderView, RecommendedMarketView, Settings, ShellEnvStatus, ShellOption, SkillView, StorageCleanupResult, StorageOverview, StorageProjectGroup, StorageTableRow, StorageThreadRow, StorageThreadsView, StorePluginDetail, StorePluginView, UsageSummary } from "../../../shared/types";
+import type { AppInfo, BuiltinAgentProfile, ConnectionResult, CustomAgentProfile, HeaderPair, MarketView, ModelView, NetworkProbeTargetView, PersonalizationInfo, ProviderView, RecommendedMarketView, Settings, ShellEnvStatus, ShellOption, SkillView, StorageCleanupResult, StorageOverview, StorageProjectGroup, StorageTableRow, StorageThreadRow, StorageThreadsView, StorePluginDetail, StorePluginView, UsageSummary } from "../../../shared/types";
 
-type Section = "general" | "appearance" | "providers" | "network" | "personalization" | "mcp" | "skills" | "subagents" | "usage" | "audit" | "backups" | "storage" | "about";
+type Section = "general" | "appearance" | "providers" | "network" | "personalization" | "mcp" | "skills" | "subagents" | "usage" | "storage" | "about";
 
 /** 侧栏分组导航：分组标题 + 图标导航项。 */
 const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: string; icon: LucideIcon }> }> = [
@@ -51,8 +51,6 @@ const NAV_GROUPS: Array<{ label: string; items: Array<{ id: Section; label: stri
     label: "数据与统计",
     items: [
       { id: "usage", label: "用量", icon: ChartColumn },
-      { id: "audit", label: "审计", icon: ScrollText },
-      { id: "backups", label: "备份", icon: DatabaseBackup },
       { id: "storage", label: "存储", icon: HardDrive },
     ],
   },
@@ -134,8 +132,6 @@ export function SettingsOverlay(): React.JSX.Element {
             {section === "skills" && <SkillsSection />}
             {section === "subagents" && <SubagentsSection />}
             {section === "usage" && <UsageSection />}
-            {section === "audit" && <AuditSection />}
-            {section === "backups" && <BackupsSection />}
             {section === "storage" && <StorageSection />}
             {section === "about" && <AboutSection />}
           </div>
@@ -2856,7 +2852,7 @@ function UsageSection(): React.JSX.Element {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    void api.auditUsage().then(setUsage);
+    void api.usageSummary().then(setUsage);
   }, [refreshKey]);
 
   return (
@@ -2915,101 +2911,6 @@ function UsageSection(): React.JSX.Element {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AuditSection(): React.JSX.Element {
-  const [audit, setAudit] = useState<AuditEntry[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  useEffect(() => {
-    void api.auditList(200).then(setAudit);
-  }, [refreshKey]);
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-ui-settings-title font-semibold text-foreground">审计</h2>
-        <RefreshButton onClick={() => setRefreshKey((k) => k + 1)} />
-      </div>
-      <div className="overflow-hidden rounded-xl border border-border/50">
-        <div className="max-h-[480px] overflow-y-auto">
-          {audit.length === 0 ? (
-            <div className="py-10 text-center text-ui-sm text-foreground-subtlest">暂无审计记录</div>
-          ) : (
-            <table className="w-full text-ui-sm">
-              <thead className="bg-surface text-left text-ui-xs text-foreground-subtlest">
-                <tr>
-                  <th className="px-3 py-2">时间</th>
-                  <th className="px-3 py-2">工具</th>
-                  <th className="px-3 py-2">风险</th>
-                  <th className="px-3 py-2">决定</th>
-                  <th className="px-3 py-2">范围</th>
-                  <th className="px-3 py-2">详情</th>
-                </tr>
-              </thead>
-              <tbody>
-                {audit.map((a) => (
-                  <tr key={a.id} className="border-t border-border/20">
-                    <td className="whitespace-nowrap px-3 py-1.5 font-mono text-ui-xs">{fmtTime(a.ts)}</td>
-                    <td className="px-3 py-1.5 font-mono">{a.tool}</td>
-                    <td className="px-3 py-1.5">{a.risk}</td>
-                    <td className="px-3 py-1.5">{a.decision}</td>
-                    <td className="px-3 py-1.5">{a.scope}</td>
-                    <td className="max-w-52 truncate px-3 py-1.5 text-foreground-subtle">{a.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BackupsSection(): React.JSX.Element {
-  const [backups, setBackups] = useState<Backup[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  useEffect(() => {
-    void api.auditBackups(50).then(setBackups);
-  }, [refreshKey]);
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-ui-settings-title font-semibold text-foreground">备份</h2>
-        <RefreshButton onClick={() => setRefreshKey((k) => k + 1)} />
-      </div>
-      <div className="overflow-hidden rounded-xl border border-border/50">
-        {backups.length === 0 ? (
-          <div className="py-10 text-center text-ui-sm text-foreground-subtlest">暂无备份</div>
-        ) : (
-          backups.map((b) => (
-            <div key={b.id} className="flex items-center gap-3 border-b border-border/20 px-4 py-2 text-ui-sm last:border-0">
-              <div className="min-w-0 flex-1">
-                <div className="truncate">{b.path}</div>
-                <div className="text-ui-xs text-foreground-subtlest">
-                  {fmtTime(b.createdAt)} · {b.size} 字节
-                </div>
-              </div>
-              <button
-                className="h-7 shrink-0 rounded-lg border border-border px-3 text-ui-xs hover:bg-surface-hover"
-                onClick={() => {
-                  void api
-                    .auditRestore(b.id)
-                    .then(() => setRefreshKey((k) => k + 1))
-                    .catch((err) => alert(String(err?.message ?? err)));
-                }}
-              >
-                恢复
-              </button>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

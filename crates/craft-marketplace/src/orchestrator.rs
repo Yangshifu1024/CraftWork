@@ -1,6 +1,6 @@
 //! 商店核心编排（spec 第 2 / 4 / 6 节，票 #5）：市场刷新、安装、升级、回滚、卸载、
 //! 插件启停与更新检测取数，把 [`crate::manifest`]（清单解析）、[`crate::cache`]（原子
-//! 激活）、[`crate::store`]（两张表）、[`crate::audit`]（审计）与 craft-git 传输串成
+//! 激活）、[`crate::store`]（两张表）与 craft-git 传输串成
 //! 完整动作。
 //!
 //! # 职责边界
@@ -28,11 +28,10 @@
 //! # 失败语义
 //!
 //! - [`Orchestrator::refresh_market`] 失败返回 Err（由调用方决定多市场循环是否继续），
-//!   失败原因落 `marketplaces.last_refresh_failure` 并写审计；旧快照保留（clone 后先在
+//!   失败原因落 `marketplaces.last_refresh_failure`；旧快照保留（clone 后先在
 //!   临时目录 probe 校验，通过才替换；替换用 rename 前移旧快照、失败原样换回）。
 //! - 安装 / 升级在原子激活（staging → 事务 → rename → 裁剪）前完成全部校验
 //!   （清单 name 一致性、版本解析、载荷组装），失败不留半成品缓存目录。
-//! - 全部动作（含失败）写 `audit_log`（[`crate::audit::audit_action`]）。
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -43,7 +42,6 @@ use craft_core::network::GixProxyOptions;
 use craft_store::db::{StoreError, StoreResult};
 use rusqlite::Connection;
 
-use crate::audit::{self, audit_action};
 use crate::cache::{self, MarketplaceLayout};
 use crate::manifest::{self, MarketEntry, PluginManifest};
 use crate::store;
@@ -440,12 +438,12 @@ impl<'a> Orchestrator<'a> {
 
     /// 添加市场源（spec 第 2 节）：clone 到临时目录 → probe 探测清单定市场 id →
     /// 重名拒绝（提示先移除）→ 落 `marketplaces` 行 → 快照落位（与刷新同一套原子
-    /// 替换语义，添加后即有快照、无需紧接着刷一次）→ 写审计。
+    /// 替换语义，添加后即有快照、无需紧接着刷一次）。
     ///
     /// `source` 为用户输入原文（`https://` URL 或 `owner/repo` 缩写，输入合法性由
     /// 服务层校验），`repo_url` 为展开后的 git 仓库 URL。任一步失败返回 Err：行未落
     /// 则直接透传；行已落但快照落位失败则回滚删行并清掉残留快照（添加是原子动作，
-    /// 失败后应用内不留「半添加」市场）。失败动作也写审计（对齐刷新失败语义）。
+    /// 失败后应用内不留「半添加」市场）。
     pub fn add_market(&self, source: &str, repo_url: &str) -> OResult<RefreshOutcome> {
         with_store_lock(|| {
             let tmp = alloc_tmp_dir(self.layout)
@@ -453,44 +451,17 @@ impl<'a> Orchestrator<'a> {
             let dest = tmp.path().join("clone");
             let outcome = match craft_git::transport::clone_repo(self.network.clone_request(repo_url.to_string(), dest.clone())) {
                 Ok(outcome) => outcome,
-                Err(err) => {
-                    let reason = err.to_string();
-                    let _ = self.db.with(|conn| {
-                        audit::record_audit(
-                            conn,
-                            audit_action::MARKET_ADD,
-                            &format!("添加市场源失败：{repo_url}，{reason}"),
-                        )
-                    });
-                    return Err(err.into());
-                }
+                Err(err) => return Err(err.into()),
             };
 
             let snapshot_sha = read_snapshot_head_sha(&dest).unwrap_or_else(|| outcome.head_sha.clone());
             let repo_name = repo_name_from_url(repo_url);
             let manifest = match manifest::probe_market(&dest, &repo_name, Some(&snapshot_sha)) {
                 Ok(manifest) => manifest,
-                Err(err) => {
-                    let reason = err.to_string();
-                    let _ = self.db.with(|conn| {
-                        audit::record_audit(
-                            conn,
-                            audit_action::MARKET_ADD,
-                            &format!("添加市场源失败：{repo_url}，{reason}"),
-                        )
-                    });
-                    return Err(err.into());
-                }
+                Err(err) => return Err(err.into()),
             };
             // 重名拒绝（spec 第 2 节）：市场 id 来自清单 name，重复添加同名市场提示先移除
             if self.db.with(|conn| store::get_marketplace(conn, &manifest.id)).is_ok() {
-                let _ = self.db.with(|conn| {
-                    audit::record_audit(
-                        conn,
-                        audit_action::MARKET_ADD,
-                        &format!("添加市场源失败：{repo_url}，市场源已存在：{}，请先移除后再添加", manifest.id),
-                    )
-                });
                 return Err(OrchestrateError::Other(format!(
                     "市场源已存在：{}，请先移除后再添加",
                     manifest.id
@@ -512,16 +483,6 @@ impl<'a> Orchestrator<'a> {
                 }
                 return Err(err);
             }
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::MARKET_ADD,
-                    &format!(
-                        "添加市场源：{}（{}，{} 个条目，HEAD {}）",
-                        manifest.id, repo_url, manifest.entries.len(), snapshot_sha
-                    ),
-                )
-            });
             Ok(RefreshOutcome {
                 marketplace_id: manifest.id,
                 head_sha: outcome.head_sha,
@@ -534,31 +495,18 @@ impl<'a> Orchestrator<'a> {
 
     /// 移除市场源（保护语义，spec 第 6 节）：市场下仍有已安装插件时拒绝（提示先卸载，
     /// 级联删除由后续 UI 需求另行接线）；移除成功后删除市场快照目录（磁盘删除失败
-    /// 不阻塞——行已删、指针为权威，残留目录在审计 detail 注明），全部写审计。
+    /// 不阻塞——行已删、指针为权威，残留目录在结果里注明）。
     pub fn remove_market(&self, marketplace_id: &str) -> OResult<()> {
         with_store_lock(|| {
-            // 先读行拿来源原文（供审计摘要）；不存在直接透传 NotFound
-            let market = match self.db.with(|conn| store::get_marketplace(conn, marketplace_id)) {
-                Ok(row) => row,
-                Err(err) => return Err(err.into()),
-            };
+            // 行不存在直接透传 NotFound
+            self.db.with(|conn| store::get_marketplace(conn, marketplace_id)).map_err(OrchestrateError::from)?;
             self.db.with(|conn| store::remove_marketplace(conn, marketplace_id))?;
             let snapshot_dir = self.layout.marketplace_snapshot_dir(marketplace_id);
-            let disk_note = if snapshot_dir.exists() {
-                match std::fs::remove_dir_all(&snapshot_dir) {
-                    Ok(()) => String::new(),
-                    Err(err) => format!("，快照目录删除失败（残留 {}）：{err}", snapshot_dir.display()),
-                }
-            } else {
-                "，无快照".to_string()
-            };
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::MARKET_REMOVE,
-                    &format!("移除市场源：{marketplace_id}（来源 {}）{disk_note}", market.source),
-                )
-            });
+            if snapshot_dir.exists() {
+                // 删目录失败不阻塞——行已删、指针为权威，残留目录由 startup cleanup_tmp 之外
+                // 的手工清理承担（重装同 id 会重新落位覆盖）
+                let _ = std::fs::remove_dir_all(&snapshot_dir);
+            }
             Ok(())
         })
     }
@@ -569,7 +517,7 @@ impl<'a> Orchestrator<'a> {
     /// 原子替换 `marketplaces/<id>/` 快照 → 更新 `last_refreshed_at`（清空失败原因）。
     ///
     /// 失败（clone / 探测 / 校验 / 替换任一步）返回 Err，失败原因落
-    /// `last_refresh_failure` 并写审计（成功也写审计）；**旧快照保留**——探测在临时
+    /// `last_refresh_failure`；**旧快照保留**——探测在临时
     /// 目录上进行，通过校验才开始替换；替换先把旧快照 rename 到临时目录内（同文件
     /// 系统），落位失败原样换回。单市场失败不影响其他市场（由调用方循环本方法）。
     pub fn refresh_market(&self, marketplace_id: &str) -> OResult<RefreshOutcome> {
@@ -584,33 +532,14 @@ impl<'a> Orchestrator<'a> {
                     let _ = self.db.with(|conn| {
                         store::set_marketplace_refreshed(conn, marketplace_id, craft_store::db::now_millis())
                     });
-                    let _ = self.db.with(|conn| {
-                        audit::record_audit(
-                            conn,
-                            audit_action::MARKET_REFRESH,
-                            &format!(
-                                "刷新市场：{marketplace_id}（{} 个条目，HEAD {}{}）",
-                                outcome.entry_count,
-                                outcome.head_sha,
-                                if outcome.fell_back { "，经加速回退" } else { "" }
-                            ),
-                        )
-                    });
                     Ok(outcome)
                 }
                 Err(err) => {
-                    // 失败落列 + 审计；记录失败不覆盖原始错误
+                    // 失败落列；记录失败不覆盖原始错误
                     let reason = err.to_string();
                     let _ = self
                         .db
                         .with(|conn| store::set_marketplace_refresh_failure(conn, marketplace_id, &reason));
-                    let _ = self.db.with(|conn| {
-                        audit::record_audit(
-                            conn,
-                            audit_action::MARKET_REFRESH,
-                            &format!("刷新市场失败：{marketplace_id}，{reason}"),
-                        )
-                    });
                     Err(err)
                 }
             }
@@ -653,7 +582,7 @@ impl<'a> Orchestrator<'a> {
     /// 安装插件（spec 第 2 节）：从市场快照解析条目 → 取来源（条目相对路径从快照
     /// 拷贝；repo 形态经传输层浅克隆到临时目录）→ 读插件清单定版本（清单 version >
     /// 条目 version > git sha 短码）→ 组装载荷（skills 收集规则见 [`Self::build_payload`]）→
-    /// 原子激活 → 落 `skill_plugins` 行 → 写审计。
+    /// 原子激活 → 落 `skill_plugins` 行。
     ///
     /// 插件清单 name 与条目 name 不一致拒绝安装；重复安装拒绝；市场快照不存在
     ///（从未刷新）拒绝并提示先刷新。
@@ -664,16 +593,6 @@ impl<'a> Orchestrator<'a> {
                 return Err(OrchestrateError::Other(format!("插件已安装：{plugin_id}，如需重装请先卸载")));
             }
             let outcome = self.activate_new_version(marketplace_id, plugin_name, UpgradeMode::Fresh)?;
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::PLUGIN_INSTALL,
-                    &format!(
-                        "安装插件：{plugin_id}（版本 {}，{} 个技能）",
-                        outcome.version, outcome.skill_count
-                    ),
-                )
-            });
             Ok(outcome)
         })
     }
@@ -684,20 +603,7 @@ impl<'a> Orchestrator<'a> {
     pub fn update_plugin(&self, marketplace_id: &str, plugin_name: &str) -> OResult<InstallOutcome> {
         with_store_lock(|| {
             let plugin = self.db.with(|conn| store::get_plugin(conn, &store::plugin_id(plugin_name, marketplace_id)))?;
-            let outcome = self.activate_new_version(marketplace_id, plugin_name, UpgradeMode::Upgrade(&plugin))?;
-            let reinstalled = outcome.version == plugin.current_version;
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::PLUGIN_UPDATE,
-                    &if reinstalled {
-                        format!("重装插件：{}（版本 {} 不变，原地重装）", plugin.id, outcome.version)
-                    } else {
-                        format!("升级插件：{}（{} → {}）", plugin.id, plugin.current_version, outcome.version)
-                    },
-                )
-            });
-            Ok(outcome)
+            self.activate_new_version(marketplace_id, plugin_name, UpgradeMode::Upgrade(&plugin))
         })
     }
 
@@ -818,13 +724,6 @@ impl<'a> Orchestrator<'a> {
             self.db.with(|conn| {
                 store::set_plugin_version_pointer_with_path(conn, &plugin.id, target_version, &install_path)
             })?;
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::PLUGIN_ROLLBACK,
-                    &format!("回滚插件：{} → {target_version}", plugin.id),
-                )
-            });
             Ok(RollbackOutcome {
                 plugin_id: plugin.id,
                 from_version: plugin.current_version,
@@ -839,7 +738,7 @@ impl<'a> Orchestrator<'a> {
     /// 卸载插件（spec 第 4 节）：事务内删 `skill_plugins` 行并清理 `skills.disabled`
     /// 残留（[`prune_disabled_paths`] 按插件缓存目录前缀过滤），随后删除整个插件缓存
     /// 目录（全部版本）。磁盘删除失败不回滚（行已删、指针为权威，残留由启动清理
-    /// [`crate::cache::cleanup_cache`] 兜底），失败摘要进结果与审计。
+    /// [`crate::cache::cleanup_cache`] 兜底），失败摘要进结果。
     pub fn uninstall_plugin(&self, marketplace_id: &str, plugin_name: &str) -> OResult<UninstallOutcome> {
         with_store_lock(|| {
             let plugin = self.db.with(|conn| store::get_plugin(conn, &store::plugin_id(plugin_name, marketplace_id)))?;
@@ -852,22 +751,6 @@ impl<'a> Orchestrator<'a> {
             if plugin_dir.exists() && let Err(err) = std::fs::remove_dir_all(&plugin_dir) {
                 disk_failures.push(format!("删除插件缓存目录失败：{}（{err}）", plugin_dir.display()));
             }
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::PLUGIN_UNINSTALL,
-                    &format!(
-                        "卸载插件：{}（删除 {} 个版本目录，清理禁用记录 {pruned_disabled} 条{}）",
-                        plugin.id,
-                        plugin.versions.len(),
-                        if disk_failures.is_empty() {
-                            String::new()
-                        } else {
-                            format!("，磁盘残留：{}", disk_failures.join("；"))
-                        }
-                    ),
-                )
-            });
             Ok(UninstallOutcome {
                 plugin_id: plugin.id,
                 removed_versions: plugin.versions,
@@ -879,19 +762,12 @@ impl<'a> Orchestrator<'a> {
 
     // ---------- 插件启停 ----------
 
-    /// 插件级启停（spec 第 5 节两层开关的插件层）+ 审计。停用后该插件全部技能根
+    /// 插件级启停（spec 第 5 节两层开关的插件层）。停用后该插件全部技能根
     /// 退出扫描（扫描票 #6 接线）；升级重装不影响本选择（`enabled` 列独立于指针）。
     pub fn set_plugin_enabled(&self, marketplace_id: &str, plugin_name: &str, enabled: bool) -> OResult<()> {
         with_store_lock(|| {
             let plugin_id = store::plugin_id(plugin_name, marketplace_id);
             self.db.with(|conn| store::set_plugin_enabled(conn, &plugin_id, enabled))?;
-            let _ = self.db.with(|conn| {
-                audit::record_audit(
-                    conn,
-                    audit_action::PLUGIN_SET_ENABLED,
-                    &if enabled { format!("启用插件：{plugin_id}") } else { format!("停用插件：{plugin_id}") },
-                )
-            });
             Ok(())
         })
     }
@@ -1448,7 +1324,6 @@ mod unit_tests {
 mod tests {
     use super::*;
     use crate::cache::MarketplaceLayout;
-    use craft_store::records::list_audit;
     use craft_store::Db;
     use std::path::Path;
 
@@ -1493,26 +1368,6 @@ mod tests {
         /// 直接放置市场快照（不经过 clone：条目 version 驱动版本解析的测试用）。
         fn place_snapshot(&self, files: &[(&str, &str)]) {
             write_tree(&self.layout.marketplace_snapshot_dir(MARKET_ID), files);
-        }
-
-        fn audit_decisions(&self) -> Vec<String> {
-            self.db
-                .with(|conn| list_audit(conn, 500).map(|entries| entries.into_iter().map(|e| e.decision).collect()))
-                .expect("读取审计失败")
-        }
-
-        fn audit_details(&self, action: &str) -> Vec<String> {
-            self.db
-                .with(|conn| {
-                    list_audit(conn, 500).map(|entries| {
-                        entries
-                            .into_iter()
-                            .filter(|e| e.decision == action)
-                            .map(|e| e.detail)
-                            .collect()
-                    })
-                })
-                .expect("读取审计失败")
         }
     }
 
@@ -1618,18 +1473,12 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        // 审计：成功一条（detail 含条目数与 sha）
-        let details = env.audit_details(audit_action::MARKET_REFRESH);
-        assert_eq!(details.len(), 1);
-        assert!(details[0].contains("刷新市场"), "实际 {}", details[0]);
-        assert!(details[0].contains(&sha));
-
         // 快照 HEAD 回读一致（纯文本读取链路对拍 git 真实值）
         assert_eq!(read_snapshot_head_sha(&snapshot).as_deref(), Some(sha.as_str()));
     }
 
     #[test]
-    fn refresh_failure_keeps_old_snapshot_and_records_failure_audited() {
+    fn refresh_failure_keeps_old_snapshot_and_records_failure() {
         if !git_available() {
             eprintln!("跳过：本机无 git CLI");
             return;
@@ -1659,10 +1508,6 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        // 审计：失败一条，detail 带原因
-        let details = env.audit_details(audit_action::MARKET_REFRESH);
-        assert_eq!(details.len(), 1);
-        assert!(details[0].contains("刷新市场失败"), "实际 {}", details[0]);
     }
 
     #[test]
@@ -1713,7 +1558,7 @@ mod tests {
     // ---------- 安装（条目相对路径形态） ----------
 
     #[test]
-    fn install_entry_relative_full_flow_pins_row_dir_and_audit() {
+    fn install_entry_relative_full_flow_pins_row_and_dir() {
         let env = TestEnv::new("install-basic");
         env.add_market("https://github.com/example/repo");
         env.place_snapshot(&[
@@ -1752,10 +1597,6 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        // 审计
-        let details = env.audit_details(audit_action::PLUGIN_INSTALL);
-        assert_eq!(details.len(), 1);
-        assert!(details[0].contains("1.0.0") && details[0].contains(&plugin_id), "实际 {}", details[0]);
     }
 
     #[test]
@@ -2052,7 +1893,7 @@ mod tests {
             "裁剪版本拒绝回滚：{err}"
         );
 
-        // 7. 卸载：行删 + 全版本目录删 + 禁用记录清理 + 审计
+        // 7. 卸载：行删 + 全版本目录删 + 禁用记录清理
         env.db
             .with(|conn| {
                 craft_store::records::set_setting(
@@ -2085,22 +1926,6 @@ mod tests {
             "实际 {err}"
         );
 
-        // 全程审计：安装 1 / 启停 1 / 升级 3 / 回滚 2 / 卸载 1
-        let decisions = env.audit_decisions();
-        let count = |name: &str| decisions.iter().filter(|d| d == &name).count();
-        assert_eq!(count(audit_action::PLUGIN_INSTALL), 1);
-        assert_eq!(count(audit_action::PLUGIN_SET_ENABLED), 1);
-        assert_eq!(count(audit_action::PLUGIN_UPDATE), 3);
-        assert_eq!(count(audit_action::PLUGIN_ROLLBACK), 2);
-        assert_eq!(count(audit_action::PLUGIN_UNINSTALL), 1);
-        let update_details = env.audit_details(audit_action::PLUGIN_UPDATE);
-        assert!(
-            update_details.iter().any(|d| d.contains("1.0.0 → 2.0.0")),
-            "升级审计含版本区间（列表按时间降序）：{:?}",
-            update_details
-        );
-        let uninstall_details = env.audit_details(audit_action::PLUGIN_UNINSTALL);
-        assert!(uninstall_details[0].contains("3 个版本目录"), "卸载审计含版本数：{}", uninstall_details[0]);
     }
 
     #[test]
@@ -2131,8 +1956,6 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let details = env.audit_details(audit_action::PLUGIN_UPDATE);
-        assert!(details[0].contains("原地重装"), "实际 {}", details[0]);
     }
 
     // ---------- 更新检测（编排级） ----------
@@ -2287,7 +2110,7 @@ mod tests {
     }
 
     #[test]
-    fn add_market_clones_probes_places_snapshot_and_audits() {
+    fn add_market_clones_probes_and_places_snapshot() {
         if !git_available() {
             eprintln!("跳过：本机无 git CLI");
             return;
@@ -2315,10 +2138,6 @@ mod tests {
         let snapshot = env.layout.marketplace_snapshot_dir(MARKET_ID);
         assert!(snapshot.join(".claude-plugin/marketplace.json").is_file());
         assert!(snapshot.join(".git").is_dir(), "快照是 clone 产物");
-        // 审计
-        let details = env.audit_details(audit_action::MARKET_ADD);
-        assert_eq!(details.len(), 1);
-        assert!(details[0].contains("添加市场源"), "实际 {}", details[0]);
     }
 
     #[test]
@@ -2344,7 +2163,7 @@ mod tests {
             })
             .unwrap();
 
-        // 非技能源：clone 成功但 probe 失败 → 不落行、审计失败记录
+        // 非技能源：clone 成功但 probe 失败 → 不落行
         let (bad, _) = fixture_repo(&[("README.md", "没有任何技能内容")]);
         let bad_url = bad.path().to_string_lossy().to_string();
         let err = env.orchestrator().add_market(&bad_url, &bad_url).unwrap_err();
@@ -2355,9 +2174,6 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let details = env.audit_details(audit_action::MARKET_ADD);
-        assert_eq!(details.len(), 2, "成功一条 + 失败一条");
-        assert!(details[1].contains("添加市场源失败"), "实际 {}", details[1]);
     }
 
     #[test]
@@ -2387,7 +2203,7 @@ mod tests {
             })
             .unwrap();
 
-        // 卸载插件后移除成功：行删除、快照目录删除、审计
+        // 卸载插件后移除成功：行删除、快照目录删除
         env.orchestrator().uninstall_plugin(MARKET_ID, PLUGIN).expect("卸载应成功");
         env.orchestrator().remove_market(MARKET_ID).expect("移除应成功");
         env.db
@@ -2400,9 +2216,6 @@ mod tests {
             !env.layout.marketplace_snapshot_dir(MARKET_ID).exists(),
             "移除后快照目录删除"
         );
-        let details = env.audit_details(audit_action::MARKET_REMOVE);
-        assert_eq!(details.len(), 1);
-        assert!(details[0].contains("移除市场源"), "实际 {}", details[0]);
 
         // 不存在的市场：NotFound 透传
         let err = env.orchestrator().remove_market("no-such").unwrap_err();

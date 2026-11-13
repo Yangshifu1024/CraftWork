@@ -785,7 +785,7 @@ mod tests {
         let dir = tempdir::TempDir::new().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Arc::new(craft_store::db::Db::open(&db_path).unwrap());
-        let env = Arc::new(ToolEnv { backup_dir: dir.path().join("backups").to_string_lossy().to_string(), data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() });
+        let env = Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() });
         let ctx = ToolCtx {
             name: "test".into(),
             args,
@@ -955,7 +955,6 @@ mod tests {
         let dir = tempdir::TempDir::new().unwrap();
         let db = Arc::new(craft_store::db::Db::open(&dir.path().join("test.db")).unwrap());
         let env = Arc::new(ToolEnv {
-            backup_dir: dir.path().join("backups").to_string_lossy().to_string(),
             data_dir: data_dir.to_string_lossy().to_string(),
             db,
             shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()),

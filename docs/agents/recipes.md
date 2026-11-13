@@ -13,7 +13,7 @@ Trigger: adding a capability the agent can call.
    - `title` **must be a human-readable Chinese phrase** ("读取文件", "执行命令") — it appears in the conversation's tool rows, approval card titles, and desktop notifications; leaving it empty falls back to an internal identifier like `fs_read`.
    - `summary_arg` picks the target argument; with no suitable argument, use `summary_text` for a fixed summary.
 3. Add it to `builtin_tools()` in `crates/craft-tools/src/lib.rs`. **This is the single source of truth for built-in tool registration** — not adding it means the tool is never registered; the shell's `register_builtin_tools` iterates it, so never list tools anywhere else.
-4. Path resolution, output truncation, and pre-write backup are handled centrally by the `Registry`; call `ctx.env.backup` for pre-write backups instead of reimplementing them inside the tool.
+4. Path resolution and output truncation are handled centrally by the `Registry`; do not reimplement them inside the tool.
 5. For outbound-network tools, build the HTTP client through `ctx.env.proxy_config()` applied over a craft-core::network exit — proxy and the unified UA come from there (D14). Never construct a bare reqwest client (see web_fetch in `crates/craft-tools/src/web.rs` for the pattern).
 6. Tools with write semantics hand old/new text to `ctx.attach_diff(&mut meta, old, new)` so the conversation's tool card renders a line diff on expand (D21). It writes no field when old equals new and auto-degrades to stats form over 64KB. **Never assemble a diff payload inside the tool yourself**.
 7. Add tests through the `Registry::assess` + `Registry::execute` seam.

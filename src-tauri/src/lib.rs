@@ -195,7 +195,6 @@ fn build_app_state(app: &tauri::AppHandle, tray_signal: tray::TraySignal) -> Res
     let approvals = Arc::new(Approvals::new(Arc::clone(&db), recorder.clone(), Arc::clone(&grants)));
     let catalog_arc = Arc::new(Catalog::new(Arc::clone(&db)));
     let models = Arc::new(ModelFactory::new(Arc::clone(&catalog_arc), Box::new(SecretKeyProvider { secrets: Arc::clone(&secrets) })));
-    let backup_dir = data_dir.join("backups").to_string_lossy().to_string();
     // 后台命令任务注册表：同一个 Arc 交给 Registry（工具写入任务）与 Runner
     // （取走完成通知、空闲唤醒、退出清理），两侧共享才有闭环。
     let shell_tasks = Arc::new(craft_tools::shell_tasks::ShellTasks::new());
@@ -206,7 +205,6 @@ fn build_app_state(app: &tauri::AppHandle, tray_signal: tray::TraySignal) -> Res
         session_log.write_app(LEVEL_INFO, "startup_shell_tasks_reaped", json!({ "count": reaped }));
     }
     let registry = Arc::new(Registry::new_with_shell_tasks(
-        &backup_dir,
         &data_dir.to_string_lossy(),
         Arc::clone(&db),
         Arc::clone(&shell_tasks),
@@ -395,7 +393,6 @@ fn build_app_state(app: &tauri::AppHandle, tray_signal: tray::TraySignal) -> Res
         recorder,
         data_dir: data_dir_str,
         attachment_dir: data_dir.join("attachments").to_string_lossy().to_string(),
-        backup_dir,
         log_level,
         session_log: Arc::clone(&session_log),
         shell_tasks,
@@ -591,10 +588,7 @@ fn dispatch(method: &str, args: &[Value], state: &AppState, app: &tauri::AppHand
             catalog_import(state, provider_id, all, &model_ids)
         }
         // ---------- 审计 / 用量 / 备份 / 附件 ----------
-        "auditList" => audit_list(state, a.i64_at(0)),
-        "auditUsage" => audit_usage(state),
-        "auditBackups" => audit_backups(state, a.i64_at(0)),
-        "auditRestore" => audit_restore(state, &a.str_at(0)),
+        "usageSummary" => usage_summary_view(state),
         // ---------- 存储（设置 → 数据与统计 → 存储，决策 D27） ----------
         "storageOverview" => storage_overview(state),
         "storageThreads" => storage_threads(state),

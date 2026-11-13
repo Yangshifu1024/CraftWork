@@ -1016,7 +1016,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let db = std::sync::Arc::new(craft_store::db::Db::open(&dir.join("t.db")).unwrap());
-        let registry = Registry::new("", "", db);
+        let registry = Registry::new("", db);
         registry.register(Box::new(craft_tools::fs::FsRead));
         registry.register(Box::new(craft_tools::fs::FsWrite));
         registry.register(Box::new(craft_tools::fs::FsGrep));

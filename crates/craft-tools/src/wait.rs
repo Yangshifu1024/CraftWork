@@ -121,7 +121,6 @@ mod tests {
             plan_active: false,
             thread_id: String::new(),
             env: Arc::new(crate::registry::ToolEnv {
-                backup_dir: String::new(),
                 data_dir: String::new(),
                 db,
                 shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()),

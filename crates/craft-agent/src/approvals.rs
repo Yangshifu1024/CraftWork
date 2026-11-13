@@ -267,27 +267,7 @@ impl Approvals {
             normalized.as_str(),
         )
         .map_err(|e| e.to_string())?;
-        // 审计摘要带反馈前缀（截到 80 字符）：审计要能回答「为什么拒绝重提」，但审计行不是反馈本体
         let feedback_owned = feedback.map(|f| f.trim()).filter(|f| !f.is_empty()).map(|f| f.to_string());
-        let audit_detail = feedback_owned.as_ref().map(|f| {
-            let mut text = "计划反馈：".to_string();
-            text.extend(f.chars().take(80));
-            text
-        });
-        // 审批决定写审计（AGENTS 6.2：审批决定必须落 audit_log）
-        let _ = craft_store::records::add_audit(
-            &self.db.lock_conn(),
-            craft_store::records::AuditRecord {
-                ts: None,
-                thread_id: Some(approval.thread_id.as_str()),
-                run_id: Some(approval.run_id.as_str()),
-                tool: &approval.tool,
-                risk: &approval.risk,
-                decision: if allow { "allow" } else { "deny" },
-                scope: Some(normalized.as_str()),
-                detail: audit_detail.as_deref(),
-            },
-        );
         let entry = self.pending.lock().await.remove(approval_id);
         if let Some(entry) = entry {
             if let (true, Some(key)) = (allow && normalized != ApprovalScope::Once, self.grant_keys.lock().await.get(approval_id)) {

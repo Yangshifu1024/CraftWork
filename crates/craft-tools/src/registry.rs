@@ -29,12 +29,10 @@ use serde_json::Value;
 
 use craft_core::contract::DiffResult;
 use craft_core::editor::diff as compute_diff;
-use craft_core::platform::{backup_name, write_file_atomic, sha256_hex};
 use craft_policy::command::classify_command;
 use craft_policy::resolve::{relative, resolve_at, resolve_existing_with_temp, ErrOutsideWorkspace};
 use craft_policy::PolicyRisk;
 use craft_store::db::Db;
-use craft_store::records::add_backup;
 
 /// 工具输出统一截断上限（字节）：防止单次工具输出撑爆上下文窗口。
 ///
@@ -210,13 +208,8 @@ pub struct ToolSpec {
     pub summary_text: Option<String>,
 }
 
-/// 工具执行环境：备份出口与共享存储（Registry 构造 ctx 时携带）。
-///
-/// 写前备份是 Agent 写入链的安全兜底（自由档位下唯一的事后恢复手段）；
-/// expectedHash 防覆盖只作用于用户编辑保存链（src-tauri services），工具链不使用。
+/// 工具执行环境：共享存储与出站配置（Registry 构造 ctx 时携带）。
 pub struct ToolEnv {
-    /// 备份根目录（`~/.craftwork/backups/`）；空串表示禁用备份（测试场景）
-    pub backup_dir: String,
     /// 应用数据目录（`~/.craftwork/`）；技能等目录型资源由工具按需推导（空串 = 测试场景）
     pub data_dir: String,
     pub db: Arc<Db>,
@@ -255,35 +248,6 @@ pub fn direct_proxy_config() -> Arc<dyn Fn() -> craft_core::network::ProxyConfig
 }
 
 impl ToolEnv {
-    /// 写前备份：备份文件落盘 + backups 表登记（含原始大小与 SHA-256）。
-    ///
-    /// 备份目录 0700、文件 0600，与密钥文件同一保护级别，防止其他本机用户读取；
-    /// backup_dir 未配置（空串）时静默跳过——纯展示类调用（todo_write、测试）无物可备份。
-    pub fn backup(&self, target: &str, data: &[u8]) -> Result<(), String> {
-        if self.backup_dir.is_empty() || target.is_empty() {
-            return Ok(());
-        }
-        let size = std::fs::metadata(target).map(|m| m.len() as i64).unwrap_or(0);
-        let backup_path = std::path::Path::new(&self.backup_dir).join(backup_name(std::path::Path::new(target)));
-        std::fs::create_dir_all(&self.backup_dir).map_err(|e| format!("创建备份目录失败：{e}"))?;
-        set_dir_mode_0700(&self.backup_dir);
-        write_file_atomic(&backup_path, data, 0o600).map_err(|e| format!("备份写入失败：{e}"))?;
-        self.db
-            .with(|conn| {
-                add_backup(
-                    conn,
-                    craft_store::records::BackupRecord {
-                        path: target,
-                        backup_path: &backup_path.to_string_lossy(),
-                        hash: &sha256_hex(data),
-                        size,
-                    },
-                )
-            })
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-
     /// 额外路径解析（git paths 等）：仅允许主要目录——Git 语义（含暂存区）只作用于主要目录仓库。
     ///
     /// 展示路径直接取 `resolve_at` 的产出（相对**解析后真实根**的相对路径），
@@ -295,16 +259,6 @@ impl ToolEnv {
         resolve_at(&main, rel)
     }
 }
-
-/// 备份目录权限收紧到仅当前用户（非 unix 平台无 POSIX mode 语义，空实现）。
-#[cfg(unix)]
-fn set_dir_mode_0700(dir: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-}
-
-#[cfg(not(unix))]
-fn set_dir_mode_0700(_dir: &str) {}
 
 /// 工具调用上下文：assess 阶段准备，execute 阶段消费。
 #[derive(Clone)]
@@ -477,26 +431,24 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// backup_dir 传 `~/.craftwork/backups/`；空串则所有写前备份静默跳过。
     /// data_dir 传 `~/.craftwork/`，供技能等目录型资源推导。
     ///
     /// 后台任务注册表由本处新建（测试与独立装配用）。生产装配先建一个
     /// `Arc<ShellTasks>`，用 [`Registry::new_with_shell_tasks`] 注入，再把同一个
     /// Arc 交给 Runner——否则 Runner 拿不到同一份注册表，后台命令能启动但没有完成通知。
-    pub fn new(backup_dir: &str, data_dir: &str, db: Arc<Db>) -> Self {
-        Self::new_with_shell_tasks(backup_dir, data_dir, db, Arc::new(crate::shell_tasks::ShellTasks::new()))
+    pub fn new(data_dir: &str, db: Arc<Db>) -> Self {
+        Self::new_with_shell_tasks(data_dir, db, Arc::new(crate::shell_tasks::ShellTasks::new()))
     }
 
     /// 用调用方提供的后台任务注册表装配（与 Runner 共享同一份）。
     pub fn new_with_shell_tasks(
-        backup_dir: &str,
         data_dir: &str,
         db: Arc<Db>,
         shell_tasks: Arc<crate::shell_tasks::ShellTasks>,
     ) -> Self {
         Self {
             tools: Mutex::new(HashMap::new()),
-            env: Arc::new(ToolEnv { backup_dir: backup_dir.to_string(), data_dir: data_dir.to_string(), db: Arc::clone(&db), shell_tasks, proxy_config: db_proxy_config(&db) }),
+            env: Arc::new(ToolEnv { data_dir: data_dir.to_string(), db: Arc::clone(&db), shell_tasks, proxy_config: db_proxy_config(&db) }),
         }
     }
 
@@ -784,7 +736,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let db = Arc::new(craft_store::db::Db::open(&dir.join("t.db")).unwrap());
-        let registry = Registry::new("", dir.to_string_lossy().as_ref(), Arc::clone(&db));
+        let registry = Registry::new(dir.to_string_lossy().as_ref(), Arc::clone(&db));
         for tool in crate::builtin_tools() {
             registry.register(tool);
         }
@@ -907,7 +859,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: direct_proxy_config() }),
+            env: std::sync::Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: direct_proxy_config() }),
         };
         (ctx, dir)
     }
@@ -943,7 +895,7 @@ mod tests {
     /// 若按风险等级判定会被漏拦，所以必须显式声明 mutates。
     #[test]
     fn builtin_tool_mutates_flags_match_actual_write_semantics() {
-        let registry = Registry::new("", "", std::sync::Arc::new(
+        let registry = Registry::new("", std::sync::Arc::new(
             craft_store::db::Db::open(&std::env::temp_dir().join("cw-mut-flags.db")).unwrap(),
         ));
         for tool in crate::builtin_tools() {
@@ -983,7 +935,7 @@ mod tests {
     fn system_temp_paths_are_assessable_from_any_workspace() {
         let dir = crate::test_util::unique_temp_dir("temp-root-ws");
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = Registry::new("", "", std::sync::Arc::new(
+        let registry = Registry::new("", std::sync::Arc::new(
             craft_store::db::Db::open(&dir.join("t.db")).unwrap(),
         ));
         for tool in crate::builtin_tools() {
@@ -1031,7 +983,7 @@ mod tests {
     fn git_tools_reject_system_temp_paths_at_assess_time() {
         let dir = crate::test_util::unique_temp_dir("temp-git-ws");
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = Registry::new("", "", std::sync::Arc::new(
+        let registry = Registry::new("", std::sync::Arc::new(
             craft_store::db::Db::open(&dir.join("t.db")).unwrap(),
         ));
         for tool in crate::builtin_tools() {
@@ -1058,7 +1010,7 @@ mod tests {
     fn paths_outside_workspace_and_temp_still_rejected() {
         let dir = crate::test_util::unique_temp_dir("outside-ws");
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = Registry::new("", "", std::sync::Arc::new(
+        let registry = Registry::new("", std::sync::Arc::new(
             craft_store::db::Db::open(&dir.join("t.db")).unwrap(),
         ));
         for tool in crate::builtin_tools() {

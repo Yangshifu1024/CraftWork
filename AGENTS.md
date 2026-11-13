@@ -6,7 +6,7 @@ Audience is agents: every claim here must be verifiable in code or configuration
 
 ## 1. Project Overview
 
-CraftWork is a desktop agent: it reads files, edits code, runs commands, and inspects diffs inside the user's workspace. Write operations are approved before they run, with audit records and backups.
+CraftWork is a desktop agent: it reads files, edits code, runs commands, and inspects diffs inside the user's workspace. Write operations are approved before they run.
 
 Tech stack and the three layers (find your layer before changing anything; per-crate ownership is in §5):
 
@@ -78,10 +78,10 @@ Violating any of these means the change is broken; roll back and redo.
 - **Tool registry**: the single registry for built-in tools is `builtin_tools()` in `crates/craft-tools/src/lib.rs`.
 - **Providers and models**: come only from the `assets/catalog/` snapshot and user configuration; there are no built-in providers and no recommended models in code.
 - **Keys**: exist only in process memory and the data directory's `keys.json` (0600). Never into logs, the database, the renderer, or the UI.
-- **Approval**: request → card → user decision → run or skip; all four steps required before execution. No silent-allow path in the backend. Approval decisions and tool executions both write `audit_log`.
+- **Approval**: request → card → user decision → run or skip; all four steps required before execution. No silent-allow path in the backend. Approval decisions and tool executions are not persisted as audit records (removed with `SCHEMA_V18`); the approval row in `approvals` and the `tool_call` events are the surviving record.
 - **Migrations**: when changing table structure, append a new version in `crates/craft-store/src/db.rs` (`SCHEMA_VERSION`); existing migrations and released version semantics stay untouched.
 - **Theme colors**: new colors are added to both `.theme-craft-light` and `.theme-craft-dark` and mapped to semantic tokens via `@theme inline`; no hard-coded color values in components.
-- **File writes**: back up the original file to the data directory first (`ctx.env.backup`); use `expectedHash` to block overwriting externally modified files.
+- **File writes**: `expectedHash` blocks overwriting externally modified files. There is no pre-write backup (removed with `SCHEMA_V18`) — a mistaken write has no in-app rollback.
 
 ## 5. Domain Crate Ownership
 
@@ -93,7 +93,7 @@ Find the owning crate before adding a capability; putting it in the wrong layer 
 | `craft-tools` | Tool framework (Registry) and built-in tools; registry `builtin_tools()` |
 | `craft-policy` | Risk grading (R0–R4) and approval levels (graded / free), command classification, safe path resolution |
 | `craft-model` | Unified model client: error normalization, model catalog, SSE, OpenAI / Anthropic adapters, factory |
-| `craft-store` | SQLite source of truth: migration chain, events, runs / approvals, audit / usage / settings, Recorder |
+| `craft-store` | SQLite source of truth: migration chain, events, runs / approvals, usage / settings, Recorder |
 | `craft-core` | Bus, contract types, IDs, platform capabilities (atomic write / hash / env sanitizing / subprocess), keys, line diff, outbound network resolution |
 | `craft-git` | The only gix wrapper for in-app Git capability (D13) |
 | `craft-marketplace` | Skill store: market source discovery, download orchestration (via `craft-git`), versioned cache, install / upgrade / rollback (D12) |
@@ -130,7 +130,7 @@ Definition of done: `grep -rn 'version = "' crates/*/Cargo.toml src-tauri/Cargo.
 
 - `once` / `session` / `workspace` scopes are validated server-side; when `allowPermanent` is false the latter two degrade to `once`.
 - Restricted workspace: R3 is rejected outright, permanent grants are not offered, existing grants do not apply.
-- Cancel, window close, and app exit all land as deny or cancel audit records.
+- Cancel, window close, and app exit all land as `approvals` rows with a deny / cancel decision.
 - `exit_plan` always requires approval, even at the free tier — the core boundary of plan mode (D8).
 
 ### 7.3 Security
@@ -161,7 +161,7 @@ Definition of done: `grep -rn 'version = "' crates/*/Cargo.toml src-tauri/Cargo.
 - Window-level shortcuts live in `src/renderer/src/hooks/shortcuts.ts`; Esc unwinds one layer at a time: overlay first, never intercepting the input box.
 - Drag regions add `data-tauri-drag-region` to each draggable element individually (per-element hit testing; rationale in `docs/agents/pitfalls.md`).
 - The macOS app menu is assembled only in `src-tauri/src/app_menu.rs`: patch `Menu::default`, keep the system behavior of File/Edit/Window/Help and Services. Menu actions reach the renderer via `craftwork:menu`; menu item ids are consts; add items as plain `MenuItem` + event (`PredefinedMenuItem::about` and other native items emit no events).
-- The system tray is assembled only in the dedicated tray module of the app shell (`src-tauri/src/tray.rs` module header documents scope and degradation): closing the window hides to tray by default (`CloseRequested` → `prevent_close` + `hide`), `Settings.quitOnClose` switches back to quitting; ⌘Q and the tray “quit” share the same cancel / cleanup / audit path. Tray state reads backend truth only, never renderer state.
+- The system tray is assembled only in the dedicated tray module of the app shell (`src-tauri/src/tray.rs` module header documents scope and degradation): closing the window hides to tray by default (`CloseRequested` → `prevent_close` + `hide`), `Settings.quitOnClose` switches back to quitting; ⌘Q and the tray “quit” share the same cancel / cleanup path. Tray state reads backend truth only, never renderer state.
 
 ## 8. Testing and Verification
 
@@ -210,7 +210,7 @@ For UI changes, additionally:
 
 ## 10. Data Directory
 
-`CRAFTWORK_HOME` isolates the whole data directory; default `~/.craftwork`: `craftwork.db`, `keys.json` (0600), `backups/`, `attachments/`, `workspace/default` (built-in scratch session directory), `logs/` (`<thread-id>.log` per-session run timeline + `app.log` / `model.log`). Logs are JSONL appends; the level is adjustable in Settings → General and exists to diagnose model stream truncation and UI stalls.
+`CRAFTWORK_HOME` isolates the whole data directory; default `~/.craftwork`: `craftwork.db`, `keys.json` (0600), `attachments/`, `workspace/default` (built-in scratch session directory), `logs/` (`<thread-id>.log` per-session run timeline + `app.log` / `model.log`). Logs are JSONL appends; the level is adjustable in Settings → General and exists to diagnose model stream truncation and UI stalls.
 
 The concrete files inside the directory are decided by code; this document does not duplicate the list.
 

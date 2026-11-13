@@ -328,7 +328,7 @@ mod tests {
         let tool = tool("demo", false, descriptor("read"));
         let pool = Arc::new(McpPool::new());
         let registry = craft_store::Db::open(&std::env::temp_dir().join("cw-mcp-grant.db")).expect("打开测试库");
-        let registry = crate::registry::Registry::new("", "", Arc::new(registry));
+        let registry = crate::registry::Registry::new("", Arc::new(registry));
         registry.register(Box::new(McpTool::new(
             "mcp_demo",
             "demo",

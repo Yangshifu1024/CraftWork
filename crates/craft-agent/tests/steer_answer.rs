@@ -170,7 +170,7 @@ fn harness_with_hooks(
     };
     models.set_client_override(Box::new(move |_| Some(scripted.clone_box())));
 
-    let registry = Arc::new(Registry::new("", &data_dir, Arc::clone(&db)));
+    let registry = Arc::new(Registry::new(&data_dir, Arc::clone(&db)));
     registry.register(Box::new(craft_tools::fs::FsList));
     registry.register(Box::new(craft_tools::fs::FsRead));
     registry.register(Box::new(craft_tools::todo::TodoWrite));

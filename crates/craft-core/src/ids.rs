@@ -30,7 +30,6 @@ pub mod id_prefix {
     pub const PLAN: &str = "plan";
     pub const TOOL_CALL: &str = "call";
     pub const ATTACHMENT: &str = "att";
-    pub const BACKUP: &str = "bk";
     pub const MCP_SERVER: &str = "mcp";
     pub const CUSTOM_PROVIDER: &str = "custom";
     /// 后台命令任务（shell_exec 的 run_in_background）

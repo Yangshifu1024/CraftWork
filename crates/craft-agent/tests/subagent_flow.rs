@@ -146,7 +146,7 @@ fn harness_with_config(
     let requests = Arc::new(Mutex::new(Vec::new()));
     let scripted = ScriptedClient::new(parent, child, Arc::clone(&requests));
     models.set_client_override(Box::new(move |_| Some(scripted.clone_box())));
-    let registry = Arc::new(Registry::new("", &data_dir, Arc::clone(&db)));
+    let registry = Arc::new(Registry::new(&data_dir, Arc::clone(&db)));
     register_tools(&registry);
     let log = Arc::new(SessionLog::new(dir.path(), Arc::new(AtomicU8::new(craft_agent::session_log::LEVEL_ERROR))));
     let runner = Arc::new(Runner::new(RunnerDeps {

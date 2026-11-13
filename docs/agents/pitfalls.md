@@ -212,7 +212,7 @@ Each entry follows "symptom → cause → fix". These entries cannot be found by
 ### Python batch-operation boundaries
 
 - **Symptom**: assuming the policy layer can understand Python script contents.
-- **Cause**: after `python x.py` passes approval, writes inside the script are not path-checked — the same boundary as shell, backed by prompt constraints and audit. Only pure queries like `--version`, `-V`, `-h` classify R0; `-c` / `-m` / script paths are R2, and `pip install` is R3.
+- **Cause**: after `python x.py` passes approval, writes inside the script are not path-checked — the same boundary as shell, backed by prompt constraints. Only pure queries like `--version`, `-V`, `-h` classify R0; `-c` / `-m` / script paths are R2, and `pip install` is R3.
 - **Fix**: batch file edits via Python use `-I` isolation; the environment already injects UTF-8 defaults (`PYTHONIOENCODING` / `PYTHONUTF8`, user values win).
 
 ## Packaging and platforms

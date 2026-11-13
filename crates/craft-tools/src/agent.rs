@@ -390,7 +390,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: std::sync::Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         }
     }
 

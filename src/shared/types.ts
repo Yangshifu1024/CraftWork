@@ -525,20 +525,7 @@ export interface CustomAgentProfileInput {
   enabled?: boolean;
 }
 
-// ---------- 审计 / 用量 / 备份 ----------
-
-/** audit_log 行：每次工具调用与审批决定一条（自由档位下是事后追责的唯一手段）。 */
-export interface AuditEntry {
-  id: number;
-  ts: number;
-  threadId: string;
-  runId: string;
-  tool: string;
-  risk: string;
-  decision: string;
-  scope: string;
-  detail: string;
-}
+// ---------- 用量 ----------
 
 export interface UsageByModel {
   modelId: string;
@@ -569,16 +556,6 @@ export interface UsageSummary {
   byModel: UsageByModel[];
   byDay: UsageByDay[];
   byAgentType: UsageByAgentType[];
-}
-
-/** 写前备份记录：backupPath 为备份副本，path 为原文件；hash 为备份时原文件 SHA-256。 */
-export interface Backup {
-  id: string;
-  path: string;
-  backupPath: string;
-  hash: string;
-  size: number;
-  createdAt: number;
 }
 
 // ---------- MCP ----------

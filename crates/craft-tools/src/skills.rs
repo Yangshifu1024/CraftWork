@@ -1484,7 +1484,6 @@ mod tests {
             plan_active: false,
             thread_id: String::new(),
             env: Arc::new(ToolEnv {
-                backup_dir: String::new(),
                 data_dir: data_dir.to_string_lossy().to_string(),
                 db,
                 shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()),

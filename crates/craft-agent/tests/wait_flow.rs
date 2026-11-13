@@ -141,7 +141,7 @@ fn harness(tag: &str, rounds: Vec<Round>) -> Harness {
 
     // Registry 与 Runner 共用同一份后台任务注册表（事件唤醒路径依赖这一点）
     let shell_tasks = Arc::new(ShellTasks::new());
-    let registry = Arc::new(Registry::new_with_shell_tasks("", &data_dir, Arc::clone(&db), Arc::clone(&shell_tasks)));
+    let registry = Arc::new(Registry::new_with_shell_tasks(&data_dir, Arc::clone(&db), Arc::clone(&shell_tasks)));
     registry.register(Box::new(craft_tools::shell::ShellExec));
     registry.register(Box::new(craft_tools::wait::Wait));
 

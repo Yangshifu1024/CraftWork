@@ -85,8 +85,8 @@ fn channels_all_methods_have_dispatch_branches() {
     let declared = declared_methods(&channels);
     // 下界守卫：解析规则退化（比如块识别失败）时必须立刻红，而不是静默「0 个方法全通过」。
     assert!(
-        declared.len() >= 117,
-        "channels 方法解析异常（{}/应 ≥117）；解析规则可能已失效：{declared:?}",
+        declared.len() >= 116,
+        "channels 方法解析异常（{}/应 ≥116）；解析规则可能已失效：{declared:?}",
         declared.len()
     );
 

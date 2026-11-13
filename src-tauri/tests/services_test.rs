@@ -30,11 +30,10 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
         Arc::clone(&catalog),
         Box::new(stub_keys()),
     ));
-    let backup_dir = dir.path().join("backups").to_string_lossy().to_string();
     // 后台命令任务注册表：Registry 与 Runner 必须共用同一份，否则后台命令没有完成通知
     let shell_tasks = Arc::new(craft_tools::shell_tasks::ShellTasks::new());
     let registry = Arc::new(craft_tools::registry::Registry::new_with_shell_tasks(
-        &backup_dir, "", Arc::clone(&db), Arc::clone(&shell_tasks),
+        "", Arc::clone(&db), Arc::clone(&shell_tasks),
     ));
     // 注册测试用到的内置工具：自定义子代理的 tools.Only 白名单会被过滤到注册表实际存在的
     // 名字上（防幽灵工具），空注册表会让 fs_read 这类名字全部消失。
@@ -93,7 +92,6 @@ fn test_state(tag: &str) -> (tempdir::TempDir, Arc<services::AppState>) {
             recorder,
             attachment_dir,
             data_dir,
-            backup_dir,
             log_level,
             session_log,
             shell_tasks,
@@ -1202,13 +1200,6 @@ fn thread_clear_temp_deletes_idle_and_skips_running_awaiting_and_archived() {
     assert!(alive(&awaiting_code), "等待审批跳过");
     assert!(alive(&archived_code), "归档不动（与侧栏可见列表一致）");
     assert!(alive(&work_thread), "跨模式不动");
-
-    let audits = craft_store::records::list_audit(&state.db.lock_conn(), 10).unwrap();
-    assert!(
-        audits.iter().any(|a| a.tool == "thread" && a.decision == "deleted" && a.detail.contains("清理临时会话")),
-        "清理落审计：{:?}",
-        audits.iter().map(|a| (a.tool.as_str(), a.decision.as_str())).collect::<Vec<_>>()
-    );
 }
 
 // ---------- 个性化（<数据目录>/AGENTS.md 读写） ----------

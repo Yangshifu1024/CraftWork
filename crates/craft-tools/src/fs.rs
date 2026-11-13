@@ -796,16 +796,10 @@ impl Tool for FsWrite {
 
     fn execute(&self, ctx: &ToolCtx) -> ToolResult {
         let content = ctx.str_arg("content");
-        // 写前备份：目标已存在时先备份原内容（读取成功视为存在）。
-        // 原字节同时留给 diff 的 old 侧——重新读一次会在「备份后、写入前」的窗口里拿到
-        // 已改内容，与备份的内容不再一致。
+        // 原字节留给 diff 的 old 侧：重新读一次会在「读取后、写入前」的窗口里拿到
+        // 已改内容，与计算 diff 的内容不再一致。
         let mut existing_bytes: Option<Vec<u8>> = None;
-        let mut had_existing = false;
         if let Ok(existing) = std::fs::read(&ctx.target) {
-            had_existing = true;
-            if let Err(err) = ctx.env.backup(&ctx.target, &existing) {
-                return err_result(err);
-            }
             existing_bytes = Some(existing);
         }
         if let Err(err) = std::path::Path::new(&ctx.target)
@@ -819,7 +813,7 @@ impl Tool for FsWrite {
             return err_result(format!("写入失败：{err}"));
         }
         let size = content.len();
-        let mut meta = json!({ "path": ctx.target, "bytes": size, "backup": had_existing });
+        let mut meta = json!({ "path": ctx.target, "bytes": size });
         // 二进制原文件没有行语义：整体重写不构成「一行行改了什么」，不产 diff
         // （界面回到纯文本输出，D21）。
         let old_text = match existing_bytes.as_deref() {
@@ -899,10 +893,6 @@ impl Tool for FsEdit {
         }
         if count > 1 {
             return err_result(format!("匹配到 {count} 处相同内容，请提供更长的唯一片段"));
-        }
-        // 校验通过才备份并写入（备份失败则不落盘）
-        if let Err(err) = ctx.env.backup(&ctx.target, &raw) {
-            return err_result(err);
         }
         // 差异按「归一后 → 归一后」算，与落盘内容同源（界面不显示整文件行尾翻转）
         let replaced_flat = flat.replacen(&old_flat, &new_flat, 1);
@@ -1128,7 +1118,7 @@ impl Tool for ApplyPatch {
             removed += (old_len - new_len).max(0);
         }
 
-        // 预演只校验可应用性，不写盘也不备份
+        // 预演只校验可应用性，不写盘
         if ctx.args.get("dry_run").and_then(Value::as_bool).unwrap_or(false) {
             return ToolResult::ok(format!(
                 "补丁预演通过：将应用 {} 个补丁块到 {}。未写入文件。",
@@ -1137,10 +1127,7 @@ impl Tool for ApplyPatch {
             ));
         }
 
-        // 全部块应用成功后才备份 + 原子写入（任一块失败则文件保持原样）
-        if let Err(err) = ctx.env.backup(&ctx.target, &original) {
-            return err_result(err);
-        }
+        // 全部块应用成功后才原子写入（任一块失败则文件保持原样）
         let updated = file_lines.join("\n");
         if let Err(err) = write_file_atomic(std::path::Path::new(&ctx.target), restore_eol(&updated, eol).as_bytes(), 0o644) {
             return err_result(format!("写入失败：{err}"));
@@ -1217,7 +1204,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         };
         (root, db_dir, ctx)
     }
@@ -1389,7 +1376,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         };
         let result = FsGrep.execute(&ctx);
         assert!(result.output.contains("text.txt"), "got: {}", result.output);
@@ -1466,7 +1453,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         };
         (root, db_dir, ctx)
     }

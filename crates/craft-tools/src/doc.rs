@@ -79,13 +79,8 @@ impl Tool for DocEdit {
         if !craft_doc::doc_supported(&ctx.target) {
             return err_result(format!("不支持的文档格式：{}", ctx.display));
         }
-        let original = match std::fs::read(&ctx.target) {
-            Ok(raw) => raw,
-            Err(err) => return err_result(format!("读取失败：{err}")),
-        };
-        // 写前备份（替换失败时文件保持原样）
-        if let Err(err) = ctx.env.backup(&ctx.target, &original) {
-            return err_result(err);
+        if let Err(err) = std::fs::read(&ctx.target) {
+            return err_result(format!("读取失败：{err}"));
         }
         let edit = craft_doc::DocEdit {
             kind: "text".into(),
@@ -106,7 +101,7 @@ impl DocEdit {
     pub fn spec_value() -> ToolSpec {
         ToolSpec {
             name: "doc_edit".into(),
-            description: "替换 Word / Excel 文档中的一处文本（保留原有结构；写入前自动备份）。".into(),
+            description: "替换 Word / Excel 文档中的一处文本（保留原有结构）。".into(),
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -144,13 +139,8 @@ impl Tool for XlsxSetCell {
         if !craft_doc::doc_supported(&ctx.target) {
             return err_result(format!("不支持的文档格式：{}", ctx.display));
         }
-        let original = match std::fs::read(&ctx.target) {
-            Ok(raw) => raw,
-            Err(err) => return err_result(format!("读取失败：{err}")),
-        };
-        // 写前备份
-        if let Err(err) = ctx.env.backup(&ctx.target, &original) {
-            return err_result(err);
+        if let Err(err) = std::fs::read(&ctx.target) {
+            return err_result(format!("读取失败：{err}"));
         }
         let edit = craft_doc::DocEdit {
             kind: "cell".into(),
@@ -218,13 +208,13 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: std::sync::Arc::new(ToolEnv { backup_dir: dir.join("backups").to_string_lossy().to_string(), data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: std::sync::Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         };
         (dir, ctx)
     }
 
     #[test]
-    fn xlsx_cell_tool_update_and_backup() {
+    fn xlsx_cell_tool_update_cell() {
         let sheet_xml = r#"<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#;
         let buf = std::io::Cursor::new(Vec::new());
         let mut writer = zip::ZipWriter::new(buf);
@@ -243,14 +233,11 @@ mod tests {
         std::fs::write(&xlsx_path, &xlsx_bytes).unwrap();
         let target = xlsx_path.to_string_lossy().to_string();
 
-        let (tool_dir, ctx) = make_ctx(json!({"cell": "b2", "value": "新值"}), target.clone(), "book.xlsx".into(), vec![dir.to_string_lossy().to_string()]);
+        let (_tool_dir, ctx) = make_ctx(json!({"cell": "b2", "value": "新值"}), target.clone(), "book.xlsx".into(), vec![dir.to_string_lossy().to_string()]);
         let result = XlsxSetCell.execute(&ctx);
         assert!(!result.is_error, "{}", result.output);
         assert!(result.output.contains("B2"));
 
-        // 备份已登记（backups 目录有文件）
-        let files: Vec<_> = std::fs::read_dir(tool_dir.join("backups")).unwrap().flatten().collect();
-        assert!(!files.is_empty(), "备份目录应有备份文件");
         std::fs::remove_dir_all(&dir).ok();
     }
 

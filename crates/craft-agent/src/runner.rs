@@ -19,7 +19,7 @@ use craft_policy::engine::{reason_for, Engine, Level};
 use craft_store::db::Db;
 use craft_store::events::EventRecord;
 use craft_store::recorder::Recorder;
-use craft_store::records::{add_audit, add_usage, get_setting};
+use craft_store::records::{add_usage, get_setting};
 use craft_store::runs::{create_run, finish_run, last_run_status};
 use craft_store::threads::{add_thread_tokens, get_thread};
 use craft_store::usage_stats;
@@ -2037,19 +2037,6 @@ impl Runner {
                 "title": title,
             }),
         });
-        let _ = add_audit(
-            &self.deps.db.lock_conn(),
-            craft_store::records::AuditRecord {
-                ts: None,
-                thread_id: Some(thread_id),
-                run_id: Some(run_id),
-                tool: &call.name,
-                risk: risk.as_str(),
-                decision: "auto",
-                scope: None,
-                detail: Some(&summary),
-            },
-        );
         result
     }
 
@@ -2534,19 +2521,6 @@ impl Runner {
                 "wokeBy": woke_by,
             }),
         });
-        let _ = add_audit(
-            &self.deps.db.lock_conn(),
-            craft_store::records::AuditRecord {
-                ts: None,
-                thread_id: Some(thread_id),
-                run_id: Some(run_id),
-                tool: Wait::NAME,
-                risk: risk.as_str(),
-                decision: "auto",
-                scope: None,
-                detail: Some(&summary),
-            },
-        );
         self.deps.log.write_thread(
             thread_id,
             LEVEL_DEBUG,
@@ -2876,7 +2850,6 @@ impl Runner {
         );
 
         let mut denied = String::new();
-        let mut scope = "auto".to_string();
 
         // ---------- 计划模式协议分支（enter_plan / exit_plan）----------
         //
@@ -2949,20 +2922,6 @@ impl Runner {
                     };
                     let outcome = self.deps.approvals.request(&request, token.clone()).await;
                     if outcome.status == "canceled" {
-                        // 审批取消也落审计（AGENTS 6.2：取消统一按取消落审计）
-                        let _ = add_audit(
-                            &self.deps.db.lock_conn(),
-                            craft_store::records::AuditRecord {
-                                ts: None,
-                                thread_id: Some(thread_id),
-                                run_id: Some(run_id),
-                                tool: call.name.as_str(),
-                                risk: assessment.risk.as_str(),
-                                decision: "canceled",
-                                scope: None,
-                                detail: Some("计划审批已取消"),
-                            },
-                        );
                         return (ToolResult::err_code("计划审批已取消", "tool_error"), true, false, plan_active, None, Vec::new());
                     }
                     if outcome.allow {
@@ -3106,9 +3065,7 @@ impl Runner {
                     };
                     // 命中既有授权（session/workspace 范围）则跳过询问；受限工作区授权一律失效
                     let cached = !env.restricted && self.deps.approvals.allowed(&call.name, &grant_target);
-                    if cached {
-                        scope = "cache".into();
-                    } else {
+                    if !cached {
                         // 受限工作区每次必问且无授权缓存
                         let permanent = self.deps.engine.lock().unwrap().allows_permanent(env.restricted, assessment.risk);
                         let mut facts = vec![
@@ -3170,26 +3127,10 @@ impl Runner {
                         };
                         let outcome = self.deps.approvals.request(&request, token.clone()).await;
                         if outcome.status == "canceled" {
-                            // 审批取消也落审计（AGENTS 6.2：取消统一按取消落审计）
-                            let _ = add_audit(
-                                &self.deps.db.lock_conn(),
-                                craft_store::records::AuditRecord {
-                                    ts: None,
-                                    thread_id: Some(thread_id),
-                                    run_id: Some(run_id),
-                                    tool: call.name.as_str(),
-                                    risk: assessment.risk.as_str(),
-                                    decision: "canceled",
-                                    scope: None,
-                                    detail: Some(&format!("审批已取消：{summary}")),
-                                },
-                            );
-                            return (ToolResult::err_code("审批已取消", "tool_error"), true, false, plan_active, None, Vec::new());
+                                return (ToolResult::err_code("审批已取消", "tool_error"), true, false, plan_active, None, Vec::new());
                         }
                         if !outcome.allow {
                             denied = "用户拒绝了该操作".into();
-                        } else {
-                            scope = outcome.scope;
                         }
                     }
                 }
@@ -3295,32 +3236,6 @@ impl Runner {
             kind: "tool_call".into(),
             payload,
         });
-
-        // 审计：不区分「拦截」与「执行失败」。子代理的工具调用记在父会话名下并用前缀标注，
-        // 用户在审计页看到的是一条连续时间线，而不是散落在看不见的子会话里。
-        let audit_detail = match kind.sub() {
-            Some(spec) => format!("[子代理 {}] {summary}", spec.agent_name),
-            None => summary.clone(),
-        };
-        let _ = add_audit(
-            &self.deps.db.lock_conn(),
-            craft_store::records::AuditRecord {
-                ts: None,
-                thread_id: Some(thread_id),
-                run_id: Some(run_id),
-                tool: &call.name,
-                risk: assessment.risk.as_str(),
-                decision: if was_denied {
-                    "deny"
-                } else if scope != "auto" && scope != "cache" {
-                    "allow"
-                } else {
-                    "auto"
-                },
-                scope: if scope == "auto" || scope == "cache" { None } else { Some(&scope) },
-                detail: Some(&audit_detail),
-            },
-        );
 
         // 任务清单部件（前端渲染待办卡片）；status 别名先归一化，事件落库即规范值
         if call.name == "todo_write" && !result.is_error {

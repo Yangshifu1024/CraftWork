@@ -2,7 +2,7 @@
 //! 版本化缓存与原子激活、安装 / 升级 / 回滚 / 卸载编排、已安装清单持久化与审计。
 //! 行为规格见 D12。
 //!
-//! 存储与审计说明：两张商店表（迁移 V14）读写封装在 [`store`]，审计入口在 [`audit`]。
+//! 存储说明：两张商店表（迁移 V14）读写封装在 [`store`]。
 //! 两模块只提供接收 `&Connection` 的纯函数——`Db::lock_conn()` 非重入（AGENTS.md
 //! 已知坑），取锁一律由调用方完成并传入，crate 内部不自行取锁。
 //!
@@ -24,7 +24,6 @@
 //! （纯函数层），编排级取数（probe 快照、读快照 HEAD、逐插件比对）在
 //! [`orchestrator::Orchestrator::check_updates`]。
 
-pub mod audit;
 pub mod cache;
 pub mod manifest;
 pub mod orchestrator;

@@ -6,8 +6,6 @@ import type {
   AppInfo,
   ApprovalScope,
   AttachmentContent,
-  AuditEntry,
-  Backup,
   CatalogImportInput,
   CatalogMeta,
   CatalogModelView,
@@ -247,11 +245,8 @@ workspaceReplaceFolders(workspaceId: string, folders: string[]): Promise<Workspa
   workspaceGitStatuses(): Promise<Record<string, string>>;
   documentPreview(workspaceId: string, folderId: string, rel: string): Promise<DocumentPreview>;
 
-  // ---------- 审计 / 用量 / 备份 ----------
-  auditList(limit: number): Promise<AuditEntry[]>;
-  auditUsage(): Promise<UsageSummary>;
-  auditBackups(limit: number): Promise<Backup[]>;
-  auditRestore(backupId: string): Promise<void>;
+  // ---------- 用量 ----------
+  usageSummary(): Promise<UsageSummary>;
 
   // ---------- 存储（设置 → 数据与统计 → 存储，决策 D27） ----------
   /** 首屏概览：数据库体积 + 数据目录各类体积 + 运行门禁原因（非空即禁止一切清理） */

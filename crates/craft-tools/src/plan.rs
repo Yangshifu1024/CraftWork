@@ -163,7 +163,7 @@ mod tests {
             err: None,
             plan_active: false,
             thread_id: String::new(),
-            env: std::sync::Arc::new(ToolEnv { backup_dir: String::new(), data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
+            env: std::sync::Arc::new(ToolEnv { data_dir: String::new(), db, shell_tasks: std::sync::Arc::new(crate::shell_tasks::ShellTasks::new()), proxy_config: crate::registry::direct_proxy_config() }),
         }
     }
 
@@ -240,7 +240,7 @@ mod tests {
     fn registry_assess_and_execute_plan_tools_end_to_end() {        let dir = std::env::temp_dir().join(format!("cw-plan-registry-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let registry = crate::registry::Registry::new("", "", std::sync::Arc::new(
+        let registry = crate::registry::Registry::new("", std::sync::Arc::new(
             craft_store::db::Db::open(&dir.join("t.db")).unwrap(),
         ));
         registry.register(Box::new(EnterPlan));

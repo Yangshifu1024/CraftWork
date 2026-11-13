@@ -17,8 +17,6 @@ export type SettingsSection =
   | "skills"
   | "subagents"
   | "usage"
-  | "audit"
-  | "backups"
   | "storage"
   | "about";
 
@@ -34,8 +32,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   "skills",
   "subagents",
   "usage",
-  "audit",
-  "backups",
   "storage",
   "about",
 ];

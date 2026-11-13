@@ -3,8 +3,8 @@
 //!
 //! 架构位置：本 crate 是 Agent 的工具层，不依赖 Tauri；壳层（src-tauri）负责把
 //! 内置工具注册进 [`registry::Registry`]。工具实现 [`registry::Tool`] trait
-//! （spec + execute，同步执行，调用方负责放入阻塞线程）；路径解析、输出截断与
-//! 写前备份（ctx.env.backup）由 Registry 统一处理，单个工具不自行重复这些横切逻辑。
+//! （spec + execute，同步执行，调用方负责放入阻塞线程）；路径解析与输出截断由
+//! Registry 统一处理，单个工具不自行重复这些横切逻辑。
 
 pub mod agent;
 pub mod doc;
@@ -30,7 +30,7 @@ pub use registry::{human_size, is_ignored_dir, more_hint, truncate_output, Asses
 /// 状态切换在 Runner 特判分支完成，但仍需注册——参数校验、风险等级与标题都来自 spec。
 ///
 /// 这里**故意没有** `skill_install`：技能安装 / 升级 / 回滚 / 卸载是用户在设置页直接做的
-/// 动作（落 `audit_log`），Agent 不能自己装技能（决策 D12，`skill_install` 留二期）。
+/// 动作，Agent 不能自己装技能（决策 D12，`skill_install` 留二期）。
 pub fn builtin_tools() -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(fs::FsList),
@@ -135,7 +135,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("创建临时目录");
         let db = std::sync::Arc::new(craft_store::Db::open(&dir.join("test.db")).expect("打开测试库"));
-        let registry = std::sync::Arc::new(Registry::new("", "", db));
+        let registry = std::sync::Arc::new(Registry::new("", db));
         registry.register(Box::new(LockProbe { registry: std::sync::Arc::clone(&registry) }));
 
         // 走公开接缝拿预构建 ctx（env 为私有字段，测试不手工拼 ToolCtx）

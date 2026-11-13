@@ -179,16 +179,6 @@ pub fn remove_path(path: &Path) -> bool {
     }
 }
 
-/// 备份文件名：<base>.<yyyy-MM-dd-HH-mm-ss.SSS>（毫秒级时间戳，本地时区）。
-pub fn backup_name(abs_path: &Path) -> String {
-    let base = abs_path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let now = chrono::Local::now();
-    format!("{base}.{}", now.format("%Y%m%d-%H%M%S%.3f"))
-}
-
 // ---------- 用户身份探测 ----------
 //
 // user_display_name（git 全局 user.name → 系统用户名 → "CraftWork"）已随 D13 迁移
