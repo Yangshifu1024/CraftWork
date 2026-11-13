@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-11T18:06:18Z",
-  "version": "86ff27d852d04aea",
+  "generatedAt": "2026-11-13T06:01:59Z",
+  "version": "4928b17d47d87565",
   "source": "https://models.dev/api.json",
-  "sourceEtag": "W/\"f55606113b377c543af6c9da092fcd59\"",
+  "sourceEtag": "W/\"3e147789afdbf9e5fc79f97c3696541e\"",
   "license": "MIT",
-  "providerCount": 229,
-  "modelCount": 7903,
-  "logoCount": 229,
-  "sha256": "86ff27d852d04aea12142468ab9205bcaeb90800968b5a8f4854470164d775e2"
+  "providerCount": 230,
+  "modelCount": 8048,
+  "logoCount": 230,
+  "sha256": "4928b17d47d87565b642eb93c7de9628786b7b239cb82c522df4237ddcdef394"
 }
