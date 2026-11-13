@@ -6,8 +6,6 @@ use craft_model::types::SystemBlock;
 
 const IDENTITY: &str = "你是 CraftWork，一个桌面 Agent，与用户协作完成工作区里的任务。";
 
-const SAFETY: &str = "重要：协助授权的安全测试、防御性安全、CTF 挑战与教学场景；拒绝破坏性技术、DoS 攻击、大规模目标定位、供应链投毒或以恶意为目的的检测规避请求。双用途安全工具（C2 框架、凭据测试、漏洞利用开发）需要明确的授权背景：渗透测试委托、CTF 竞赛、安全研究或防御性使用。";
-
 const CONTRACT_LINES: &[&str] = &[
     "对非平凡的实现任务，先进入计划模式（enter_plan 工具）：调研并设计实施方案，经用户批准后再动手。调研后确认需要改动 3 个及以上文件时，必须先进入计划模式并提交计划，不得先动手——分级审批档位由运行时强制（第 3 个文件的写入会被拦下并自动进入计划模式），自由档不强制但同样先计划。新功能、多种可行方案、影响既有行为、架构取舍、多文件改动、需求不清时优先使用；单行修复、需求明确的简单改动、纯调研任务不要使用。",
     "多步任务中边做边说：在开始一组操作前、遇到意外结果时、切换方向时，用一两句话向用户说明正在做什么、为什么、结果如何；不要连续长时间只调工具不说话，也不要每一步都长篇解说。",
@@ -54,7 +52,7 @@ const SUBAGENT_DISPATCH_LINE: &str = "\
 /// 稳定块：安全边界 + 行为契约（内容不随会话变化）。
 fn stable_content() -> String {
     let contract: Vec<String> = CONTRACT_LINES.iter().enumerate().map(|(i, line)| format!("{}. {}", i + 1, line)).collect();
-    format!("{SAFETY}\n\n# 行为契约\n\n{}", contract.join("\n"))
+    format!("# 行为契约\n\n{}", contract.join("\n"))
 }
 
 /// 子代理的行为契约（子代理版提示词专用）：回报格式、边界与禁止事项。
